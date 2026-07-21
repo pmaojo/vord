@@ -136,10 +136,39 @@ re-analysis on typical PRs.
 ## Phase 7 — Enterprise platform
 
 - **Portfolios**: hierarchical aggregation across projects with rollup
-  ratings and PDF/report exports.
+  ratings and PDF/report exports; **executive-level views** across projects,
+  applications and portfolios (health overview, risk distribution, trends).
+- **Compliance & audit reports**: generated security reports mapped to
+  OWASP Top 10, CWE Top 25, PCI DSS and similar standards; regulatory
+  evidence exports (PDF/CSV) per project and portfolio; full audit trail of
+  who changed gates/profiles/permissions and when.
+- **Cross-platform governance**: one set of quality/security standards
+  (gates + profiles) enforced across teams regardless of DevOps platform —
+  the `AlmGateway` port makes GitHub/GitLab/Bitbucket/Azure DevOps
+  interchangeable enforcement points.
+- **Enterprise IAM**: SSO (SAML/OIDC), SCIM provisioning, LDAP, group-based
+  permission templates, service accounts with scoped tokens, advanced audit,
+  data residency.
 - **Scale & HA**: multi-node server (stateless already), Postgres read
-  replicas, blue-green migrations, monorepo sharding.
-- **Governance**: SCIM provisioning, LDAP, advanced audit, data residency.
+  replicas, blue-green migrations, monorepo sharding, **parallel analysis
+  for large teams** (the worker fleet + per-core parallelism from the
+  performance pillar).
+
+## Enterprise-edition parity checklist
+
+Every SonarQube Enterprise selling point, mapped — and everything ships
+open in yunq, not behind an edition wall:
+
+| SonarQube Enterprise feature | yunq phase |
+|---|---|
+| Everything in Developer edition | Phases 2–5 (branch/PR analysis, taint, ALM decoration) |
+| AI coded fix suggestions at the click of a button | Phase 6a/6b (Remediation Agent, "Assign to Agent") |
+| Executive views: projects, applications, portfolios | Phase 7 (portfolios + executive dashboards) |
+| Govern standards across teams on different DevOps platforms | Phase 3 (gates/profiles) + Phase 5 (`AlmGateway`) + Phase 7 |
+| Security, regulatory, and audit compliance reports | Phase 7 (OWASP/CWE/PCI reports, audit trail) |
+| Improved performance for large teams, parallel analysis | Performance pillar (measured ~398k LOC/s) + worker fleet |
+| Enterprise-grade IAM | Phase 4 (tokens, OAuth, permissions) → Phase 7 (SAML/OIDC, SCIM, LDAP) |
+| ~80% more issue types, +6 languages, private-service secrets | Phase 2 (open language roster, rule catalog, multi-provider secrets incl. self-hosted/private services) |
 
 ## Sequencing
 
