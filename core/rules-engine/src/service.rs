@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use yunq_ast::{LanguageIdentifier, SourceFile};
 use yunq_profiles::QualityProfile;
@@ -63,35 +65,16 @@ where
         let mut issues: Vec<Issue> = Vec::new();
         let mut metrics = Metrics::new();
 
-        for file in files {
-            let Some(parser) = self.parsers.get(file.language()) else {
-                metrics.add_skipped_file();
-                continue;
-            };
-            let ast = match parser.parse(file) {
-                Ok(ast) => ast,
-                Err(_) => {
-                    metrics.add_parse_failure();
-                    continue;
-                }
-            };
-            metrics.add_file(file.line_count());
-
-            for rule in &self.rules {
-                if !rule.applies_to(file.language()) || !self.profile.is_active(rule.id()) {
-                    continue;
-                }
-                let severity =
-                    self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
-                for finding in rule.check(file, &ast) {
-                    metrics.count_issue(severity);
-                    issues.push(Issue::new(
-                        rule.id().clone(),
-                        severity,
-                        finding.message,
-                        file.path(),
-                        finding.span,
-                    ));
+        for outcome in self.analyze_all(files) {
+            match outcome {
+                FileOutcome::Skipped => metrics.add_skipped_file(),
+                FileOutcome::ParseFailed => metrics.add_parse_failure(),
+                FileOutcome::Analyzed { lines, issues: file_issues } => {
+                    metrics.add_file(lines);
+                    for issue in file_issues {
+                        metrics.count_issue(issue.severity());
+                        issues.push(issue);
+                    }
                 }
             }
         }
@@ -100,6 +83,77 @@ where
         self.metrics.record(&metrics).await?;
         Ok(AnalysisReport::new(issues, metrics))
     }
+
+    /// Runs per-file analysis across all available cores using scoped std
+    /// threads with a work-stealing index — files are independent until the
+    /// cross-file phases land, so this parallelism is embarrassingly safe.
+    /// Results are returned in input order, keeping reports deterministic
+    /// regardless of scheduling. std-only: the core takes no runtime dep.
+    fn analyze_all(&self, files: &[SourceFile]) -> Vec<FileOutcome> {
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .min(files.len());
+        if workers <= 1 {
+            return files.iter().map(|f| self.analyze_one(f)).collect();
+        }
+
+        let next = AtomicUsize::new(0);
+        let slots: Vec<Mutex<Option<FileOutcome>>> =
+            files.iter().map(|_| Mutex::new(None)).collect();
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| {
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(file) = files.get(index) else { break };
+                        *slots[index].lock().expect("slot lock poisoned") =
+                            Some(self.analyze_one(file));
+                    }
+                });
+            }
+        });
+        slots
+            .into_iter()
+            .map(|slot| {
+                slot.into_inner().expect("slot lock poisoned").expect("every file processed")
+            })
+            .collect()
+    }
+
+    fn analyze_one(&self, file: &SourceFile) -> FileOutcome {
+        let Some(parser) = self.parsers.get(file.language()) else {
+            return FileOutcome::Skipped;
+        };
+        let Ok(ast) = parser.parse(file) else {
+            return FileOutcome::ParseFailed;
+        };
+
+        let mut issues = Vec::new();
+        for rule in &self.rules {
+            if !rule.applies_to(file.language()) || !self.profile.is_active(rule.id()) {
+                continue;
+            }
+            let severity =
+                self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
+            for finding in rule.check(file, &ast) {
+                issues.push(Issue::new(
+                    rule.id().clone(),
+                    severity,
+                    finding.message,
+                    file.path(),
+                    finding.span,
+                ));
+            }
+        }
+        FileOutcome::Analyzed { lines: file.line_count(), issues }
+    }
+}
+
+enum FileOutcome {
+    Skipped,
+    ParseFailed,
+    Analyzed { lines: usize, issues: Vec<Issue> },
 }
 
 #[cfg(test)]
@@ -229,6 +283,32 @@ mod tests {
         let report =
             futures::executor::block_on(service.analyze_files(&[rust_file("a.rs")])).unwrap();
         assert!(report.issues().is_empty());
+    }
+
+    #[test]
+    fn parallel_analysis_keeps_input_order_deterministic() {
+        let rule_id = RuleId::new("test:always").unwrap();
+        let mut profile = QualityProfile::new("test");
+        profile.activate(rule_id.clone(), Severity::Minor);
+
+        let storage = CapturingStorage::default();
+        let metrics = CapturingMetrics::default();
+        let service = AnalyzerService::new(profile, &storage, &metrics)
+            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: false }))
+            .register_rule(Box::new(AlwaysFindsRule {
+                id: rule_id,
+                language: LanguageIdentifier::rust(),
+            }));
+
+        let files: Vec<SourceFile> =
+            (0..128).map(|i| rust_file(&format!("src/file_{i:03}.rs"))).collect();
+        let report = futures::executor::block_on(service.analyze_files(&files)).unwrap();
+
+        assert_eq!(report.issues().len(), 128);
+        assert_eq!(report.metrics().files_scanned(), 128);
+        let reported: Vec<&str> = report.issues().iter().map(Issue::file).collect();
+        let expected: Vec<String> = (0..128).map(|i| format!("src/file_{i:03}.rs")).collect();
+        assert_eq!(reported, expected.iter().map(String::as_str).collect::<Vec<_>>());
     }
 
     #[test]

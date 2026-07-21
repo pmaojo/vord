@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
 use crate::LanguageIdentifier;
 
 /// A source file admitted into an analysis: a validated relative path, its
 /// content and the language it must be parsed as.
+///
+/// Content is held in an `Arc<str>` so parsers can build zero-copy ASTs that
+/// share the file buffer instead of duplicating text per node.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceFile {
     path: String,
-    content: String,
+    content: Arc<str>,
     language: LanguageIdentifier,
 }
 
@@ -18,7 +23,7 @@ pub enum SourceFileError {
 impl SourceFile {
     pub fn new(
         path: impl Into<String>,
-        content: impl Into<String>,
+        content: impl Into<Arc<str>>,
         language: LanguageIdentifier,
     ) -> Result<Self, SourceFileError> {
         let path = path.into();
@@ -34,6 +39,11 @@ impl SourceFile {
 
     pub fn content(&self) -> &str {
         &self.content
+    }
+
+    /// The shared content buffer, for building zero-copy ASTs.
+    pub fn content_shared(&self) -> Arc<str> {
+        Arc::clone(&self.content)
     }
 
     pub fn language(&self) -> &LanguageIdentifier {

@@ -1,3 +1,6 @@
+use std::fmt;
+use std::sync::Arc;
+
 /// A half-open source region. Lines and columns are 1-based.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Span {
@@ -42,17 +45,40 @@ pub enum NodeKind {
 }
 
 /// A node of the language-neutral AST.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// Zero-copy by construction: every node in a parsed tree shares one
+/// `Arc<str>` source buffer and holds only a byte range into it, so building
+/// an AST allocates no per-node text. Hand-built nodes (tests, synthetic
+/// trees) own a private buffer via [`AstNode::new`].
+#[derive(Clone)]
 pub struct AstNode {
     kind: NodeKind,
     span: Span,
-    text: String,
+    source: Arc<str>,
+    start: u32,
+    end: u32,
     children: Vec<AstNode>,
 }
 
 impl AstNode {
+    /// A node owning its own text. Intended for hand-built trees; parsers
+    /// should use [`AstNode::from_source`] to share one buffer per file.
     pub fn new(kind: NodeKind, span: Span, text: impl Into<String>, children: Vec<AstNode>) -> Self {
-        Self { kind, span, text: text.into(), children }
+        let source: Arc<str> = text.into().into();
+        let end = source.len() as u32;
+        Self { kind, span, source, start: 0, end, children }
+    }
+
+    /// A zero-copy node covering `range` bytes of a shared source buffer.
+    pub fn from_source(
+        kind: NodeKind,
+        span: Span,
+        source: Arc<str>,
+        range: std::ops::Range<usize>,
+        children: Vec<AstNode>,
+    ) -> Self {
+        debug_assert!(source.get(range.clone()).is_some(), "range must lie on char boundaries");
+        Self { kind, span, source, start: range.start as u32, end: range.end as u32, children }
     }
 
     pub fn kind(&self) -> &NodeKind {
@@ -63,9 +89,9 @@ impl AstNode {
         self.span
     }
 
-    /// The exact source text this node covers.
+    /// The exact source text this node covers (a borrowed slice — no copy).
     pub fn text(&self) -> &str {
-        &self.text
+        self.source.get(self.start as usize..self.end as usize).unwrap_or("")
     }
 
     pub fn children(&self) -> &[AstNode] {
@@ -87,7 +113,29 @@ impl AstNode {
 
     /// Whether any node in this subtree contains `needle` in its text.
     pub fn subtree_contains_text(&self, needle: &str) -> bool {
-        self.text.contains(needle)
+        self.text().contains(needle)
+    }
+}
+
+impl PartialEq for AstNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.span == other.span
+            && self.text() == other.text()
+            && self.children == other.children
+    }
+}
+
+impl Eq for AstNode {}
+
+impl fmt::Debug for AstNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AstNode")
+            .field("kind", &self.kind)
+            .field("span", &self.span)
+            .field("text", &self.text())
+            .field("children", &self.children)
+            .finish()
     }
 }
 
@@ -141,6 +189,21 @@ mod tests {
             ]
         );
         assert_eq!(tree.find_all(&NodeKind::Identifier).len(), 2);
+    }
+
+    #[test]
+    fn shared_buffer_nodes_slice_without_copying() {
+        let source: Arc<str> = Arc::from("let x = eval(input);");
+        let ident = AstNode::from_source(
+            NodeKind::Identifier,
+            Span::new(1, 9, 1, 13),
+            Arc::clone(&source),
+            8..12,
+            vec![],
+        );
+        assert_eq!(ident.text(), "eval");
+        // The child borrows the same allocation as the file buffer.
+        assert_eq!(Arc::strong_count(&source), 2);
     }
 
     #[test]

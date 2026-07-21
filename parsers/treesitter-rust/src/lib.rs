@@ -32,15 +32,21 @@ impl AstParser for RustParser {
             file: file.path().to_string(),
             detail: "tree-sitter produced no tree".to_string(),
         })?;
-        Ok(convert(tree.root_node(), file.content()))
+        Ok(convert(tree.root_node(), &file.content_shared()))
     }
 }
 
-fn convert(node: tree_sitter::Node<'_>, source: &str) -> AstNode {
+// Zero-copy: every produced node slices the shared file buffer.
+fn convert(node: tree_sitter::Node<'_>, source: &std::sync::Arc<str>) -> AstNode {
     let mut cursor = node.walk();
     let children = node.named_children(&mut cursor).map(|c| convert(c, source)).collect();
-    let text = node.utf8_text(source.as_bytes()).unwrap_or_default().to_string();
-    AstNode::new(map_kind(node.kind()), span_of(node), text, children)
+    AstNode::from_source(
+        map_kind(node.kind()),
+        span_of(node),
+        std::sync::Arc::clone(source),
+        node.byte_range(),
+        children,
+    )
 }
 
 fn span_of(node: tree_sitter::Node<'_>) -> Span {
