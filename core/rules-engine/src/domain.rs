@@ -51,6 +51,7 @@ pub struct Metrics {
     files_scanned: usize,
     files_skipped: usize,
     parse_failures: usize,
+    cache_hits: usize,
     lines_of_code: usize,
     by_severity: BTreeMap<Severity, usize>,
 }
@@ -73,6 +74,10 @@ impl Metrics {
         self.parse_failures += 1;
     }
 
+    pub fn add_cache_hit(&mut self) {
+        self.cache_hits += 1;
+    }
+
     pub fn count_issue(&mut self, severity: Severity) {
         *self.by_severity.entry(severity).or_default() += 1;
     }
@@ -87,6 +92,11 @@ impl Metrics {
 
     pub fn parse_failures(&self) -> usize {
         self.parse_failures
+    }
+
+    /// Files whose analysis was reused from the incremental cache.
+    pub fn cache_hits(&self) -> usize {
+        self.cache_hits
     }
 
     pub fn lines_of_code(&self) -> usize {

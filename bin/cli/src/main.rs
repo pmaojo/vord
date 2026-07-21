@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use yunq_cli::output;
+use yunq_infra_fs::FileAnalysisCache;
 use yunq_rules_engine::Severity;
 
 #[derive(Parser)]
@@ -25,6 +26,9 @@ enum Command {
         /// Exit with a non-zero status if any issue at or above this severity is found.
         #[arg(long)]
         fail_on: Option<String>,
+        /// Disable the incremental analysis cache (.yunq-cache.json).
+        #[arg(long)]
+        no_cache: bool,
     },
 }
 
@@ -47,7 +51,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Scan { path, format, fail_on } => {
+        Command::Scan { path, format, fail_on, no_cache } => {
             let threshold = fail_on
                 .map(|raw| {
                     Severity::parse(&raw).ok_or_else(|| {
@@ -56,7 +60,15 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 })
                 .transpose()?;
 
-            let report = futures::executor::block_on(yunq_cli::scan(&path))?;
+            let cache = (!no_cache && path.is_dir())
+                .then(|| std::sync::Arc::new(FileAnalysisCache::open(path.join(".yunq-cache.json"))));
+            let report =
+                futures::executor::block_on(yunq_cli::scan_with_cache(&path, cache.clone()))?;
+            if let Some(cache) = &cache
+                && let Err(e) = cache.persist()
+            {
+                eprintln!("warning: could not persist analysis cache: {e}");
+            }
 
             match format {
                 Format::Text => print!("{}", output::render_text(&report)),

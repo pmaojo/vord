@@ -2,6 +2,10 @@
 //! translates readable files in supported languages into validated
 //! [`SourceFile`]s. Unsupported and non-UTF-8 files are skipped.
 
+mod cache;
+
+pub use cache::FileAnalysisCache;
+
 use std::io::ErrorKind;
 use std::path::Path;
 

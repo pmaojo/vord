@@ -1,12 +1,15 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use yunq_ast::{LanguageIdentifier, SourceFile};
 use yunq_profiles::QualityProfile;
 
 use crate::domain::{AnalysisReport, Issue, Metrics};
-use crate::ports::{AstParser, IssueStorage, MetricsTracker, StorageError};
+use crate::ports::{
+    AnalysisCache, AstParser, CacheKey, CachedAnalysis, IssueStorage, MetricsTracker, StorageError,
+};
 use crate::rule::Rule;
 
 /// Orchestrates one analysis run: parse each file with the registered parser
@@ -25,6 +28,7 @@ where
     profile: QualityProfile,
     storage: S,
     metrics: M,
+    cache: Option<Arc<dyn AnalysisCache>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -39,7 +43,14 @@ where
     M: MetricsTracker,
 {
     pub fn new(profile: QualityProfile, storage: S, metrics: M) -> Self {
-        Self { parsers: HashMap::new(), rules: Vec::new(), profile, storage, metrics }
+        Self { parsers: HashMap::new(), rules: Vec::new(), profile, storage, metrics, cache: None }
+    }
+
+    /// Enables incremental analysis: per-file results are reused when
+    /// neither the file nor the engine configuration changed.
+    pub fn with_cache(mut self, cache: Arc<dyn AnalysisCache>) -> Self {
+        self.cache = Some(cache);
+        self
     }
 
     pub fn register_parser(mut self, parser: Box<dyn AstParser>) -> Self {
@@ -69,8 +80,11 @@ where
             match outcome {
                 FileOutcome::Skipped => metrics.add_skipped_file(),
                 FileOutcome::ParseFailed => metrics.add_parse_failure(),
-                FileOutcome::Analyzed { lines, issues: file_issues } => {
+                FileOutcome::Analyzed { lines, issues: file_issues, from_cache } => {
                     metrics.add_file(lines);
+                    if from_cache {
+                        metrics.add_cache_hit();
+                    }
                     for issue in file_issues {
                         metrics.count_issue(issue.severity());
                         issues.push(issue);
@@ -90,12 +104,13 @@ where
     /// Results are returned in input order, keeping reports deterministic
     /// regardless of scheduling. std-only: the core takes no runtime dep.
     fn analyze_all(&self, files: &[SourceFile]) -> Vec<FileOutcome> {
+        let config_hash = self.config_fingerprint();
         let workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1)
             .min(files.len());
         if workers <= 1 {
-            return files.iter().map(|f| self.analyze_one(f)).collect();
+            return files.iter().map(|f| self.analyze_one(f, config_hash)).collect();
         }
 
         let next = AtomicUsize::new(0);
@@ -108,7 +123,7 @@ where
                         let index = next.fetch_add(1, Ordering::Relaxed);
                         let Some(file) = files.get(index) else { break };
                         *slots[index].lock().expect("slot lock poisoned") =
-                            Some(self.analyze_one(file));
+                            Some(self.analyze_one(file, config_hash));
                     }
                 });
             }
@@ -121,7 +136,14 @@ where
             .collect()
     }
 
-    fn analyze_one(&self, file: &SourceFile) -> FileOutcome {
+    fn analyze_one(&self, file: &SourceFile, config_hash: u64) -> FileOutcome {
+        let key = CacheKey { content_hash: Self::content_fingerprint(file), config_hash };
+        if let Some(cache) = &self.cache
+            && let Some(hit) = cache.get(&key)
+        {
+            return FileOutcome::Analyzed { lines: hit.lines, issues: hit.issues, from_cache: true };
+        }
+
         let Some(parser) = self.parsers.get(file.language()) else {
             return FileOutcome::Skipped;
         };
@@ -146,14 +168,45 @@ where
                 ));
             }
         }
-        FileOutcome::Analyzed { lines: file.line_count(), issues }
+        let lines = file.line_count();
+        if let Some(cache) = &self.cache {
+            cache.put(key, CachedAnalysis { lines, issues: issues.clone() });
+        }
+        FileOutcome::Analyzed { lines, issues, from_cache: false }
+    }
+
+    /// Covers everything that changes analysis output besides file content:
+    /// registered rules and their effective severities, profile activations,
+    /// the parser roster, and the engine version. Any difference produces a
+    /// different key space — stale cache entries simply miss.
+    fn config_fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        env!("CARGO_PKG_VERSION").hash(&mut hasher);
+        for rule in &self.rules {
+            rule.id().as_str().hash(&mut hasher);
+            (rule.default_severity() as u8).hash(&mut hasher);
+            self.profile.is_active(rule.id()).hash(&mut hasher);
+            self.profile.severity_of(rule.id()).map(|s| s as u8).hash(&mut hasher);
+        }
+        let mut languages: Vec<&str> = self.parsers.keys().map(|l| l.as_str()).collect();
+        languages.sort_unstable();
+        languages.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn content_fingerprint(file: &SourceFile) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        file.path().hash(&mut hasher);
+        file.language().as_str().hash(&mut hasher);
+        file.content().hash(&mut hasher);
+        hasher.finish()
     }
 }
 
 enum FileOutcome {
     Skipped,
     ParseFailed,
-    Analyzed { lines: usize, issues: Vec<Issue> },
+    Analyzed { lines: usize, issues: Vec<Issue>, from_cache: bool },
 }
 
 #[cfg(test)]
@@ -283,6 +336,67 @@ mod tests {
         let report =
             futures::executor::block_on(service.analyze_files(&[rust_file("a.rs")])).unwrap();
         assert!(report.issues().is_empty());
+    }
+
+    #[test]
+    fn cache_hit_skips_parsing_and_reuses_issues() {
+        struct CountingParser {
+            calls: Arc<AtomicUsize>,
+        }
+        impl AstParser for CountingParser {
+            fn language(&self) -> LanguageIdentifier {
+                LanguageIdentifier::rust()
+            }
+            fn parse(&self, file: &SourceFile) -> Result<AstNode, ParseError> {
+                self.calls.fetch_add(1, Ordering::Relaxed);
+                Ok(AstNode::new(NodeKind::SourceUnit, Span::new(1, 1, 1, 1), file.content(), vec![]))
+            }
+        }
+
+        #[derive(Default)]
+        struct MapCache {
+            entries: Mutex<HashMap<CacheKey, CachedAnalysis>>,
+        }
+        impl AnalysisCache for MapCache {
+            fn get(&self, key: &CacheKey) -> Option<CachedAnalysis> {
+                self.entries.lock().unwrap().get(key).cloned()
+            }
+            fn put(&self, key: CacheKey, value: CachedAnalysis) {
+                self.entries.lock().unwrap().insert(key, value);
+            }
+        }
+
+        let rule_id = RuleId::new("test:always").unwrap();
+        let mut profile = QualityProfile::new("test");
+        profile.activate(rule_id.clone(), Severity::Major);
+
+        let storage = CapturingStorage::default();
+        let metrics = CapturingMetrics::default();
+        let parser_calls = Arc::new(AtomicUsize::new(0));
+        let parser = Box::new(CountingParser { calls: Arc::clone(&parser_calls) });
+        let cache = Arc::new(MapCache::default());
+        let service = AnalyzerService::new(profile, &storage, &metrics)
+            .register_parser(parser)
+            .register_rule(Box::new(AlwaysFindsRule {
+                id: rule_id,
+                language: LanguageIdentifier::rust(),
+            }))
+            .with_cache(cache.clone());
+
+        let files = vec![rust_file("a.rs")];
+        let first = futures::executor::block_on(service.analyze_files(&files)).unwrap();
+        let second = futures::executor::block_on(service.analyze_files(&files)).unwrap();
+
+        assert_eq!(parser_calls.load(Ordering::Relaxed), 1, "second run must not re-parse");
+        assert_eq!(first.issues(), second.issues());
+        assert_eq!(second.metrics().cache_hits(), 1);
+        assert_eq!(first.metrics().cache_hits(), 0);
+
+        // A changed file misses the cache.
+        let changed =
+            SourceFile::new("a.rs", "fn other() {}\n", LanguageIdentifier::rust()).unwrap();
+        futures::executor::block_on(service.analyze_files(&[changed])).unwrap();
+        assert_eq!(parser_calls.load(Ordering::Relaxed), 2);
     }
 
     #[test]

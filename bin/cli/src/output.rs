@@ -25,6 +25,7 @@ pub struct MetricsDto {
     pub files_scanned: usize,
     pub files_skipped: usize,
     pub parse_failures: usize,
+    pub cache_hits: usize,
     pub lines_of_code: usize,
     pub issue_total: usize,
 }
@@ -51,6 +52,7 @@ impl From<&AnalysisReport> for ReportDto {
                 files_scanned: metrics.files_scanned(),
                 files_skipped: metrics.files_skipped(),
                 parse_failures: metrics.parse_failures(),
+                cache_hits: metrics.cache_hits(),
                 lines_of_code: metrics.lines_of_code(),
                 issue_total: metrics.issue_total(),
             },
@@ -89,9 +91,10 @@ pub fn render_text(report: &AnalysisReport) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     out.push_str(&format!(
-        "\n{} files scanned ({} LOC), {} skipped, {} parse failures — {} issues ({})\n",
+        "\n{} files scanned ({} LOC, {} from cache), {} skipped, {} parse failures — {} issues ({})\n",
         metrics.files_scanned(),
         metrics.lines_of_code(),
+        metrics.cache_hits(),
         metrics.files_skipped(),
         metrics.parse_failures(),
         metrics.issue_total(),

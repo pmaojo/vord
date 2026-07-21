@@ -8,7 +8,10 @@ mod rule;
 mod service;
 
 pub use domain::{AnalysisReport, InvalidScanJobError, Issue, Metrics, ScanJob};
-pub use ports::{AstParser, IssueReader, IssueStorage, JobQueue, MetricsTracker, ParseError, QueueError, StorageError};
+pub use ports::{
+    AnalysisCache, AstParser, CacheKey, CachedAnalysis, IssueReader, IssueStorage, JobQueue,
+    MetricsTracker, ParseError, QueueError, StorageError,
+};
 pub use rule::{Finding, Rule};
 pub use service::{AnalyzeError, AnalyzerService};
 

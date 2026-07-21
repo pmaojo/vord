@@ -43,6 +43,31 @@ pub trait MetricsTracker: Send + Sync {
 #[error("storage backend failure: {0}")]
 pub struct StorageError(pub String);
 
+/// Key identifying one file analysis under one engine configuration.
+/// `content_hash` covers (path, language, content); `config_hash` covers the
+/// registered rules, profile activations, parser roster and engine version —
+/// any config change invalidates every entry, fail-open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CacheKey {
+    pub content_hash: u64,
+    pub config_hash: u64,
+}
+
+/// The reusable result of a single-file analysis.
+#[derive(Clone, Debug)]
+pub struct CachedAnalysis {
+    pub lines: usize,
+    pub issues: Vec<Issue>,
+}
+
+/// Outbound port: memoizes per-file analysis so unchanged files are never
+/// re-parsed or re-analyzed. Methods are sync — they are called from inside
+/// the parallel per-file workers.
+pub trait AnalysisCache: Send + Sync {
+    fn get(&self, key: &CacheKey) -> Option<CachedAnalysis>;
+    fn put(&self, key: CacheKey, value: CachedAnalysis);
+}
+
 /// Outbound port: enqueues scan jobs for asynchronous workers.
 pub trait JobQueue: Send + Sync {
     fn enqueue_scan(&self, job: ScanJob) -> impl Future<Output = Result<(), QueueError>> + Send;

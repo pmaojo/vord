@@ -3513,8 +3513,11 @@ name = "yunq-infra-fs"
 version = "0.1.0"
 dependencies = [
  "ignore",
+ "serde",
+ "serde_json",
  "thiserror",
  "yunq-ast",
+ "yunq-rules-engine",
 ]
 
 [[package]]

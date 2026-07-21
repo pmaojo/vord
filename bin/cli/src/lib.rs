@@ -4,7 +4,9 @@
 //! never on domain types).
 
 use std::path::Path;
+use std::sync::Arc;
 
+use yunq_infra_fs::FileAnalysisCache;
 use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
@@ -39,9 +41,22 @@ where
     service
 }
 
-/// Scans a directory (or single file) with the default analyzer.
+/// Scans a directory (or single file) with the default analyzer, without a
+/// cache — fully deterministic, used by tests and one-off scans.
 pub async fn scan(path: &Path) -> anyhow::Result<AnalysisReport> {
+    scan_with_cache(path, None).await
+}
+
+/// Scans with an optional incremental cache; the caller decides persistence.
+pub async fn scan_with_cache(
+    path: &Path,
+    cache: Option<Arc<FileAnalysisCache>>,
+) -> anyhow::Result<AnalysisReport> {
     let sources = yunq_infra_fs::collect_sources(path)?;
-    let service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
+    let mut service =
+        default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
+    if let Some(cache) = cache {
+        service = service.with_cache(cache);
+    }
     Ok(service.analyze_files(&sources).await?)
 }
