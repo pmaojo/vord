@@ -3,6 +3,7 @@ fn main() {
     let home = std::env::var("HOME").unwrap();
     let config = std::fs::read_to_string(&home).expect("config");
     println!("{config}");
+    let _ = std::process::Command::new("ls").status();
 }
 
 fn very_long_function() -> i64 {

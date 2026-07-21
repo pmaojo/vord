@@ -6,11 +6,11 @@ use std::sync::{Arc, Mutex};
 use yunq_ast::{LanguageIdentifier, SourceFile};
 use yunq_profiles::QualityProfile;
 
-use crate::domain::{AnalysisReport, Issue, Metrics};
+use crate::domain::{AnalysisReport, Hotspot, Issue, Metrics};
 use crate::ports::{
     AnalysisCache, AstParser, CacheKey, CachedAnalysis, IssueStorage, MetricsTracker, StorageError,
 };
-use crate::rule::Rule;
+use crate::rule::{FindingKind, Rule};
 
 /// Orchestrates one analysis run: parse each file with the registered parser
 /// for its language, run every applicable active rule, persist the resulting
@@ -74,14 +74,22 @@ where
 
     pub async fn analyze_files(&self, files: &[SourceFile]) -> Result<AnalysisReport, AnalyzeError> {
         let mut issues: Vec<Issue> = Vec::new();
+        let mut hotspots: Vec<Hotspot> = Vec::new();
         let mut metrics = Metrics::new();
 
         for outcome in self.analyze_all(files) {
             match outcome {
                 FileOutcome::Skipped => metrics.add_skipped_file(),
                 FileOutcome::ParseFailed => metrics.add_parse_failure(),
-                FileOutcome::Analyzed { lines, issues: file_issues, from_cache } => {
+                FileOutcome::Analyzed {
+                    lines,
+                    debt_minutes,
+                    issues: file_issues,
+                    hotspots: file_hotspots,
+                    from_cache,
+                } => {
                     metrics.add_file(lines);
+                    metrics.add_debt(debt_minutes);
                     if from_cache {
                         metrics.add_cache_hit();
                     }
@@ -89,13 +97,14 @@ where
                         metrics.count_issue(issue.severity());
                         issues.push(issue);
                     }
+                    hotspots.extend(file_hotspots);
                 }
             }
         }
 
         self.storage.save_issues(&issues).await?;
         self.metrics.record(&metrics).await?;
-        Ok(AnalysisReport::new(issues, metrics))
+        Ok(AnalysisReport::new(issues, hotspots, metrics))
     }
 
     /// Runs per-file analysis across all available cores using scoped std
@@ -141,7 +150,13 @@ where
         if let Some(cache) = &self.cache
             && let Some(hit) = cache.get(&key)
         {
-            return FileOutcome::Analyzed { lines: hit.lines, issues: hit.issues, from_cache: true };
+            return FileOutcome::Analyzed {
+                lines: hit.lines,
+                debt_minutes: hit.debt_minutes,
+                issues: hit.issues,
+                hotspots: hit.hotspots,
+                from_cache: true,
+            };
         }
 
         let Some(parser) = self.parsers.get(file.language()) else {
@@ -152,6 +167,8 @@ where
         };
 
         let mut issues = Vec::new();
+        let mut hotspots = Vec::new();
+        let mut debt_minutes = 0usize;
         for rule in &self.rules {
             if !rule.applies_to(file.language()) || !self.profile.is_active(rule.id()) {
                 continue;
@@ -159,20 +176,39 @@ where
             let severity =
                 self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
             for finding in rule.check(file, &ast) {
-                issues.push(Issue::new(
-                    rule.id().clone(),
-                    severity,
-                    finding.message,
-                    file.path(),
-                    finding.span,
-                ));
+                match finding.kind {
+                    FindingKind::Issue => {
+                        debt_minutes += rule.remediation_effort_minutes() as usize;
+                        issues.push(Issue::new(
+                            rule.id().clone(),
+                            severity,
+                            finding.message,
+                            file.path(),
+                            finding.span,
+                        ));
+                    }
+                    FindingKind::Hotspot => hotspots.push(Hotspot::new(
+                        rule.id().clone(),
+                        finding.message,
+                        file.path(),
+                        finding.span,
+                    )),
+                }
             }
         }
         let lines = file.line_count();
         if let Some(cache) = &self.cache {
-            cache.put(key, CachedAnalysis { lines, issues: issues.clone() });
+            cache.put(
+                key,
+                CachedAnalysis {
+                    lines,
+                    debt_minutes,
+                    issues: issues.clone(),
+                    hotspots: hotspots.clone(),
+                },
+            );
         }
-        FileOutcome::Analyzed { lines, issues, from_cache: false }
+        FileOutcome::Analyzed { lines, debt_minutes, issues, hotspots, from_cache: false }
     }
 
     /// Covers everything that changes analysis output besides file content:
@@ -206,7 +242,13 @@ where
 enum FileOutcome {
     Skipped,
     ParseFailed,
-    Analyzed { lines: usize, issues: Vec<Issue>, from_cache: bool },
+    Analyzed {
+        lines: usize,
+        debt_minutes: usize,
+        issues: Vec<Issue>,
+        hotspots: Vec<Hotspot>,
+        from_cache: bool,
+    },
 }
 
 #[cfg(test)]

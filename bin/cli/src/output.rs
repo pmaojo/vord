@@ -2,14 +2,29 @@
 //! These DTOs are the CLI's own edge representation of the domain.
 
 use serde::Serialize;
-use yunq_rules_engine::{AnalysisReport, ConditionStatus, GateEvaluation, GateStatus, Issue};
+use yunq_rules_engine::{
+    AnalysisReport, ConditionStatus, GateEvaluation, GateStatus, Issue, NewCodeAnalysis,
+};
 
 #[derive(Serialize)]
 pub struct ReportDto {
     pub issues: Vec<IssueDto>,
+    pub hotspots: Vec<HotspotDto>,
     pub metrics: MetricsDto,
     pub rating: String,
     pub quality_gate: GateDto,
+    /// Issues not present in the previous analysis (None on first scan).
+    pub new_issue_total: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct HotspotDto {
+    pub rule: String,
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
+    pub message: String,
+    pub status: String,
 }
 
 #[derive(Serialize)]
@@ -67,6 +82,7 @@ pub struct MetricsDto {
     pub cache_hits: usize,
     pub lines_of_code: usize,
     pub issue_total: usize,
+    pub debt_minutes: usize,
 }
 
 impl From<&Issue> for IssueDto {
@@ -83,12 +99,29 @@ impl From<&Issue> for IssueDto {
 }
 
 impl ReportDto {
-    pub fn build(report: &AnalysisReport, gate: &GateEvaluation) -> Self {
+    pub fn build(
+        report: &AnalysisReport,
+        gate: &GateEvaluation,
+        new_code: Option<&NewCodeAnalysis>,
+    ) -> Self {
         let metrics = report.metrics();
         Self {
             issues: report.issues().iter().map(IssueDto::from).collect(),
+            hotspots: report
+                .hotspots()
+                .iter()
+                .map(|h| HotspotDto {
+                    rule: h.rule().to_string(),
+                    file: h.file().to_string(),
+                    line: h.span().start_line,
+                    column: h.span().start_col,
+                    message: h.message().to_string(),
+                    status: h.status().to_string(),
+                })
+                .collect(),
             rating: report.rating().to_string(),
             quality_gate: gate_dto(gate),
+            new_issue_total: new_code.map(|nc| nc.new_issues().len()),
             metrics: MetricsDto {
                 files_scanned: metrics.files_scanned(),
                 files_skipped: metrics.files_skipped(),
@@ -96,12 +129,17 @@ impl ReportDto {
                 cache_hits: metrics.cache_hits(),
                 lines_of_code: metrics.lines_of_code(),
                 issue_total: metrics.issue_total(),
+                debt_minutes: metrics.debt_minutes(),
             },
         }
     }
 }
 
-pub fn render_text(report: &AnalysisReport, gate: &GateEvaluation) -> String {
+pub fn render_text(
+    report: &AnalysisReport,
+    gate: &GateEvaluation,
+    new_code: Option<&NewCodeAnalysis>,
+) -> String {
     let mut issues: Vec<&Issue> = report.issues().iter().collect();
     issues.sort_by(|a, b| {
         b.severity()
@@ -120,6 +158,19 @@ pub fn render_text(report: &AnalysisReport, gate: &GateEvaluation) -> String {
             issue.span().start_line,
             issue.span().start_col,
             issue.message(),
+        ));
+    }
+
+    for hotspot in report.hotspots() {
+        out.push_str(&format!(
+            "{:<8} {:<24} {}:{}:{}  {} [{}]\n",
+            "HOTSPOT",
+            hotspot.rule().to_string(),
+            hotspot.file(),
+            hotspot.span().start_line,
+            hotspot.span().start_col,
+            hotspot.message(),
+            hotspot.status(),
         ));
     }
 
@@ -142,6 +193,14 @@ pub fn render_text(report: &AnalysisReport, gate: &GateEvaluation) -> String {
         if by_severity.is_empty() { "none".to_string() } else { by_severity },
     ));
 
+    out.push_str(&format!(
+        "{} security hotspots to review, technical debt: {} min\n",
+        report.hotspots().len(),
+        metrics.debt_minutes(),
+    ));
+    if let Some(new_code) = new_code {
+        out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
+    }
     out.push_str(&format!("Rating: {}\n", report.rating()));
     out.push_str(&format!("Quality gate: {}\n", gate.status()));
     if gate.status() == GateStatus::Failed {
@@ -158,6 +217,10 @@ pub fn render_text(report: &AnalysisReport, gate: &GateEvaluation) -> String {
     out
 }
 
-pub fn render_json(report: &AnalysisReport, gate: &GateEvaluation) -> serde_json::Result<String> {
-    serde_json::to_string_pretty(&ReportDto::build(report, gate))
+pub fn render_json(
+    report: &AnalysisReport,
+    gate: &GateEvaluation,
+    new_code: Option<&NewCodeAnalysis>,
+) -> serde_json::Result<String> {
+    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code))
 }

@@ -9,7 +9,9 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use yunq_ast::Span;
-use yunq_rules_engine::{AnalysisCache, CacheKey, CachedAnalysis, Issue, RuleId, Severity};
+use yunq_rules_engine::{
+    AnalysisCache, CacheKey, CachedAnalysis, Hotspot, HotspotStatus, Issue, RuleId, Severity,
+};
 
 #[derive(Serialize, Deserialize, Clone)]
 struct CachedIssueDto {
@@ -24,9 +26,22 @@ struct CachedIssueDto {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+struct CachedHotspotDto {
+    rule: String,
+    message: String,
+    file: String,
+    start_line: u32,
+    start_col: u32,
+    end_line: u32,
+    end_col: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct CachedFileDto {
     lines: usize,
+    debt_minutes: usize,
     issues: Vec<CachedIssueDto>,
+    hotspots: Vec<CachedHotspotDto>,
 }
 
 pub struct FileAnalysisCache {
@@ -75,12 +90,40 @@ fn to_domain(dto: &CachedFileDto) -> Option<CachedAnalysis> {
             ))
         })
         .collect::<Option<Vec<_>>>()?;
-    Some(CachedAnalysis { lines: dto.lines, issues })
+    let hotspots = dto
+        .hotspots
+        .iter()
+        .map(|h| {
+            Some(Hotspot::restore(
+                RuleId::new(&h.rule).ok()?,
+                h.message.clone(),
+                h.file.clone(),
+                Span::new(h.start_line, h.start_col, h.end_line, h.end_col),
+                // Cached results are fresh detections, always to-review.
+                HotspotStatus::ToReview,
+            ))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(CachedAnalysis { lines: dto.lines, debt_minutes: dto.debt_minutes, issues, hotspots })
 }
 
 fn to_dto(value: &CachedAnalysis) -> CachedFileDto {
     CachedFileDto {
         lines: value.lines,
+        debt_minutes: value.debt_minutes,
+        hotspots: value
+            .hotspots
+            .iter()
+            .map(|h| CachedHotspotDto {
+                rule: h.rule().to_string(),
+                message: h.message().to_string(),
+                file: h.file().to_string(),
+                start_line: h.span().start_line,
+                start_col: h.span().start_col,
+                end_line: h.span().end_line,
+                end_col: h.span().end_col,
+            })
+            .collect(),
         issues: value
             .issues
             .iter()
@@ -123,6 +166,13 @@ mod tests {
         let key = CacheKey { content_hash: 0xabc, config_hash: 0xdef };
         let value = CachedAnalysis {
             lines: 7,
+            debt_minutes: 10,
+            hotspots: vec![Hotspot::new(
+                RuleId::new("owasp:command-execution").unwrap(),
+                "review this",
+                "a.ts",
+                Span::new(9, 1, 9, 20),
+            )],
             issues: vec![Issue::new(
                 RuleId::new("owasp:eval-usage").unwrap(),
                 Severity::Critical,
@@ -140,8 +190,11 @@ mod tests {
         let reopened = FileAnalysisCache::open(&path);
         let hit = reopened.get(&key).expect("hit after reopen");
         assert_eq!(hit.lines, 7);
+        assert_eq!(hit.debt_minutes, 10);
         assert_eq!(hit.issues.len(), 1);
         assert_eq!(hit.issues[0].message(), "boom");
+        assert_eq!(hit.hotspots.len(), 1);
+        assert_eq!(hit.hotspots[0].status(), HotspotStatus::ToReview);
 
         std::fs::remove_dir_all(&dir).ok();
     }

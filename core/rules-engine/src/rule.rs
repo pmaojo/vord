@@ -1,18 +1,31 @@
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
 use yunq_profiles::{RuleId, Severity};
 
+/// Whether a detection is a definite problem (issue) or security-sensitive
+/// code that needs human review (hotspot).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FindingKind {
+    Issue,
+    Hotspot,
+}
+
 /// A raw detection produced by a rule. The service turns findings into
-/// `Issue`s, applying the severity decided by the active quality profile —
-/// rules detect, the profile judges.
+/// `Issue`s or `Hotspot`s, applying the severity decided by the active
+/// quality profile — rules detect, the profile judges.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
     pub message: String,
     pub span: Span,
+    pub kind: FindingKind,
 }
 
 impl Finding {
     pub fn new(message: impl Into<String>, span: Span) -> Self {
-        Self { message: message.into(), span }
+        Self { message: message.into(), span, kind: FindingKind::Issue }
+    }
+
+    pub fn hotspot(message: impl Into<String>, span: Span) -> Self {
+        Self { message: message.into(), span, kind: FindingKind::Hotspot }
     }
 }
 
@@ -27,6 +40,12 @@ pub trait Rule: Send + Sync {
 
     /// Severity used when the profile activates the rule without an override.
     fn default_severity(&self) -> Severity;
+
+    /// Estimated minutes to remediate one finding of this rule (technical
+    /// debt model). Override where the default is unrealistic.
+    fn remediation_effort_minutes(&self) -> u32 {
+        10
+    }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding>;
 }

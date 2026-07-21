@@ -8,7 +8,7 @@ use std::future::Future;
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 
 use crate::domain::{
-    InvalidTransitionError, Issue, IssueTransition, Metrics, ScanJob, StoredIssue,
+    Hotspot, InvalidTransitionError, Issue, IssueTransition, Metrics, ScanJob, StoredIssue,
 };
 
 /// Inbound port: turns raw source text into the neutral AST.
@@ -91,7 +91,9 @@ pub struct CacheKey {
 #[derive(Clone, Debug)]
 pub struct CachedAnalysis {
     pub lines: usize,
+    pub debt_minutes: usize,
     pub issues: Vec<Issue>,
+    pub hotspots: Vec<Hotspot>,
 }
 
 /// Outbound port: memoizes per-file analysis so unchanged files are never

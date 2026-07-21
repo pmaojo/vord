@@ -2,8 +2,10 @@
 //! translates readable files in supported languages into validated
 //! [`SourceFile`]s. Unsupported and non-UTF-8 files are skipped.
 
+mod baseline;
 mod cache;
 
+pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
 
 use std::io::ErrorKind;

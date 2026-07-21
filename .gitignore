@@ -2,3 +2,4 @@
 **/*.rs.bk
 .env
 .yunq-cache.json
+.yunq-baseline.json

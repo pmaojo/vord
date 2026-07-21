@@ -216,6 +216,98 @@ impl Issue {
     }
 }
 
+/// Review state of a security hotspot. Unlike issues, hotspots are not
+/// necessarily problems — they are security-sensitive code that a human must
+/// look at and judge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HotspotStatus {
+    ToReview,
+    Acknowledged,
+    Fixed,
+    Safe,
+}
+
+impl HotspotStatus {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "to-review" => Some(HotspotStatus::ToReview),
+            "acknowledged" => Some(HotspotStatus::Acknowledged),
+            "fixed" => Some(HotspotStatus::Fixed),
+            "safe" => Some(HotspotStatus::Safe),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for HotspotStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            HotspotStatus::ToReview => "to-review",
+            HotspotStatus::Acknowledged => "acknowledged",
+            HotspotStatus::Fixed => "fixed",
+            HotspotStatus::Safe => "safe",
+        })
+    }
+}
+
+/// Security-sensitive code requiring human review.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hotspot {
+    rule: RuleId,
+    message: String,
+    file: String,
+    span: Span,
+    status: HotspotStatus,
+}
+
+impl Hotspot {
+    pub fn new(rule: RuleId, message: impl Into<String>, file: impl Into<String>, span: Span) -> Self {
+        Self {
+            rule,
+            message: message.into(),
+            file: file.into(),
+            span,
+            status: HotspotStatus::ToReview,
+        }
+    }
+
+    /// Rehydrates a persisted hotspot with its review state.
+    pub fn restore(
+        rule: RuleId,
+        message: impl Into<String>,
+        file: impl Into<String>,
+        span: Span,
+        status: HotspotStatus,
+    ) -> Self {
+        Self { rule, message: message.into(), file: file.into(), span, status }
+    }
+
+    pub fn rule(&self) -> &RuleId {
+        &self.rule
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub fn file(&self) -> &str {
+        &self.file
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn status(&self) -> HotspotStatus {
+        self.status
+    }
+
+    /// Records the reviewer's verdict.
+    pub fn review(&mut self, status: HotspotStatus) {
+        self.status = status;
+    }
+}
+
 /// Aggregated counters for one analysis run.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Metrics {
@@ -224,6 +316,7 @@ pub struct Metrics {
     parse_failures: usize,
     cache_hits: usize,
     lines_of_code: usize,
+    debt_minutes: usize,
     by_severity: BTreeMap<Severity, usize>,
 }
 
@@ -249,6 +342,10 @@ impl Metrics {
         self.cache_hits += 1;
     }
 
+    pub fn add_debt(&mut self, minutes: usize) {
+        self.debt_minutes += minutes;
+    }
+
     pub fn count_issue(&mut self, severity: Severity) {
         *self.by_severity.entry(severity).or_default() += 1;
     }
@@ -270,6 +367,11 @@ impl Metrics {
         self.cache_hits
     }
 
+    /// Estimated remediation effort for all detected issues, in minutes.
+    pub fn debt_minutes(&self) -> usize {
+        self.debt_minutes
+    }
+
     pub fn lines_of_code(&self) -> usize {
         self.lines_of_code
     }
@@ -287,16 +389,21 @@ impl Metrics {
 #[derive(Clone, Debug)]
 pub struct AnalysisReport {
     issues: Vec<Issue>,
+    hotspots: Vec<Hotspot>,
     metrics: Metrics,
 }
 
 impl AnalysisReport {
-    pub fn new(issues: Vec<Issue>, metrics: Metrics) -> Self {
-        Self { issues, metrics }
+    pub fn new(issues: Vec<Issue>, hotspots: Vec<Hotspot>, metrics: Metrics) -> Self {
+        Self { issues, hotspots, metrics }
     }
 
     pub fn issues(&self) -> &[Issue] {
         &self.issues
+    }
+
+    pub fn hotspots(&self) -> &[Hotspot] {
+        &self.hotspots
     }
 
     pub fn metrics(&self) -> &Metrics {
@@ -329,6 +436,12 @@ impl AnalysisReport {
             "major_issues" => Some(severity_count(Severity::Major)),
             "minor_issues" => Some(severity_count(Severity::Minor)),
             "info_issues" => Some(severity_count(Severity::Info)),
+            "hotspots" => Some(self.hotspots.len() as f64),
+            "hotspots_to_review" => Some(
+                self.hotspots.iter().filter(|h| h.status() == HotspotStatus::ToReview).count()
+                    as f64,
+            ),
+            "debt_minutes" => Some(self.metrics.debt_minutes() as f64),
             _ => None,
         }
     }
@@ -424,7 +537,7 @@ mod tests {
         metrics.add_file(100);
         metrics.count_issue(Severity::Critical);
         metrics.count_issue(Severity::Info);
-        let report = AnalysisReport::new(vec![issue()], metrics);
+        let report = AnalysisReport::new(vec![issue()], vec![], metrics);
 
         let key = |raw: &str| MetricKey::new(raw).unwrap();
         assert_eq!(report.measure(&key("lines_of_code")), Some(100.0));

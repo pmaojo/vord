@@ -3,19 +3,27 @@
 //! `AnalyzerService` that orchestrates parse → rules → persist.
 
 mod domain;
+mod new_code;
 mod ports;
+mod project;
 mod rule;
 mod service;
 
 pub use domain::{
-    AnalysisReport, InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError, Issue,
-    IssueStatus, IssueTransition, Metrics, Resolution, ScanJob, StoredIssue,
+    AnalysisReport, Hotspot, HotspotStatus, InvalidIssueStateError, InvalidScanJobError,
+    InvalidTransitionError, Issue, IssueStatus, IssueTransition, Metrics, Resolution, ScanJob,
+    StoredIssue,
+};
+pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint};
+pub use project::{
+    AnalysisContext, AnalysisScope, BranchName, InvalidBranchNameError, InvalidProjectKeyError,
+    InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,
 };
 pub use ports::{
     AnalysisCache, AstParser, CacheKey, CachedAnalysis, IssueReader, IssueStorage, IssueWorkflow,
     JobQueue, MetricsTracker, ParseError, QueueError, StorageError, WorkflowError,
 };
-pub use rule::{Finding, Rule};
+pub use rule::{Finding, FindingKind, Rule};
 pub use service::{AnalyzeError, AnalyzerService};
 
 // Re-export the quality model so consumers depend on one facade.

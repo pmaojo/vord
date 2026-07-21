@@ -25,6 +25,11 @@ fn scans_fixtures_and_finds_every_rule_family() {
     assert_eq!(report.metrics().files_scanned(), 2);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
+    assert!(report.metrics().debt_minutes() > 0);
+
+    // The OS-command hotspot fires as a hotspot, not an issue.
+    assert_eq!(report.hotspots().len(), 1);
+    assert_eq!(report.hotspots()[0].rule().as_str(), "owasp:command-execution");
 
     // Every issue carries a real location inside the fixtures.
     for issue in report.issues() {

@@ -6,8 +6,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use yunq_cli::output;
-use yunq_infra_fs::FileAnalysisCache;
-use yunq_rules_engine::Severity;
+use yunq_infra_fs::{BaselineStore, FileAnalysisCache};
+use yunq_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 
 #[derive(Parser)]
 #[command(name = "yunq", about = "yunq static analysis", version)]
@@ -32,6 +32,9 @@ enum Command {
         /// Exit with status 3 when the quality gate fails.
         #[arg(long)]
         enforce_gate: bool,
+        /// Do not read or update the New Code baseline (.yunq-baseline.json).
+        #[arg(long)]
+        no_baseline: bool,
     },
 }
 
@@ -54,7 +57,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Scan { path, format, fail_on, no_cache, enforce_gate } => {
+        Command::Scan { path, format, fail_on, no_cache, enforce_gate, no_baseline } => {
             let threshold = fail_on
                 .map(|raw| {
                     Severity::parse(&raw).ok_or_else(|| {
@@ -73,11 +76,32 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 eprintln!("warning: could not persist analysis cache: {e}");
             }
 
-            let gate = yunq_cli::default_quality_gate().evaluate(|key| report.measure(key));
+            // New Code (previous-analysis mode): classify against the stored
+            // baseline, then advance the baseline to this analysis.
+            let baseline_store = (!no_baseline && path.is_dir())
+                .then(|| BaselineStore::new(path.join(".yunq-baseline.json")));
+            let new_code = baseline_store
+                .as_ref()
+                .and_then(|store| store.load())
+                .map(|baseline| NewCodeAnalysis::classify(&report, &baseline));
+            if let Some(store) = &baseline_store
+                && let Err(e) = store.save(&Baseline::from_report(&report))
+            {
+                eprintln!("warning: could not persist New Code baseline: {e}");
+            }
+
+            // Gate conditions may target overall (`blocker_issues`) or new
+            // code (`new_blocker_issues`) measures.
+            let gate = yunq_cli::default_quality_gate().evaluate(|key| {
+                new_code
+                    .as_ref()
+                    .and_then(|nc| nc.measure(key))
+                    .or_else(|| report.measure(key))
+            });
 
             match format {
-                Format::Text => print!("{}", output::render_text(&report, &gate)),
-                Format::Json => println!("{}", output::render_json(&report, &gate)?),
+                Format::Text => print!("{}", output::render_text(&report, &gate, new_code.as_ref())),
+                Format::Json => println!("{}", output::render_json(&report, &gate, new_code.as_ref())?),
             }
 
             let breached = threshold

@@ -2,10 +2,12 @@
 //! implementing [`yunq_rules_engine::Rule`]; the engine never changes when
 //! rules are added (Open/Closed).
 
+mod command_exec;
 mod eval_usage;
 mod hardcoded_secret;
 mod injection;
 
+pub use command_exec::CommandExecHotspotRule;
 pub use eval_usage::EvalUsageRule;
 pub use hardcoded_secret::HardcodedSecretRule;
 pub use injection::InjectionRule;
@@ -18,5 +20,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(HardcodedSecretRule::new()),
         Box::new(EvalUsageRule::new()),
         Box::new(InjectionRule::new()),
+        Box::new(CommandExecHotspotRule::new()),
     ]
 }

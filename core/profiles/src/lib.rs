@@ -83,27 +83,45 @@ impl fmt::Display for Severity {
 }
 
 /// The set of active rules for an analysis, with per-rule severity.
-/// A rule absent from the profile is inactive.
+/// A rule absent from the profile (and its inheritance chain) is inactive.
+///
+/// Profiles can inherit: a child profile's own activations override its
+/// parent's; anything not overridden falls through the chain.
 #[derive(Clone, Debug)]
 pub struct QualityProfile {
     name: String,
     activations: HashMap<RuleId, Severity>,
+    parent: Option<Box<QualityProfile>>,
 }
 
 impl QualityProfile {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), activations: HashMap::new() }
+        Self { name: name.into(), activations: HashMap::new(), parent: None }
     }
 
     pub fn from_activations(
         name: impl Into<String>,
         activations: impl IntoIterator<Item = (RuleId, Severity)>,
     ) -> Self {
-        Self { name: name.into(), activations: activations.into_iter().collect() }
+        Self {
+            name: name.into(),
+            activations: activations.into_iter().collect(),
+            parent: None,
+        }
+    }
+
+    /// Makes this profile inherit from `parent`; own activations win.
+    pub fn with_parent(mut self, parent: QualityProfile) -> Self {
+        self.parent = Some(Box::new(parent));
+        self
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn parent(&self) -> Option<&QualityProfile> {
+        self.parent.as_deref()
     }
 
     pub fn activate(&mut self, rule: RuleId, severity: Severity) {
@@ -112,10 +130,20 @@ impl QualityProfile {
 
     pub fn is_active(&self, rule: &RuleId) -> bool {
         self.activations.contains_key(rule)
+            || self.parent.as_ref().is_some_and(|p| p.is_active(rule))
     }
 
     pub fn severity_of(&self, rule: &RuleId) -> Option<Severity> {
-        self.activations.get(rule).copied()
+        self.activations
+            .get(rule)
+            .copied()
+            .or_else(|| self.parent.as_ref().and_then(|p| p.severity_of(rule)))
+    }
+
+    /// This profile's own activations (excluding inherited ones) — the data
+    /// an adapter serializes for backup/restore.
+    pub fn own_activations(&self) -> impl Iterator<Item = (&RuleId, Severity)> {
+        self.activations.iter().map(|(rule, severity)| (rule, *severity))
     }
 }
 
@@ -136,6 +164,27 @@ mod tests {
     fn severity_ordering() {
         assert!(Severity::Blocker > Severity::Critical);
         assert!(Severity::Info < Severity::Minor);
+    }
+
+    #[test]
+    fn inherited_activations_fall_through_and_own_ones_win() {
+        let base_rule = RuleId::new("owasp:eval-usage").unwrap();
+        let tuned_rule = RuleId::new("smells:todo").unwrap();
+
+        let mut parent = QualityProfile::new("company-way");
+        parent.activate(base_rule.clone(), Severity::Critical);
+        parent.activate(tuned_rule.clone(), Severity::Info);
+
+        let mut child = QualityProfile::new("team-way").with_parent(parent);
+        child.activate(tuned_rule.clone(), Severity::Major);
+
+        // Inherited activation is visible…
+        assert!(child.is_active(&base_rule));
+        assert_eq!(child.severity_of(&base_rule), Some(Severity::Critical));
+        // …but the child's own override wins.
+        assert_eq!(child.severity_of(&tuned_rule), Some(Severity::Major));
+        // Backup only serializes own activations.
+        assert_eq!(child.own_activations().count(), 1);
     }
 
     #[test]
