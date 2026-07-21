@@ -29,6 +29,9 @@ enum Command {
         /// Disable the incremental analysis cache (.yunq-cache.json).
         #[arg(long)]
         no_cache: bool,
+        /// Exit with status 3 when the quality gate fails.
+        #[arg(long)]
+        enforce_gate: bool,
     },
 }
 
@@ -51,7 +54,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Scan { path, format, fail_on, no_cache } => {
+        Command::Scan { path, format, fail_on, no_cache, enforce_gate } => {
             let threshold = fail_on
                 .map(|raw| {
                     Severity::parse(&raw).ok_or_else(|| {
@@ -70,15 +73,23 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 eprintln!("warning: could not persist analysis cache: {e}");
             }
 
+            let gate = yunq_cli::default_quality_gate().evaluate(|key| report.measure(key));
+
             match format {
-                Format::Text => print!("{}", output::render_text(&report)),
-                Format::Json => println!("{}", output::render_json(&report)?),
+                Format::Text => print!("{}", output::render_text(&report, &gate)),
+                Format::Json => println!("{}", output::render_json(&report, &gate)?),
             }
 
             let breached = threshold
                 .zip(report.max_severity())
                 .is_some_and(|(threshold, max)| max >= threshold);
-            Ok(if breached { ExitCode::from(2) } else { ExitCode::SUCCESS })
+            Ok(if breached {
+                ExitCode::from(2)
+            } else if enforce_gate && gate.status() == yunq_rules_engine::GateStatus::Failed {
+                ExitCode::from(3)
+            } else {
+                ExitCode::SUCCESS
+            })
         }
     }
 }

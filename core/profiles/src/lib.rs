@@ -1,5 +1,15 @@
-//! The quality model: rule identities, severities and quality profiles
-//! (which rules are active and at which severity). Pure domain.
+//! The quality model: rule identities, severities, quality profiles (which
+//! rules are active and at which severity), quality gates and ratings.
+//! Pure domain.
+
+mod gate;
+mod rating;
+
+pub use gate::{
+    ComparisonOperator, Condition, ConditionResult, ConditionStatus, GateEvaluation, GateStatus,
+    InvalidMetricKeyError, MetricKey, QualityGate,
+};
+pub use rating::Rating;
 
 use std::collections::HashMap;
 use std::fmt;

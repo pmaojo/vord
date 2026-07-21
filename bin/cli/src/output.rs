@@ -2,12 +2,51 @@
 //! These DTOs are the CLI's own edge representation of the domain.
 
 use serde::Serialize;
-use yunq_rules_engine::{AnalysisReport, Issue};
+use yunq_rules_engine::{AnalysisReport, ConditionStatus, GateEvaluation, GateStatus, Issue};
 
 #[derive(Serialize)]
 pub struct ReportDto {
     pub issues: Vec<IssueDto>,
     pub metrics: MetricsDto,
+    pub rating: String,
+    pub quality_gate: GateDto,
+}
+
+#[derive(Serialize)]
+pub struct GateDto {
+    pub status: String,
+    pub conditions: Vec<ConditionDto>,
+}
+
+#[derive(Serialize)]
+pub struct ConditionDto {
+    pub metric: String,
+    pub operator: String,
+    pub threshold: f64,
+    pub value: Option<f64>,
+    pub status: String,
+}
+
+fn gate_dto(evaluation: &GateEvaluation) -> GateDto {
+    GateDto {
+        status: evaluation.status().to_string(),
+        conditions: evaluation
+            .results()
+            .iter()
+            .map(|result| ConditionDto {
+                metric: result.condition.metric().to_string(),
+                operator: result.condition.operator().symbol().to_string(),
+                threshold: result.condition.threshold(),
+                value: result.value,
+                status: match result.status {
+                    ConditionStatus::Passed => "passed",
+                    ConditionStatus::Failed => "failed",
+                    ConditionStatus::NoValue => "no-value",
+                }
+                .to_string(),
+            })
+            .collect(),
+    }
 }
 
 #[derive(Serialize)]
@@ -43,11 +82,13 @@ impl From<&Issue> for IssueDto {
     }
 }
 
-impl From<&AnalysisReport> for ReportDto {
-    fn from(report: &AnalysisReport) -> Self {
+impl ReportDto {
+    pub fn build(report: &AnalysisReport, gate: &GateEvaluation) -> Self {
         let metrics = report.metrics();
         Self {
             issues: report.issues().iter().map(IssueDto::from).collect(),
+            rating: report.rating().to_string(),
+            quality_gate: gate_dto(gate),
             metrics: MetricsDto {
                 files_scanned: metrics.files_scanned(),
                 files_skipped: metrics.files_skipped(),
@@ -60,7 +101,7 @@ impl From<&AnalysisReport> for ReportDto {
     }
 }
 
-pub fn render_text(report: &AnalysisReport) -> String {
+pub fn render_text(report: &AnalysisReport, gate: &GateEvaluation) -> String {
     let mut issues: Vec<&Issue> = report.issues().iter().collect();
     issues.sort_by(|a, b| {
         b.severity()
@@ -100,9 +141,23 @@ pub fn render_text(report: &AnalysisReport) -> String {
         metrics.issue_total(),
         if by_severity.is_empty() { "none".to_string() } else { by_severity },
     ));
+
+    out.push_str(&format!("Rating: {}\n", report.rating()));
+    out.push_str(&format!("Quality gate: {}\n", gate.status()));
+    if gate.status() == GateStatus::Failed {
+        for failed in gate.failed_conditions() {
+            out.push_str(&format!(
+                "  ✗ {} {} {} (actual: {})\n",
+                failed.condition.metric(),
+                failed.condition.operator().symbol(),
+                failed.condition.threshold(),
+                failed.value.unwrap_or_default(),
+            ));
+        }
+    }
     out
 }
 
-pub fn render_json(report: &AnalysisReport) -> serde_json::Result<String> {
-    serde_json::to_string_pretty(&ReportDto::from(report))
+pub fn render_json(report: &AnalysisReport, gate: &GateEvaluation) -> serde_json::Result<String> {
+    serde_json::to_string_pretty(&ReportDto::build(report, gate))
 }

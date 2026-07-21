@@ -11,7 +11,8 @@ use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_rules_engine::{
-    AnalysisReport, AnalyzerService, IssueStorage, MetricsTracker, QualityProfile, Rule,
+    AnalysisReport, AnalyzerService, ComparisonOperator, Condition, IssueStorage, MetricKey,
+    MetricsTracker, QualityGate, QualityProfile, Rule,
 };
 
 pub mod output;
@@ -39,6 +40,17 @@ where
         service = service.register_rule(rule);
     }
     service
+}
+
+/// The built-in quality gate: no blocker or critical issues, and every file
+/// must parse. Mirrors the Clean-as-You-Code default until per-project gates
+/// arrive with the server-side quality model.
+pub fn default_quality_gate() -> QualityGate {
+    let metric = |raw: &str| MetricKey::new(raw).expect("valid metric key");
+    QualityGate::new("yunq-default")
+        .with_condition(Condition::new(metric("blocker_issues"), ComparisonOperator::GreaterThan, 0.0))
+        .with_condition(Condition::new(metric("critical_issues"), ComparisonOperator::GreaterThan, 0.0))
+        .with_condition(Condition::new(metric("parse_failures"), ComparisonOperator::GreaterThan, 0.0))
 }
 
 /// Scans a directory (or single file) with the default analyzer, without a
