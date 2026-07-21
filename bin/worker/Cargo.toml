@@ -1,0 +1,18 @@
+[package]
+name = "yunq-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-rules-engine = { workspace = true }
+yunq-parser-typescript = { workspace = true }
+yunq-parser-rust = { workspace = true }
+yunq-rules-owasp = { workspace = true }
+yunq-rules-smells = { workspace = true }
+yunq-infra-postgres = { workspace = true }
+yunq-infra-sqs = { workspace = true }
+yunq-infra-fs = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }

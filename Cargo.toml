@@ -1,0 +1,44 @@
+[workspace]
+resolver = "3"
+members = ["core/*", "infra/*", "parsers/*", "rulesets/*", "bin/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Internal crates
+yunq-ast = { path = "core/ast" }
+yunq-profiles = { path = "core/profiles" }
+yunq-rules-engine = { path = "core/rules-engine" }
+yunq-taint = { path = "core/taint" }
+yunq-parser-typescript = { path = "parsers/treesitter-typescript" }
+yunq-parser-rust = { path = "parsers/treesitter-rust" }
+yunq-rules-owasp = { path = "rulesets/owasp" }
+yunq-rules-smells = { path = "rulesets/code-smells" }
+yunq-infra-memory = { path = "infra/memory" }
+yunq-infra-fs = { path = "infra/fs" }
+yunq-infra-postgres = { path = "infra/postgres" }
+yunq-infra-sqs = { path = "infra/sqs" }
+
+# External
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+futures = "0.3"
+clap = { version = "4", features = ["derive"] }
+ignore = "0.4"
+axum = "0.8"
+tree-sitter = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-rust = "0.24"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros"] }
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-sqs = "1"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", features = ["axum"] }

@@ -1,0 +1,18 @@
+[package]
+name = "yunq-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-rules-engine = { workspace = true }
+yunq-infra-postgres = { workspace = true }
+yunq-infra-sqs = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+utoipa-swagger-ui = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "yunq-infra-fs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-ast = { workspace = true }
+ignore = { workspace = true }
+thiserror = { workspace = true }
