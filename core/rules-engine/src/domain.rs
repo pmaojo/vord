@@ -13,6 +13,18 @@ pub enum IssueStatus {
     Closed,
 }
 
+impl IssueStatus {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "open" => Some(IssueStatus::Open),
+            "confirmed" => Some(IssueStatus::Confirmed),
+            "resolved" => Some(IssueStatus::Resolved),
+            "closed" => Some(IssueStatus::Closed),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for IssueStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -30,6 +42,17 @@ pub enum Resolution {
     Fixed,
     WontFix,
     FalsePositive,
+}
+
+impl Resolution {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "fixed" => Some(Resolution::Fixed),
+            "wont-fix" => Some(Resolution::WontFix),
+            "false-positive" => Some(Resolution::FalsePositive),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Resolution {
@@ -56,6 +79,20 @@ pub enum IssueTransition {
 pub struct InvalidTransitionError {
     pub from: IssueStatus,
     pub transition: IssueTransition,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("inconsistent stored issue state: status {status} with resolution {resolution:?}")]
+pub struct InvalidIssueStateError {
+    pub status: IssueStatus,
+    pub resolution: Option<Resolution>,
+}
+
+/// An issue as persisted by a storage adapter, carrying its storage identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredIssue {
+    pub id: i64,
+    pub issue: Issue,
 }
 
 /// A single detected problem, located in a file, with its workflow state.
@@ -109,6 +146,36 @@ impl Issue {
 
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    /// Rehydrates a persisted issue, validating that the stored workflow
+    /// state is one the state machine can actually produce — corrupt rows
+    /// become errors at the boundary, never invalid domain values.
+    #[allow(clippy::too_many_arguments)]
+    pub fn restore(
+        rule: RuleId,
+        severity: Severity,
+        message: impl Into<String>,
+        file: impl Into<String>,
+        span: Span,
+        status: IssueStatus,
+        resolution: Option<Resolution>,
+        assignee: Option<String>,
+    ) -> Result<Self, InvalidIssueStateError> {
+        let valid = matches!(
+            (status, resolution),
+            (IssueStatus::Open | IssueStatus::Confirmed, None)
+                | (IssueStatus::Resolved, Some(_))
+                | (IssueStatus::Closed, _)
+        );
+        if !valid {
+            return Err(InvalidIssueStateError { status, resolution });
+        }
+        let mut issue = Self::new(rule, severity, message, file, span);
+        issue.status = status;
+        issue.resolution = resolution;
+        issue.assignee = assignee;
+        Ok(issue)
     }
 
     pub fn status(&self) -> IssueStatus {

@@ -8,12 +8,12 @@ mod rule;
 mod service;
 
 pub use domain::{
-    AnalysisReport, InvalidScanJobError, InvalidTransitionError, Issue, IssueStatus,
-    IssueTransition, Metrics, Resolution, ScanJob,
+    AnalysisReport, InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError, Issue,
+    IssueStatus, IssueTransition, Metrics, Resolution, ScanJob, StoredIssue,
 };
 pub use ports::{
-    AnalysisCache, AstParser, CacheKey, CachedAnalysis, IssueReader, IssueStorage, JobQueue,
-    MetricsTracker, ParseError, QueueError, StorageError,
+    AnalysisCache, AstParser, CacheKey, CachedAnalysis, IssueReader, IssueStorage, IssueWorkflow,
+    JobQueue, MetricsTracker, ParseError, QueueError, StorageError, WorkflowError,
 };
 pub use rule::{Finding, Rule};
 pub use service::{AnalyzeError, AnalyzerService};

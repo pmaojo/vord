@@ -7,7 +7,9 @@ use std::future::Future;
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 
-use crate::domain::{Issue, Metrics, ScanJob};
+use crate::domain::{
+    InvalidTransitionError, Issue, IssueTransition, Metrics, ScanJob, StoredIssue,
+};
 
 /// Inbound port: turns raw source text into the neutral AST.
 /// Object-safe on purpose so the service can hold a registry of parsers.
@@ -31,7 +33,39 @@ pub trait IssueStorage: Send + Sync {
 
 /// Outbound port: reads persisted issues (dashboard/API side).
 pub trait IssueReader: Send + Sync {
-    fn recent_issues(&self, limit: usize) -> impl Future<Output = Result<Vec<Issue>, StorageError>> + Send;
+    fn recent_issues(
+        &self,
+        limit: usize,
+    ) -> impl Future<Output = Result<Vec<StoredIssue>, StorageError>> + Send;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WorkflowError {
+    #[error("issue {0} not found")]
+    NotFound(i64),
+    #[error(transparent)]
+    InvalidTransition(#[from] InvalidTransitionError),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error("stored issue {0} is corrupt: {1}")]
+    Corrupt(i64, String),
+}
+
+/// Outbound port: mutates the workflow state of persisted issues. The state
+/// machine itself lives in the domain (`Issue::apply`); adapters only load,
+/// delegate, and store.
+pub trait IssueWorkflow: Send + Sync {
+    fn apply_transition(
+        &self,
+        issue_id: i64,
+        transition: IssueTransition,
+    ) -> impl Future<Output = Result<StoredIssue, WorkflowError>> + Send;
+
+    fn set_assignee(
+        &self,
+        issue_id: i64,
+        assignee: Option<String>,
+    ) -> impl Future<Output = Result<StoredIssue, WorkflowError>> + Send;
 }
 
 /// Outbound port: records analysis metrics.

@@ -46,6 +46,104 @@
         }
       }
     },
+    "/issues/{id}/assignee": {
+      "put": {
+        "summary": "Assign or unassign an issue.",
+        "operationId": "assign_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssigneeRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Issue after the assignment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Issue not found"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/issues/{id}/transitions": {
+      "post": {
+        "summary": "Apply a workflow transition to an issue.",
+        "operationId": "transition_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Issue after the transition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown transition or resolution"
+          },
+          "404": {
+            "description": "Issue not found"
+          },
+          "409": {
+            "description": "Transition not allowed from the current status"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
     "/scans": {
       "post": {
         "summary": "Enqueue a scan job for asynchronous analysis.",
@@ -83,17 +181,37 @@
   },
   "components": {
     "schemas": {
+      "AssigneeRequestDto": {
+        "type": "object",
+        "properties": {
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "User to assign; null/omitted to unassign."
+          }
+        }
+      },
       "IssueDto": {
         "type": "object",
         "required": [
+          "id",
           "rule",
           "severity",
           "file",
           "line",
           "column",
-          "message"
+          "message",
+          "status"
         ],
         "properties": {
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "column": {
             "type": "integer",
             "format": "int32",
@@ -101,6 +219,10 @@
           },
           "file": {
             "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
           },
           "line": {
             "type": "integer",
@@ -110,10 +232,19 @@
           "message": {
             "type": "string"
           },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "rule": {
             "type": "string"
           },
           "severity": {
+            "type": "string"
+          },
+          "status": {
             "type": "string"
           }
         }
@@ -143,6 +274,25 @@
           "project": {
             "type": "string",
             "description": "Project key the scan belongs to."
+          }
+        }
+      },
+      "TransitionRequestDto": {
+        "type": "object",
+        "required": [
+          "transition"
+        ],
+        "properties": {
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when transition is `resolve`: fixed, wont-fix, false-positive."
+          },
+          "transition": {
+            "type": "string",
+            "description": "One of: confirm, resolve, reopen, close."
           }
         }
       }

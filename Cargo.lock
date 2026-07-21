@@ -3524,6 +3524,8 @@ dependencies = [
 name = "yunq-infra-memory"
 version = "0.1.0"
 dependencies = [
+ "futures",
+ "yunq-ast",
  "yunq-rules-engine",
 ]
 

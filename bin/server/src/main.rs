@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Json;
@@ -22,7 +22,10 @@ use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 use yunq_infra_postgres::PgIssueStorage;
 use yunq_infra_sqs::SqsJobQueue;
-use yunq_rules_engine::{IssueReader, JobQueue, ScanJob};
+use yunq_rules_engine::{
+    IssueReader, IssueTransition, IssueWorkflow, JobQueue, Resolution, ScanJob, StoredIssue,
+    WorkflowError,
+};
 
 struct AppState {
     queue: SqsJobQueue,
@@ -41,6 +44,8 @@ async fn main() -> anyhow::Result<()> {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(enqueue_scan))
         .routes(routes!(list_issues))
+        .routes(routes!(transition_issue))
+        .routes(routes!(assign_issue))
         .split_for_parts();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
@@ -123,12 +128,34 @@ fn default_limit() -> usize {
 
 #[derive(Serialize, ToSchema)]
 struct IssueDto {
+    id: i64,
     rule: String,
     severity: String,
     file: String,
     line: u32,
     column: u32,
     message: String,
+    status: String,
+    resolution: Option<String>,
+    assignee: Option<String>,
+}
+
+impl From<&StoredIssue> for IssueDto {
+    fn from(stored: &StoredIssue) -> Self {
+        let issue = &stored.issue;
+        Self {
+            id: stored.id,
+            rule: issue.rule().to_string(),
+            severity: issue.severity().to_string(),
+            file: issue.file().to_string(),
+            line: issue.span().start_line,
+            column: issue.span().start_col,
+            message: issue.message().to_string(),
+            status: issue.status().to_string(),
+            resolution: issue.resolution().map(|r| r.to_string()),
+            assignee: issue.assignee().map(str::to_string),
+        }
+    }
 }
 
 /// List the most recently detected issues.
@@ -150,17 +177,98 @@ async fn list_issues(
         .recent_issues(query.limit.min(500))
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
-    Ok(Json(
-        issues
-            .iter()
-            .map(|issue| IssueDto {
-                rule: issue.rule().to_string(),
-                severity: issue.severity().to_string(),
-                file: issue.file().to_string(),
-                line: issue.span().start_line,
-                column: issue.span().start_col,
-                message: issue.message().to_string(),
-            })
-            .collect(),
-    ))
+    Ok(Json(issues.iter().map(IssueDto::from).collect()))
+}
+
+#[derive(Deserialize, ToSchema)]
+struct TransitionRequestDto {
+    /// One of: confirm, resolve, reopen, close.
+    transition: String,
+    /// Required when transition is `resolve`: fixed, wont-fix, false-positive.
+    resolution: Option<String>,
+}
+
+fn parse_transition(dto: &TransitionRequestDto) -> Result<IssueTransition, String> {
+    match dto.transition.as_str() {
+        "confirm" => Ok(IssueTransition::Confirm),
+        "reopen" => Ok(IssueTransition::Reopen),
+        "close" => Ok(IssueTransition::Close),
+        "resolve" => {
+            let raw = dto.resolution.as_deref().ok_or("resolve requires a resolution")?;
+            let resolution = Resolution::parse(raw)
+                .ok_or("invalid resolution (fixed|wont-fix|false-positive)")?;
+            Ok(IssueTransition::Resolve(resolution))
+        }
+        other => Err(format!("invalid transition {other:?} (confirm|resolve|reopen|close)")),
+    }
+}
+
+fn workflow_error_response(error: WorkflowError) -> (StatusCode, String) {
+    match &error {
+        WorkflowError::NotFound(_) => (StatusCode::NOT_FOUND, error.to_string()),
+        WorkflowError::InvalidTransition(_) => (StatusCode::CONFLICT, error.to_string()),
+        WorkflowError::Storage(_) | WorkflowError::Corrupt(..) => {
+            (StatusCode::BAD_GATEWAY, error.to_string())
+        }
+    }
+}
+
+/// Apply a workflow transition to an issue.
+#[utoipa::path(
+    post,
+    path = "/issues/{id}/transitions",
+    params(("id" = i64, Path, description = "Issue id")),
+    request_body = TransitionRequestDto,
+    responses(
+        (status = 200, description = "Issue after the transition", body = IssueDto),
+        (status = 400, description = "Unknown transition or resolution"),
+        (status = 404, description = "Issue not found"),
+        (status = 409, description = "Transition not allowed from the current status"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+async fn transition_issue(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(request): Json<TransitionRequestDto>,
+) -> Result<Json<IssueDto>, (StatusCode, String)> {
+    let transition =
+        parse_transition(&request).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let stored = state
+        .reader
+        .apply_transition(id, transition)
+        .await
+        .map_err(workflow_error_response)?;
+    Ok(Json(IssueDto::from(&stored)))
+}
+
+#[derive(Deserialize, ToSchema)]
+struct AssigneeRequestDto {
+    /// User to assign; null/omitted to unassign.
+    assignee: Option<String>,
+}
+
+/// Assign or unassign an issue.
+#[utoipa::path(
+    put,
+    path = "/issues/{id}/assignee",
+    params(("id" = i64, Path, description = "Issue id")),
+    request_body = AssigneeRequestDto,
+    responses(
+        (status = 200, description = "Issue after the assignment", body = IssueDto),
+        (status = 404, description = "Issue not found"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+async fn assign_issue(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(request): Json<AssigneeRequestDto>,
+) -> Result<Json<IssueDto>, (StatusCode, String)> {
+    let stored = state
+        .reader
+        .set_assignee(id, request.assignee)
+        .await
+        .map_err(workflow_error_response)?;
+    Ok(Json(IssueDto::from(&stored)))
 }
