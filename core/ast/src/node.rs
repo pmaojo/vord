@@ -98,6 +98,14 @@ impl AstNode {
         &self.children
     }
 
+    /// The byte range this node covers in its shared source buffer. Lets
+    /// callers slice the gap between two of a node's own children (e.g. an
+    /// anonymous operator token tree-sitter drops from `named_children`)
+    /// without re-deriving offsets from `Span`'s line/column coordinates.
+    pub fn byte_range(&self) -> std::ops::Range<usize> {
+        self.start as usize..self.end as usize
+    }
+
     pub fn first_child(&self) -> Option<&AstNode> {
         self.children.first()
     }
