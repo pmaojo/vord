@@ -170,13 +170,9 @@ mod tests {
 
     #[test]
     fn elif_and_else_add_flat_cost_without_extra_nesting() {
-        let code = "def branch(x):\n\
-            if x > 0:\n\
-                return 1\n\
-            elif x > 1:\n\
-                return 2\n\
-            else:\n\
-                return 3\n";
+        // Written on one line (no backslash line-continuation): Python needs
+        // real indentation in the string content, which continuation strips.
+        let code = "def branch(x):\n    if x > 0:\n        return 1\n    elif x > 1:\n        return 2\n    else:\n        return 3\n";
         // if (1+0) + elif (flat +1) + else (flat +1) = 3.
         let findings = check_python(code, 2);
         assert_eq!(findings.len(), 1);
