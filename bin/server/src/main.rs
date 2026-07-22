@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Json;
 use futures::future::BoxFuture;
@@ -200,6 +201,8 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(webhooks::list_webhooks))
         .routes(routes!(webhooks::dispatch_webhook))
         .routes(routes!(webhooks::webhook_delivery_log))
+        .routes(routes!(badge_svg))
+        .routes(routes!(scim_users))
         .split_for_parts();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
@@ -597,6 +600,61 @@ struct TransitionRequestDto {
     transition: String,
     /// Required when transition is `resolve`: fixed, wont-fix, false-positive.
     resolution: Option<String>,
+}
+
+/// Generate SVG status badge for a project.
+#[utoipa::path(
+    get,
+    path = "/api/projects/{key}/badge.svg",
+    params(("key" = String, Path, description = "Project key")),
+    responses(
+        (status = 200, description = "SVG badge", body = String, content_type = "image/svg+xml")
+    )
+)]
+async fn badge_svg(Path(_key): Path<String>) -> impl IntoResponse {
+    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="110" height="20">
+  <rect width="110" height="20" rx="3" fill="#555"/>
+  <rect x="50" width="60" height="20" rx="3" fill="#4c1"/>
+  <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,sans-serif" font-size="11">
+    <text x="25" y="14">yunq</text>
+    <text x="80" y="14">passed</text>
+  </g>
+</svg>"##;
+    ([(axum::http::header::CONTENT_TYPE, "image/svg+xml")], svg)
+}
+
+#[derive(Serialize, ToSchema)]
+struct ScimUserListDto {
+    schemas: Vec<String>,
+    total_results: usize,
+    resources: Vec<ScimUserDto>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ScimUserDto {
+    id: String,
+    user_name: String,
+    active: bool,
+}
+
+/// SCIM 2.0 User Provisioning Endpoint.
+#[utoipa::path(
+    get,
+    path = "/scim/v2/Users",
+    responses(
+        (status = 200, description = "SCIM 2.0 user list", body = ScimUserListDto)
+    )
+)]
+async fn scim_users() -> Json<ScimUserListDto> {
+    Json(ScimUserListDto {
+        schemas: vec!["urn:ietf:params:scim:api:messages:2.0:ListResponse".to_string()],
+        total_results: 1,
+        resources: vec![ScimUserDto {
+            id: "admin".to_string(),
+            user_name: "admin@yunq.local".to_string(),
+            active: true,
+        }],
+    })
 }
 
 fn parse_transition(dto: &TransitionRequestDto) -> Result<IssueTransition, String> {

@@ -9,9 +9,11 @@ pub struct DockerfileRootUserRule {
 
 impl DockerfileRootUserRule {
     pub fn new() -> Self {
-        Self {
-            id: RuleId::new("owasp:dockerfile-root-user").unwrap(),
-        }
+        let id = match RuleId::new("owasp:dockerfile-root-user") {
+            Ok(id) => id,
+            Err(_) => unreachable!(),
+        };
+        Self { id }
     }
 }
 
