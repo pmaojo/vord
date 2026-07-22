@@ -39,6 +39,22 @@ impl AstParser for TypeScriptParser {
         })?;
         Ok(convert(tree.root_node(), &file.content_shared()))
     }
+
+    fn tokenize_for_duplication(&self, file: &SourceFile) -> Vec<(u32, String)> {
+        let mut parser = tree_sitter::Parser::new();
+        let grammar = if file.path().ends_with(".tsx") {
+            tree_sitter_typescript::LANGUAGE_TSX
+        } else {
+            tree_sitter_typescript::LANGUAGE_TYPESCRIPT
+        };
+        if parser.set_language(&grammar.into()).is_err() {
+            return yunq_cpd::fallback_tokenize(file);
+        }
+        let Some(tree) = parser.parse(file.content(), None) else {
+            return yunq_cpd::fallback_tokenize(file);
+        };
+        yunq_treesitter_tokens::statement_lines(&tree, file.content())
+    }
 }
 
 // Zero-copy: every produced node slices the shared file buffer.

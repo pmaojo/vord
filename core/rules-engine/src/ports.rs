@@ -19,6 +19,18 @@ use crate::structural_metrics::StructuralCounts;
 pub trait AstParser: Send + Sync {
     fn language(&self) -> LanguageIdentifier;
     fn parse(&self, file: &SourceFile) -> Result<AstNode, ParseError>;
+
+    /// Per-line, normalized tokens for copy-paste detection: `(1-based line
+    /// number, normalized token text)`, omitting insignificant lines. The
+    /// default falls back to treating each trimmed non-blank line as its own
+    /// single token (`yunq_cpd::fallback_tokenize`); adapters backed by a
+    /// real tokenizer (tree-sitter leaf walk collapsing literals to a shared
+    /// placeholder and dropping comments — `yunq-treesitter-tokens`)
+    /// override this so duplication matching is token-accurate rather than
+    /// sensitive to literal values and incidental whitespace.
+    fn tokenize_for_duplication(&self, file: &SourceFile) -> Vec<(u32, String)> {
+        yunq_cpd::fallback_tokenize(file)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

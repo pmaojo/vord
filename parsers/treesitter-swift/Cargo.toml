@@ -8,5 +8,7 @@ rust-version.workspace = true
 [dependencies]
 yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }
+yunq-cpd = { workspace = true }
+yunq-treesitter-tokens = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-swift = "0.7.3"

@@ -4287,7 +4287,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4297,7 +4299,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-c",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4307,7 +4311,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-cpp",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4317,7 +4323,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-c-sharp",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4327,7 +4335,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-css",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4345,7 +4355,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-elixir",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4355,7 +4367,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-go",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4365,7 +4379,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-groovy",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4375,7 +4391,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-hcl",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4385,7 +4403,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-html",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4395,7 +4415,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-java",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4405,7 +4427,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-json",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4415,7 +4439,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-kotlin-ng",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4425,7 +4451,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-lua",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4435,7 +4463,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-php",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4445,7 +4475,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-python",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4455,7 +4487,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-ruby",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4465,7 +4499,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-rust",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4475,7 +4511,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-scala",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4485,7 +4523,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-swift",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4495,7 +4535,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-typescript",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4505,7 +4547,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-xml",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4515,7 +4559,9 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-yaml",
  "yunq-ast",
+ "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]
@@ -4623,6 +4669,14 @@ version = "0.1.1"
 dependencies = [
  "thiserror",
  "yunq-ast",
+]
+
+[[package]]
+name = "yunq-treesitter-tokens"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-python",
 ]
 
 [[package]]

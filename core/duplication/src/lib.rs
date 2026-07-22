@@ -15,10 +15,14 @@
 //! 4. Runs of adjacent matching blocks are merged into maximal duplicated
 //!    line ranges.
 //!
-//! yunq has no per-language CPD tokenizer yet (see ROADMAP.md), so the
-//! "statement" unit here is a trimmed non-blank source line rather than a
-//! real token-level statement; the chunking, hashing and index-driven
-//! matching are SonarQube's actual algorithm. Pure core — std only.
+//! The "statement" unit is one source line's worth of tokens, normalized by
+//! whichever `AstParser` is registered for that file's language (leaf-level
+//! tree-sitter walk in `yunq-treesitter-tokens`: literal values collapsed
+//! to placeholders, comments dropped, intra-line whitespace insignificant —
+//! see `parsers/treesitter-tokens`). Languages without a registered parser
+//! fall back to [`fallback_tokenize`]'s trimmed-line behavior. Either way,
+//! the chunking, hashing and index-driven matching below are SonarQube's
+//! actual algorithm. Pure core — std only, no tree-sitter dependency.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -26,6 +30,32 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use yunq_ast::SourceFile;
 
 const PRIME_BASE: u64 = 31;
+
+/// One file's per-line, already-normalized token text — produced by an
+/// `AstParser::tokenize_for_duplication` override, or [`fallback_tokenize`]
+/// when no such parser is registered. `line_number` is 1-based; blank or
+/// otherwise insignificant lines (e.g. comment-only, under a real
+/// tokenizer) are omitted.
+#[derive(Clone, Debug)]
+pub struct TokenizedFile {
+    pub path: String,
+    pub lines: Vec<(u32, String)>,
+}
+
+/// Non-language-aware fallback: each non-blank trimmed source line is its
+/// own single-token "statement". Used for files whose language has no
+/// registered `AstParser`, so duplication detection still degrades
+/// gracefully rather than skipping the file.
+pub fn fallback_tokenize(file: &SourceFile) -> Vec<(u32, String)> {
+    file.content()
+        .lines()
+        .enumerate()
+        .filter_map(|(index, raw)| {
+            let trimmed = raw.trim();
+            (!trimmed.is_empty()).then(|| (index as u32 + 1, trimmed.to_string()))
+        })
+        .collect()
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct DuplicationConfig {
@@ -72,18 +102,13 @@ struct Statement {
     hash: u64,
 }
 
-fn statements(file: &SourceFile) -> Vec<Statement> {
-    file.content()
-        .lines()
-        .enumerate()
-        .filter_map(|(index, raw)| {
-            let trimmed = raw.trim();
-            if trimmed.is_empty() {
-                return None;
-            }
+fn statements(file: &TokenizedFile) -> Vec<Statement> {
+    file.lines
+        .iter()
+        .map(|(line_number, text)| {
             let mut hasher = DefaultHasher::new();
-            trimmed.hash(&mut hasher);
-            Some(Statement { line_number: index as u32 + 1, hash: hasher.finish() })
+            text.hash(&mut hasher);
+            Statement { line_number: *line_number, hash: hasher.finish() }
         })
         .collect()
 }
@@ -146,7 +171,7 @@ fn chunk_blocks(statements: &[Statement], block_size: usize) -> Vec<Block> {
     blocks
 }
 
-pub fn find_duplicates(files: &[SourceFile], config: DuplicationConfig) -> DuplicationReport {
+pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> DuplicationReport {
     let block_size = config.block_size.max(2);
     let per_file_statements: Vec<Vec<Statement>> =
         files.iter().map(|f| collapse_repeats(statements(f))).collect();
@@ -214,12 +239,12 @@ pub fn find_duplicates(files: &[SourceFile], config: DuplicationConfig) -> Dupli
             }
 
             let first = BlockRef {
-                file: files[file_a].path().to_string(),
+                file: files[file_a].path.clone(),
                 start_line: stmts_a[block_a.stmt_start].line_number,
                 end_line: stmts_a[block_a_end.stmt_end].line_number,
             };
             let second = BlockRef {
-                file: files[file_b].path().to_string(),
+                file: files[file_b].path.clone(),
                 start_line: stmts_b[block_b.stmt_start].line_number,
                 end_line: stmts_b[block_b_end.stmt_end].line_number,
             };
@@ -252,8 +277,9 @@ mod tests {
 
     use super::*;
 
-    fn file(path: &str, content: &str) -> SourceFile {
-        SourceFile::new(path, content, LanguageIdentifier::rust()).unwrap()
+    fn file(path: &str, content: &str) -> TokenizedFile {
+        let source = SourceFile::new(path, content, LanguageIdentifier::rust()).unwrap();
+        TokenizedFile { path: source.path().to_string(), lines: fallback_tokenize(&source) }
     }
 
     fn block_body(prefix: &str) -> String {
@@ -320,5 +346,22 @@ mod tests {
         let report = find_duplicates(&files, DuplicationConfig { block_size: 5 });
         // a-b, a-c, b-c.
         assert_eq!(report.blocks.len(), 3);
+    }
+
+    #[test]
+    fn tokenized_input_matches_statements_that_differ_only_in_literal_values() {
+        // Simulates what a real per-language tokenizer (yunq-treesitter-tokens)
+        // produces: literal values collapsed to a shared placeholder, so two
+        // statements differing only in a literal are the same "statement" for
+        // duplication purposes — the fallback line-trim tokenizer cannot do
+        // this, since it hashes the literal's own text.
+        let body: Vec<(u32, String)> = (0..6)
+            .map(|i| (i + 2, format!("total += weights [ {i} ] * LIT ;")))
+            .collect();
+        let a = TokenizedFile { path: "a.rs".into(), lines: body.clone() };
+        let b = TokenizedFile { path: "b.rs".into(), lines: body };
+        let report = find_duplicates(&[a, b], DuplicationConfig { block_size: 5 });
+        assert_eq!(report.blocks.len(), 1);
+        assert_eq!(report.blocks[0].lines, 6);
     }
 }

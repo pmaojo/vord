@@ -38,6 +38,7 @@ yunq-parser-bash = { path = "parsers/treesitter-bash" }
 yunq-parser-groovy = { path = "parsers/treesitter-groovy" }
 yunq-parser-lua = { path = "parsers/treesitter-lua" }
 yunq-parser-elixir = { path = "parsers/treesitter-elixir" }
+yunq-treesitter-tokens = { path = "parsers/treesitter-tokens" }
 yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }
