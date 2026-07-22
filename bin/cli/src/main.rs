@@ -38,6 +38,18 @@ enum Command {
         /// LCOV coverage report to ingest (enables the coverage gate condition).
         #[arg(long)]
         coverage: Option<PathBuf>,
+        /// Cobertura XML coverage report to ingest.
+        #[arg(long)]
+        cobertura: Option<PathBuf>,
+        /// JaCoCo XML coverage report to ingest.
+        #[arg(long)]
+        jacoco: Option<PathBuf>,
+        /// llvm-cov JSON export coverage report to ingest.
+        #[arg(long = "llvm-cov")]
+        llvm_cov: Option<PathBuf>,
+        /// JUnit XML test report to ingest (printed as a test summary).
+        #[arg(long)]
+        junit: Option<PathBuf>,
         /// Git commit SHA for reporting ALM commit status.
         #[arg(long)]
         commit_sha: Option<String>,
@@ -88,6 +100,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             enforce_gate,
             no_baseline,
             coverage,
+            cobertura,
+            jacoco,
+            llvm_cov,
+            junit,
             commit_sha,
             github_token,
             github_repo,
@@ -110,11 +126,45 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 .then(|| std::sync::Arc::new(FileAnalysisCache::open(path.join(".yunq-cache.json"))));
             let mut report =
                 futures::executor::block_on(yunq_cli::scan_with_cache(&path, cache.clone()))?;
-            if let Some(lcov_path) = coverage {
-                let raw = std::fs::read_to_string(&lcov_path)
-                    .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", lcov_path.display()))?;
-                report.set_coverage(yunq_infra_fs::parse_lcov(&raw)?);
+            let mut coverage_summary: Option<yunq_rules_engine::CoverageSummary> = None;
+            let mut merge_coverage = |parsed: yunq_rules_engine::CoverageSummary| {
+                match &mut coverage_summary {
+                    Some(acc) => {
+                        let _ = acc.add(parsed.covered_lines(), parsed.coverable_lines());
+                    }
+                    None => coverage_summary = Some(parsed),
+                }
+            };
+            if let Some(path) = coverage {
+                let raw = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+                merge_coverage(yunq_infra_fs::parse_lcov(&raw)?);
             }
+            if let Some(path) = cobertura {
+                let raw = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+                merge_coverage(yunq_infra_fs::parse_cobertura(&raw)?);
+            }
+            if let Some(path) = jacoco {
+                let raw = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+                merge_coverage(yunq_infra_fs::parse_jacoco(&raw)?);
+            }
+            if let Some(path) = llvm_cov {
+                let raw = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+                merge_coverage(yunq_infra_fs::parse_llvm_cov(&raw)?);
+            }
+            if let Some(summary) = coverage_summary {
+                report.set_coverage(summary);
+            }
+            let test_report = junit
+                .map(|path| {
+                    let raw = std::fs::read_to_string(&path)
+                        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+                    yunq_infra_fs::parse_junit(&raw).map_err(anyhow::Error::from)
+                })
+                .transpose()?;
             if let Some(cache) = &cache
                 && let Err(e) = cache.persist()
             {
@@ -179,8 +229,12 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             }
 
             match format {
-                Format::Text => print!("{}", output::render_text(&report, &gate, new_code.as_ref())),
-                Format::Json => println!("{}", output::render_json(&report, &gate, new_code.as_ref())?),
+                Format::Text => {
+                    print!("{}", output::render_text(&report, &gate, new_code.as_ref(), test_report.as_ref()))
+                }
+                Format::Json => {
+                    println!("{}", output::render_json(&report, &gate, new_code.as_ref(), test_report.as_ref())?)
+                }
             }
 
             let breached = threshold

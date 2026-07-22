@@ -2,6 +2,7 @@
 //! These DTOs are the CLI's own edge representation of the domain.
 
 use serde::Serialize;
+use yunq_infra_fs::TestReportSummary;
 use yunq_rules_engine::{
     AnalysisReport, ConditionStatus, GateEvaluation, GateStatus, Issue, NewCodeAnalysis,
 };
@@ -16,8 +17,10 @@ pub struct ReportDto {
     /// Issues not present in the previous analysis (None on first scan).
     pub new_issue_total: Option<usize>,
     pub duplications: Vec<DuplicationDto>,
-    /// Present when an LCOV report was ingested.
+    /// Present when a coverage report (LCOV/Cobertura/JaCoCo/llvm-cov) was ingested.
     pub coverage: Option<CoverageDto>,
+    /// Present when a JUnit test report was ingested.
+    pub test_report: Option<TestReportSummary>,
 }
 
 #[derive(Serialize)]
@@ -122,6 +125,7 @@ impl ReportDto {
         report: &AnalysisReport,
         gate: &GateEvaluation,
         new_code: Option<&NewCodeAnalysis>,
+        test_report: Option<&TestReportSummary>,
     ) -> Self {
         let metrics = report.metrics();
         Self {
@@ -146,6 +150,7 @@ impl ReportDto {
                 covered_lines: c.covered_lines(),
                 coverable_lines: c.coverable_lines(),
             }),
+            test_report: test_report.cloned(),
             duplications: report
                 .duplications()
                 .iter()
@@ -174,6 +179,7 @@ pub fn render_text(
     report: &AnalysisReport,
     gate: &GateEvaluation,
     new_code: Option<&NewCodeAnalysis>,
+    test_report: Option<&TestReportSummary>,
 ) -> String {
     let mut issues: Vec<&Issue> = report.issues().iter().collect();
     issues.sort_by(|a, b| {
@@ -267,6 +273,12 @@ pub fn render_text(
     if let Some(new_code) = new_code {
         out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
     }
+    if let Some(tests) = test_report {
+        out.push_str(&format!(
+            "Tests: {} total, {} passed, {} failed, {} skipped, {} errors\n",
+            tests.total_tests, tests.passed_tests, tests.failed_tests, tests.skipped_tests, tests.errors,
+        ));
+    }
     out.push_str(&format!("Health score: {}/100\n", report.health_score()));
     out.push_str(&format!("Rating: {}\n", report.rating()));
     out.push_str(&format!("Quality gate: {}\n", gate.status()));
@@ -288,6 +300,7 @@ pub fn render_json(
     report: &AnalysisReport,
     gate: &GateEvaluation,
     new_code: Option<&NewCodeAnalysis>,
+    test_report: Option<&TestReportSummary>,
 ) -> serde_json::Result<String> {
-    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code))
+    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code, test_report))
 }
