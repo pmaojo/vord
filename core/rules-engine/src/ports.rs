@@ -12,6 +12,7 @@ use crate::domain::{
     BulkOutcome, ChangelogEntry, Hotspot, HotspotStatus, InvalidTransitionError, Issue,
     IssueFacets, IssueStatus, IssueTransition, Metrics, ScanJob, StoredHotspot, StoredIssue,
 };
+use crate::structural_metrics::StructuralCounts;
 
 /// Inbound port: turns raw source text into the neutral AST.
 /// Object-safe on purpose so the service can hold a registry of parsers.
@@ -196,6 +197,7 @@ pub struct CachedAnalysis {
     pub debt_minutes: usize,
     pub issues: Vec<Issue>,
     pub hotspots: Vec<Hotspot>,
+    pub structural: StructuralCounts,
 }
 
 /// Outbound port: memoizes per-file analysis so unchanged files are never

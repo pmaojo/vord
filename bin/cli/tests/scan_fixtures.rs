@@ -23,7 +23,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
         assert!(fired.contains(expected), "rule {expected} did not fire; fired: {fired:?}");
     }
 
-    assert_eq!(report.metrics().files_scanned(), 5);
+    assert_eq!(report.metrics().files_scanned(), 7);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);
@@ -65,6 +65,8 @@ fn scans_fixtures_and_finds_every_rule_family() {
             issue.file().ends_with(".ts")
                 || issue.file().ends_with(".rs")
                 || issue.file().ends_with(".py")
+                || issue.file().ends_with(".tf")
+                || issue.file().ends_with(".html")
         );
     }
 }

@@ -109,10 +109,12 @@ where
                     debt_minutes,
                     issues: file_issues,
                     hotspots: file_hotspots,
+                    structural,
                     from_cache,
                 } => {
                     metrics.add_file(lines);
                     metrics.add_debt(debt_minutes);
+                    metrics.add_structural(structural);
                     if from_cache {
                         metrics.add_cache_hit();
                     }
@@ -243,6 +245,7 @@ where
                 debt_minutes: hit.debt_minutes,
                 issues: hit.issues,
                 hotspots: hit.hotspots,
+                structural: hit.structural,
                 from_cache: true,
             };
         }
@@ -253,6 +256,7 @@ where
         let Ok(ast) = parser.parse(file) else {
             return FileOutcome::ParseFailed;
         };
+        let structural = crate::structural_metrics::compute(&ast);
 
         let mut issues = Vec::new();
         let mut hotspots = Vec::new();
@@ -293,10 +297,11 @@ where
                     debt_minutes,
                     issues: issues.clone(),
                     hotspots: hotspots.clone(),
+                    structural,
                 },
             );
         }
-        FileOutcome::Analyzed { lines, debt_minutes, issues, hotspots, from_cache: false }
+        FileOutcome::Analyzed { lines, debt_minutes, issues, hotspots, structural, from_cache: false }
     }
 
     /// Covers everything that changes analysis output besides file content:
@@ -335,6 +340,7 @@ enum FileOutcome {
         debt_minutes: usize,
         issues: Vec<Issue>,
         hotspots: Vec<Hotspot>,
+        structural: crate::structural_metrics::StructuralCounts,
         from_cache: bool,
     },
 }

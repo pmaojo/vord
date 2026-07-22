@@ -79,9 +79,19 @@ re-analysis on typical PRs.
   per-language tokenizer output, so literal/whitespace normalization isn't
   token-accurate yet — swap in per-language tokenizers reusing the
   `parsers/treesitter-*` crates to close it.
-- **Metrics engine**: cyclomatic + cognitive complexity, LOC/statements/
-  functions/classes, comment density, nesting depth — computed on the
-  neutral AST in core.
+- **Metrics engine**: ✅ cyclomatic + cognitive complexity (per-function,
+  existing rules), LOC/statements/functions/classes, comment density,
+  max control-flow nesting depth — computed on the neutral AST in
+  `core/rules-engine/structural_metrics.rs`, one pass per file, aggregated
+  into `Metrics` (report-wide sum for counts, max for nesting depth) and
+  exposed as `functions`/`classes`/`statements`/`comment_lines`/
+  `comment_lines_density`/`max_nesting_depth` measures (usable in quality
+  gate conditions) plus a CLI summary line. Grammar node kinds are matched
+  by raw tree-sitter name per language (same pattern-based approach as
+  `ComplexityRule`'s decision points), since no neutral `NodeKind` variant
+  covers "class" or "statement" — the disk-backed analysis cache
+  (`infra/fs::FileAnalysisCache`) fails open (defaults to zero) on entries
+  written before this landed.
 - **Coverage ingestion**: LCOV, Cobertura, JaCoCo, `llvm-cov`, Istanbul;
   line + branch coverage, coverage-on-new-code.
 - **Test report ingestion**: JUnit XML / test execution counts.
