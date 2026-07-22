@@ -35,6 +35,7 @@ yunq-infra-github = { path = "infra/github" }
 yunq-infra-gitlab = { path = "infra/gitlab" }
 yunq-infra-azure = { path = "infra/azure" }
 yunq-infra-pdf = { path = "infra/pdf" }
+yunq-infra-git = { path = "infra/git" }
 yunq-remediation = { path = "core/remediation" }
 yunq-infra-llm = { path = "infra/llm" }
 

@@ -16,6 +16,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Json;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use utoipa::{IntoParams, Modify, OpenApi, ToSchema};
@@ -26,9 +27,10 @@ use yunq_infra_postgres::PgIssueStorage;
 use yunq_infra_sqs::SqsJobQueue;
 use yunq_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, HotspotReader, HotspotReview, HotspotStatus,
-    IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueQuery, IssueReader,
-    IssueStatus, IssueTransition, IssueWorkflow, JobQueue, Resolution, RuleId, ScanJob, Severity,
-    StoredHotspot, StoredIssue, WorkflowError,
+    IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueFetcher, IssueQuery,
+    IssueReader, IssueStatus, IssueTransition, IssueWorkflow, JobQueue, Page, QueueError,
+    Resolution, RuleId, ScanJob, Severity, StorageError, StoredHotspot, StoredIssue,
+    WorkflowError, IssueFacets,
 };
 
 mod auth;
@@ -36,11 +38,126 @@ mod metrics;
 mod webhooks;
 
 struct AppState {
-    queue: SqsJobQueue,
-    reader: PgIssueStorage,
+    queue: Arc<dyn ScanQueuePort>,
+    reader: Arc<dyn IssueApiStore>,
     metrics: metrics::Metrics,
     webhooks: webhooks::WebhookDispatcher,
     auth: auth::OAuthService,
+}
+
+/// Object-safe HTTP-facing adapters over the segregated core ports. Their
+/// only concrete implementation is selected in the composition root.
+trait ScanQueuePort: Send + Sync {
+    fn enqueue_scan(&self, job: ScanJob) -> BoxFuture<'_, Result<(), QueueError>>;
+}
+
+impl<T> ScanQueuePort for T
+where
+    T: JobQueue + Send + Sync,
+{
+    fn enqueue_scan(&self, job: ScanJob) -> BoxFuture<'_, Result<(), QueueError>> {
+        Box::pin(JobQueue::enqueue_scan(self, job))
+    }
+}
+
+trait IssueApiStore: Send + Sync {
+    fn search_issues<'a>(
+        &'a self,
+        query: &'a IssueQuery,
+    ) -> BoxFuture<'a, Result<Page<StoredIssue>, StorageError>>;
+    fn facets<'a>(&'a self, query: &'a IssueQuery) -> BoxFuture<'a, Result<IssueFacets, StorageError>>;
+    fn bulk_transition(
+        &self,
+        issue_ids: Vec<i64>,
+        transition: IssueTransition,
+    ) -> BoxFuture<'_, Result<Vec<BulkOutcome>, StorageError>>;
+    fn changelog(&self, issue_id: i64) -> BoxFuture<'_, Result<Vec<ChangelogEntry>, StorageError>>;
+    fn recent_hotspots(&self, limit: usize) -> BoxFuture<'_, Result<Vec<StoredHotspot>, StorageError>>;
+    fn review_hotspot(
+        &self,
+        hotspot_id: i64,
+        status: HotspotStatus,
+    ) -> BoxFuture<'_, Result<StoredHotspot, WorkflowError>>;
+    fn fetch_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<StoredIssue, WorkflowError>>;
+    fn apply_transition(
+        &self,
+        issue_id: i64,
+        transition: IssueTransition,
+    ) -> BoxFuture<'_, Result<StoredIssue, WorkflowError>>;
+    fn set_assignee(
+        &self,
+        issue_id: i64,
+        assignee: Option<String>,
+    ) -> BoxFuture<'_, Result<StoredIssue, WorkflowError>>;
+}
+
+impl<T> IssueApiStore for T
+where
+    T: IssueReader
+        + IssueFacetReader
+        + IssueBulkWorkflow
+        + IssueChangelogReader
+        + HotspotReader
+        + HotspotReview
+        + IssueFetcher
+        + IssueWorkflow
+        + Send
+        + Sync,
+{
+    fn search_issues<'a>(
+        &'a self,
+        query: &'a IssueQuery,
+    ) -> BoxFuture<'a, Result<Page<StoredIssue>, StorageError>> {
+        Box::pin(IssueReader::search_issues(self, query))
+    }
+
+    fn facets<'a>(&'a self, query: &'a IssueQuery) -> BoxFuture<'a, Result<IssueFacets, StorageError>> {
+        Box::pin(IssueFacetReader::facets(self, query))
+    }
+
+    fn bulk_transition(
+        &self,
+        issue_ids: Vec<i64>,
+        transition: IssueTransition,
+    ) -> BoxFuture<'_, Result<Vec<BulkOutcome>, StorageError>> {
+        Box::pin(async move { IssueBulkWorkflow::bulk_transition(self, &issue_ids, transition).await })
+    }
+
+    fn changelog(&self, issue_id: i64) -> BoxFuture<'_, Result<Vec<ChangelogEntry>, StorageError>> {
+        Box::pin(IssueChangelogReader::changelog(self, issue_id))
+    }
+
+    fn recent_hotspots(&self, limit: usize) -> BoxFuture<'_, Result<Vec<StoredHotspot>, StorageError>> {
+        Box::pin(HotspotReader::recent_hotspots(self, limit))
+    }
+
+    fn review_hotspot(
+        &self,
+        hotspot_id: i64,
+        status: HotspotStatus,
+    ) -> BoxFuture<'_, Result<StoredHotspot, WorkflowError>> {
+        Box::pin(HotspotReview::review_hotspot(self, hotspot_id, status))
+    }
+
+    fn fetch_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<StoredIssue, WorkflowError>> {
+        Box::pin(IssueFetcher::fetch_issue(self, issue_id))
+    }
+
+    fn apply_transition(
+        &self,
+        issue_id: i64,
+        transition: IssueTransition,
+    ) -> BoxFuture<'_, Result<StoredIssue, WorkflowError>> {
+        Box::pin(IssueWorkflow::apply_transition(self, issue_id, transition))
+    }
+
+    fn set_assignee(
+        &self,
+        issue_id: i64,
+        assignee: Option<String>,
+    ) -> BoxFuture<'_, Result<StoredIssue, WorkflowError>> {
+        Box::pin(IssueWorkflow::set_assignee(self, issue_id, assignee))
+    }
 }
 
 struct SecurityAddon;
@@ -102,8 +219,11 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "http://localhost:4566/000000000000/yunq-scan-jobs".to_string());
     let bind = std::env::var("YUNQ_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
 
-    let reader = PgIssueStorage::connect_lazy(&database_url)?;
-    let queue = SqsJobQueue::new(yunq_infra_sqs::sqs_client_from_env().await, queue_url);
+    let reader: Arc<dyn IssueApiStore> = Arc::new(PgIssueStorage::connect_lazy(&database_url)?);
+    let queue: Arc<dyn ScanQueuePort> = Arc::new(SqsJobQueue::new(
+        yunq_infra_sqs::sqs_client_from_env().await,
+        queue_url,
+    ));
     let state = Arc::new(AppState { queue, reader, metrics: metrics.clone(), webhooks, auth });
 
     let app = router
@@ -675,7 +795,7 @@ async fn bulk_transition_issues(
     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     let outcomes = state
         .reader
-        .bulk_transition(&request.issue_ids, transition)
+        .bulk_transition(request.issue_ids, transition)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
     Ok(Json(outcomes.iter().map(BulkOutcomeDto::from).collect()))

@@ -60,6 +60,8 @@ pub trait LlmProvider: Send + Sync {
 /// Outbound port: applies fix proposals in an isolated filesystem or worktree.
 pub trait Sandbox: Send + Sync {
     fn apply_proposal(&self, proposal: &FixProposal) -> Result<(), RemediationError>;
+    /// Read the modified source from the sandbox, never from the caller's checkout.
+    fn read_source(&self, file_path: &Path) -> Result<String, RemediationError>;
     fn rollback(&self) -> Result<(), RemediationError>;
 }
 
@@ -109,8 +111,8 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
         let proposal = self.provider.generate_fix(&prompt).await?;
         self.sandbox.apply_proposal(&proposal)?;
 
-        // Read modified source code after fix
-        let modified_source = match std::fs::read_to_string(file_path) {
+        // Read the modified source from the isolated worktree after applying the fix.
+        let modified_source = match self.sandbox.read_source(file_path) {
             Ok(s) => s,
             Err(e) => {
                 let _ = self.sandbox.rollback();
@@ -166,6 +168,9 @@ mod tests {
     impl Sandbox for DummySandbox {
         fn apply_proposal(&self, _proposal: &FixProposal) -> Result<(), RemediationError> {
             Ok(())
+        }
+        fn read_source(&self, _file_path: &Path) -> Result<String, RemediationError> {
+            Ok(String::new())
         }
         fn rollback(&self) -> Result<(), RemediationError> {
             Ok(())

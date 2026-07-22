@@ -79,6 +79,14 @@ pub trait IssueReader: Send + Sync {
     ) -> impl Future<Output = Result<Page<StoredIssue>, StorageError>> + Send;
 }
 
+/// Outbound port: loads one issue for a focused workflow such as agent remediation.
+pub trait IssueFetcher: Send + Sync {
+    fn fetch_issue(
+        &self,
+        issue_id: i64,
+    ) -> impl Future<Output = Result<StoredIssue, WorkflowError>> + Send;
+}
+
 /// Outbound port: aggregates issue counts per dimension for a filtered
 /// search — the sidebar facet counts a real Issues workspace needs.
 pub trait IssueFacetReader: Send + Sync {

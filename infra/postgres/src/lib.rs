@@ -9,7 +9,7 @@ use yunq_ast::Span;
 use yunq_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, Hotspot, HotspotReader, HotspotReview,
     HotspotStatus, HotspotStorage, Issue, IssueBulkWorkflow, IssueChangelogReader,
-    IssueFacetReader, IssueFacets, IssueQuery, IssueReader, IssueStatus, IssueStorage,
+    IssueFacetReader, IssueFacets, IssueFetcher, IssueQuery, IssueReader, IssueStatus, IssueStorage,
     IssueTransition, IssueWorkflow, Metrics, MetricsTracker, Page, Resolution, RuleId, Severity,
     StorageError, StoredHotspot, StoredIssue, WorkflowError,
 };
@@ -33,6 +33,12 @@ impl PgIssueStorage {
     /// Applies the embedded migrations (compiled in at build time).
     pub async fn migrate(&self) -> Result<(), StorageError> {
         sqlx::migrate!("./migrations").run(&self.pool).await.map_err(storage_err)
+    }
+}
+
+impl IssueFetcher for PgIssueStorage {
+    async fn fetch_issue(&self, issue_id: i64) -> Result<StoredIssue, WorkflowError> {
+        PgIssueStorage::fetch_issue(self, issue_id).await
     }
 }
 

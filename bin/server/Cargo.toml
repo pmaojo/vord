@@ -23,6 +23,7 @@ rand = { workspace = true }
 url = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
+futures = { workspace = true }
 hex = "0.4"
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }

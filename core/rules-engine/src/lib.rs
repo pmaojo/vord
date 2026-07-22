@@ -29,7 +29,7 @@ pub use project::{
 pub use ports::{
     AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotReader, HotspotReview,
     HotspotStorage, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueQuery,
-    IssueReader, IssueStorage, IssueWorkflow, JobQueue, MetricsTracker, Page, ParseError,
+    IssueFetcher, IssueReader, IssueStorage, IssueWorkflow, JobQueue, MetricsTracker, Page, ParseError,
     QueueError, StorageError, WorkflowError,
 };
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
