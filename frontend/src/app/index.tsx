@@ -33,7 +33,7 @@ export const AppRoot: React.FC = () => {
           {/* Technical Footer */}
           <footer className="bg-white border-t border-gray-200 px-6 py-2.5 h-10 flex items-center justify-between text-[11px] text-gray-500 select-none">
             <div className="flex items-center gap-4">
-              <span className="font-semibold text-[#233445]">SonarQube™ v10.2.1</span>
+              <span className="font-semibold text-[#233445]">yunq™ v0.1.1</span>
               <span className="text-gray-300">•</span>
               <span>Enterprise Edition</span>
             </div>

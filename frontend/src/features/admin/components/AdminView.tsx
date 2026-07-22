@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MOCK_SYSTEM_INFO } from '../../../testing/mock-data';
+import { fetchHealthStatus, fetchScimUsers, ScimUser } from '../../../lib/api';
 import {
   Server,
   Database,
@@ -30,26 +31,25 @@ export const AdminView: React.FC = () => {
   >('system');
 
   // AI Remediation Settings State
-  const [claudeApiKey, setClaudeApiKey] = useState('sk-ant-api03-••••••••••••••••••••');
+  const [llmBaseUrl, setLlmBaseUrl] = useState('http://localhost:11434/v1');
   const [sandboxEnabled, setSandboxEnabled] = useState(true);
   const [strictAiGates, setStrictAiGates] = useState(true);
   const [autoPrCreation, setAutoPrCreation] = useState(false);
 
-  // Users Directory
-  const users = [
-    { id: 1, name: 'Administrator', email: 'admin@yunq.enterprise', role: 'System Admin', lastLogin: '10 minutes ago' },
-    { id: 2, name: 'Alex Mercer', email: 'a.mercer@acme.com', role: 'Project Administrator', lastLogin: '2 hours ago' },
-    { id: 3, name: 'Sarah Connor', email: 's.connor@yunq.org', role: 'Quality Gate Admin', lastLogin: '1 day ago' },
-    { id: 4, name: 'David Miller', email: 'd.miller@enterprise.io', role: 'Developer User', lastLogin: '3 days ago' },
-  ];
+  // System status & SCIM Users from API
+  const [healthStatus, setHealthStatus] = useState<string>('HEALTHY');
+  const [usersList, setUsersList] = useState<ScimUser[]>([]);
+  const [tasksList, setTasksList] = useState<Array<{ id: string; type: string; project: string; status: string; submitted: string; duration: string }>>([]);
 
-  // Background Tasks
-  const tasks = [
-    { id: 'AX9021', type: 'REPORT_ANALYSIS', project: 'payment-gateway-service', status: 'SUCCESS', submitted: '12 minutes ago', duration: '14s' },
-    { id: 'AX9022', type: 'TAINT_SCAN_JOB', project: 'auth-identity-provider', status: 'SUCCESS', submitted: '45 minutes ago', duration: '18s' },
-    { id: 'AX9023', type: 'AI_REMEDIATION_SANDBOX', project: 'analytics-pipeline', status: 'SUCCESS', submitted: '1 hour ago', duration: '32s' },
-    { id: 'AX9024', type: 'MAINTENANCE_PURGE', project: 'SYSTEM', status: 'SUCCESS', submitted: '1 day ago', duration: '2m 10s' },
-  ];
+  useEffect(() => {
+    fetchHealthStatus()
+      .then(() => setHealthStatus('HEALTHY'))
+      .catch(() => setHealthStatus('INITIALIZING'));
+
+    fetchScimUsers()
+      .then((users) => setUsersList(users))
+      .catch(() => setUsersList([]));
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
@@ -210,20 +210,28 @@ export const AdminView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-xs font-medium">
-                  {tasks.map((task) => (
-                    <tr key={task.id} className="hover:bg-slate-50">
-                      <td className="py-2.5 px-4 font-mono font-bold text-[#233445]">{task.id}</td>
-                      <td className="py-2.5 px-4 font-mono text-gray-600">{task.type}</td>
-                      <td className="py-2.5 px-4 font-bold text-slate-800">{task.project}</td>
-                      <td className="py-2.5 px-4">
-                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded">
-                          {task.status}
-                        </span>
+                  {tasksList.length > 0 ? (
+                    tasksList.map((task) => (
+                      <tr key={task.id} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-4 font-mono font-bold text-[#233445]">{task.id}</td>
+                        <td className="py-2.5 px-4 font-mono text-gray-600">{task.type}</td>
+                        <td className="py-2.5 px-4 font-bold text-slate-800">{task.project}</td>
+                        <td className="py-2.5 px-4">
+                          <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded">
+                            {task.status}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 text-gray-500">{task.submitted}</td>
+                        <td className="py-2.5 px-4 text-right font-mono text-slate-700">{task.duration}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-gray-400 font-mono text-xs">
+                        No active background execution queue jobs. Submit a scan via POST /scans or `yunq scan`.
                       </td>
-                      <td className="py-2.5 px-4 text-gray-500">{task.submitted}</td>
-                      <td className="py-2.5 px-4 text-right font-mono text-slate-700">{task.duration}</td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -496,18 +504,26 @@ export const AdminView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs font-medium">
-                {users.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50">
-                    <td className="py-2.5 px-4 font-bold text-[#233445]">{u.name}</td>
-                    <td className="py-2.5 px-4 text-gray-600 font-mono">{u.email}</td>
-                    <td className="py-2.5 px-4">
-                      <span className="bg-sky-50 text-[#4b9fd5] border border-sky-200 text-[10px] font-bold px-2 py-0.5 rounded">
-                        {u.role}
-                      </span>
+                {usersList.length > 0 ? (
+                  usersList.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50">
+                      <td className="py-2.5 px-4 font-bold text-[#233445]">{u.displayName || u.userName}</td>
+                      <td className="py-2.5 px-4 text-gray-600 font-mono">{u.userName}</td>
+                      <td className="py-2.5 px-4">
+                        <span className="bg-sky-50 text-[#4b9fd5] border border-sky-200 text-[10px] font-bold px-2 py-0.5 rounded">
+                          {u.active ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right text-gray-500">SCIM Synced</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-gray-400 font-mono text-xs">
+                      No users provisioned via SCIM directory yet. Send requests to /scim/v2/Users to sync team members.
                     </td>
-                    <td className="py-2.5 px-4 text-right text-gray-500">{u.lastLogin}</td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>

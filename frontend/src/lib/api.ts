@@ -102,3 +102,40 @@ export async function downloadOwaspPdfReport(): Promise<Blob> {
   }
   return await res.blob();
 }
+
+export interface ApiProjectItem {
+  key: string;
+  name: string;
+  quality_gate_status: string;
+  health_score: number;
+  lines_of_code: number;
+  issues_count: number;
+  last_analysis_date: string;
+}
+
+export async function fetchProjectsFromApi(): Promise<ApiProjectItem[]> {
+  const res = await fetch(`${API_BASE_URL}/projects`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch projects: ${res.statusText}`);
+  }
+  const data = await res.json();
+  return data.projects || [];
+}
+
+export interface ScimUser {
+  id: string;
+  userName: string;
+  displayName: string;
+  active: boolean;
+}
+
+export async function fetchScimUsers(): Promise<ScimUser[]> {
+  try {
+    const res = await fetch('/scim/v2/Users');
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.resources || [];
+  } catch (err) {
+    return [];
+  }
+}

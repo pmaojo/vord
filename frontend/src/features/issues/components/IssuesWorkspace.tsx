@@ -21,12 +21,12 @@ export const IssuesWorkspace: React.FC = () => {
     project ? project.branches.find((b) => b.isMain)?.name || 'main' : 'main'
   );
 
-  const [issuesList, setIssuesList] = useState<Issue[]>(MOCK_ISSUES);
+  const [issuesList, setIssuesList] = useState<Issue[]>([]);
 
   useEffect(() => {
     fetchIssuesFromApi()
       .then((data) => {
-        if (data && data.items && data.items.length > 0) {
+        if (data && data.items) {
           const apiMapped: Issue[] = data.items.map((item) => ({
             id: item.id.toString(),
             key: `ISSUE-${item.id}`,
@@ -51,7 +51,7 @@ export const IssuesWorkspace: React.FC = () => {
         }
       })
       .catch(() => {
-        // Fallback to initial dataset if server is initializing
+        setIssuesList([]);
       });
   }, [decodedProjectKey]);
 
