@@ -121,6 +121,10 @@ cargo run -p yunq-cli -- scan fixtures --format json
 cargo run -p yunq-cli -- scan fixtures --fail-on critical      # exit 2 on severity breach
 cargo run -p yunq-cli -- scan fixtures --enforce-gate          # exit 3 on quality gate failure
 cargo run -p yunq-cli -- scan fixtures --coverage report.lcov  # ingest LCOV coverage
+cargo run -p yunq-cli -- scan fixtures --cobertura report.xml # ingest Cobertura XML coverage
+cargo run -p yunq-cli -- scan fixtures --jacoco report.xml    # ingest JaCoCo XML coverage
+cargo run -p yunq-cli -- scan fixtures --llvm-cov report.json # ingest llvm-cov JSON coverage
+cargo run -p yunq-cli -- scan fixtures --junit report.xml     # ingest JUnit test report
 ```
 
 Example output:
