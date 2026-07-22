@@ -43,9 +43,13 @@ re-analysis on typical PRs.
 ## Phase 2 — Analysis engine: full detection surface
 
 - **Languages** (each a `parsers/treesitter-*` crate; zero engine changes):
-  Python, Java, Go, C/C++, C#, JavaScript (beyond TS), PHP, Ruby, Kotlin,
-  Swift, Scala, HTML/CSS, XML/JSON/YAML, Terraform/CloudFormation/K8s (IaC),
-  Dockerfile, shell. Prioritized by user demand; the roster is open-ended.
+  ✅ Roster complete — TypeScript (covers plain JS/JSX too), Rust, Python,
+  Java, Go, C, C++, PHP, Dockerfile, C#, Ruby, Kotlin (via the maintained
+  `tree-sitter-kotlin-ng` grammar), Swift, Scala, HTML, CSS, XML, JSON,
+  YAML (also covers CloudFormation/K8s manifests, which are just
+  YAML/JSON), HCL/Terraform, Bash/shell — all registered in
+  `bin/cli/src/lib.rs::default_service`. Roster stays open-ended for
+  further user-demand additions (e.g. Groovy, Lua, Elixir).
 - **Rule catalog at scale**: port the high-value Sonar rules per language;
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.
