@@ -3654,6 +3654,7 @@ name = "yunq-rules-smells"
 version = "0.1.0"
 dependencies = [
  "yunq-ast",
+ "yunq-parser-python",
  "yunq-parser-rust",
  "yunq-parser-typescript",
  "yunq-rules-engine",
