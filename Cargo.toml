@@ -18,6 +18,11 @@ yunq-parser-typescript = { path = "parsers/treesitter-typescript" }
 yunq-parser-rust = { path = "parsers/treesitter-rust" }
 yunq-parser-python = { path = "parsers/treesitter-python" }
 yunq-parser-go = { path = "parsers/treesitter-go" }
+yunq-parser-java = { path = "parsers/treesitter-java" }
+yunq-parser-c = { path = "parsers/treesitter-c" }
+yunq-parser-cpp = { path = "parsers/treesitter-cpp" }
+yunq-parser-php = { path = "parsers/treesitter-php" }
+yunq-parser-dockerfile = { path = "parsers/treesitter-dockerfile" }
 yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }
@@ -27,6 +32,9 @@ yunq-infra-fs = { path = "infra/fs" }
 yunq-infra-postgres = { path = "infra/postgres" }
 yunq-infra-sqs = { path = "infra/sqs" }
 yunq-infra-github = { path = "infra/github" }
+yunq-infra-gitlab = { path = "infra/gitlab" }
+yunq-infra-azure = { path = "infra/azure" }
+yunq-infra-pdf = { path = "infra/pdf" }
 yunq-remediation = { path = "core/remediation" }
 yunq-infra-llm = { path = "infra/llm" }
 
@@ -35,7 +43,7 @@ thiserror = "2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "sync", "time"] }
 futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
@@ -53,3 +61,7 @@ utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 tower-lsp = "0.20"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rand = "0.8"
+url = "2"
+hmac = "0.12"
+sha2 = "0.10"

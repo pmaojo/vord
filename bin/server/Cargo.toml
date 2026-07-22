@@ -11,10 +11,19 @@ yunq-rules-owasp = { workspace = true }
 yunq-rules-smells = { workspace = true }
 yunq-infra-postgres = { workspace = true }
 yunq-infra-sqs = { workspace = true }
+yunq-remediation = { workspace = true }
+yunq-infra-llm = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+url = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 utoipa-swagger-ui = { workspace = true }

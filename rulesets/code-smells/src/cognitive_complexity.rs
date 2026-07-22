@@ -54,6 +54,12 @@ impl Default for CognitiveComplexityRule {
     }
 }
 
+const BOOLEAN_OPS: &[&str] = &[
+    "binary_expression",
+    "boolean_operator",
+    "logical_expression",
+];
+
 fn score(node: &AstNode, nesting: u32) -> u32 {
     node.children()
         .iter()
@@ -62,14 +68,23 @@ fn score(node: &AstNode, nesting: u32) -> u32 {
             if *child.kind() == NodeKind::FunctionDef {
                 return 0;
             }
+            let is_bool_op = match child.kind() {
+                NodeKind::Other(kind) if BOOLEAN_OPS.contains(&kind.as_str()) => {
+                    let text = child.text();
+                    text.contains("&&") || text.contains("||") || text.contains(" and ") || text.contains(" or ")
+                }
+                _ => false,
+            };
+            let bool_cost = if is_bool_op { 1 } else { 0 };
+
             match child.kind() {
                 NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => {
-                    1 + score(child, nesting)
+                    1 + bool_cost + score(child, nesting)
                 }
                 NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_str()) => {
-                    (1 + nesting) + score(child, nesting + 1)
+                    (1 + nesting) + bool_cost + score(child, nesting + 1)
                 }
-                _ => score(child, nesting),
+                _ => bool_cost + score(child, nesting),
             }
         })
         .sum()

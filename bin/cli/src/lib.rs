@@ -8,7 +8,12 @@ use std::sync::Arc;
 
 use yunq_infra_fs::FileAnalysisCache;
 use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
+use yunq_parser_c::CParser;
+use yunq_parser_cpp::CppParser;
+use yunq_parser_dockerfile::DockerfileParser;
 use yunq_parser_go::GoParser;
+use yunq_parser_java::JavaParser;
+use yunq_parser_php::PhpParser;
 use yunq_parser_python::PythonParser;
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
@@ -43,7 +48,12 @@ where
         .register_parser(Box::new(TypeScriptParser::new()))
         .register_parser(Box::new(RustParser::new()))
         .register_parser(Box::new(PythonParser::new()))
-        .register_parser(Box::new(GoParser::new()));
+        .register_parser(Box::new(GoParser::new()))
+        .register_parser(Box::new(JavaParser::new()))
+        .register_parser(Box::new(CParser::new()))
+        .register_parser(Box::new(CppParser::new()))
+        .register_parser(Box::new(PhpParser::new()))
+        .register_parser(Box::new(DockerfileParser::new()));
     for rule in rules {
         service = service.register_rule(rule);
     }

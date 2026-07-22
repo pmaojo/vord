@@ -312,7 +312,7 @@ impl HotspotReview for PgIssueStorage {
 }
 
 impl PgIssueStorage {
-    async fn fetch_issue(&self, issue_id: i64) -> Result<StoredIssue, WorkflowError> {
+    pub async fn fetch_issue(&self, issue_id: i64) -> Result<StoredIssue, WorkflowError> {
         let row = sqlx::query(&format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE id = $1"))
             .bind(issue_id)
             .fetch_optional(&self.pool)

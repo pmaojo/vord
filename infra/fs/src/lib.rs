@@ -4,11 +4,19 @@
 
 mod baseline;
 mod cache;
+mod cobertura;
+mod jacoco;
+mod junit;
 mod lcov;
+mod llvm_cov;
 
 pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
+pub use cobertura::{CoberturaError, parse_cobertura};
+pub use jacoco::{JacocoError, parse_jacoco};
+pub use junit::{JunitError, TestReportSummary, parse_junit};
 pub use lcov::{LcovError, parse_lcov};
+pub use llvm_cov::{LlvmCovError, parse_llvm_cov};
 
 use std::io::ErrorKind;
 use std::path::Path;

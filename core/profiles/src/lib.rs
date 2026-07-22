@@ -140,6 +140,10 @@ impl QualityProfile {
             .or_else(|| self.parent.as_ref().and_then(|p| p.severity_of(rule)))
     }
 
+    pub fn deactivate(&mut self, rule: &RuleId) {
+        self.activations.remove(rule);
+    }
+
     /// This profile's own activations (excluding inherited ones) — the data
     /// an adapter serializes for backup/restore.
     pub fn own_activations(&self) -> impl Iterator<Item = (&RuleId, Severity)> {

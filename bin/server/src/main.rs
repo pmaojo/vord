@@ -3,11 +3,12 @@
 //!
 //! The OpenAPI contract lives here, at the adapter boundary: the serde DTOs
 //! below carry utoipa schema derives, and the generated OpenAPI 3.1 document
-//! is served at `GET /api-docs/openapi.json` (Swagger UI at `/swagger-ui`)
+//! is served at `GET /api-docs/openapi.json` (Swagger UI at `/api-docs`)
 //! for frontend client codegen. Domain types stay serde-free.
 //!
 //! Env: `DATABASE_URL`, `YUNQ_QUEUE_URL`, `YUNQ_AWS_ENDPOINT_URL` (emulator),
-//! `YUNQ_BIND` (default 0.0.0.0:8080).
+//! `YUNQ_BIND` (default 0.0.0.0:8080), OAuth and webhook settings documented
+//! in the project README.
 
 use std::sync::Arc;
 
@@ -16,7 +17,8 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
+use utoipa::{IntoParams, Modify, OpenApi, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
@@ -29,16 +31,35 @@ use yunq_rules_engine::{
     StoredHotspot, StoredIssue, WorkflowError,
 };
 
+mod auth;
+mod metrics;
+mod webhooks;
+
 struct AppState {
     queue: SqsJobQueue,
     reader: PgIssueStorage,
+    metrics: metrics::Metrics,
+    webhooks: webhooks::WebhookDispatcher,
+    auth: auth::OAuthService,
+}
+
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi.components.get_or_insert_default();
+        components.add_security_scheme(
+            "bearer_auth",
+            SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer)),
+        );
+    }
 }
 
 #[derive(OpenApi)]
 #[openapi(info(
     title = "yunq API",
-    description = "Static analysis platform: enqueue scans, read issues."
-))]
+    description = "Static analysis platform: REST API, OAuth, signed webhooks and operational metrics."
+), modifiers(&SecurityAddon))]
 struct ApiDoc;
 
 #[tokio::main]
@@ -48,11 +69,20 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(list_issues))
         .routes(routes!(transition_issue))
         .routes(routes!(assign_issue))
+        .routes(routes!(assign_to_agent))
         .routes(routes!(bulk_transition_issues))
         .routes(routes!(issue_changelog))
         .routes(routes!(list_hotspots))
         .routes(routes!(review_hotspot))
         .routes(routes!(list_rules))
+        .routes(routes!(metrics::prometheus_metrics))
+        .routes(routes!(auth::oauth_login))
+        .routes(routes!(auth::oauth_callback))
+        .routes(routes!(auth::current_user))
+        .routes(routes!(webhooks::create_webhook))
+        .routes(routes!(webhooks::list_webhooks))
+        .routes(routes!(webhooks::dispatch_webhook))
+        .routes(routes!(webhooks::webhook_delivery_log))
         .split_for_parts();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
@@ -62,6 +92,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let metrics = metrics::Metrics::new();
+    let webhooks = webhooks::WebhookDispatcher::from_env(metrics.clone())?;
+    let auth = auth::OAuthService::from_env()?;
+
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
     let queue_url = std::env::var("YUNQ_QUEUE_URL")
@@ -70,11 +104,12 @@ async fn main() -> anyhow::Result<()> {
 
     let reader = PgIssueStorage::connect_lazy(&database_url)?;
     let queue = SqsJobQueue::new(yunq_infra_sqs::sqs_client_from_env().await, queue_url);
-    let state = Arc::new(AppState { queue, reader });
+    let state = Arc::new(AppState { queue, reader, metrics: metrics.clone(), webhooks, auth });
 
     let app = router
         .route("/health", get(|| async { "ok" }))
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api))
+        .layer(axum::middleware::from_fn_with_state(metrics, metrics::track_request))
+        .merge(SwaggerUi::new("/api-docs").url("/api-docs/openapi.json", api))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&bind).await?;
@@ -527,6 +562,61 @@ async fn assign_issue(
         .await
         .map_err(workflow_error_response)?;
     Ok(Json(IssueDto::from(&stored)))
+}
+
+#[derive(Serialize, ToSchema)]
+struct AgentFixProposalDto {
+    issue_id: i64,
+    modified_code: String,
+    explanation: String,
+}
+
+/// Assign an issue to the AI Remediation Agent to automatically generate a verified fix.
+#[utoipa::path(
+    post,
+    path = "/api/issues/{id}/assign-to-agent",
+    params(("id" = i64, Path, description = "Issue id")),
+    responses(
+        (status = 200, description = "AI Remediation Agent proposal generated", body = AgentFixProposalDto),
+        (status = 404, description = "Issue not found")
+    )
+)]
+async fn assign_to_agent(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<Json<AgentFixProposalDto>, (StatusCode, String)> {
+    let issue = state
+        .reader
+        .fetch_issue(id)
+        .await
+        .map_err(workflow_error_response)?;
+
+    let base_url = std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    let api_key = std::env::var("YUNQ_LLM_API_KEY").unwrap_or_default();
+    let model_name = std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string());
+
+    let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key);
+    let prompt = yunq_remediation::FixPrompt {
+        rule_id: issue.issue.rule().as_str().to_string(),
+        issue_message: issue.issue.message().to_string(),
+        file_path: std::path::PathBuf::from(issue.issue.file()),
+        start_line: issue.issue.span().start_line as usize,
+        end_line: issue.issue.span().end_line as usize,
+        source_snippet: String::new(),
+        full_source: String::new(),
+    };
+
+    let proposal = yunq_remediation::LlmProvider::generate_fix(&adapter, &prompt)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Remediation Agent error: {e}")))?;
+
+    let _ = state.reader.set_assignee(id, Some("yunq-ai-agent".to_string())).await;
+
+    Ok(Json(AgentFixProposalDto {
+        issue_id: id,
+        modified_code: proposal.replacement_snippet,
+        explanation: proposal.explanation,
+    }))
 }
 
 #[derive(Deserialize, ToSchema)]

@@ -15,7 +15,8 @@ impl LanguageIdentifier {
     pub fn new(raw: &str) -> Result<Self, UnsupportedLanguageError> {
         let normalized = raw.to_ascii_lowercase();
         match normalized.as_str() {
-            "rust" | "typescript" | "python" | "go" => Ok(Self(normalized)),
+            "rust" | "typescript" | "python" | "go" | "java" | "c" | "cpp" | "php" | "dockerfile"
+            | "yaml" | "json" => Ok(Self(normalized)),
             _ => Err(UnsupportedLanguageError(raw.to_string())),
         }
     }
@@ -36,13 +37,48 @@ impl LanguageIdentifier {
         Self("go".to_string())
     }
 
+    pub fn java() -> Self {
+        Self("java".to_string())
+    }
+
+    pub fn c() -> Self {
+        Self("c".to_string())
+    }
+
+    pub fn cpp() -> Self {
+        Self("cpp".to_string())
+    }
+
+    pub fn php() -> Self {
+        Self("php".to_string())
+    }
+
+    pub fn dockerfile() -> Self {
+        Self("dockerfile".to_string())
+    }
+
+    pub fn yaml() -> Self {
+        Self("yaml".to_string())
+    }
+
+    pub fn json() -> Self {
+        Self("json".to_string())
+    }
+
     /// Maps a file extension to its language, if the extension is supported.
     pub fn from_extension(extension: &str) -> Option<Self> {
-        match extension {
+        match extension.to_ascii_lowercase().as_str() {
             "rs" => Some(Self::rust()),
-            "ts" | "tsx" => Some(Self::typescript()),
+            "ts" | "tsx" | "js" | "jsx" => Some(Self::typescript()),
             "py" => Some(Self::python()),
             "go" => Some(Self::go()),
+            "java" => Some(Self::java()),
+            "c" | "h" => Some(Self::c()),
+            "cpp" | "cc" | "cxx" | "hpp" | "hh" => Some(Self::cpp()),
+            "php" => Some(Self::php()),
+            "dockerfile" | "docker" => Some(Self::dockerfile()),
+            "yaml" | "yml" => Some(Self::yaml()),
+            "json" => Some(Self::json()),
             _ => None,
         }
     }

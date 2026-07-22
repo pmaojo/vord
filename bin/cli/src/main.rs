@@ -48,6 +48,17 @@ enum Command {
         #[arg(long)]
         github_repo: Option<String>,
     },
+    /// Generate an AI remediation fix for a target issue or file.
+    Fix {
+        /// File path containing the issue to fix.
+        path: PathBuf,
+        /// Issue ID / Rule ID to propose a fix for.
+        #[arg(long)]
+        issue: String,
+        /// Model name for OpenAI-compatible LLM endpoint (e.g. gpt-4o, ollama/llama3).
+        #[arg(long)]
+        model: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -169,13 +180,45 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             let breached = threshold
                 .zip(report.max_severity())
                 .is_some_and(|(threshold, max)| max >= threshold);
-            Ok(if breached {
-                ExitCode::from(2)
-            } else if enforce_gate && gate.status() == yunq_rules_engine::GateStatus::Failed {
-                ExitCode::from(3)
+
+            let gate_failed = enforce_gate && gate.status() == yunq_rules_engine::GateStatus::Failed;
+
+            if breached || gate_failed {
+                Ok(ExitCode::from(3))
             } else {
-                ExitCode::SUCCESS
-            })
+                Ok(ExitCode::SUCCESS)
+            }
+        }
+        Command::Fix { path, issue, model } => {
+            println!("🤖 Requesting AI remediation for issue '{issue}' in {}...", path.display());
+            let base_url = std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+            let api_key = std::env::var("YUNQ_LLM_API_KEY").ok();
+            let model_name = model.unwrap_or_else(|| std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string()));
+
+            let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key.unwrap_or_default());
+            let code = std::fs::read_to_string(&path).unwrap_or_default();
+            let prompt = yunq_remediation::FixPrompt {
+                rule_id: issue,
+                issue_message: "Static analysis rule violation".to_string(),
+                file_path: path,
+                start_line: 1,
+                end_line: 100,
+                source_snippet: code.clone(),
+                full_source: code,
+            };
+
+            match futures::executor::block_on(yunq_remediation::LlmProvider::generate_fix(&adapter, &prompt)) {
+                Ok(proposal) => {
+                    println!("\n💡 Proposed Remediation Fix:\n");
+                    println!("{}", proposal.replacement_snippet);
+                    println!("\nExplanation: {}", proposal.explanation);
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(e) => {
+                    eprintln!("❌ Remediation generation failed: {e}");
+                    Ok(ExitCode::FAILURE)
+                }
+            }
         }
     }
 }

@@ -1,0 +1,23 @@
+name: 'yunq Static Analysis'
+description: 'Fast, language-agnostic static analysis with Clean as You Code quality model'
+author: 'DeepMind / Antigravity'
+inputs:
+  github-token:
+    description: 'GitHub Token for posting commit status & PR comments'
+    required: false
+    default: '${{ github.token }}'
+  commit-sha:
+    description: 'Commit SHA to attach analysis status to'
+    required: false
+    default: '${{ github.sha }}'
+  repository:
+    description: 'GitHub repository (owner/repo)'
+    required: false
+    default: '${{ github.repository }}'
+runs:
+  using: 'composite'
+  steps:
+    - name: Run yunq Analysis
+      shell: bash
+      run: |
+        cargo run --bin yunq scan --commit-sha "${{ inputs.commit-sha }}" --github-token "${{ inputs.github-token }}" --github-repo "${{ inputs.repository }}"
