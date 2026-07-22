@@ -1,0 +1,14 @@
+[package]
+name = "yunq-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-ast = { workspace = true }
+yunq-rules-engine = { workspace = true }
+yunq-cli = { workspace = true }
+yunq-infra-memory = { workspace = true }
+tower-lsp = "0.20"
+tokio = { workspace = true, features = ["io-std"] }

@@ -22,6 +22,7 @@ yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }
 yunq-infra-memory = { path = "infra/memory" }
+yunq-cli = { path = "bin/cli" }
 yunq-infra-fs = { path = "infra/fs" }
 yunq-infra-postgres = { path = "infra/postgres" }
 yunq-infra-sqs = { path = "infra/sqs" }
@@ -47,3 +48,4 @@ aws-sdk-sqs = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
+tower-lsp = "0.20"
