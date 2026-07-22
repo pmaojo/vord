@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 yunq-rules-engine = { workspace = true }
+yunq-remediation = { workspace = true }
 
 [dev-dependencies]
 yunq-ast = { workspace = true }

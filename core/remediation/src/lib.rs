@@ -162,19 +162,253 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
+    use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, Span};
+    use yunq_rules_engine::{
+        AstParser, Finding, ParseError, QualityProfile, Rule, RuleId, RuleMetadata, Severity,
+        StorageError,
+    };
+
     use super::*;
 
-    #[allow(dead_code)]
-    pub struct DummySandbox;
-    impl Sandbox for DummySandbox {
-        fn apply_proposal(&self, _proposal: &FixProposal) -> Result<(), RemediationError> {
+    /// Fires whenever `marker` appears anywhere in the file's source text —
+    /// good enough to drive the verify-before-suggest loop without needing
+    /// a real language grammar.
+    struct MarkerRule {
+        id: RuleId,
+        marker: &'static str,
+    }
+
+    impl Rule for MarkerRule {
+        fn id(&self) -> &RuleId {
+            &self.id
+        }
+
+        fn applies_to(&self, _language: &LanguageIdentifier) -> bool {
+            true
+        }
+
+        fn default_severity(&self) -> Severity {
+            Severity::Major
+        }
+
+        fn metadata(&self) -> RuleMetadata {
+            RuleMetadata {
+                description: "test marker rule".into(),
+                tags: vec![],
+                cwe: None,
+                produces_hotspots: false,
+            }
+        }
+
+        fn check(&self, file: &yunq_ast::SourceFile, _ast: &AstNode) -> Vec<Finding> {
+            if file.content().contains(self.marker) {
+                vec![Finding::new(format!("found {}", self.marker), Span::new(1, 1, 1, 1))]
+            } else {
+                vec![]
+            }
+        }
+    }
+
+    /// No-op parser: wraps the whole file in a single leaf node, since these
+    /// tests only need `Rule::check` to see the raw source text.
+    struct IdentityParser;
+
+    impl AstParser for IdentityParser {
+        fn language(&self) -> LanguageIdentifier {
+            LanguageIdentifier::rust()
+        }
+
+        fn parse(&self, file: &yunq_ast::SourceFile) -> Result<AstNode, ParseError> {
+            Ok(AstNode::new(NodeKind::Other("root".to_string()), Span::new(1, 1, 1, 1), file.content().to_string(), vec![]))
+        }
+    }
+
+    #[derive(Default)]
+    struct NoopStorage;
+
+    impl yunq_rules_engine::IssueStorage for NoopStorage {
+        async fn save_issues(&self, _issues: &[Issue]) -> Result<(), StorageError> {
             Ok(())
         }
+    }
+
+    impl yunq_rules_engine::HotspotStorage for NoopStorage {
+        async fn save_hotspots(&self, _hotspots: &[yunq_rules_engine::Hotspot]) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct NoopMetrics;
+
+    impl yunq_rules_engine::MetricsTracker for NoopMetrics {
+        async fn record(&self, _metrics: &yunq_rules_engine::Metrics) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
+    fn analyzer_with_marker_rules(
+        rules: Vec<(&'static str, Severity)>,
+    ) -> AnalyzerService<NoopStorage, NoopMetrics> {
+        let activations: Vec<(RuleId, Severity)> = rules
+            .iter()
+            .map(|(marker, severity)| (RuleId::new(&format!("test:{marker}")).unwrap(), *severity))
+            .collect();
+        let profile = QualityProfile::from_activations("test", activations);
+        let mut service = AnalyzerService::new(profile, NoopStorage, NoopMetrics)
+            .register_parser(Box::new(IdentityParser));
+        for (marker, _) in rules {
+            service = service.register_rule(Box::new(MarkerRule {
+                id: RuleId::new(&format!("test:{marker}")).unwrap(),
+                marker,
+            }));
+        }
+        service
+    }
+
+    fn issue_for(rule: &str, file: &str) -> Issue {
+        Issue::new(RuleId::new(rule).unwrap(), Severity::Major, "test issue", file, Span::new(1, 1, 1, 1))
+    }
+
+    /// Fake `Sandbox`: an in-memory single file, with the same exact-once
+    /// snippet-replace semantics as the real filesystem adapters, so it
+    /// exercises `attempt_remediation`'s actual apply/read/rollback calls
+    /// rather than trivially no-opping them.
+    struct FakeSandbox {
+        original: String,
+        current: Mutex<String>,
+    }
+
+    impl FakeSandbox {
+        fn new(content: impl Into<String>) -> Self {
+            let content = content.into();
+            Self { original: content.clone(), current: Mutex::new(content) }
+        }
+    }
+
+    impl Sandbox for FakeSandbox {
+        fn apply_proposal(&self, proposal: &FixProposal) -> Result<(), RemediationError> {
+            let mut current = self.current.lock().unwrap();
+            *current = current.replacen(&proposal.original_snippet, &proposal.replacement_snippet, 1);
+            Ok(())
+        }
+
         fn read_source(&self, _file_path: &Path) -> Result<String, RemediationError> {
-            Ok(String::new())
+            Ok(self.current.lock().unwrap().clone())
         }
+
         fn rollback(&self) -> Result<(), RemediationError> {
+            *self.current.lock().unwrap() = self.original.clone();
             Ok(())
+        }
+    }
+
+    struct FakeLlmProvider {
+        proposal: FixProposal,
+    }
+
+    impl LlmProvider for FakeLlmProvider {
+        async fn generate_fix(&self, _prompt: &FixPrompt) -> Result<FixProposal, LlmError> {
+            Ok(self.proposal.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn accepts_a_fix_that_resolves_the_issue_without_regressions() {
+        let analyzer = analyzer_with_marker_rules(vec![("dangerous", Severity::Major)]);
+        let issue = issue_for("test:dangerous", "src/lib.rs");
+        let source = "fn run() {\n    dangerous_call();\n}\n";
+        let sandbox = FakeSandbox::new(source);
+        let provider = FakeLlmProvider {
+            proposal: FixProposal {
+                file_path: PathBuf::from("src/lib.rs"),
+                explanation: "removed the dangerous call".to_string(),
+                original_snippet: "dangerous_call();".to_string(),
+                replacement_snippet: "safe_call();".to_string(),
+            },
+        };
+        let engine = RemediationEngine::new(provider, sandbox);
+
+        let verdict = engine
+            .attempt_remediation(&issue, Path::new("src/lib.rs"), source, &analyzer)
+            .await
+            .unwrap();
+
+        match verdict {
+            RemediationVerdict::Accepted { proposal } => {
+                assert_eq!(proposal.replacement_snippet, "safe_call();");
+            }
+            RemediationVerdict::Rejected { reason } => panic!("expected acceptance, got: {reason}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_and_rolls_back_when_the_original_issue_persists() {
+        let analyzer = analyzer_with_marker_rules(vec![("dangerous", Severity::Major)]);
+        let issue = issue_for("test:dangerous", "src/lib.rs");
+        let source = "fn run() {\n    dangerous_call();\n}\n";
+        let sandbox = FakeSandbox::new(source);
+        // The "fix" is a no-op rename that still contains the marker text.
+        let provider = FakeLlmProvider {
+            proposal: FixProposal {
+                file_path: PathBuf::from("src/lib.rs"),
+                explanation: "no-op".to_string(),
+                original_snippet: "dangerous_call();".to_string(),
+                replacement_snippet: "dangerous_call(/* still bad */);".to_string(),
+            },
+        };
+        let engine = RemediationEngine::new(provider, sandbox);
+
+        let verdict = engine
+            .attempt_remediation(&issue, Path::new("src/lib.rs"), source, &analyzer)
+            .await
+            .unwrap();
+
+        match verdict {
+            RemediationVerdict::Rejected { reason } => {
+                assert!(reason.contains("still detected"), "unexpected reason: {reason}");
+            }
+            RemediationVerdict::Accepted { .. } => panic!("expected rejection"),
+        }
+        // Verified end-to-end: the sandbox itself rolled back to the original.
+        assert_eq!(
+            engine.sandbox.read_source(Path::new("src/lib.rs")).unwrap(),
+            source
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_a_fix_that_introduces_a_regression() {
+        let analyzer = analyzer_with_marker_rules(vec![
+            ("dangerous", Severity::Major),
+            ("leftover", Severity::Minor),
+        ]);
+        let issue = issue_for("test:dangerous", "src/lib.rs");
+        let source = "fn run() {\n    dangerous_call();\n}\n";
+        let sandbox = FakeSandbox::new(source);
+        // Resolves the target issue but introduces a different one.
+        let provider = FakeLlmProvider {
+            proposal: FixProposal {
+                file_path: PathBuf::from("src/lib.rs"),
+                explanation: "swapped one problem for another".to_string(),
+                original_snippet: "dangerous_call();".to_string(),
+                replacement_snippet: "leftover_call();".to_string(),
+            },
+        };
+        let engine = RemediationEngine::new(provider, sandbox);
+
+        let verdict = engine
+            .attempt_remediation(&issue, Path::new("src/lib.rs"), source, &analyzer)
+            .await
+            .unwrap();
+
+        match verdict {
+            RemediationVerdict::Rejected { reason } => {
+                assert!(reason.contains("regression"), "unexpected reason: {reason}");
+            }
+            RemediationVerdict::Accepted { .. } => panic!("expected rejection"),
         }
     }
 }
