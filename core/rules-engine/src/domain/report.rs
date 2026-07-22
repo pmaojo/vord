@@ -202,8 +202,15 @@ impl AnalysisReport {
         self.issues.iter().map(Issue::severity).max()
     }
 
+    /// Maintainability rating (A–E) from the technical debt ratio —
+    /// SonarQube's SQALE model, not the worst severity present.
     pub fn rating(&self) -> Rating {
-        Rating::from_worst_severity(self.max_severity())
+        let ratio = yunq_profiles::debt_ratio(
+            self.metrics.debt_minutes() as f64,
+            self.metrics.lines_of_code() as f64,
+            yunq_profiles::DEFAULT_DEV_COST_MINUTES_PER_LINE,
+        );
+        Rating::from_debt_ratio(ratio)
     }
 
     pub fn health_score(&self) -> u32 {

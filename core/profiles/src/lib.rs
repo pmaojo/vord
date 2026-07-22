@@ -9,7 +9,7 @@ pub use gate::{
     ComparisonOperator, Condition, ConditionResult, ConditionStatus, GateEvaluation, GateStatus,
     InvalidMetricKeyError, MetricKey, QualityGate,
 };
-pub use rating::Rating;
+pub use rating::{debt_ratio, DebtRatingGrid, Rating, DEFAULT_DEV_COST_MINUTES_PER_LINE};
 
 use std::collections::HashMap;
 use std::fmt;

@@ -55,8 +55,14 @@ re-analysis on typical PRs.
   modern SonarQube.
 - **Secrets detection**: dedicated ruleset (entropy + provider patterns:
   AWS, GCP, Azure, Stripe, private keys…), extending the Phase-1 rule.
-- **Duplication detection (CPD)**: token-based, cross-file, per-language
-  tokenizers reusing the parsers; duplicated blocks/lines/density metrics.
+- **Duplication detection (CPD)**: ✅ core algorithm ported from
+  `sonar-duplications`' `BlockChunker`/`CloneIndex` — statement-repetition
+  collapsing, incremental Rabin-Karp rolling hash (base 31, default block
+  size 5), cross-file hash-indexed matching (`core/duplication`). Remaining
+  gap vs. upstream: statements are trimmed source lines, not real
+  per-language tokenizer output, so literal/whitespace normalization isn't
+  token-accurate yet — swap in per-language tokenizers reusing the
+  `parsers/treesitter-*` crates to close it.
 - **Metrics engine**: cyclomatic + cognitive complexity, LOC/statements/
   functions/classes, comment density, nesting depth — computed on the
   neutral AST in core.
@@ -79,8 +85,13 @@ re-analysis on typical PRs.
 - **Quality Profiles**: per-language activation sets with severity
   overrides (core type exists), inheritance chains, built-in "Sonar way"
   equivalent, compare/copy/backup-restore.
-- **Ratings & debt**: A–E ratings for reliability/security/maintainability,
-  technical-debt ratio, remediation effort aggregation.
+- **Ratings & debt**: ✅ maintainability rating ported from SonarQube's SQALE
+  model (`DebtRatingGrid` + `MaintainabilityMeasuresVisitor`) —
+  `Rating::from_debt_ratio` in `core/profiles` uses the real
+  remediation-effort ÷ development-cost ratio (30 min/LOC, grid
+  `0.05/0.1/0.2/0.5`), not a worst-severity shortcut. Reliability and
+  security ratings (per-issue-type debt) and remediation effort aggregation
+  by rule/component are still open.
 - **Issue lifecycle**: open → confirmed → resolved → closed; resolutions
   (fixed, won't-fix, false-positive); assignment, comments, tags, bulk
   changes, changelog per issue.
@@ -169,6 +180,20 @@ open in yunq, not behind an edition wall:
 | Improved performance for large teams, parallel analysis | Performance pillar (measured ~398k LOC/s) + worker fleet |
 | Enterprise-grade IAM | Phase 4 (tokens, OAuth, permissions) → Phase 7 (SAML/OIDC, SCIM, LDAP) |
 | ~80% more issue types, +6 languages, private-service secrets | Phase 2 (open language roster, rule catalog, multi-provider secrets incl. self-hosted/private services) |
+
+## Algorithm parity against upstream SonarQube
+
+Tracks specific algorithms audited against a clone of `SonarSource/sonarqube`
+to confirm yunq replicates the actual logic rather than a shortcut that
+merely looks similar on the happy path.
+
+| Algorithm | Upstream source | Status |
+|---|---|---|
+| Duplication detection (CPD) | `sonar-duplications/.../block/BlockChunker.java`, `index/` | ✅ Ported: statement-repetition collapsing, Rabin-Karp rolling hash (base 31, block size 5), cross-file hash index (`core/duplication`). Previously a raw per-line sliding-window hash with no repetition collapsing or shared index — fixed. |
+| Maintainability rating (A–E) | `server/sonar-server-common/.../DebtRatingGrid.java`, `MaintainabilityMeasuresVisitor.java` | ✅ Ported: rating from technical debt ratio (remediation effort ÷ (LOC × 30 min)) against grid `[0.05, 0.1, 0.2, 0.5]` (`core/profiles::Rating::from_debt_ratio`). Previously derived from worst issue severity present, which is not SonarQube's algorithm at all — fixed. |
+| Cognitive complexity | not in `sonarqube/sonarqube` core (per-language plugins) | Existing `rulesets/code-smells/cognitive_complexity.rs` already implements SonarSource's published nesting-weight + boolean-operator-sequence rules; not re-verified against a primary source in this pass since the reference implementation isn't in this repo. |
+| New Code / issue tracking across analyses | scanner-engine issue tracker (separate repo, not in `sonarqube/sonarqube`) | Not upstream-verified. `core/rules-engine/src/new_code.rs` uses a simpler rule+file+message fingerprint rather than Sonar's line-diff/Levenshtein tracker; open gap, not yet audited against a primary source. |
+| Quality gate evaluation | Sonar's condition-set model (generic, no single algorithm file) | Structurally equivalent (named conditions over metrics, fail-if-any-breached, fail-open on missing measure) — no changes needed. |
 
 ## Sequencing
 
