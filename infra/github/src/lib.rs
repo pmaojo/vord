@@ -9,7 +9,10 @@
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use yunq_rules_engine::{AlmError, AlmStatusReporter, CommitSha, CommitStatus};
+use yunq_rules_engine::{
+    AlmError, AlmPullRequestReporter, AlmStatusReporter, CommitSha, CommitStatus, Issue,
+    PullRequestNumber,
+};
 
 const DEFAULT_API_BASE: &str = "https://api.github.com";
 /// GitHub rejects longer commit-status descriptions; truncate defensively
@@ -123,6 +126,160 @@ struct StatusRequest<'a> {
     context: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_url: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct PullRequestCommentRequest<'a> {
+    commit_id: &'a str,
+    path: &'a str,
+    line: u32,
+    body: String,
+}
+
+#[derive(Deserialize)]
+struct PullRequestCommentResponse {
+    path: String,
+    line: Option<u32>,
+    body: String,
+}
+
+#[derive(Deserialize)]
+struct IssueCommentResponse {
+    id: u64,
+    body: String,
+}
+
+#[derive(Serialize)]
+struct IssueCommentRequest {
+    body: String,
+}
+
+impl AlmPullRequestReporter for GitHubStatusReporter {
+    async fn report_pull_request_review(
+        &self,
+        pr_number: PullRequestNumber,
+        commit_sha: &CommitSha,
+        new_issues: &[Issue],
+        gate_summary: &str,
+    ) -> Result<(), AlmError> {
+        let pr = pr_number.get();
+
+        // 1. Fetch existing PR review comments to avoid duplicates.
+        let comments_url = format!("{}/repos/{}/{}/pulls/{}/comments", self.api_base, self.owner, self.repo, pr);
+        let existing_comments: Vec<PullRequestCommentResponse> = self
+            .client
+            .get(&format!("{}?per_page=100", comments_url))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "yunq")
+            .send()
+            .await
+            .map_err(|e| AlmError(e.to_string()))?
+            .json()
+            .await
+            .unwrap_or_default(); // Ignore fetch failure by returning empty (may result in dupes, but better than complete failure)
+
+        let mut fallback_issues = Vec::new();
+
+        for issue in new_issues {
+            let body = format!("**{}**\n{}", issue.rule(), issue.message());
+
+            // Check for duplicates
+            if existing_comments.iter().any(|c| {
+                c.path == issue.file() && c.line == Some(issue.span().start_line) && c.body.contains(issue.rule().as_str())
+            }) {
+                continue;
+            }
+
+            let req_body = PullRequestCommentRequest {
+                commit_id: commit_sha.as_str(),
+                path: issue.file(),
+                line: issue.span().start_line,
+                body: body.clone(),
+            };
+
+            let response = self
+                .client
+                .post(&comments_url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "yunq")
+                .json(&req_body)
+                .send()
+                .await
+                .map_err(|e| AlmError(e.to_string()))?;
+
+            if !response.status().is_success() {
+                // If it's a 422 Unprocessable Entity, it usually means the line is outside the PR diff.
+                if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
+                    fallback_issues.push(issue.clone());
+                } else {
+                    let status_code = response.status();
+                    let text = response.text().await.unwrap_or_default();
+                    return Err(AlmError(format!("GitHub returned {status_code}: {text}")));
+                }
+            }
+        }
+
+        // Handle fallback and general summary
+        let mut general_body = format!("<!-- yunq-pr-comment -->\n{}\n\n", gate_summary);
+        if !fallback_issues.is_empty() {
+            general_body.push_str("### ⚠️ Issues outside the pull request diff\n\n");
+            for issue in &fallback_issues {
+                general_body.push_str(&format!("- **{}** in `{}:{}`: {}\n", issue.rule(), issue.file(), issue.span().start_line, issue.message()));
+            }
+        }
+
+        let issue_comments_url = format!("{}/repos/{}/{}/issues/{}/comments", self.api_base, self.owner, self.repo, pr);
+
+        let existing_issue_comments: Vec<IssueCommentResponse> = self
+            .client
+            .get(&format!("{}?per_page=100", issue_comments_url))
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "yunq")
+            .send()
+            .await
+            .map_err(|e| AlmError(e.to_string()))?
+            .json()
+            .await
+            .unwrap_or_default();
+
+        let existing_comment = existing_issue_comments.iter().find(|c| c.body.contains("<!-- yunq-pr-comment -->"));
+
+        let req_body = IssueCommentRequest { body: general_body };
+
+        let response = if let Some(existing) = existing_comment {
+            let update_url = format!("{}/repos/{}/{}/issues/comments/{}", self.api_base, self.owner, self.repo, existing.id);
+            self.client
+                .patch(&update_url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "yunq")
+                .json(&req_body)
+                .send()
+                .await
+                .map_err(|e| AlmError(e.to_string()))?
+        } else {
+            self.client
+                .post(&issue_comments_url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "yunq")
+                .json(&req_body)
+                .send()
+                .await
+                .map_err(|e| AlmError(e.to_string()))?
+        };
+
+        if !response.status().is_success() {
+            let status_code = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(AlmError(format!("GitHub returned {status_code}: {text}")));
+        }
+
+        Ok(())
+    }
 }
 
 impl AlmStatusReporter for GitHubStatusReporter {

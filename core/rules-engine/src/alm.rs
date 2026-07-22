@@ -97,6 +97,17 @@ pub trait AlmStatusReporter: Send + Sync {
     ) -> impl Future<Output = Result<(), AlmError>> + Send;
 }
 
+/// Outbound port: reports new issues as review comments on a pull request.
+pub trait AlmPullRequestReporter: Send + Sync {
+    fn report_pull_request_review(
+        &self,
+        pr_number: crate::project::PullRequestNumber,
+        commit_sha: &CommitSha,
+        new_issues: &[crate::domain::Issue],
+        gate_summary: &str,
+    ) -> impl Future<Output = Result<(), AlmError>> + Send;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
