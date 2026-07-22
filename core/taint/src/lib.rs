@@ -9,6 +9,10 @@
 //! [`yunq_ast::NodeKind`]: `VariableDecl`/`Assignment` start with their
 //! target identifier, `Call` starts with its callee.
 
+mod cross;
+
+pub use cross::{CrossFileFlow, CrossFileTaint};
+
 use std::collections::HashMap;
 
 use yunq_ast::{AstNode, NodeKind, Span};
@@ -35,6 +39,14 @@ impl TaintConfig {
     pub fn with_sink(mut self, callee: impl Into<String>) -> Self {
         self.sink_callees.push(callee.into());
         self
+    }
+
+    pub fn source_markers(&self) -> &[String] {
+        &self.source_markers
+    }
+
+    pub fn sink_callees(&self) -> &[String] {
+        &self.sink_callees
     }
 }
 

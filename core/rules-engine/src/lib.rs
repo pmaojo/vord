@@ -24,7 +24,7 @@ pub use ports::{
     HotspotStorage, IssueQuery, IssueReader, IssueStorage, IssueWorkflow, JobQueue, MetricsTracker,
     Page, ParseError, QueueError, StorageError, WorkflowError,
 };
-pub use rule::{Finding, FindingKind, Rule, RuleMetadata};
+pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 
 // Re-export duplication vocabulary so consumers depend on one facade.
 pub use yunq_cpd::{BlockRef, DuplicateBlock, DuplicationConfig};

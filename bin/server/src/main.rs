@@ -312,7 +312,7 @@ struct RuleDto {
     responses((status = 200, description = "Rule catalog", body = [RuleDto]))
 )]
 async fn list_rules() -> Json<Vec<RuleDto>> {
-    let rules = yunq_rules_owasp::all_rules()
+    let per_file = yunq_rules_owasp::all_rules()
         .into_iter()
         .chain(yunq_rules_smells::all_rules())
         .map(|rule| {
@@ -326,9 +326,20 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
                 remediation_effort_minutes: rule.remediation_effort_minutes(),
                 produces_hotspots: metadata.produces_hotspots,
             }
-        })
-        .collect();
-    Json(rules)
+        });
+    let cross_file = yunq_rules_owasp::all_cross_rules().into_iter().map(|rule| {
+        let metadata = rule.metadata();
+        RuleDto {
+            id: rule.id().to_string(),
+            description: metadata.description,
+            tags: metadata.tags,
+            cwe: metadata.cwe,
+            default_severity: rule.default_severity().to_string(),
+            remediation_effort_minutes: rule.remediation_effort_minutes(),
+            produces_hotspots: metadata.produces_hotspots,
+        }
+    });
+    Json(per_file.chain(cross_file).collect())
 }
 
 #[derive(Deserialize, ToSchema)]

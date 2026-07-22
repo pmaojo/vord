@@ -30,9 +30,13 @@ where
         .into_iter()
         .chain(yunq_rules_smells::all_rules())
         .collect();
+    let cross_rules = yunq_rules_owasp::all_cross_rules();
     let profile = QualityProfile::from_activations(
         "yunq-default",
-        rules.iter().map(|r| (r.id().clone(), r.default_severity())),
+        rules
+            .iter()
+            .map(|r| (r.id().clone(), r.default_severity()))
+            .chain(cross_rules.iter().map(|r| (r.id().clone(), r.default_severity()))),
     );
 
     let mut service = AnalyzerService::new(profile, storage, metrics)
@@ -42,6 +46,9 @@ where
         .register_parser(Box::new(GoParser::new()));
     for rule in rules {
         service = service.register_rule(rule);
+    }
+    for rule in cross_rules {
+        service = service.register_cross_rule(rule);
     }
     service
 }

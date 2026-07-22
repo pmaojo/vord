@@ -11,7 +11,8 @@ use crate::ports::{
     AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotStorage, IssueStorage,
     MetricsTracker, StorageError,
 };
-use crate::rule::{FindingKind, Rule};
+use crate::rule::{CrossFileRule, FindingKind, Rule};
+use yunq_ast::AstNode;
 
 /// Orchestrates one analysis run: parse each file with the registered parser
 /// for its language, run every applicable active rule, persist the resulting
@@ -26,6 +27,7 @@ where
 {
     parsers: HashMap<LanguageIdentifier, Box<dyn AstParser>>,
     rules: Vec<Box<dyn Rule>>,
+    cross_rules: Vec<Box<dyn CrossFileRule>>,
     profile: QualityProfile,
     storage: S,
     metrics: M,
@@ -48,6 +50,7 @@ where
         Self {
             parsers: HashMap::new(),
             rules: Vec::new(),
+            cross_rules: Vec::new(),
             profile,
             storage,
             metrics,
@@ -75,6 +78,11 @@ where
 
     pub fn register_rule(mut self, rule: Box<dyn Rule>) -> Self {
         self.rules.push(rule);
+        self
+    }
+
+    pub fn register_cross_rule(mut self, rule: Box<dyn CrossFileRule>) -> Self {
+        self.cross_rules.push(rule);
         self
     }
 
@@ -121,6 +129,30 @@ where
         let duplication = yunq_cpd::find_duplicates(files, self.duplication);
         metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
 
+        // Cross-file rules (e.g. inter-procedural taint) need every AST at
+        // once, so the file set is re-parsed in parallel for this phase.
+        let active_cross: Vec<&Box<dyn CrossFileRule>> =
+            self.cross_rules.iter().filter(|r| self.profile.is_active(r.id())).collect();
+        if !active_cross.is_empty() {
+            let parsed = self.parse_all(files);
+            for rule in active_cross {
+                let severity =
+                    self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
+                for (file_index, finding) in rule.check(&parsed) {
+                    let Some((file, _)) = parsed.get(file_index) else { continue };
+                    metrics.count_issue(severity);
+                    metrics.add_debt(rule.remediation_effort_minutes() as usize);
+                    issues.push(Issue::new(
+                        rule.id().clone(),
+                        severity,
+                        finding.message,
+                        file.path(),
+                        finding.span,
+                    ));
+                }
+            }
+        }
+
         self.storage.save_issues(&issues).await?;
         self.storage.save_hotspots(&hotspots).await?;
         self.metrics.record(&metrics).await?;
@@ -163,6 +195,40 @@ where
             .into_iter()
             .map(|slot| {
                 slot.into_inner().expect("slot lock poisoned").expect("every file processed")
+            })
+            .collect()
+    }
+
+    /// Parses every parseable file, in parallel, preserving input order.
+    fn parse_all(&self, files: &[SourceFile]) -> Vec<(SourceFile, AstNode)> {
+        let next = AtomicUsize::new(0);
+        let slots: Vec<Mutex<Option<Option<AstNode>>>> =
+            files.iter().map(|_| Mutex::new(None)).collect();
+        let workers =
+            std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(files.len().max(1));
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| {
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(file) = files.get(index) else { break };
+                        let ast = self
+                            .parsers
+                            .get(file.language())
+                            .and_then(|parser| parser.parse(file).ok());
+                        *slots[index].lock().expect("slot lock poisoned") = Some(ast);
+                    }
+                });
+            }
+        });
+        files
+            .iter()
+            .zip(slots)
+            .filter_map(|(file, slot)| {
+                slot.into_inner()
+                    .expect("slot lock poisoned")
+                    .expect("every file processed")
+                    .map(|ast| (file.clone(), ast))
             })
             .collect()
     }

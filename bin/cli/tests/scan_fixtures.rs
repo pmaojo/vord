@@ -15,6 +15,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
         "owasp:hardcoded-secret",
         "owasp:eval-usage",
         "owasp:injection",
+        "owasp:cross-file-injection",
         "smells:todo-comment",
         "smells:long-function",
         "smells:unwrap-usage",
@@ -22,14 +23,23 @@ fn scans_fixtures_and_finds_every_rule_family() {
         assert!(fired.contains(expected), "rule {expected} did not fire; fired: {fired:?}");
     }
 
-    assert_eq!(report.metrics().files_scanned(), 3);
+    assert_eq!(report.metrics().files_scanned(), 5);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);
 
-    // OS-command hotspots fire as hotspots, not issues — one in Rust
-    // (Command::new) and one in Python (os.system).
-    assert_eq!(report.hotspots().len(), 2);
+    // The cross-file flow lands in caller.ts, tracing into lib_exec.ts.
+    let cross = report
+        .issues()
+        .iter()
+        .find(|i| i.rule().as_str() == "owasp:cross-file-injection")
+        .expect("cross-file injection fires");
+    assert!(cross.file().ends_with("caller.ts"));
+    assert!(cross.message().contains("lib_exec.ts"));
+
+    // OS-command hotspots fire as hotspots, not issues — Rust Command::new,
+    // Python os.system, and the execSync inside lib_exec.ts.
+    assert_eq!(report.hotspots().len(), 3);
     for hotspot in report.hotspots() {
         assert_eq!(hotspot.rule().as_str(), "owasp:command-execution");
     }

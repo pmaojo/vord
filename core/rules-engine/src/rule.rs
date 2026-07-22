@@ -67,3 +67,23 @@ pub trait Rule: Send + Sync {
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding>;
 }
+
+/// Extension point for whole-program analyses that need every file's AST at
+/// once (cross-file taint, dependency rules, …). Same plugin model as
+/// [`Rule`], run as a dedicated cross-file phase after per-file analysis.
+pub trait CrossFileRule: Send + Sync {
+    fn id(&self) -> &RuleId;
+
+    fn default_severity(&self) -> Severity;
+
+    fn remediation_effort_minutes(&self) -> u32 {
+        10
+    }
+
+    fn metadata(&self) -> RuleMetadata {
+        RuleMetadata::default()
+    }
+
+    /// Findings are reported against an index into `files`.
+    fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)>;
+}
