@@ -172,15 +172,25 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             }
 
             // New Code (previous-analysis mode): classify against the stored
-            // baseline, then advance the baseline to this analysis.
+            // baseline, then advance the baseline to this analysis. Line
+            // hashes are read from the real source tree so tracking survives
+            // a message that drifted (e.g. a complexity count changing)
+            // without the underlying issue moving or disappearing.
             let baseline_store = (!no_baseline && path.is_dir())
                 .then(|| BaselineStore::new(path.join(".yunq-baseline.json")));
+            let line_hashes = yunq_cli::FileLineHashes::new(&path);
             let new_code = baseline_store
                 .as_ref()
                 .and_then(|store| store.load())
-                .map(|baseline| NewCodeAnalysis::classify(&report, &baseline));
+                .map(|baseline| {
+                    NewCodeAnalysis::classify_with_source(&report, &baseline, |file, line| {
+                        line_hashes.hash(file, line)
+                    })
+                });
             if let Some(store) = &baseline_store
-                && let Err(e) = store.save(&Baseline::from_report(&report))
+                && let Err(e) = store.save(&Baseline::from_report_with_source(&report, |file, line| {
+                    line_hashes.hash(file, line)
+                }))
             {
                 eprintln!("warning: could not persist New Code baseline: {e}");
             }

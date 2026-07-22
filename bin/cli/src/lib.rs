@@ -3,7 +3,9 @@
 //! use-case plus the output DTOs (serialization lives here, at the edge —
 //! never on domain types).
 
-use std::path::Path;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use yunq_infra_fs::FileAnalysisCache;
@@ -98,6 +100,38 @@ pub fn default_quality_gate() -> QualityGate {
         .with_condition(Condition::new(metric("parse_failures"), ComparisonOperator::GreaterThan, 0.0))
         // NoValue (ignored) unless a coverage report was ingested.
         .with_condition(Condition::new(metric("coverage"), ComparisonOperator::LessThan, 80.0))
+}
+
+/// Resolves an issue's `(file, line)` to that source line's content hash for
+/// the New Code tracking cascade (`yunq_rules_engine::new_code::line_hash`),
+/// reading each file from disk at most once per scan. `file` is the path as
+/// recorded on `Issue` — relative to the scan root, exactly as
+/// `collect_sources` produces it.
+pub struct FileLineHashes {
+    root: PathBuf,
+    cache: RefCell<HashMap<String, Vec<u64>>>,
+}
+
+impl FileLineHashes {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into(), cache: RefCell::new(HashMap::new()) }
+    }
+
+    /// `None` when the file can't be read (deleted/moved/binary) or `line`
+    /// (1-based) is past the end of the cached content — the tracking
+    /// cascade then falls back to the message fingerprint for that issue.
+    pub fn hash(&self, file: &str, line: u32) -> Option<u64> {
+        let mut cache = self.cache.borrow_mut();
+        if !cache.contains_key(file) {
+            let hashes = std::fs::read_to_string(self.root.join(file))
+                .map(|text| text.lines().map(yunq_rules_engine::line_hash).collect())
+                .unwrap_or_default();
+            cache.insert(file.to_string(), hashes);
+        }
+        let hashes = cache.get(file)?;
+        let index = (line as usize).checked_sub(1)?;
+        hashes.get(index).copied()
+    }
 }
 
 /// Scans a directory (or single file) with the default analyzer, without a
