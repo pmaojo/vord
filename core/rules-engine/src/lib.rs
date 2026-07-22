@@ -13,8 +13,8 @@ mod service;
 mod structural_metrics;
 
 pub use alm::{
-    AlmError, AlmStatusReporter, CommitSha, CommitStatus, CommitStatusState,
-    InvalidCommitShaError,
+    AlmError, AlmPullRequestReporter, AlmStatusReporter, CommitSha, CommitStatus,
+    CommitStatusState, InvalidCommitShaError,
 };
 
 pub use domain::{
