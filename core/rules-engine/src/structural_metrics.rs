@@ -39,6 +39,7 @@ const CLASS_KINDS: &[&str] = &[
     "object_definition",
     "union_specifier",
     "module", // Ruby's `module` keyword; Python's own "module" root is remapped to SourceUnit
+    "defmodule", // Elixir's `defmodule`/`defprotocol`/`defimpl`, recovered from a macro call
 ];
 
 /// Grammar node kinds that denote one executable statement. Declaration
@@ -86,6 +87,9 @@ const STATEMENT_KINDS: &[&str] = &[
     "return_expression",
     "break_expression",
     "continue_expression",
+    "enhanced_for_statement", // Groovy/Java-family for-each
+    "switch_expression", // Groovy's unified switch statement/expression form
+    "repeat_statement", // Lua's `repeat ... until`
 ];
 
 /// Grammar node kinds that introduce one level of control-flow nesting.
@@ -106,6 +110,9 @@ const NESTING_KINDS: &[&str] = &[
     "match_expression",
     "try_statement",
     "catch_clause",
+    "enhanced_for_statement", // Groovy/Java-family for-each
+    "switch_expression", // Groovy's unified switch statement/expression form
+    "repeat_statement", // Lua's `repeat ... until`
 ];
 
 /// Aggregated structural counters for one parsed file.

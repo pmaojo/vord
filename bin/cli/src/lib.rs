@@ -14,7 +14,9 @@ use yunq_parser_c::CParser;
 use yunq_parser_cpp::CppParser;
 use yunq_parser_csharp::CSharpParser;
 use yunq_parser_dockerfile::DockerfileParser;
+use yunq_parser_elixir::ElixirParser;
 use yunq_parser_go::GoParser;
+use yunq_parser_groovy::GroovyParser;
 use yunq_parser_java::JavaParser;
 use yunq_parser_bash::BashParser;
 use yunq_parser_css::CssParser;
@@ -22,6 +24,7 @@ use yunq_parser_hcl::HclParser;
 use yunq_parser_html::HtmlParser;
 use yunq_parser_json::JsonParser;
 use yunq_parser_kotlin::KotlinParser;
+use yunq_parser_lua::LuaParser;
 use yunq_parser_php::PhpParser;
 use yunq_parser_python::PythonParser;
 use yunq_parser_ruby::RubyParser;
@@ -81,7 +84,10 @@ where
         .register_parser(Box::new(JsonParser::new()))
         .register_parser(Box::new(YamlParser::new()))
         .register_parser(Box::new(HclParser::new()))
-        .register_parser(Box::new(BashParser::new()));
+        .register_parser(Box::new(BashParser::new()))
+        .register_parser(Box::new(GroovyParser::new()))
+        .register_parser(Box::new(LuaParser::new()))
+        .register_parser(Box::new(ElixirParser::new()));
     for rule in rules {
         service = service.register_rule(rule);
     }
