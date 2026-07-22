@@ -25,11 +25,6 @@ spec:
                 secretKeyRef:
                   name: yunq-secrets
                   key: database-url
-            - name: YUNQ_QUEUE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: yunq-config
-                  key: queue-url
           resources:
             requests:
               cpu: 100m
@@ -75,11 +70,6 @@ spec:
                 secretKeyRef:
                   name: yunq-secrets
                   key: database-url
-            - name: YUNQ_QUEUE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: yunq-config
-                  key: queue-url
           resources:
             requests:
               cpu: 500m

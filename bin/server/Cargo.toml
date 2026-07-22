@@ -12,7 +12,6 @@ yunq-rules-smells = { workspace = true }
 yunq-rules-iac = { workspace = true }
 yunq-rules-a11y = { workspace = true }
 yunq-infra-postgres = { workspace = true }
-yunq-infra-sqs = { workspace = true }
 yunq-remediation = { workspace = true }
 yunq-infra-llm = { workspace = true }
 yunq-infra-pdf = { workspace = true }

@@ -14,6 +14,9 @@ use yunq_rules_engine::{
     StorageError, StoredHotspot, StoredIssue, WorkflowError,
 };
 
+mod queue;
+pub use queue::PgJobConsumer;
+
 #[derive(Clone)]
 pub struct PgIssueStorage {
     pool: PgPool,
@@ -33,6 +36,12 @@ impl PgIssueStorage {
     /// Applies the embedded migrations (compiled in at build time).
     pub async fn migrate(&self) -> Result<(), StorageError> {
         sqlx::migrate!("./migrations").run(&self.pool).await.map_err(storage_err)
+    }
+
+    /// The underlying pool, shared with the job queue adapter so producer,
+    /// consumer and issue storage all talk to the same database.
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
     }
 }
 
