@@ -1,21 +1,42 @@
-//! Copy-paste detection (CPD): finds duplicated blocks of normalized lines
-//! within and across files using rolling window hashes, then merges
-//! overlapping window matches into maximal blocks. Pure core — std only.
+//! Copy-paste detection (CPD), replicating SonarQube's `sonar-duplications`
+//! algorithm (`BlockChunker` + `CloneIndex`):
+//!
+//! 1. Runs of consecutive statements with identical content are collapsed to
+//!    their first and last occurrence, so e.g. fifty blank `println();`
+//!    lines in a row don't themselves register as one giant duplicate
+//!    (`BlockChunker`'s statement-repetition filter).
+//! 2. Statements are grouped into fixed-size blocks (`block_size`, default
+//!    5 — SonarQube's default) hashed with an incremental Rabin-Karp rolling
+//!    hash using prime base 31 (`s[0]*31^(n-1) + ... + s[n-1]`), computed in
+//!    O(1) per block rather than re-hashing each window from scratch.
+//! 3. Blocks are indexed by hash across *all* files at once (`CloneIndex`):
+//!    a duplicate is found by hash lookup, never by comparing every pair of
+//!    files against each other.
+//! 4. Runs of adjacent matching blocks are merged into maximal duplicated
+//!    line ranges.
+//!
+//! yunq has no per-language CPD tokenizer yet (see ROADMAP.md), so the
+//! "statement" unit here is a trimmed non-blank source line rather than a
+//! real token-level statement; the chunking, hashing and index-driven
+//! matching are SonarQube's actual algorithm. Pure core — std only.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use yunq_ast::SourceFile;
 
+const PRIME_BASE: u64 = 31;
+
 #[derive(Clone, Copy, Debug)]
 pub struct DuplicationConfig {
-    /// Minimum number of significant (non-blank) lines a block must span.
-    pub min_lines: usize,
+    /// Number of consecutive statements per hashed block — SonarQube's
+    /// `BlockChunker` block size (default 5).
+    pub block_size: usize,
 }
 
 impl Default for DuplicationConfig {
     fn default() -> Self {
-        Self { min_lines: 10 }
+        Self { block_size: 5 }
     }
 }
 
@@ -44,13 +65,14 @@ pub struct DuplicationReport {
     pub duplicated_lines: usize,
 }
 
-struct SignificantLine {
+#[derive(Clone, Copy)]
+struct Statement {
     /// 1-based line number in the original file.
     line_number: u32,
     hash: u64,
 }
 
-fn significant_lines(file: &SourceFile) -> Vec<SignificantLine> {
+fn statements(file: &SourceFile) -> Vec<Statement> {
     file.content()
         .lines()
         .enumerate()
@@ -61,89 +83,155 @@ fn significant_lines(file: &SourceFile) -> Vec<SignificantLine> {
             }
             let mut hasher = DefaultHasher::new();
             trimmed.hash(&mut hasher);
-            Some(SignificantLine { line_number: index as u32 + 1, hash: hasher.finish() })
+            Some(Statement { line_number: index as u32 + 1, hash: hasher.finish() })
         })
         .collect()
 }
 
+/// Collapses runs of consecutive statements with identical content down to
+/// their first and last occurrence — `BlockChunker`'s deduplication of
+/// repeated statements, so a long repeated run doesn't itself inflate a
+/// match.
+fn collapse_repeats(statements: Vec<Statement>) -> Vec<Statement> {
+    let mut out = Vec::with_capacity(statements.len());
+    let mut i = 0;
+    while i < statements.len() {
+        let mut j = i + 1;
+        while j < statements.len() && statements[j].hash == statements[i].hash {
+            j += 1;
+        }
+        out.push(statements[i]);
+        if j - 1 > i {
+            out.push(statements[j - 1]);
+        }
+        i = j;
+    }
+    out
+}
+
+#[derive(Clone, Copy)]
+struct Block {
+    /// Index range (inclusive) into the collapsed statement array this
+    /// block spans.
+    stmt_start: usize,
+    stmt_end: usize,
+    hash: u64,
+}
+
+/// Chunks statements into fixed-size blocks with an incremental Rabin-Karp
+/// rolling hash, exactly mirroring `BlockChunker`.
+fn chunk_blocks(statements: &[Statement], block_size: usize) -> Vec<Block> {
+    if statements.len() < block_size {
+        return Vec::new();
+    }
+    let mut power: u64 = 1;
+    for _ in 0..block_size - 1 {
+        power = power.wrapping_mul(PRIME_BASE);
+    }
+
+    let mut hash: u64 = 0;
+    for s in &statements[..block_size - 1] {
+        hash = hash.wrapping_mul(PRIME_BASE).wrapping_add(s.hash);
+    }
+
+    let mut blocks = Vec::with_capacity(statements.len() - block_size + 1);
+    let mut first = 0;
+    for last in (block_size - 1)..statements.len() {
+        hash = hash.wrapping_mul(PRIME_BASE).wrapping_add(statements[last].hash);
+        blocks.push(Block { stmt_start: first, stmt_end: last, hash });
+        // Remove the outgoing statement from the rolling hash.
+        hash = hash.wrapping_sub(power.wrapping_mul(statements[first].hash));
+        first += 1;
+    }
+    blocks
+}
+
 pub fn find_duplicates(files: &[SourceFile], config: DuplicationConfig) -> DuplicationReport {
-    let min = config.min_lines.max(2);
-    let per_file: Vec<(usize, Vec<SignificantLine>)> =
-        files.iter().enumerate().map(|(i, f)| (i, significant_lines(f))).collect();
+    let block_size = config.block_size.max(2);
+    let per_file_statements: Vec<Vec<Statement>> =
+        files.iter().map(|f| collapse_repeats(statements(f))).collect();
+    let per_file_blocks: Vec<Vec<Block>> =
+        per_file_statements.iter().map(|s| chunk_blocks(s, block_size)).collect();
 
-    // window hash -> first occurrence (file index, window start offset)
-    let mut seen: HashMap<u64, (usize, usize)> = HashMap::new();
-    // (file_a, file_b, offset_delta) -> matched window starts in file_b
+    // Hash -> every (file, block index) that produced it, across all files:
+    // SonarQube's CloneIndex — duplicates are found by hash lookup, not by
+    // comparing every pair of files against each other.
+    let mut index: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
+    for (file_index, blocks) in per_file_blocks.iter().enumerate() {
+        for (block_index, block) in blocks.iter().enumerate() {
+            index.entry(block.hash).or_default().push((file_index, block_index));
+        }
+    }
+
+    // (file_a, file_b, delta) -> matched block indices in file_b, where
+    // delta = block_index_b - block_index_a. Grouping by delta lets
+    // consecutive matching blocks be recognized as one contiguous run.
     let mut matches: BTreeMap<(usize, usize, isize), BTreeSet<usize>> = BTreeMap::new();
-
-    for (file_index, lines) in &per_file {
-        if lines.len() < min {
+    for locations in index.values() {
+        if locations.len() < 2 {
             continue;
         }
-        for start in 0..=(lines.len() - min) {
-            let mut hasher = DefaultHasher::new();
-            for line in &lines[start..start + min] {
-                line.hash.hash(&mut hasher);
-            }
-            let window_hash = hasher.finish();
-            match seen.get(&window_hash) {
-                None => {
-                    seen.insert(window_hash, (*file_index, start));
+        for i in 0..locations.len() {
+            for j in (i + 1)..locations.len() {
+                let (a, b) = if locations[i] <= locations[j] {
+                    (locations[i], locations[j])
+                } else {
+                    (locations[j], locations[i])
+                };
+                if a == b {
+                    continue;
                 }
-                Some(&(first_file, first_start)) => {
-                    // Ignore self-overlapping windows within one file.
-                    if first_file == *file_index && start < first_start + min {
-                        continue;
-                    }
-                    let delta = start as isize - first_start as isize;
-                    matches
-                        .entry((first_file, *file_index, delta))
-                        .or_default()
-                        .insert(start);
-                }
+                let (file_a, idx_a) = a;
+                let (file_b, idx_b) = b;
+                let delta = idx_b as isize - idx_a as isize;
+                matches.entry((file_a, file_b, delta)).or_default().insert(idx_b);
             }
         }
     }
 
-    // Merge consecutive matched windows into maximal blocks.
-    let mut blocks = Vec::new();
+    let mut blocks_out = Vec::new();
     let mut duplicated: BTreeSet<(usize, u32)> = BTreeSet::new();
     for ((file_a, file_b, delta), starts) in matches {
         let mut run_start: Option<usize> = None;
         let mut previous: Option<usize> = None;
-        let flush =
-            |run_start: usize, run_end: usize, blocks: &mut Vec<DuplicateBlock>, duplicated: &mut BTreeSet<(usize, u32)>| {
-                let lines_b = &per_file[file_b].1;
-                let lines_a = &per_file[file_a].1;
-                let len = run_end - run_start + min;
-                let b_slice = &lines_b[run_start..run_start + len];
-                let a_start = (run_start as isize - delta) as usize;
-                let a_slice = &lines_a[a_start..a_start + len];
-                for line in b_slice {
-                    duplicated.insert((file_b, line.line_number));
-                }
-                for line in a_slice {
-                    duplicated.insert((file_a, line.line_number));
-                }
-                blocks.push(DuplicateBlock {
-                    first: BlockRef {
-                        file: files[file_a].path().to_string(),
-                        start_line: a_slice[0].line_number,
-                        end_line: a_slice[len - 1].line_number,
-                    },
-                    second: BlockRef {
-                        file: files[file_b].path().to_string(),
-                        start_line: b_slice[0].line_number,
-                        end_line: b_slice[len - 1].line_number,
-                    },
-                    lines: len,
-                });
+        let mut flush = |run_start: usize, run_end: usize| {
+            let blocks_a = &per_file_blocks[file_a];
+            let blocks_b = &per_file_blocks[file_b];
+            let a_start = (run_start as isize - delta) as usize;
+            let a_end = (run_end as isize - delta) as usize;
+            let block_a = blocks_a[a_start];
+            let block_a_end = blocks_a[a_end];
+            let block_b = blocks_b[run_start];
+            let block_b_end = blocks_b[run_end];
+
+            let stmts_a = &per_file_statements[file_a];
+            let stmts_b = &per_file_statements[file_b];
+            for stmt in &stmts_a[block_a.stmt_start..=block_a_end.stmt_end] {
+                duplicated.insert((file_a, stmt.line_number));
+            }
+            for stmt in &stmts_b[block_b.stmt_start..=block_b_end.stmt_end] {
+                duplicated.insert((file_b, stmt.line_number));
+            }
+
+            let first = BlockRef {
+                file: files[file_a].path().to_string(),
+                start_line: stmts_a[block_a.stmt_start].line_number,
+                end_line: stmts_a[block_a_end.stmt_end].line_number,
             };
+            let second = BlockRef {
+                file: files[file_b].path().to_string(),
+                start_line: stmts_b[block_b.stmt_start].line_number,
+                end_line: stmts_b[block_b_end.stmt_end].line_number,
+            };
+            let lines = (second.end_line - second.start_line + 1) as usize;
+            blocks_out.push(DuplicateBlock { first, second, lines });
+        };
+
         for &start in &starts {
             match previous {
                 Some(prev) if start == prev + 1 => {}
                 Some(prev) => {
-                    flush(run_start.unwrap(), prev, &mut blocks, &mut duplicated);
+                    flush(run_start.unwrap(), prev);
                     run_start = Some(start);
                 }
                 None => run_start = Some(start),
@@ -151,11 +239,11 @@ pub fn find_duplicates(files: &[SourceFile], config: DuplicationConfig) -> Dupli
             previous = Some(start);
         }
         if let (Some(rs), Some(prev)) = (run_start, previous) {
-            flush(rs, prev, &mut blocks, &mut duplicated);
+            flush(rs, prev);
         }
     }
 
-    DuplicationReport { blocks, duplicated_lines: duplicated.len() }
+    DuplicationReport { blocks: blocks_out, duplicated_lines: duplicated.len() }
 }
 
 #[cfg(test)]
@@ -179,7 +267,7 @@ mod tests {
         let b = format!("fn b() {{\n\n{shared}}}\n");
         let files = [file("a.rs", &a), file("b.rs", &b)];
 
-        let report = find_duplicates(&files, DuplicationConfig { min_lines: 5 });
+        let report = find_duplicates(&files, DuplicationConfig { block_size: 5 });
         assert_eq!(report.blocks.len(), 1);
         let block = &report.blocks[0];
         // 8 shared body lines + the identical closing brace line.
@@ -195,7 +283,7 @@ mod tests {
             file("a.rs", &format!("fn a() {{\n{}}}\n", block_body("alpha"))),
             file("b.rs", &format!("fn b() {{\n{}}}\n", block_body("beta"))),
         ];
-        let report = find_duplicates(&files, DuplicationConfig { min_lines: 5 });
+        let report = find_duplicates(&files, DuplicationConfig { block_size: 5 });
         assert!(report.blocks.is_empty());
         assert_eq!(report.duplicated_lines, 0);
     }
@@ -205,5 +293,32 @@ mod tests {
         let files = [file("a.rs", "let x = 1;\n"), file("b.rs", "let x = 1;\n")];
         let report = find_duplicates(&files, DuplicationConfig::default());
         assert!(report.blocks.is_empty());
+    }
+
+    #[test]
+    fn repeated_identical_statements_do_not_inflate_a_match_on_their_own() {
+        // Fifty identical lines in both files: BlockChunker's repetition
+        // filter collapses each run to first+last, so this alone must not
+        // register as an (identical-content) duplicate the way a naive
+        // per-line/window hash would.
+        let repeated: String = (0..50).map(|_| "    noop();\n".to_string()).collect();
+        let a = format!("fn a() {{\n{repeated}}}\n");
+        let b = format!("fn b() {{\n{repeated}}}\n");
+        let files = [file("a.rs", &a), file("b.rs", &b)];
+        let report = find_duplicates(&files, DuplicationConfig::default());
+        assert!(report.blocks.is_empty(), "{:?}", report.blocks);
+    }
+
+    #[test]
+    fn three_way_duplicate_is_reported_pairwise_across_all_files() {
+        let shared: String = (0..6).map(|i| format!("    acc += items[{i}];\n")).collect();
+        let files = [
+            file("a.rs", &format!("fn a() {{\n{shared}}}\n")),
+            file("b.rs", &format!("fn b() {{\n{shared}}}\n")),
+            file("c.rs", &format!("fn c() {{\n{shared}}}\n")),
+        ];
+        let report = find_duplicates(&files, DuplicationConfig { block_size: 5 });
+        // a-b, a-c, b-c.
+        assert_eq!(report.blocks.len(), 3);
     }
 }
