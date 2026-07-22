@@ -36,6 +36,28 @@ const NESTING_KINDS: &[&str] = &[
 /// `else`/`elif` continue the same branch rather than nesting into it.
 const FLAT_KINDS: &[&str] = &["else_clause", "elif_clause"];
 
+/// `break`/`continue` node kinds across the wired grammars. A plain
+/// `break`/`continue` is free (it doesn't add a new way to misread the
+/// function); only a jump to an explicit label costs — see
+/// [`is_labeled_jump`].
+const JUMP_KINDS: &[&str] = &["break_expression", "continue_expression", "break_statement", "continue_statement"];
+
+/// Node kinds a labeled `break`/`continue` uses for the label/lifetime
+/// child: Rust wraps it in a `label` node, C-like grammars (JS/TS/Java/Go)
+/// expose it directly as a `statement_identifier`.
+const LABEL_KINDS: &[&str] = &["label", "statement_identifier"];
+
+/// True when `node` is a `break`/`continue` that names an explicit label —
+/// SonarSource charges this a flat +1 (no nesting weighting: jumping to an
+/// enclosing label doesn't itself nest anything new).
+fn is_labeled_jump(node: &AstNode) -> bool {
+    matches!(node.kind(), NodeKind::Other(kind) if JUMP_KINDS.contains(&kind.as_str()))
+        && node
+            .children()
+            .iter()
+            .any(|c| matches!(c.kind(), NodeKind::Other(kind) if LABEL_KINDS.contains(&kind.as_str())))
+}
+
 /// Cognitive Complexity (SonarSource's metric): unlike cyclomatic
 /// complexity, nested control flow costs more than sequential control flow,
 /// which tracks how hard a human finds a function to read.
@@ -79,6 +101,22 @@ enum LogicalOp {
     Or,
 }
 
+/// Follows a chain of `parenthesized_expression` wrappers down to the
+/// underlying expression. SonarSource's boolean-sequence rule treats
+/// parentheses as fully transparent — `a && (b || c)` is one continuous
+/// sequence, not a nested chain with its own separate +1 — so anything
+/// inspecting an operand's shape needs to see through them first.
+fn unwrap_parens(node: &AstNode) -> &AstNode {
+    let mut current = node;
+    while matches!(current.kind(), NodeKind::Other(kind) if kind == "parenthesized_expression") {
+        match current.children() {
+            [inner] => current = inner,
+            _ => break,
+        }
+    }
+    current
+}
+
 /// tree-sitter's `named_children` (used by every parser adapter) drops
 /// anonymous tokens, so the `&&`/`||`/`and`/`or` keyword never survives as a
 /// child node — only the two operands do. Recover it from the raw source
@@ -86,6 +124,7 @@ enum LogicalOp {
 /// expressions (`+`, `==`, ...) and anything that isn't a plain two-operand
 /// node.
 fn logical_op(node: &AstNode) -> Option<LogicalOp> {
+    let node = unwrap_parens(node);
     match node.kind() {
         NodeKind::Other(kind) if BOOLEAN_OPS.contains(&kind.as_str()) => {}
         _ => return None,
@@ -108,7 +147,7 @@ fn logical_op(node: &AstNode) -> Option<LogicalOp> {
 /// scan left to right, so a homogeneous run can be told apart from a break.
 fn logical_sequence(node: &AstNode) -> Vec<LogicalOp> {
     let Some(op) = logical_op(node) else { return Vec::new() };
-    let [left, right] = node.children() else { return Vec::new() };
+    let [left, right] = unwrap_parens(node).children() else { return Vec::new() };
     let mut sequence = logical_sequence(left);
     sequence.push(op);
     sequence.extend(logical_sequence(right));
@@ -133,7 +172,7 @@ fn logical_chain_cost(sequence: &[LogicalOp]) -> u32 {
 /// itself hide independent structure (a nested `if`, another unrelated
 /// boolean chain inside a call argument, ...) that still needs scoring.
 fn logical_leaves<'a>(node: &'a AstNode, out: &mut Vec<&'a AstNode>) {
-    match node.children() {
+    match unwrap_parens(node).children() {
         [left, right] if logical_op(node).is_some() => {
             logical_leaves(left, out);
             logical_leaves(right, out);
@@ -143,12 +182,16 @@ fn logical_leaves<'a>(node: &'a AstNode, out: &mut Vec<&'a AstNode>) {
 }
 
 /// Shared prefix for every dispatcher below: nested function defs are rated
-/// independently (contribute 0 here), and boolean-operator chains follow
-/// their own flat, non-nesting-weighted rule. Returns `None` for anything
-/// else, so the caller applies its own nesting-aware fallback.
+/// independently (contribute 0 here), labeled `break`/`continue` are a flat
+/// +1, and boolean-operator chains follow their own flat, non-nesting-
+/// weighted rule. Returns `None` for anything else, so the caller applies
+/// its own nesting-aware fallback.
 fn score_common(child: &AstNode, nesting: u32) -> Option<u32> {
     if *child.kind() == NodeKind::FunctionDef {
         return Some(0);
+    }
+    if is_labeled_jump(child) {
+        return Some(1 + score(child, nesting));
     }
     if logical_op(child).is_some() {
         let sequence = logical_sequence(child);
@@ -433,5 +476,68 @@ mod tests {
         let findings = check_rust(code, 0);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("complexity 1"), "{}", findings[0].message);
+    }
+
+    /// Regression suite ported from SonarSource's own sonar-java test
+    /// fixtures (`CognitiveComplexity.java`,
+    /// `CognitiveComplexityMethodCheckMax0.java`), rewritten in Rust/Python
+    /// and pinned to the exact complexity values those fixtures document.
+    /// Kept as one table (rather than one `#[test]` per case) so a fixture
+    /// name shows up directly in the failure message.
+    #[test]
+    fn matches_sonarqube_reference_fixtures() {
+        let rust_cases: &[(&str, &str, u32)] = &[
+            ("extra_conditions", "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b || foo(b && c)\n}\n", 3),
+            ("extra_conditions2", "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {\n    a && (b || c) || d\n}\n", 2),
+            ("extra_conditions3", "fn f(a: bool, b: bool, c: bool, d: bool) {\n    if a && b || c || d {}\n}\n", 3),
+            ("extra_conditions4", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b || c && d || e {}\n}\n", 5),
+            ("extra_conditions5", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b && c || d && e {}\n}\n", 5),
+            ("extra_conditions6", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c || d || e {}\n}\n", 3),
+            ("extra_conditions7", "fn f(a: bool) {\n    if a {}\n}\n", 1),
+            ("extra_conditions8", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c && d && e {}\n}\n", 2),
+            ("extra_conditions9", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b || c || d || e {}\n}\n", 2),
+            ("extra_condition10", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool) {\n    if a && b && c || d || e && f {}\n}\n", 4),
+            ("extra_condition11", "fn f(a: bool, b: bool, c: bool) {\n    if a || (b || c) {}\n}\n", 2),
+            ("extra_conditions12", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool, g: bool, h: bool, i: bool, j: bool, k: bool, l: bool, m: bool) {\n    if a && b && c || d || e && f && g || (h || (i && j || k)) || l || m {}\n}\n", 7),
+            ("switch2", "fn f(foo: i32, lhs_is_identifier: bool, a: bool, b: bool, c: bool, d: bool, element_is_assignment: bool) {\n    match foo {\n        1 => {}\n        2 => {\n            if lhs_is_identifier {\n                if a && b && c || d {}\n                if element_is_assignment {\n                } else {\n                }\n            }\n        }\n        _ => {}\n    }\n}\n", 12),
+            ("break_with_label", "fn f(objects: &[bool]) {\n    'outer: for o in objects {\n        break 'outer;\n    }\n}\n", 2),
+            ("to_method", "fn f(args: &[String], chain: &[i32], foo: bool) {\n    for ctr in 0..args.len() {\n        if args[ctr] == \"-debug\" {\n        }\n    }\n    for i in (0..chain.len()).rev() {\n    }\n    if foo {\n        for i in 0..10 {\n        }\n    }\n}\n", 7),
+            ("get_value_to_eval", "fn f(alert_level: i32, foo: i32) -> i32 {\n    if alert_level == 1 && foo == 2 {\n        1\n    } else if alert_level == 3 {\n        2\n    } else {\n        while true {\n        }\n        3\n    }\n}\n", 6),
+            ("get_weight", "fn f(i: i32) -> i32 {\n    if i <= 0 {\n        return 1;\n    }\n    if i < 10 {\n        return 2;\n    }\n    if i < 20 {\n        return 3;\n    }\n    if i < 30 {\n        return 4;\n    }\n    5\n}\n", 4),
+            ("sum_of_non_primes", "fn f(limit: i32) -> i32 {\n    let mut sum = 0;\n    'outer: for i in 0..limit {\n        if i <= 2 {\n            continue;\n        }\n        for j in 2..1 {\n            if i % j == 0 {\n                continue 'outer;\n            }\n        }\n        sum += i;\n    }\n    sum\n}\n", 9),
+        ];
+        let python_cases: &[(&str, &str, u32)] = &[
+            ("do_filter", "def f(consumed, redirected, not_set, has_other, is_wrapper, external, is_set, chain):\n    if consumed:\n        return\n    try:\n        pass\n    except HaltException:\n        pass\n    except Exception:\n        pass\n    if not_set and redirected:\n        pass\n    if not_set and has_other:\n        if is_wrapper:\n            pass\n    if not_set and not external:\n        pass\n    if is_set:\n        pass\n    elif chain is not None:\n        pass\n", 13),
+            ("bulk_activate", "def f(rules, changes, condition):\n    try:\n        while rules.has_next():\n            try:\n                if not changes.is_empty():\n                    pass\n            except BadRequestException:\n                pass\n    finally:\n        if condition:\n            pass\n    return 0\n", 6),
+        ];
+
+        let mut mismatches = Vec::new();
+        for (name, code, expected) in rust_cases {
+            let actual = complexity_rust(code);
+            if actual != *expected {
+                mismatches.push(format!("{name}: got {actual}, expected {expected}"));
+            }
+        }
+        for (name, code, expected) in python_cases {
+            let actual = complexity_python(code);
+            if actual != *expected {
+                mismatches.push(format!("{name}: got {actual}, expected {expected}"));
+            }
+        }
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    }
+
+    fn complexity_rust(code: &str) -> u32 {
+        let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
+        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let function = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
+        score(function, 0)
+    }
+
+    fn complexity_python(code: &str) -> u32 {
+        let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
+        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let function = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
+        score(function, 0)
     }
 }
