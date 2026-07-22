@@ -6,7 +6,7 @@
 use std::future::Future;
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_profiles::{RuleId, Severity};
+use yunq_profiles::{GateStatus, RuleId, Severity};
 
 use crate::domain::{
     BulkOutcome, ChangelogEntry, Hotspot, HotspotStatus, InvalidTransitionError, Issue,
@@ -186,6 +186,25 @@ pub trait IssueWorkflow: Send + Sync {
 /// Outbound port: records analysis metrics.
 pub trait MetricsTracker: Send + Sync {
     fn record(&self, metrics: &Metrics) -> impl Future<Output = Result<(), StorageError>> + Send;
+}
+
+/// One project's most recently persisted quality gate outcome — the source
+/// of truth for the status badge, so it always reflects the real result of
+/// the last analysis rather than a hardcoded value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GateResultSummary {
+    pub status: GateStatus,
+    /// ISO-8601 timestamp of the analysis the result was evaluated for.
+    pub evaluated_at: String,
+}
+
+/// Outbound port: reads the latest persisted gate result for a project, if
+/// any analysis has run yet.
+pub trait GateResultReader: Send + Sync {
+    fn latest_gate_result(
+        &self,
+        project_key: &str,
+    ) -> impl Future<Output = Result<Option<GateResultSummary>, StorageError>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]

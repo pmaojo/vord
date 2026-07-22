@@ -72,6 +72,12 @@ impl Metrics {
         }
     }
 
+    /// Seconds since this process started — backs `GET /api/system/info`'s
+    /// `uptime_seconds` alongside the `yunq_process_uptime_seconds` gauge.
+    pub(crate) fn uptime_seconds(&self) -> f64 {
+        self.inner.started.elapsed().as_secs_f64()
+    }
+
     pub(crate) fn oauth_succeeded(&self) {
         self.inner.oauth_successes.fetch_add(1, Ordering::Relaxed);
     }
@@ -272,5 +278,13 @@ mod tests {
         assert!(rendered.contains("le=\"+Inf\"} 1"));
         assert!(rendered.contains("yunq_oauth_logins_total{result=\"success\"} 1"));
         assert!(rendered.contains("yunq_webhook_retries_total 1"));
+    }
+
+    #[test]
+    fn uptime_seconds_is_non_negative_and_small_just_after_start() {
+        let metrics = Metrics::new();
+        let uptime = metrics.uptime_seconds();
+        assert!(uptime >= 0.0);
+        assert!(uptime < 5.0, "expected a freshly created Metrics to report a tiny uptime, got {uptime}");
     }
 }

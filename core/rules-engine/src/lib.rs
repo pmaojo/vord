@@ -4,6 +4,7 @@
 
 mod alm;
 mod domain;
+mod gate_defaults;
 mod new_code;
 mod ports;
 mod project;
@@ -17,21 +18,22 @@ pub use alm::{
 };
 
 pub use domain::{
-    AnalysisReport, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageSummary, Hotspot,
-    HotspotStatus, InvalidCoverageError, InvalidIssueStateError, InvalidScanJobError,
-    InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition, Metrics, Resolution,
-    ScanJob, StoredHotspot, StoredIssue,
+    AnalysisReport, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageReport, CoverageSummary,
+    FileCoverage, Hotspot, HotspotStatus, InvalidCoverageError, InvalidIssueStateError,
+    InvalidScanJobError, InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition,
+    Metrics, Resolution, ScanJob, StoredHotspot, StoredIssue, TestReportSummary, TestSuiteSummary,
 };
+pub use gate_defaults::default_gate;
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
 pub use project::{
     AnalysisContext, AnalysisScope, BranchName, InvalidBranchNameError, InvalidProjectKeyError,
     InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,
 };
 pub use ports::{
-    AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotReader, HotspotReview,
-    HotspotStorage, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueQuery,
-    IssueFetcher, IssueReader, IssueStorage, IssueWorkflow, JobQueue, MetricsTracker, Page, ParseError,
-    QueueError, StorageError, WorkflowError,
+    AnalysisCache, AstParser, CacheKey, CachedAnalysis, GateResultReader, GateResultSummary,
+    HotspotReader, HotspotReview, HotspotStorage, IssueBulkWorkflow, IssueChangelogReader,
+    IssueFacetReader, IssueQuery, IssueFetcher, IssueReader, IssueStorage, IssueWorkflow, JobQueue,
+    MetricsTracker, Page, ParseError, QueueError, StorageError, WorkflowError,
 };
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 pub use structural_metrics::StructuralCounts;

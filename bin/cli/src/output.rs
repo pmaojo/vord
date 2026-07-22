@@ -2,9 +2,9 @@
 //! These DTOs are the CLI's own edge representation of the domain.
 
 use serde::Serialize;
-use yunq_infra_fs::TestReportSummary;
 use yunq_rules_engine::{
     AnalysisReport, ConditionStatus, GateEvaluation, GateStatus, Issue, NewCodeAnalysis,
+    TestReportSummary,
 };
 
 #[derive(Serialize)]
@@ -17,10 +17,14 @@ pub struct ReportDto {
     /// Issues not present in the previous analysis (None on first scan).
     pub new_issue_total: Option<usize>,
     pub duplications: Vec<DuplicationDto>,
-    /// Present when a coverage report (LCOV/Cobertura/JaCoCo/llvm-cov) was ingested.
+    /// Present when a coverage report (LCOV/Cobertura/JaCoCo/llvm-cov/Istanbul) was ingested.
     pub coverage: Option<CoverageDto>,
     /// Present when a JUnit test report was ingested.
-    pub test_report: Option<TestReportSummary>,
+    pub test_report: Option<TestReportDto>,
+    /// Coverage restricted to the lines a supplied unified diff marks as
+    /// added/modified (see `--coverage-diff`); `None` when no diff was
+    /// supplied or it touched no instrumented line.
+    pub coverage_new_code: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -28,6 +32,59 @@ pub struct CoverageDto {
     pub percent: Option<f64>,
     pub covered_lines: usize,
     pub coverable_lines: usize,
+    pub branch_percent: Option<f64>,
+    pub covered_branches: usize,
+    pub coverable_branches: usize,
+}
+
+#[derive(Serialize)]
+pub struct TestReportDto {
+    pub total_tests: usize,
+    pub passed_tests: usize,
+    pub failed_tests: usize,
+    pub skipped_tests: usize,
+    pub errors: usize,
+    pub time_seconds: f64,
+    pub pass_rate: Option<f64>,
+    pub suites: Vec<TestSuiteDto>,
+}
+
+#[derive(Serialize)]
+pub struct TestSuiteDto {
+    pub name: String,
+    pub tests: usize,
+    pub passed: usize,
+    pub failures: usize,
+    pub errors: usize,
+    pub skipped: usize,
+    pub time_seconds: f64,
+}
+
+impl From<&TestReportSummary> for TestReportDto {
+    fn from(summary: &TestReportSummary) -> Self {
+        Self {
+            total_tests: summary.total_tests,
+            passed_tests: summary.passed_tests,
+            failed_tests: summary.failed_tests,
+            skipped_tests: summary.skipped_tests,
+            errors: summary.errors,
+            time_seconds: summary.time_seconds,
+            pass_rate: summary.pass_rate(),
+            suites: summary
+                .suites
+                .iter()
+                .map(|s| TestSuiteDto {
+                    name: s.name.clone(),
+                    tests: s.tests,
+                    passed: s.passed,
+                    failures: s.failures,
+                    errors: s.errors,
+                    skipped: s.skipped,
+                    time_seconds: s.time_seconds,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -132,6 +189,7 @@ impl ReportDto {
         gate: &GateEvaluation,
         new_code: Option<&NewCodeAnalysis>,
         test_report: Option<&TestReportSummary>,
+        coverage_new_code: Option<f64>,
     ) -> Self {
         let metrics = report.metrics();
         Self {
@@ -155,8 +213,12 @@ impl ReportDto {
                 percent: c.percent(),
                 covered_lines: c.covered_lines(),
                 coverable_lines: c.coverable_lines(),
+                branch_percent: c.percent_branches(),
+                covered_branches: c.covered_branches(),
+                coverable_branches: c.coverable_branches(),
             }),
-            test_report: test_report.cloned(),
+            test_report: test_report.map(TestReportDto::from),
+            coverage_new_code,
             duplications: report
                 .duplications()
                 .iter()
@@ -192,6 +254,7 @@ pub fn render_text(
     gate: &GateEvaluation,
     new_code: Option<&NewCodeAnalysis>,
     test_report: Option<&TestReportSummary>,
+    coverage_new_code: Option<f64>,
 ) -> String {
     let mut issues: Vec<&Issue> = report.issues().iter().collect();
     issues.sort_by(|a, b| {
@@ -290,15 +353,43 @@ pub fn render_text(
             coverage.covered_lines(),
             coverage.coverable_lines(),
         ));
+        if coverage.coverable_branches() > 0 {
+            out.push_str(&format!(
+                "Branch coverage: {} ({}/{} branches)\n",
+                coverage
+                    .percent_branches()
+                    .map(|p| format!("{p:.1}%"))
+                    .unwrap_or_else(|| "n/a".to_string()),
+                coverage.covered_branches(),
+                coverage.coverable_branches(),
+            ));
+        }
+    }
+    if let Some(percent) = coverage_new_code {
+        out.push_str(&format!("Coverage on new code: {percent:.1}%\n"));
     }
     if let Some(new_code) = new_code {
         out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
     }
     if let Some(tests) = test_report {
         out.push_str(&format!(
-            "Tests: {} total, {} passed, {} failed, {} skipped, {} errors\n",
-            tests.total_tests, tests.passed_tests, tests.failed_tests, tests.skipped_tests, tests.errors,
+            "Tests: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
+            tests.total_tests,
+            tests.passed_tests,
+            tests.failed_tests,
+            tests.skipped_tests,
+            tests.errors,
+            tests.time_seconds,
         ));
+        if tests.suites.len() > 1 {
+            for suite in &tests.suites {
+                out.push_str(&format!(
+                    "  - {}: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
+                    suite.name, suite.tests, suite.passed, suite.failures, suite.errors, suite.skipped,
+                    suite.time_seconds,
+                ));
+            }
+        }
     }
     out.push_str(&format!("Health score: {}/100\n", report.health_score()));
     out.push_str(&format!("Rating: {}\n", report.rating()));
@@ -322,6 +413,7 @@ pub fn render_json(
     gate: &GateEvaluation,
     new_code: Option<&NewCodeAnalysis>,
     test_report: Option<&TestReportSummary>,
+    coverage_new_code: Option<f64>,
 ) -> serde_json::Result<String> {
-    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code, test_report))
+    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code, test_report, coverage_new_code))
 }

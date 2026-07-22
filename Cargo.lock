@@ -1444,6 +1444,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.36.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2067,7 +2076,9 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx-core",
+ "sqlx-mysql",
  "sqlx-postgres",
+ "sqlx-sqlite",
  "syn 2.0.119",
  "tokio",
  "url",
@@ -2104,6 +2115,7 @@ dependencies = [
  "percent-encoding",
  "rand 0.8.7",
  "rsa",
+ "serde",
  "sha1",
  "sha2 0.10.9",
  "smallvec",
@@ -2167,6 +2179,7 @@ dependencies = [
  "libsqlite3-sys",
  "log",
  "percent-encoding",
+ "serde",
  "serde_urlencoded",
  "sqlx-core",
  "thiserror",
@@ -2903,8 +2916,15 @@ dependencies = [
  "serde_json",
  "url",
  "utoipa",
+ "utoipa-swagger-ui-vendored",
  "zip",
 ]
+
+[[package]]
+name = "utoipa-swagger-ui-vendored"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2eebbbfe4093922c2b6734d7c679ebfebd704a0d7e56dfcb0d05818ce28977d"
 
 [[package]]
 name = "vcpkg"
@@ -3312,6 +3332,7 @@ dependencies = [
  "yunq-rules-engine",
  "yunq-rules-iac",
  "yunq-rules-owasp",
+ "yunq-rules-secrets",
  "yunq-rules-smells",
  "yunq-taint",
 ]
@@ -3339,6 +3360,7 @@ name = "yunq-infra-fs"
 version = "0.1.1"
 dependencies = [
  "ignore",
+ "quick-xml",
  "serde",
  "serde_json",
  "thiserror",
@@ -3415,6 +3437,7 @@ dependencies = [
 name = "yunq-infra-postgres"
 version = "0.1.1"
 dependencies = [
+ "serde_json",
  "sqlx",
  "thiserror",
  "tokio",
@@ -3776,6 +3799,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-rules-secrets"
+version = "0.1.1"
+dependencies = [
+ "regex",
+ "yunq-ast",
+ "yunq-parser-typescript",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-rules-smells"
 version = "0.1.1"
 dependencies = [
@@ -3813,6 +3846,7 @@ dependencies = [
  "yunq-rules-engine",
  "yunq-rules-iac",
  "yunq-rules-owasp",
+ "yunq-rules-secrets",
  "yunq-rules-smells",
 ]
 
@@ -3849,6 +3883,7 @@ dependencies = [
  "yunq-rules-engine",
  "yunq-rules-iac",
  "yunq-rules-owasp",
+ "yunq-rules-secrets",
  "yunq-rules-smells",
 ]
 

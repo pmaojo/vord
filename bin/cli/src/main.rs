@@ -47,6 +47,23 @@ enum Command {
         /// llvm-cov JSON export coverage report to ingest.
         #[arg(long = "llvm-cov")]
         llvm_cov: Option<PathBuf>,
+        /// Istanbul native JSON coverage report (`coverage-final.json`) to ingest.
+        #[arg(long)]
+        istanbul: Option<PathBuf>,
+        /// Coverage report in any supported format (LCOV, Cobertura, JaCoCo,
+        /// llvm-cov, Istanbul), auto-detected from content unless
+        /// `--coverage-format` is given.
+        #[arg(long)]
+        coverage_report: Option<PathBuf>,
+        /// Format for `--coverage-report` (lcov|cobertura|jacoco|llvm-cov|istanbul).
+        /// Auto-detected when omitted.
+        #[arg(long)]
+        coverage_format: Option<String>,
+        /// Unified diff (e.g. `git diff <ref>...HEAD --unified=0`) naming the
+        /// "new" lines coverage is restricted to for the coverage-on-new-code
+        /// measure. Only takes effect when a coverage report is also given.
+        #[arg(long)]
+        coverage_diff: Option<PathBuf>,
         /// JUnit XML test report to ingest (printed as a test summary).
         #[arg(long)]
         junit: Option<PathBuf>,
@@ -103,6 +120,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             cobertura,
             jacoco,
             llvm_cov,
+            istanbul,
+            coverage_report,
+            coverage_format,
+            coverage_diff,
             junit,
             commit_sha,
             github_token,
@@ -126,38 +147,88 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 .then(|| std::sync::Arc::new(FileAnalysisCache::open(path.join(".yunq-cache.json"))));
             let mut report =
                 futures::executor::block_on(yunq_cli::scan_with_cache(&path, cache.clone()))?;
+            // `_report` variants carry per-file/per-line detail (needed for
+            // coverage-on-new-code below) alongside the flat totals; the
+            // detail is merged into `coverage_detail` while the totals feed
+            // the plain `CoverageSummary` the rest of the pipeline already
+            // understands (`coverage`/`branch_coverage` measures, gate).
             let mut coverage_summary: Option<yunq_rules_engine::CoverageSummary> = None;
-            let mut merge_coverage = |parsed: yunq_rules_engine::CoverageSummary| {
+            let mut coverage_detail: Option<yunq_rules_engine::CoverageReport> = None;
+            let mut merge_coverage = |parsed: yunq_rules_engine::CoverageReport| -> anyhow::Result<()> {
+                let summary = parsed.summary()?;
                 match &mut coverage_summary {
                     Some(acc) => {
-                        let _ = acc.add(parsed.covered_lines(), parsed.coverable_lines());
+                        acc.add(summary.covered_lines(), summary.coverable_lines())?;
+                        acc.add_branches(summary.covered_branches(), summary.coverable_branches())?;
                     }
-                    None => coverage_summary = Some(parsed),
+                    None => coverage_summary = Some(summary),
                 }
+                match &mut coverage_detail {
+                    Some(acc) => acc.merge(parsed),
+                    None => coverage_detail = Some(parsed),
+                }
+                Ok(())
             };
             if let Some(path) = coverage {
                 let raw = std::fs::read_to_string(&path)
                     .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-                merge_coverage(yunq_infra_fs::parse_lcov(&raw)?);
+                merge_coverage(yunq_infra_fs::parse_lcov_report(&raw)?)?;
             }
             if let Some(path) = cobertura {
                 let raw = std::fs::read_to_string(&path)
                     .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-                merge_coverage(yunq_infra_fs::parse_cobertura(&raw)?);
+                merge_coverage(yunq_infra_fs::parse_cobertura_report(&raw)?)?;
             }
             if let Some(path) = jacoco {
                 let raw = std::fs::read_to_string(&path)
                     .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-                merge_coverage(yunq_infra_fs::parse_jacoco(&raw)?);
+                merge_coverage(yunq_infra_fs::parse_jacoco_report(&raw)?)?;
             }
             if let Some(path) = llvm_cov {
                 let raw = std::fs::read_to_string(&path)
                     .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-                merge_coverage(yunq_infra_fs::parse_llvm_cov(&raw)?);
+                merge_coverage(yunq_infra_fs::parse_llvm_cov_report(&raw)?)?;
+            }
+            if let Some(path) = istanbul {
+                let raw = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+                merge_coverage(yunq_infra_fs::parse_istanbul_report(&raw)?)?;
+            }
+            if let Some(path) = coverage_report {
+                let raw = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+                let format = coverage_format
+                    .map(|raw| match raw.to_ascii_lowercase().as_str() {
+                        "lcov" => Ok(yunq_infra_fs::CoverageFormat::Lcov),
+                        "cobertura" => Ok(yunq_infra_fs::CoverageFormat::Cobertura),
+                        "jacoco" => Ok(yunq_infra_fs::CoverageFormat::Jacoco),
+                        "llvm-cov" | "llvmcov" => Ok(yunq_infra_fs::CoverageFormat::LlvmCov),
+                        "istanbul" => Ok(yunq_infra_fs::CoverageFormat::Istanbul),
+                        other => Err(anyhow::anyhow!(
+                            "unknown --coverage-format {other:?} (lcov|cobertura|jacoco|llvm-cov|istanbul)"
+                        )),
+                    })
+                    .transpose()?;
+                merge_coverage(yunq_infra_fs::parse_coverage_report(&raw, format)?)?;
             }
             if let Some(summary) = coverage_summary {
                 report.set_coverage(summary);
             }
+            if let Some(detail) = coverage_detail {
+                report.set_coverage_report(detail);
+            }
+            // Coverage-on-new-code: restricts the ingested coverage detail to
+            // the lines a supplied unified diff marks as added/modified.
+            // Basic by design — no git invocation here, the caller supplies
+            // the diff (e.g. `git diff main...HEAD --unified=0 > diff.txt`).
+            let coverage_new_code = coverage_diff
+                .map(|path| {
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
+                })
+                .transpose()?
+                .map(|raw| yunq_infra_fs::changed_lines_from_unified_diff(&raw))
+                .and_then(|changed| report.coverage_on_new_code(&changed));
             let test_report = junit
                 .map(|path| {
                     let raw = std::fs::read_to_string(&path)
@@ -165,6 +236,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     yunq_infra_fs::parse_junit(&raw).map_err(anyhow::Error::from)
                 })
                 .transpose()?;
+            if let Some(summary) = &test_report {
+                report.set_test_report(summary.clone());
+            }
             if let Some(cache) = &cache
                 && let Err(e) = cache.persist()
             {
@@ -195,9 +269,13 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 eprintln!("warning: could not persist New Code baseline: {e}");
             }
 
-            // Gate conditions may target overall (`blocker_issues`) or new
-            // code (`new_blocker_issues`) measures.
+            // Gate conditions may target overall (`blocker_issues`), new-issue
+            // (`new_blocker_issues`) or coverage-on-new-code
+            // (`coverage_new_code`) measures.
             let gate = yunq_cli::default_quality_gate().evaluate(|key| {
+                if key.as_str() == "coverage_new_code" {
+                    return coverage_new_code;
+                }
                 new_code
                     .as_ref()
                     .and_then(|nc| nc.measure(key))
@@ -240,10 +318,28 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
 
             match format {
                 Format::Text => {
-                    print!("{}", output::render_text(&report, &gate, new_code.as_ref(), test_report.as_ref()))
+                    print!(
+                        "{}",
+                        output::render_text(
+                            &report,
+                            &gate,
+                            new_code.as_ref(),
+                            test_report.as_ref(),
+                            coverage_new_code,
+                        )
+                    )
                 }
                 Format::Json => {
-                    println!("{}", output::render_json(&report, &gate, new_code.as_ref(), test_report.as_ref())?)
+                    println!(
+                        "{}",
+                        output::render_json(
+                            &report,
+                            &gate,
+                            new_code.as_ref(),
+                            test_report.as_ref(),
+                            coverage_new_code,
+                        )?
+                    )
                 }
             }
 

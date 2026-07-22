@@ -26,20 +26,25 @@ use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 use yunq_infra_postgres::PgIssueStorage;
 use yunq_rules_engine::{
-    BulkOutcome, ChangelogAction, ChangelogEntry, HotspotReader, HotspotReview, HotspotStatus,
-    IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueFetcher, IssueQuery,
-    IssueReader, IssueStatus, IssueTransition, IssueWorkflow, JobQueue, Page, QueueError,
-    Resolution, RuleId, ScanJob, Severity, StorageError, StoredHotspot, StoredIssue,
-    WorkflowError, IssueFacets,
+    BulkOutcome, ChangelogAction, ChangelogEntry, GateResultReader, GateResultSummary, GateStatus,
+    HotspotReader, HotspotReview, HotspotStatus, IssueBulkWorkflow, IssueChangelogReader,
+    IssueFacetReader, IssueFetcher, IssueQuery, IssueReader, IssueStatus, IssueTransition,
+    IssueWorkflow, JobQueue, Page, QueueError, Resolution, RuleId, ScanJob, Severity, StorageError,
+    StoredHotspot, StoredIssue, WorkflowError, IssueFacets,
 };
 
 mod auth;
 mod metrics;
+mod ops;
 mod webhooks;
+
+use ops::OpsStore;
 
 struct AppState {
     queue: Arc<dyn ScanQueuePort>,
     reader: Arc<dyn IssueApiStore>,
+    gate: Arc<dyn GateBadgePort>,
+    ops: Arc<dyn OpsStore>,
     metrics: metrics::Metrics,
     webhooks: webhooks::WebhookDispatcher,
     auth: auth::OAuthService,
@@ -160,6 +165,28 @@ where
     }
 }
 
+/// Object-safe HTTP-facing adapter over `GateResultReader` — the port the
+/// status badge reads, so it always reflects the real result of the last
+/// persisted analysis rather than a hardcoded value.
+trait GateBadgePort: Send + Sync {
+    fn latest_gate_result(
+        &self,
+        project_key: String,
+    ) -> BoxFuture<'_, Result<Option<GateResultSummary>, StorageError>>;
+}
+
+impl<T> GateBadgePort for T
+where
+    T: GateResultReader + Send + Sync,
+{
+    fn latest_gate_result(
+        &self,
+        project_key: String,
+    ) -> BoxFuture<'_, Result<Option<GateResultSummary>, StorageError>> {
+        Box::pin(async move { GateResultReader::latest_gate_result(self, &project_key).await })
+    }
+}
+
 struct SecurityAddon;
 
 impl Modify for SecurityAddon {
@@ -205,6 +232,11 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(stripe_webhook))
         .routes(routes!(export_compliance_pdf))
         .routes(routes!(list_projects))
+        .routes(routes!(ops::system_info))
+        .routes(routes!(ops::upsert_quality_gate))
+        .routes(routes!(ops::upsert_quality_profile))
+        .routes(routes!(ops::grant_permission, ops::revoke_permission))
+        .routes(routes!(ops::list_audit_log))
         .split_for_parts();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
@@ -224,8 +256,11 @@ async fn main() -> anyhow::Result<()> {
 
     let storage = PgIssueStorage::connect_lazy(&database_url)?;
     let reader: Arc<dyn IssueApiStore> = Arc::new(storage.clone());
+    let gate: Arc<dyn GateBadgePort> = Arc::new(storage.clone());
+    let ops: Arc<dyn OpsStore> = Arc::new(storage.clone());
     let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
-    let state = Arc::new(AppState { queue, reader, metrics: metrics.clone(), webhooks, auth });
+    let state =
+        Arc::new(AppState { queue, reader, gate, ops, metrics: metrics.clone(), webhooks, auth });
 
     let app = router
         .route("/health", get(|| async { "ok" }))
@@ -578,6 +613,7 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
         .chain(yunq_rules_smells::all_rules())
         .chain(yunq_rules_iac::all_rules())
         .chain(yunq_rules_a11y::all_rules())
+        .chain(yunq_rules_secrets::all_rules())
         .map(|rule| {
             let metadata = rule.metadata();
             RuleDto {
@@ -649,7 +685,49 @@ struct TransitionRequestDto {
     resolution: Option<String>,
 }
 
-/// Generate SVG status badge for a project.
+/// The badge's fill color and label for a project's latest persisted gate
+/// result — grey/"no analysis" until the project has one, grey/"unknown" if
+/// the read itself failed, otherwise the real status. Pure so it is
+/// unit-testable without a database.
+fn badge_status_label_and_color(
+    result: &Result<Option<GateResultSummary>, StorageError>,
+) -> (&'static str, &'static str) {
+    match result {
+        Ok(Some(summary)) => match summary.status {
+            GateStatus::Passed => ("passed", "#4c1"),
+            GateStatus::Failed => ("failed", "#e05d44"),
+        },
+        Ok(None) => ("no analysis", "#9f9f9f"),
+        Err(_) => ("unknown", "#9f9f9f"),
+    }
+}
+
+/// Renders a shields.io-style two-segment SVG badge ("yunq" | `label`),
+/// sizing the right segment to fit `label` so longer statuses (e.g. "no
+/// analysis") don't get clipped. Pure and deterministic — no I/O.
+fn render_gate_badge_svg(label: &str, color: &str) -> String {
+    const LEFT_WIDTH: u32 = 42;
+    const CHAR_WIDTH: u32 = 7;
+    const HORIZONTAL_PADDING: u32 = 10;
+    let right_width = (label.chars().count() as u32 * CHAR_WIDTH + HORIZONTAL_PADDING).max(50);
+    let total_width = LEFT_WIDTH + right_width;
+    let left_center = LEFT_WIDTH / 2;
+    let right_center = LEFT_WIDTH + right_width / 2;
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="20">
+  <rect width="{total_width}" height="20" rx="3" fill="#555"/>
+  <rect x="{LEFT_WIDTH}" width="{right_width}" height="20" rx="3" fill="{color}"/>
+  <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,sans-serif" font-size="11">
+    <text x="{left_center}" y="14">yunq</text>
+    <text x="{right_center}" y="14">{label}</text>
+  </g>
+</svg>"##
+    )
+}
+
+/// Generate SVG status badge for a project, reflecting the real outcome of
+/// the last persisted quality gate evaluation (green "passed", red "failed",
+/// grey "no analysis" for a project that hasn't been scanned yet).
 #[utoipa::path(
     get,
     path = "/api/projects/{key}/badge.svg",
@@ -658,16 +736,72 @@ struct TransitionRequestDto {
         (status = 200, description = "SVG badge", body = String, content_type = "image/svg+xml")
     )
 )]
-async fn badge_svg(Path(_key): Path<String>) -> impl IntoResponse {
-    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="110" height="20">
-  <rect width="110" height="20" rx="3" fill="#555"/>
-  <rect x="50" width="60" height="20" rx="3" fill="#4c1"/>
-  <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,sans-serif" font-size="11">
-    <text x="25" y="14">yunq</text>
-    <text x="80" y="14">passed</text>
-  </g>
-</svg>"##;
+async fn badge_svg(State(state): State<Arc<AppState>>, Path(key): Path<String>) -> impl IntoResponse {
+    let result = state.gate.latest_gate_result(key).await;
+    let (label, color) = badge_status_label_and_color(&result);
+    let svg = render_gate_badge_svg(label, color);
     ([(axum::http::header::CONTENT_TYPE, "image/svg+xml")], svg)
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::*;
+
+    #[test]
+    fn passed_gate_renders_green() {
+        let result = Ok(Some(GateResultSummary {
+            status: GateStatus::Passed,
+            evaluated_at: "2026-07-22T00:00:00Z".to_string(),
+        }));
+        let (label, color) = badge_status_label_and_color(&result);
+        assert_eq!(label, "passed");
+        assert_eq!(color, "#4c1");
+    }
+
+    #[test]
+    fn failed_gate_renders_red() {
+        let result = Ok(Some(GateResultSummary {
+            status: GateStatus::Failed,
+            evaluated_at: "2026-07-22T00:00:00Z".to_string(),
+        }));
+        let (label, color) = badge_status_label_and_color(&result);
+        assert_eq!(label, "failed");
+        assert_eq!(color, "#e05d44");
+    }
+
+    #[test]
+    fn no_analysis_yet_renders_grey_with_explicit_label() {
+        let (label, color) = badge_status_label_and_color(&Ok(None));
+        assert_eq!(label, "no analysis");
+        assert_eq!(color, "#9f9f9f");
+    }
+
+    #[test]
+    fn storage_failure_renders_grey_unknown_rather_than_erroring() {
+        let (label, color) = badge_status_label_and_color(&Err(StorageError("down".to_string())));
+        assert_eq!(label, "unknown");
+        assert_eq!(color, "#9f9f9f");
+    }
+
+    #[test]
+    fn svg_embeds_the_label_and_color_and_stays_well_formed() {
+        let svg = render_gate_badge_svg("passed", "#4c1");
+        assert!(svg.contains("passed"));
+        assert!(svg.contains("#4c1"));
+        assert!(svg.starts_with("<svg"));
+        assert!(svg.trim_end().ends_with("</svg>"));
+    }
+
+    #[test]
+    fn longer_labels_widen_the_badge_so_text_is_not_clipped() {
+        let short = render_gate_badge_svg("passed", "#4c1");
+        let long = render_gate_badge_svg("no analysis", "#9f9f9f");
+        let width_of = |svg: &str| -> u32 {
+            let after = svg.split("width=\"").nth(1).unwrap();
+            after.split('"').next().unwrap().parse().unwrap()
+        };
+        assert!(width_of(&long) > width_of(&short));
+    }
 }
 
 /// Export ISO 32000-1 Binary PDF Compliance Report (Enterprise Subscription Required).
