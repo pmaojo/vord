@@ -32,6 +32,8 @@ yunq-parser-hcl = { workspace = true }
 yunq-parser-bash = { workspace = true }
 yunq-rules-owasp = { workspace = true }
 yunq-rules-smells = { workspace = true }
+yunq-rules-iac = { workspace = true }
+yunq-rules-a11y = { workspace = true }
 yunq-infra-memory = { workspace = true }
 yunq-infra-fs = { workspace = true }
 yunq-infra-github = { workspace = true }

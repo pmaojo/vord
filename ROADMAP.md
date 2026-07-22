@@ -53,6 +53,18 @@ re-analysis on typical PRs.
 - **Rule catalog at scale**: port the high-value Sonar rules per language;
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.
+  22 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
+  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`) plus
+  duplication and taint. Latest additions (2026-07-22) unblock two
+  categories the earlier catalog audit (`specs/rule-catalog-gap-closure`)
+  had marked "viable but blocked on a missing parser" — now that the
+  HTML/CSS/HCL/YAML parsers exist, those categories are open:
+  `iac:iam-wildcard-permission` and `iac:open-ingress-cidr` (Terraform HCL +
+  Kubernetes/CloudFormation YAML) and `a11y:img-missing-alt` /
+  `a11y:missing-lang-attribute` (HTML). Still open: only ~22 rules total
+  vs. the ~100-check reference audit; React/JSX, OOP smells,
+  architecture/dependency cycles, and reactive-stream smells still need
+  symbol/type resolution the AST doesn't do yet.
 - **Issue types & classification**: bug / vulnerability / code smell, plus
   MQR-style software-quality impacts (reliability, security,
   maintainability × severity) — support both classification modes like
