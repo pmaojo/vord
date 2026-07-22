@@ -1,7 +1,7 @@
 # Multi-stage release Dockerfile for yunq-server, yunq-worker, and yunq-cli
 FROM rust:alpine AS builder
 
-RUN apk add --no-cache musl-dev gcc g++ make git
+RUN apk add --no-cache musl-dev gcc g++ make git curl
 
 WORKDIR /app
 COPY . .
