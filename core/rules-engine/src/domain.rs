@@ -95,6 +95,13 @@ pub struct StoredIssue {
     pub issue: Issue,
 }
 
+/// A hotspot as persisted by a storage adapter, carrying its storage identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredHotspot {
+    pub id: i64,
+    pub hotspot: Hotspot,
+}
+
 /// A single detected problem, located in a file, with its workflow state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Issue {

@@ -10,7 +10,8 @@ use yunq_infra_sqs::SqsJobConsumer;
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_rules_engine::{
-    AnalyzerService, IssueStorage, MetricsTracker, QualityProfile, QueueError, Rule, ScanJob,
+    AnalyzerService, HotspotStorage, IssueStorage, MetricsTracker, QualityProfile, QueueError,
+    Rule, ScanJob,
 };
 
 #[tokio::main]
@@ -36,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
 
 fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
 where
-    S: IssueStorage,
+    S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
     let rules: Vec<Box<dyn Rule>> = yunq_rules_owasp::all_rules()
@@ -61,7 +62,7 @@ async fn handle_job<S, M>(
     job: ScanJob,
 ) -> Result<(), QueueError>
 where
-    S: IssueStorage,
+    S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
     let sources = yunq_infra_fs::collect_sources(Path::new(job.path()))

@@ -12,7 +12,7 @@ mod service;
 pub use domain::{
     AnalysisReport, Hotspot, HotspotStatus, InvalidIssueStateError, InvalidScanJobError,
     InvalidTransitionError, Issue, IssueStatus, IssueTransition, Metrics, Resolution, ScanJob,
-    StoredIssue,
+    StoredHotspot, StoredIssue,
 };
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint};
 pub use project::{
@@ -20,8 +20,9 @@ pub use project::{
     InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,
 };
 pub use ports::{
-    AnalysisCache, AstParser, CacheKey, CachedAnalysis, IssueReader, IssueStorage, IssueWorkflow,
-    JobQueue, MetricsTracker, ParseError, QueueError, StorageError, WorkflowError,
+    AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotReader, HotspotReview,
+    HotspotStorage, IssueQuery, IssueReader, IssueStorage, IssueWorkflow, JobQueue, MetricsTracker,
+    Page, ParseError, QueueError, StorageError, WorkflowError,
 };
 pub use rule::{Finding, FindingKind, Rule};
 pub use service::{AnalyzeError, AnalyzerService};

@@ -6,9 +6,11 @@
 use std::future::Future;
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
+use yunq_profiles::{RuleId, Severity};
 
 use crate::domain::{
-    Hotspot, InvalidTransitionError, Issue, IssueTransition, Metrics, ScanJob, StoredIssue,
+    Hotspot, HotspotStatus, InvalidTransitionError, Issue, IssueStatus, IssueTransition, Metrics,
+    ScanJob, StoredHotspot, StoredIssue,
 };
 
 /// Inbound port: turns raw source text into the neutral AST.
@@ -31,12 +33,75 @@ pub trait IssueStorage: Send + Sync {
     fn save_issues(&self, issues: &[Issue]) -> impl Future<Output = Result<(), StorageError>> + Send;
 }
 
+/// Conjunctive filters plus pagination for issue search.
+#[derive(Clone, Debug, Default)]
+pub struct IssueQuery {
+    pub severity: Option<Severity>,
+    pub status: Option<IssueStatus>,
+    pub rule: Option<RuleId>,
+    /// Substring match on the file path.
+    pub file: Option<String>,
+    pub assignee: Option<String>,
+    /// 1-based; 0 is treated as 1.
+    pub page: usize,
+    /// Clamped to 1..=500; 0 means the default (50).
+    pub page_size: usize,
+}
+
+impl IssueQuery {
+    pub fn normalized_page(&self) -> usize {
+        self.page.max(1)
+    }
+
+    pub fn normalized_page_size(&self) -> usize {
+        if self.page_size == 0 { 50 } else { self.page_size.clamp(1, 500) }
+    }
+
+    pub fn offset(&self) -> usize {
+        (self.normalized_page() - 1) * self.normalized_page_size()
+    }
+}
+
+/// One page of results plus the pagination envelope.
+#[derive(Clone, Debug)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub page: usize,
+    pub page_size: usize,
+    pub total: usize,
+}
+
 /// Outbound port: reads persisted issues (dashboard/API side).
 pub trait IssueReader: Send + Sync {
-    fn recent_issues(
+    fn search_issues(
+        &self,
+        query: &IssueQuery,
+    ) -> impl Future<Output = Result<Page<StoredIssue>, StorageError>> + Send;
+}
+
+/// Outbound port: persists detected security hotspots.
+pub trait HotspotStorage: Send + Sync {
+    fn save_hotspots(
+        &self,
+        hotspots: &[Hotspot],
+    ) -> impl Future<Output = Result<(), StorageError>> + Send;
+}
+
+/// Outbound port: reads persisted hotspots.
+pub trait HotspotReader: Send + Sync {
+    fn recent_hotspots(
         &self,
         limit: usize,
-    ) -> impl Future<Output = Result<Vec<StoredIssue>, StorageError>> + Send;
+    ) -> impl Future<Output = Result<Vec<StoredHotspot>, StorageError>> + Send;
+}
+
+/// Outbound port: records a reviewer's verdict on a hotspot.
+pub trait HotspotReview: Send + Sync {
+    fn review_hotspot(
+        &self,
+        hotspot_id: i64,
+        status: HotspotStatus,
+    ) -> impl Future<Output = Result<StoredHotspot, WorkflowError>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]

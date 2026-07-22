@@ -23,8 +23,9 @@ use utoipa_swagger_ui::SwaggerUi;
 use yunq_infra_postgres::PgIssueStorage;
 use yunq_infra_sqs::SqsJobQueue;
 use yunq_rules_engine::{
-    IssueReader, IssueTransition, IssueWorkflow, JobQueue, Resolution, ScanJob, StoredIssue,
-    WorkflowError,
+    HotspotReader, HotspotReview, HotspotStatus, IssueQuery, IssueReader, IssueStatus,
+    IssueTransition, IssueWorkflow, JobQueue, Resolution, RuleId, ScanJob, Severity, StoredHotspot,
+    StoredIssue, WorkflowError,
 };
 
 struct AppState {
@@ -46,6 +47,8 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(list_issues))
         .routes(routes!(transition_issue))
         .routes(routes!(assign_issue))
+        .routes(routes!(list_hotspots))
+        .routes(routes!(review_hotspot))
         .split_for_parts();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
@@ -117,13 +120,56 @@ async fn enqueue_scan(
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 struct IssuesQuery {
-    /// Maximum number of issues to return (default 50, capped at 500).
-    #[serde(default = "default_limit")]
-    limit: usize,
+    /// 1-based page number (default 1).
+    #[serde(default)]
+    page: usize,
+    /// Page size (default 50, capped at 500).
+    #[serde(default)]
+    page_size: usize,
+    /// Filter: info|minor|major|critical|blocker.
+    severity: Option<String>,
+    /// Filter: open|confirmed|resolved|closed.
+    status: Option<String>,
+    /// Filter: exact rule id, e.g. owasp:eval-usage.
+    rule: Option<String>,
+    /// Filter: substring of the file path.
+    file: Option<String>,
+    /// Filter: exact assignee.
+    assignee: Option<String>,
 }
 
-fn default_limit() -> usize {
-    50
+impl IssuesQuery {
+    fn into_domain(self) -> Result<IssueQuery, String> {
+        let severity = self
+            .severity
+            .map(|raw| Severity::parse(&raw).ok_or(format!("invalid severity {raw:?}")))
+            .transpose()?;
+        let status = self
+            .status
+            .map(|raw| IssueStatus::parse(&raw).ok_or(format!("invalid status {raw:?}")))
+            .transpose()?;
+        let rule = self
+            .rule
+            .map(|raw| RuleId::new(&raw).map_err(|e| e.to_string()))
+            .transpose()?;
+        Ok(IssueQuery {
+            severity,
+            status,
+            rule,
+            file: self.file,
+            assignee: self.assignee,
+            page: self.page,
+            page_size: self.page_size,
+        })
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+struct IssuePageDto {
+    items: Vec<IssueDto>,
+    page: usize,
+    page_size: usize,
+    total: usize,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -158,26 +204,129 @@ impl From<&StoredIssue> for IssueDto {
     }
 }
 
-/// List the most recently detected issues.
+/// Search issues with filters and pagination (newest first).
 #[utoipa::path(
     get,
     path = "/issues",
     params(IssuesQuery),
     responses(
-        (status = 200, description = "Recent issues", body = [IssueDto]),
+        (status = 200, description = "One page of matching issues", body = IssuePageDto),
+        (status = 400, description = "Invalid filter value"),
         (status = 502, description = "Storage backend unavailable"),
     )
 )]
 async fn list_issues(
     State(state): State<Arc<AppState>>,
     Query(query): Query<IssuesQuery>,
-) -> Result<Json<Vec<IssueDto>>, (StatusCode, String)> {
-    let issues = state
+) -> Result<Json<IssuePageDto>, (StatusCode, String)> {
+    let query = query.into_domain().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let page = state
         .reader
-        .recent_issues(query.limit.min(500))
+        .search_issues(&query)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
-    Ok(Json(issues.iter().map(IssueDto::from).collect()))
+    Ok(Json(IssuePageDto {
+        items: page.items.iter().map(IssueDto::from).collect(),
+        page: page.page,
+        page_size: page.page_size,
+        total: page.total,
+    }))
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+struct HotspotsQuery {
+    /// Maximum number of hotspots to return (default 50, capped at 500).
+    #[serde(default = "default_hotspot_limit")]
+    limit: usize,
+}
+
+fn default_hotspot_limit() -> usize {
+    50
+}
+
+#[derive(Serialize, ToSchema)]
+struct HotspotDto {
+    id: i64,
+    rule: String,
+    file: String,
+    line: u32,
+    column: u32,
+    message: String,
+    status: String,
+}
+
+impl From<&StoredHotspot> for HotspotDto {
+    fn from(stored: &StoredHotspot) -> Self {
+        let hotspot = &stored.hotspot;
+        Self {
+            id: stored.id,
+            rule: hotspot.rule().to_string(),
+            file: hotspot.file().to_string(),
+            line: hotspot.span().start_line,
+            column: hotspot.span().start_col,
+            message: hotspot.message().to_string(),
+            status: hotspot.status().to_string(),
+        }
+    }
+}
+
+/// List the most recently detected security hotspots.
+#[utoipa::path(
+    get,
+    path = "/hotspots",
+    params(HotspotsQuery),
+    responses(
+        (status = 200, description = "Recent hotspots", body = [HotspotDto]),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+async fn list_hotspots(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<HotspotsQuery>,
+) -> Result<Json<Vec<HotspotDto>>, (StatusCode, String)> {
+    let hotspots = state
+        .reader
+        .recent_hotspots(query.limit.min(500))
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    Ok(Json(hotspots.iter().map(HotspotDto::from).collect()))
+}
+
+#[derive(Deserialize, ToSchema)]
+struct HotspotReviewRequestDto {
+    /// One of: to-review, acknowledged, fixed, safe.
+    status: String,
+}
+
+/// Record a reviewer's verdict on a hotspot.
+#[utoipa::path(
+    put,
+    path = "/hotspots/{id}/status",
+    params(("id" = i64, Path, description = "Hotspot id")),
+    request_body = HotspotReviewRequestDto,
+    responses(
+        (status = 200, description = "Hotspot after the review", body = HotspotDto),
+        (status = 400, description = "Unknown status"),
+        (status = 404, description = "Hotspot not found"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+async fn review_hotspot(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(request): Json<HotspotReviewRequestDto>,
+) -> Result<Json<HotspotDto>, (StatusCode, String)> {
+    let status = HotspotStatus::parse(&request.status).ok_or((
+        StatusCode::BAD_REQUEST,
+        format!("invalid status {:?} (to-review|acknowledged|fixed|safe)", request.status),
+    ))?;
+    let stored = state
+        .reader
+        .review_hotspot(id, status)
+        .await
+        .map_err(workflow_error_response)?;
+    Ok(Json(HotspotDto::from(&stored)))
 }
 
 #[derive(Deserialize, ToSchema)]

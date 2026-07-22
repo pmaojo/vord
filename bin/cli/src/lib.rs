@@ -11,8 +11,8 @@ use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_rules_engine::{
-    AnalysisReport, AnalyzerService, ComparisonOperator, Condition, IssueStorage, MetricKey,
-    MetricsTracker, QualityGate, QualityProfile, Rule,
+    AnalysisReport, AnalyzerService, ComparisonOperator, Condition, HotspotStorage, IssueStorage,
+    MetricKey, MetricsTracker, QualityGate, QualityProfile, Rule,
 };
 
 pub mod output;
@@ -21,7 +21,7 @@ pub mod output;
 /// profile activating each rule at its default severity.
 pub fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
 where
-    S: IssueStorage,
+    S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
     let rules: Vec<Box<dyn Rule>> = yunq_rules_owasp::all_rules()

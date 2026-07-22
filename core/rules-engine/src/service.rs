@@ -8,7 +8,8 @@ use yunq_profiles::QualityProfile;
 
 use crate::domain::{AnalysisReport, Hotspot, Issue, Metrics};
 use crate::ports::{
-    AnalysisCache, AstParser, CacheKey, CachedAnalysis, IssueStorage, MetricsTracker, StorageError,
+    AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotStorage, IssueStorage,
+    MetricsTracker, StorageError,
 };
 use crate::rule::{FindingKind, Rule};
 
@@ -20,7 +21,7 @@ use crate::rule::{FindingKind, Rule};
 /// and never knows which concrete backend it talks to.
 pub struct AnalyzerService<S, M>
 where
-    S: IssueStorage,
+    S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
     parsers: HashMap<LanguageIdentifier, Box<dyn AstParser>>,
@@ -39,7 +40,7 @@ pub enum AnalyzeError {
 
 impl<S, M> AnalyzerService<S, M>
 where
-    S: IssueStorage,
+    S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
     pub fn new(profile: QualityProfile, storage: S, metrics: M) -> Self {
@@ -103,6 +104,7 @@ where
         }
 
         self.storage.save_issues(&issues).await?;
+        self.storage.save_hotspots(&hotspots).await?;
         self.metrics.record(&metrics).await?;
         Ok(AnalysisReport::new(issues, hotspots, metrics))
     }
@@ -309,11 +311,19 @@ mod tests {
     #[derive(Default)]
     struct CapturingStorage {
         saved: Mutex<Vec<Issue>>,
+        saved_hotspots: Mutex<Vec<Hotspot>>,
     }
 
     impl IssueStorage for &CapturingStorage {
         async fn save_issues(&self, issues: &[Issue]) -> Result<(), StorageError> {
             self.saved.lock().unwrap().extend_from_slice(issues);
+            Ok(())
+        }
+    }
+
+    impl HotspotStorage for &CapturingStorage {
+        async fn save_hotspots(&self, hotspots: &[Hotspot]) -> Result<(), StorageError> {
+            self.saved_hotspots.lock().unwrap().extend_from_slice(hotspots);
             Ok(())
         }
     }
