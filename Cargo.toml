@@ -27,6 +27,8 @@ yunq-infra-fs = { path = "infra/fs" }
 yunq-infra-postgres = { path = "infra/postgres" }
 yunq-infra-sqs = { path = "infra/sqs" }
 yunq-infra-github = { path = "infra/github" }
+yunq-remediation = { path = "core/remediation" }
+yunq-infra-llm = { path = "infra/llm" }
 
 # External
 thiserror = "2"

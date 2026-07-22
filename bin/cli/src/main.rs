@@ -38,6 +38,15 @@ enum Command {
         /// LCOV coverage report to ingest (enables the coverage gate condition).
         #[arg(long)]
         coverage: Option<PathBuf>,
+        /// Git commit SHA for reporting ALM commit status.
+        #[arg(long)]
+        commit_sha: Option<String>,
+        /// GitHub API token (defaults to GITHUB_TOKEN env var).
+        #[arg(long)]
+        github_token: Option<String>,
+        /// GitHub repository in owner/repo format (defaults to GITHUB_REPOSITORY env var).
+        #[arg(long)]
+        github_repo: Option<String>,
     },
 }
 
@@ -60,7 +69,18 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Scan { path, format, fail_on, no_cache, enforce_gate, no_baseline, coverage } => {
+        Command::Scan {
+            path,
+            format,
+            fail_on,
+            no_cache,
+            enforce_gate,
+            no_baseline,
+            coverage,
+            commit_sha,
+            github_token,
+            github_repo,
+        } => {
             let threshold = fail_on
                 .map(|raw| {
                     Severity::parse(&raw).ok_or_else(|| {
@@ -106,6 +126,40 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     .and_then(|nc| nc.measure(key))
                     .or_else(|| report.measure(key))
             });
+
+            // Report status to GitHub if SHA and GitHub configuration/env are provided
+            let target_sha = commit_sha.or_else(|| std::env::var("GITHUB_SHA").ok());
+            if let Some(sha_str) = target_sha {
+                if let Ok(sha) = yunq_rules_engine::CommitSha::new(&sha_str) {
+                    let reporter = if let (Some(token), Some(repo)) = (github_token, github_repo) {
+                        let (owner, name) = repo.split_once('/').unwrap_or(("local", &repo));
+                        Some(yunq_infra_github::GitHubStatusReporter::new(token, owner, name))
+                    } else {
+                        yunq_infra_github::GitHubStatusReporter::from_env()
+                    };
+
+                    if let Some(reporter) = reporter {
+                        use yunq_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
+                        let state = if gate.status() == yunq_rules_engine::GateStatus::Passed {
+                            CommitStatusState::Success
+                        } else {
+                            CommitStatusState::Failure
+                        };
+                        let gate_label = match gate.status() {
+                            yunq_rules_engine::GateStatus::Passed => "passed",
+                            yunq_rules_engine::GateStatus::Failed => "failed",
+                        };
+                        let desc = format!(
+                            "Gate {gate_label}: {} issues found",
+                            report.issues().len()
+                        );
+                        let status = CommitStatus::new(state, desc);
+                        if let Err(e) = futures::executor::block_on(reporter.report_commit_status(&sha, &status)) {
+                            eprintln!("warning: could not report commit status to GitHub: {e}");
+                        }
+                    }
+                }
+            }
 
             match format {
                 Format::Text => print!("{}", output::render_text(&report, &gate, new_code.as_ref())),

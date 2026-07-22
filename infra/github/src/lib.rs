@@ -134,7 +134,7 @@ mod tests {
     async fn start_mock_server() -> (String, Captured) {
         let state = Captured::default();
         let app = Router::new()
-            .route("/repos/:owner/:repo/statuses/:sha", post(capture_status))
+            .route("/repos/{owner}/{repo}/statuses/{sha}", post(capture_status))
             .with_state(state.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

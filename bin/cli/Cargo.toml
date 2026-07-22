@@ -17,6 +17,7 @@ yunq-rules-owasp = { workspace = true }
 yunq-rules-smells = { workspace = true }
 yunq-infra-memory = { workspace = true }
 yunq-infra-fs = { workspace = true }
+yunq-infra-github = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
