@@ -19,8 +19,6 @@ use std::path::Path;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range, Url};
 use yunq_ast::LanguageIdentifier;
 use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
-#[cfg(test)]
-use yunq_rules_engine::AnalysisReport;
 use yunq_rules_engine::{Issue, Severity};
 
 /// The language for a document URI, if yunq has a parser for it.
@@ -92,16 +90,6 @@ fn severity_to_lsp(severity: Severity) -> DiagnosticSeverity {
         Severity::Major => DiagnosticSeverity::WARNING,
         Severity::Critical | Severity::Blocker => DiagnosticSeverity::ERROR,
     }
-}
-
-/// Exposed for tests that want the raw report instead of LSP diagnostics.
-#[cfg(test)]
-pub async fn analyze_text(uri: &Url, text: &str) -> Option<AnalysisReport> {
-    let language = language_for(uri)?;
-    let file = yunq_ast::SourceFile::new("t", text.to_string(), language).ok()?;
-    let service =
-        yunq_cli::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
-    service.analyze_files(std::slice::from_ref(&file)).await.ok()
 }
 
 #[cfg(test)]
