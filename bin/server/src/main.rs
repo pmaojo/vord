@@ -49,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(assign_issue))
         .routes(routes!(list_hotspots))
         .routes(routes!(review_hotspot))
+        .routes(routes!(list_rules))
         .split_for_parts();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
@@ -291,6 +292,43 @@ async fn list_hotspots(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
     Ok(Json(hotspots.iter().map(HotspotDto::from).collect()))
+}
+
+#[derive(Serialize, ToSchema)]
+struct RuleDto {
+    id: String,
+    description: String,
+    tags: Vec<String>,
+    cwe: Option<u32>,
+    default_severity: String,
+    remediation_effort_minutes: u32,
+    produces_hotspots: bool,
+}
+
+/// The catalog of every rule this server's analyzers ship with.
+#[utoipa::path(
+    get,
+    path = "/rules",
+    responses((status = 200, description = "Rule catalog", body = [RuleDto]))
+)]
+async fn list_rules() -> Json<Vec<RuleDto>> {
+    let rules = yunq_rules_owasp::all_rules()
+        .into_iter()
+        .chain(yunq_rules_smells::all_rules())
+        .map(|rule| {
+            let metadata = rule.metadata();
+            RuleDto {
+                id: rule.id().to_string(),
+                description: metadata.description,
+                tags: metadata.tags,
+                cwe: metadata.cwe,
+                default_severity: rule.default_severity().to_string(),
+                remediation_effort_minutes: rule.remediation_effort_minutes(),
+                produces_hotspots: metadata.produces_hotspots,
+            }
+        })
+        .collect();
+    Json(rules)
 }
 
 #[derive(Deserialize, ToSchema)]

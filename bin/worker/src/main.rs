@@ -7,6 +7,8 @@ use std::path::Path;
 
 use yunq_infra_postgres::PgIssueStorage;
 use yunq_infra_sqs::SqsJobConsumer;
+use yunq_parser_go::GoParser;
+use yunq_parser_python::PythonParser;
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_rules_engine::{
@@ -50,7 +52,9 @@ where
     );
     let mut service = AnalyzerService::new(profile, storage, metrics)
         .register_parser(Box::new(TypeScriptParser::new()))
-        .register_parser(Box::new(RustParser::new()));
+        .register_parser(Box::new(RustParser::new()))
+        .register_parser(Box::new(PythonParser::new()))
+        .register_parser(Box::new(GoParser::new()));
     for rule in rules {
         service = service.register_rule(rule);
     }

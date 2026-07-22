@@ -15,7 +15,7 @@ impl LanguageIdentifier {
     pub fn new(raw: &str) -> Result<Self, UnsupportedLanguageError> {
         let normalized = raw.to_ascii_lowercase();
         match normalized.as_str() {
-            "rust" | "typescript" => Ok(Self(normalized)),
+            "rust" | "typescript" | "python" | "go" => Ok(Self(normalized)),
             _ => Err(UnsupportedLanguageError(raw.to_string())),
         }
     }
@@ -28,11 +28,21 @@ impl LanguageIdentifier {
         Self("typescript".to_string())
     }
 
+    pub fn python() -> Self {
+        Self("python".to_string())
+    }
+
+    pub fn go() -> Self {
+        Self("go".to_string())
+    }
+
     /// Maps a file extension to its language, if the extension is supported.
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension {
             "rs" => Some(Self::rust()),
             "ts" | "tsx" => Some(Self::typescript()),
+            "py" => Some(Self::python()),
+            "go" => Some(Self::go()),
             _ => None,
         }
     }
@@ -73,6 +83,8 @@ mod tests {
             LanguageIdentifier::from_extension("tsx"),
             Some(LanguageIdentifier::typescript())
         );
-        assert_eq!(LanguageIdentifier::from_extension("py"), None);
+        assert_eq!(LanguageIdentifier::from_extension("py"), Some(LanguageIdentifier::python()));
+        assert_eq!(LanguageIdentifier::from_extension("go"), Some(LanguageIdentifier::go()));
+        assert_eq!(LanguageIdentifier::from_extension("rb"), None);
     }
 }

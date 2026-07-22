@@ -284,6 +284,27 @@
         }
       }
     },
+    "/rules": {
+      "get": {
+        "summary": "The catalog of every rule this server's analyzers ship with.",
+        "operationId": "list_rules",
+        "responses": {
+          "200": {
+            "description": "Rule catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuleDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/scans": {
       "post": {
         "summary": "Enqueue a scan job for asynchronous analysis.",
@@ -467,6 +488,50 @@
           "total": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "RuleDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "description",
+          "tags",
+          "default_severity",
+          "remediation_effort_minutes",
+          "produces_hotspots"
+        ],
+        "properties": {
+          "cwe": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "default_severity": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "produces_hotspots": {
+            "type": "boolean"
+          },
+          "remediation_effort_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

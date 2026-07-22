@@ -30,6 +30,7 @@ where
     storage: S,
     metrics: M,
     cache: Option<Arc<dyn AnalysisCache>>,
+    duplication: yunq_cpd::DuplicationConfig,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -44,7 +45,20 @@ where
     M: MetricsTracker,
 {
     pub fn new(profile: QualityProfile, storage: S, metrics: M) -> Self {
-        Self { parsers: HashMap::new(), rules: Vec::new(), profile, storage, metrics, cache: None }
+        Self {
+            parsers: HashMap::new(),
+            rules: Vec::new(),
+            profile,
+            storage,
+            metrics,
+            cache: None,
+            duplication: yunq_cpd::DuplicationConfig::default(),
+        }
+    }
+
+    pub fn with_duplication_config(mut self, config: yunq_cpd::DuplicationConfig) -> Self {
+        self.duplication = config;
+        self
     }
 
     /// Enables incremental analysis: per-file results are reused when
@@ -103,10 +117,16 @@ where
             }
         }
 
+        // Cross-file phase: copy-paste detection over the whole file set.
+        let duplication = yunq_cpd::find_duplicates(files, self.duplication);
+        metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
+
         self.storage.save_issues(&issues).await?;
         self.storage.save_hotspots(&hotspots).await?;
         self.metrics.record(&metrics).await?;
-        Ok(AnalysisReport::new(issues, hotspots, metrics))
+        let mut report = AnalysisReport::new(issues, hotspots, metrics);
+        report.set_duplications(duplication.blocks);
+        Ok(report)
     }
 
     /// Runs per-file analysis across all available cores using scoped std

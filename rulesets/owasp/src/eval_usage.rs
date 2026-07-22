@@ -1,8 +1,8 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
 
-/// Flags dynamic code execution in TypeScript: `eval(...)` and
-/// `new Function(...)`.
+/// Flags dynamic code execution: `eval(...)` / `new Function(...)` in
+/// TypeScript, `eval(...)` / `exec(...)` in Python.
 pub struct EvalUsageRule {
     id: RuleId,
 }
@@ -25,14 +25,24 @@ impl Rule for EvalUsageRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        *language == LanguageIdentifier::typescript()
+        *language == LanguageIdentifier::typescript() || *language == LanguageIdentifier::python()
     }
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
+        yunq_rules_engine::RuleMetadata {
+            description: "Dynamic code execution (eval / new Function / exec) runs arbitrary code and must be avoided.".into(),
+            tags: vec!["security".into(), "owasp-a03".into()],
+            cwe: Some(95),
+            produces_hotspots: false,
+        }
+    }
+
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let python = *file.language() == LanguageIdentifier::python();
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter_map(|call| {
@@ -43,8 +53,12 @@ impl Rule for EvalUsageRule {
                 };
                 match name {
                     "eval" => Some(Finding::new("use of `eval` executes arbitrary code", call.span())),
-                    "Function" => Some(Finding::new(
+                    "Function" if !python => Some(Finding::new(
                         "`new Function(...)` executes arbitrary code",
+                        call.span(),
+                    )),
+                    "exec" if python => Some(Finding::new(
+                        "use of `exec` executes arbitrary code",
                         call.span(),
                     )),
                     _ => None,

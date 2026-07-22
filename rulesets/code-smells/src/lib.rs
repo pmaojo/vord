@@ -1,9 +1,11 @@
 //! Maintainability rules (code smells), pluggable via the `Rule` trait.
 
+mod complexity;
 mod long_function;
 mod todo_comment;
 mod unwrap_usage;
 
+pub use complexity::ComplexityRule;
 pub use long_function::LongFunctionRule;
 pub use todo_comment::TodoCommentRule;
 pub use unwrap_usage::UnwrapUsageRule;
@@ -16,5 +18,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(TodoCommentRule::new()),
         Box::new(LongFunctionRule::default()),
         Box::new(UnwrapUsageRule::new()),
+        Box::new(ComplexityRule::default()),
     ]
 }

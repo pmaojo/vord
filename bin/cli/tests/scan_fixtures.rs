@@ -22,18 +22,39 @@ fn scans_fixtures_and_finds_every_rule_family() {
         assert!(fired.contains(expected), "rule {expected} did not fire; fired: {fired:?}");
     }
 
-    assert_eq!(report.metrics().files_scanned(), 2);
+    assert_eq!(report.metrics().files_scanned(), 3);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);
 
-    // The OS-command hotspot fires as a hotspot, not an issue.
-    assert_eq!(report.hotspots().len(), 1);
-    assert_eq!(report.hotspots()[0].rule().as_str(), "owasp:command-execution");
+    // OS-command hotspots fire as hotspots, not issues — one in Rust
+    // (Command::new) and one in Python (os.system).
+    assert_eq!(report.hotspots().len(), 2);
+    for hotspot in report.hotspots() {
+        assert_eq!(hotspot.rule().as_str(), "owasp:command-execution");
+    }
+
+    // Python detections: eval issue and the hardcoded password.
+    assert!(
+        report
+            .issues()
+            .iter()
+            .any(|i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:eval-usage")
+    );
+    assert!(
+        report
+            .issues()
+            .iter()
+            .any(|i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:hardcoded-secret")
+    );
 
     // Every issue carries a real location inside the fixtures.
     for issue in report.issues() {
         assert!(issue.span().start_line >= 1);
-        assert!(issue.file().ends_with(".ts") || issue.file().ends_with(".rs"));
+        assert!(
+            issue.file().ends_with(".ts")
+                || issue.file().ends_with(".rs")
+                || issue.file().ends_with(".py")
+        );
     }
 }

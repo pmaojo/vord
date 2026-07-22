@@ -16,6 +16,9 @@ yunq-rules-engine = { path = "core/rules-engine" }
 yunq-taint = { path = "core/taint" }
 yunq-parser-typescript = { path = "parsers/treesitter-typescript" }
 yunq-parser-rust = { path = "parsers/treesitter-rust" }
+yunq-parser-python = { path = "parsers/treesitter-python" }
+yunq-parser-go = { path = "parsers/treesitter-go" }
+yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }
 yunq-infra-memory = { path = "infra/memory" }
@@ -36,6 +39,8 @@ axum = "0.8"
 tree-sitter = "0.25"
 tree-sitter-typescript = "0.23"
 tree-sitter-rust = "0.24"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros"] }
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-sqs = "1"

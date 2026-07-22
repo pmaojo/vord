@@ -39,24 +39,40 @@ impl Rule for CommandExecHotspotRule {
         15
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
+        yunq_rules_engine::RuleMetadata {
+            description: "Constructing OS commands is security-sensitive; a reviewer must confirm the command and its arguments are safe.".into(),
+            tags: vec!["security".into(), "owasp-a03".into()],
+            cwe: Some(78),
+            produces_hotspots: true,
+        }
+    }
+
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let python = *file.language() == LanguageIdentifier::python();
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter_map(|call| {
                 let callee = call.first_child()?;
-                let sensitive = match callee.kind() {
+                let text = callee.text();
+                let sensitive =
                     // Rust: `Command::new(...)` (scoped path arrives as Other).
-                    _ if callee.text().ends_with("Command::new") => true,
+                    text.ends_with("Command::new")
+                    // Go: `exec.Command(...)` / `exec.CommandContext(...)`.
+                    || text.starts_with("exec.Command")
+                    // Python: os.system/os.popen and the subprocess module.
+                    || (python && (text.starts_with("os.system") || text.starts_with("os.popen") || text.starts_with("subprocess.")))
                     // TS: exec/execSync/spawn/spawnSync, bare or as method.
-                    NodeKind::Identifier => TS_SINKS.contains(&callee.text()),
-                    NodeKind::MemberAccess => callee
-                        .children()
-                        .iter()
-                        .rev()
-                        .find(|c| *c.kind() == NodeKind::Identifier)
-                        .is_some_and(|ident| TS_SINKS.contains(&ident.text())),
-                    _ => false,
-                };
+                    || match callee.kind() {
+                        NodeKind::Identifier => TS_SINKS.contains(&text),
+                        NodeKind::MemberAccess => callee
+                            .children()
+                            .iter()
+                            .rev()
+                            .find(|c| *c.kind() == NodeKind::Identifier)
+                            .is_some_and(|ident| TS_SINKS.contains(&ident.text())),
+                        _ => false,
+                    };
                 sensitive.then(|| {
                     Finding::hotspot(
                         "make sure this OS command and its arguments are safe here",

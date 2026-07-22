@@ -15,6 +15,16 @@ pub struct ReportDto {
     pub quality_gate: GateDto,
     /// Issues not present in the previous analysis (None on first scan).
     pub new_issue_total: Option<usize>,
+    pub duplications: Vec<DuplicationDto>,
+}
+
+#[derive(Serialize)]
+pub struct DuplicationDto {
+    pub first_file: String,
+    pub first_lines: String,
+    pub second_file: String,
+    pub second_lines: String,
+    pub lines: usize,
 }
 
 #[derive(Serialize)]
@@ -122,6 +132,17 @@ impl ReportDto {
             rating: report.rating().to_string(),
             quality_gate: gate_dto(gate),
             new_issue_total: new_code.map(|nc| nc.new_issues().len()),
+            duplications: report
+                .duplications()
+                .iter()
+                .map(|d| DuplicationDto {
+                    first_file: d.first.file.clone(),
+                    first_lines: format!("{}-{}", d.first.start_line, d.first.end_line),
+                    second_file: d.second.file.clone(),
+                    second_lines: format!("{}-{}", d.second.start_line, d.second.end_line),
+                    lines: d.lines,
+                })
+                .collect(),
             metrics: MetricsDto {
                 files_scanned: metrics.files_scanned(),
                 files_skipped: metrics.files_skipped(),
@@ -198,6 +219,26 @@ pub fn render_text(
         report.hotspots().len(),
         metrics.debt_minutes(),
     ));
+    if metrics.duplicated_blocks() > 0 {
+        out.push_str(&format!(
+            "Duplication: {} blocks, {} lines ({:.1}%)\n",
+            metrics.duplicated_blocks(),
+            metrics.duplicated_lines(),
+            metrics.duplicated_lines_density(),
+        ));
+        for block in report.duplications() {
+            out.push_str(&format!(
+                "  = {}:{}-{} <-> {}:{}-{} ({} lines)\n",
+                block.first.file,
+                block.first.start_line,
+                block.first.end_line,
+                block.second.file,
+                block.second.start_line,
+                block.second.end_line,
+                block.lines,
+            ));
+        }
+    }
     if let Some(new_code) = new_code {
         out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
     }

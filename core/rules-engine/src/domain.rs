@@ -324,6 +324,8 @@ pub struct Metrics {
     cache_hits: usize,
     lines_of_code: usize,
     debt_minutes: usize,
+    duplicated_lines: usize,
+    duplicated_blocks: usize,
     by_severity: BTreeMap<Severity, usize>,
 }
 
@@ -353,6 +355,11 @@ impl Metrics {
         self.debt_minutes += minutes;
     }
 
+    pub fn set_duplication(&mut self, duplicated_lines: usize, duplicated_blocks: usize) {
+        self.duplicated_lines = duplicated_lines;
+        self.duplicated_blocks = duplicated_blocks;
+    }
+
     pub fn count_issue(&mut self, severity: Severity) {
         *self.by_severity.entry(severity).or_default() += 1;
     }
@@ -379,6 +386,23 @@ impl Metrics {
         self.debt_minutes
     }
 
+    pub fn duplicated_lines(&self) -> usize {
+        self.duplicated_lines
+    }
+
+    pub fn duplicated_blocks(&self) -> usize {
+        self.duplicated_blocks
+    }
+
+    /// Duplicated lines as a percentage of total lines of code.
+    pub fn duplicated_lines_density(&self) -> f64 {
+        if self.lines_of_code == 0 {
+            0.0
+        } else {
+            self.duplicated_lines as f64 * 100.0 / self.lines_of_code as f64
+        }
+    }
+
     pub fn lines_of_code(&self) -> usize {
         self.lines_of_code
     }
@@ -397,12 +421,21 @@ impl Metrics {
 pub struct AnalysisReport {
     issues: Vec<Issue>,
     hotspots: Vec<Hotspot>,
+    duplications: Vec<yunq_cpd::DuplicateBlock>,
     metrics: Metrics,
 }
 
 impl AnalysisReport {
     pub fn new(issues: Vec<Issue>, hotspots: Vec<Hotspot>, metrics: Metrics) -> Self {
-        Self { issues, hotspots, metrics }
+        Self { issues, hotspots, duplications: Vec::new(), metrics }
+    }
+
+    pub fn set_duplications(&mut self, duplications: Vec<yunq_cpd::DuplicateBlock>) {
+        self.duplications = duplications;
+    }
+
+    pub fn duplications(&self) -> &[yunq_cpd::DuplicateBlock] {
+        &self.duplications
     }
 
     pub fn issues(&self) -> &[Issue] {
@@ -444,6 +477,9 @@ impl AnalysisReport {
             "minor_issues" => Some(severity_count(Severity::Minor)),
             "info_issues" => Some(severity_count(Severity::Info)),
             "hotspots" => Some(self.hotspots.len() as f64),
+            "duplicated_lines" => Some(self.metrics.duplicated_lines() as f64),
+            "duplicated_blocks" => Some(self.metrics.duplicated_blocks() as f64),
+            "duplicated_lines_density" => Some(self.metrics.duplicated_lines_density()),
             "hotspots_to_review" => Some(
                 self.hotspots.iter().filter(|h| h.status() == HotspotStatus::ToReview).count()
                     as f64,

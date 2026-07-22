@@ -4,6 +4,21 @@ use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
 const SUSPICIOUS_NAMES: &[&str] =
     &["password", "passwd", "secret", "apikey", "api_key", "token", "credential"];
 
+/// (marker, minimum literal length, provider) — substring signatures of
+/// well-known credential formats. Length guards cut false positives from
+/// prose mentioning the prefix.
+const PROVIDER_SIGNATURES: &[(&str, usize, &str)] = &[
+    ("AKIA", 20, "AWS access key id"),
+    ("ghp_", 30, "GitHub personal access token"),
+    ("gho_", 30, "GitHub OAuth token"),
+    ("github_pat_", 30, "GitHub fine-grained token"),
+    ("sk_live_", 20, "Stripe live secret key"),
+    ("xoxb-", 20, "Slack bot token"),
+    ("xoxp-", 20, "Slack user token"),
+    ("AIza", 35, "Google API key"),
+    ("-----BEGIN", 20, "private key material"),
+];
+
 /// Flags string literals assigned to credential-looking variables, and
 /// AWS access key ids appearing anywhere in string literals.
 pub struct HardcodedSecretRule {
@@ -35,6 +50,15 @@ impl Rule for HardcodedSecretRule {
         Severity::Blocker
     }
 
+    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
+        yunq_rules_engine::RuleMetadata {
+            description: "Credentials must not be hardcoded: detects credential-named variables holding literals and well-known provider token formats (AWS, GitHub, Stripe, Slack, Google, private keys).".into(),
+            tags: vec!["security".into(), "secrets".into(), "owasp-a07".into()],
+            cwe: Some(798),
+            produces_hotspots: false,
+        }
+    }
+
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
@@ -64,9 +88,13 @@ impl Rule for HardcodedSecretRule {
         }
 
         for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
-            if literal.text().contains("AKIA") && literal.text().len() >= 20 {
+            let text = literal.text();
+            if let Some((_, _, provider)) = PROVIDER_SIGNATURES
+                .iter()
+                .find(|(marker, min_len, _)| text.contains(marker) && text.len() >= *min_len)
+            {
                 findings.push(Finding::new(
-                    "string literal looks like an AWS access key id",
+                    format!("string literal looks like a {provider}"),
                     literal.span(),
                 ));
             }
@@ -99,5 +127,25 @@ mod tests {
     #[test]
     fn ignores_clean_variables() {
         assert!(check_ts("const username = \"alice\";\n").is_empty());
+    }
+
+    #[test]
+    fn flags_multiple_provider_token_formats() {
+        // Each fake token is assembled at runtime from two fragments so the
+        // full provider-shaped string never appears as one contiguous
+        // literal in this source file (avoids tripping secret scanners on
+        // test fixtures) while exercising the exact same detection logic.
+        let ghp = ["ghp_16C7e42F292c6912E77", "10c838347Ae178B4a"].concat();
+        let sk_live = ["sk_live_4eC39HqLyjWDarj", "tT1zdp7dc"].concat();
+        let xoxb = ["xoxb-2444333222111-sim", "ulated-token"].concat();
+        let private_key = ["-----BEGIN RSA PRI", "VATE KEY-----"].concat();
+
+        let code = format!(
+            "const a = \"{ghp}\";\nconst b = \"{sk_live}\";\nconst c = \"{xoxb}\";\nconst d = \"{private_key}\";\nconst clean = \"see ghp_ docs\";\n"
+        );
+        let findings = check_ts(&code);
+        // The short prose literal fails the length guard; only the four
+        // real-looking tokens are flagged.
+        assert_eq!(findings.len(), 4);
     }
 }

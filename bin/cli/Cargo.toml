@@ -11,6 +11,8 @@ yunq-rules-engine = { workspace = true }
 yunq-taint = { workspace = true }
 yunq-parser-typescript = { workspace = true }
 yunq-parser-rust = { workspace = true }
+yunq-parser-python = { workspace = true }
+yunq-parser-go = { workspace = true }
 yunq-rules-owasp = { workspace = true }
 yunq-rules-smells = { workspace = true }
 yunq-infra-memory = { workspace = true }
