@@ -1,14 +1,14 @@
 //! Composition root: HTTP API (axum). Accepts scan requests, enqueues them
-//! for workers over SQS, and serves persisted issues from Postgres.
+//! for workers in the `scan_jobs` Postgres table, and serves persisted
+//! issues from the same database.
 //!
 //! The OpenAPI contract lives here, at the adapter boundary: the serde DTOs
 //! below carry utoipa schema derives, and the generated OpenAPI 3.1 document
 //! is served at `GET /api-docs/openapi.json` (Swagger UI at `/api-docs`)
 //! for frontend client codegen. Domain types stay serde-free.
 //!
-//! Env: `DATABASE_URL`, `YUNQ_QUEUE_URL`, `YUNQ_AWS_ENDPOINT_URL` (emulator),
-//! `YUNQ_BIND` (default 0.0.0.0:8080), OAuth and webhook settings documented
-//! in the project README.
+//! Env: `DATABASE_URL`, `YUNQ_BIND` (default 0.0.0.0:8080), OAuth and
+//! webhook settings documented in the project README.
 
 use std::sync::Arc;
 
@@ -25,7 +25,6 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 use yunq_infra_postgres::PgIssueStorage;
-use yunq_infra_sqs::SqsJobQueue;
 use yunq_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, HotspotReader, HotspotReview, HotspotStatus,
     IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueFetcher, IssueQuery,
@@ -221,15 +220,11 @@ async fn main() -> anyhow::Result<()> {
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-    let queue_url = std::env::var("YUNQ_QUEUE_URL")
-        .unwrap_or_else(|_| "http://localhost:4566/000000000000/yunq-scan-jobs".to_string());
     let bind = std::env::var("YUNQ_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
 
-    let reader: Arc<dyn IssueApiStore> = Arc::new(PgIssueStorage::connect_lazy(&database_url)?);
-    let queue: Arc<dyn ScanQueuePort> = Arc::new(SqsJobQueue::new(
-        yunq_infra_sqs::sqs_client_from_env().await,
-        queue_url,
-    ));
+    let storage = PgIssueStorage::connect_lazy(&database_url)?;
+    let reader: Arc<dyn IssueApiStore> = Arc::new(storage.clone());
+    let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
     let state = Arc::new(AppState { queue, reader, metrics: metrics.clone(), webhooks, auth });
 
     let app = router

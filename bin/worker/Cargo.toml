@@ -17,7 +17,6 @@ yunq-rules-smells = { workspace = true }
 yunq-rules-iac = { workspace = true }
 yunq-rules-a11y = { workspace = true }
 yunq-infra-postgres = { workspace = true }
-yunq-infra-sqs = { workspace = true }
 yunq-infra-fs = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }

@@ -1,12 +1,12 @@
 //! Composition root: queue worker. Instantiates the real adapters, injects
-//! them into the pure `AnalyzerService`, and processes scan jobs from SQS.
+//! them into the pure `AnalyzerService`, and processes scan jobs claimed
+//! from the `scan_jobs` Postgres table.
 //!
-//! Env: `DATABASE_URL`, `YUNQ_QUEUE_URL`, `YUNQ_AWS_ENDPOINT_URL` (emulator).
+//! Env: `DATABASE_URL`.
 
 use std::path::Path;
 
-use yunq_infra_postgres::PgIssueStorage;
-use yunq_infra_sqs::SqsJobConsumer;
+use yunq_infra_postgres::{PgIssueStorage, PgJobConsumer};
 use yunq_parser_go::GoParser;
 use yunq_parser_java::JavaParser;
 use yunq_parser_python::PythonParser;
@@ -21,18 +21,16 @@ use yunq_rules_engine::{
 async fn main() -> anyhow::Result<()> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-    let queue_url = std::env::var("YUNQ_QUEUE_URL")
-        .unwrap_or_else(|_| "http://localhost:4566/000000000000/yunq-scan-jobs".to_string());
 
     // 1. Instantiate adapters.
     let storage = PgIssueStorage::connect_lazy(&database_url)?;
     storage.migrate().await?;
 
     // 2. Inject them into the pure domain service.
+    let consumer = PgJobConsumer::new(storage.pool().clone());
     let service = default_service(storage.clone(), storage);
 
     // 3. Boot.
-    let consumer = SqsJobConsumer::new(yunq_infra_sqs::sqs_client_from_env().await, queue_url);
     println!("yunq-worker consuming scan jobs");
     consumer.listen(|job| handle_job(&service, job)).await?;
     Ok(())

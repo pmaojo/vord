@@ -17,8 +17,7 @@ yunq/
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
 │   ├── fs/                     # gitignore-aware source loader, LCOV parser, caches
-│   ├── postgres/               # sqlx IssueStorage/IssueReader/MetricsTracker/changelog
-│   └── sqs/                    # aws-sdk-sqs JobQueue + consumer (floci/AWS)
+│   └── postgres/               # sqlx IssueStorage/IssueReader/MetricsTracker/changelog + JobQueue (scan_jobs table)
 ├── parsers/                    # INBOUND ADAPTERS (tree-sitter → neutral AST)
 │   ├── treesitter-typescript/
 │   ├── treesitter-rust/
@@ -30,10 +29,10 @@ yunq/
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
     ├── cli/                    # yunq scan — local end-to-end analysis
     ├── server/                 # axum API: scans, issues, hotspots, rules catalog
-    └── worker/                 # SQS consumer → AnalyzerService → Postgres
+    └── worker/                 # scan_jobs consumer → AnalyzerService → Postgres
 ```
 
-Dependency direction is enforced by Cargo: `bin → {infra, parsers, rulesets} → core`. The core defines **ports** (`AstParser`, `IssueStorage`, `IssueReader`, `IssueFacetReader`, `IssueWorkflow`, `HotspotStorage`, `MetricsTracker`, `JobQueue`, `AnalysisCache`); adapters implement them (DIP). Domain types are validated newtypes with fallible constructors and **no `serde::Deserialize`** — every edge (HTTP, SQS, Postgres, tree-sitter) owns its DTOs and translates in. Adding a language or ruleset means a new crate registered at a composition root; the engine never changes (OCP).
+Dependency direction is enforced by Cargo: `bin → {infra, parsers, rulesets} → core`. The core defines **ports** (`AstParser`, `IssueStorage`, `IssueReader`, `IssueFacetReader`, `IssueWorkflow`, `HotspotStorage`, `MetricsTracker`, `JobQueue`, `AnalysisCache`); adapters implement them (DIP). Domain types are validated newtypes with fallible constructors and **no `serde::Deserialize`** — every edge (HTTP, Postgres, tree-sitter) owns its DTOs and translates in. Adding a language or ruleset means a new crate registered at a composition root; the engine never changes (OCP).
 
 Proof of purity: `cargo tree -p yunq-rules-engine` — only core crates and `thiserror`.
 
@@ -56,7 +55,6 @@ graph TD
     end
     subgraph infra["infra/ — outbound adapters"]
         IPG[yunq-infra-postgres]
-        ISQ[yunq-infra-sqs]
         IMEM[yunq-infra-memory]
         IFS[yunq-infra-fs]
     end
@@ -75,11 +73,9 @@ graph TD
     CLI --> RSM
     CLI --> IMEM
     CLI --> IFS
-    SERVER --> ISQ
     SERVER --> IPG
     SERVER --> ROW
     SERVER --> RSM
-    WORKER --> ISQ
     WORKER --> IPG
     WORKER --> PTS
     WORKER --> PRS
@@ -95,7 +91,6 @@ graph TD
     ROW --> TAINT
     RSM --> ENGINE
     IPG --> ENGINE
-    ISQ --> ENGINE
     IMEM --> ENGINE
     IFS --> ENGINE
     ENGINE --> AST
@@ -136,14 +131,12 @@ BLOCKER  owasp:injection  vulnerable.ts:9:1  user input from `process.argv` reac
 
 ## Server + worker (async pipeline)
 
-The server enqueues `ScanJob`s to SQS; workers consume, analyze and persist to Postgres. Locally, SQS is served by an AWS emulator ([floci](https://floci.io/floci/)) — same client code as production AWS:
+The server enqueues `ScanJob`s into the `scan_jobs` table; workers claim them with `FOR UPDATE SKIP LOCKED` and wake up on `LISTEN`/`NOTIFY` (falling back to a 5s poll). No broker to run — it's the same Postgres database as issue storage:
 
 ```sh
-export YUNQ_AWS_ENDPOINT_URL=http://localhost:4566   # floci
-export YUNQ_QUEUE_URL=http://localhost:4566/000000000000/yunq-scan-jobs
 export DATABASE_URL=postgres://yunq:yunq@localhost:5432/yunq
 
-cargo run -p yunq-worker    # applies migrations, long-polls the queue
+cargo run -p yunq-worker    # applies migrations, listens for scan jobs
 cargo run -p yunq-server    # POST /scans {"project":"p","path":"/abs/checkout"}
 ```
 
