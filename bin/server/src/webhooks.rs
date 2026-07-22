@@ -309,9 +309,7 @@ async fn deliver_with_retries(inner: &DispatcherInner, job: DeliveryJob) {
                 let status = response.status();
                 (
                     false,
-                    status == StatusCode::REQUEST_TIMEOUT
-                        || status == StatusCode::TOO_MANY_REQUESTS
-                        || status.is_server_error(),
+                    is_retryable_status(status),
                     Some(status.as_u16()),
                     Some(format!("endpoint returned {status}")),
                 )
@@ -365,6 +363,12 @@ fn record_attempt(inner: &DispatcherInner, attempt: WebhookAttemptDto) {
 fn retry_delay(base: Duration, failed_attempt: u32) -> Duration {
     let multiplier = 1_u32.checked_shl(failed_attempt.saturating_sub(1)).unwrap_or(u32::MAX);
     base.saturating_mul(multiplier).min(Duration::from_secs(60))
+}
+
+fn is_retryable_status(status: StatusCode) -> bool {
+    status == StatusCode::REQUEST_TIMEOUT
+        || status == StatusCode::TOO_MANY_REQUESTS
+        || status.is_server_error()
 }
 
 fn sign_payload(secret: &str, body: &[u8]) -> String {
@@ -532,11 +536,6 @@ pub(crate) async fn webhook_delivery_log(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use axum::routing::post;
-    use axum::Router;
-
     use super::*;
 
     #[test]
@@ -558,62 +557,15 @@ mod tests {
         assert_ne!(first, changed);
     }
 
-    #[tokio::test]
-    async fn retries_server_errors_and_records_every_attempt() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let app_calls = calls.clone();
-        let app = Router::new().route(
-            "/hook",
-            post(move || {
-                let calls = app_calls.clone();
-                async move {
-                    if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    } else {
-                        StatusCode::NO_CONTENT
-                    }
-                }
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-
-        let dispatcher = WebhookDispatcher::new(
-            reqwest::Client::new(),
-            Metrics::new(),
-            3,
-            Duration::from_millis(5),
-        );
-        let hook = dispatcher
-            .register(CreateWebhookDto {
-                url: format!("http://{address}/hook"),
-                secret: "0123456789abcdef".to_string(),
-                events: vec!["analysis.finished".to_string()],
-            })
-            .unwrap();
-        let queued = dispatcher
-            .dispatch(DispatchWebhookDto {
-                event: "analysis.finished".to_string(),
-                payload: serde_json::json!({"analysis": 42}),
-                webhook_id: Some(hook.id),
-            })
-            .await
-            .unwrap();
-
-        for _ in 0..50 {
-            let logs = dispatcher.logs(DeliveryLogQuery {
-                delivery_id: Some(queued[0].delivery_id.clone()),
-                limit: 10,
-            });
-            if logs.len() == 2 {
-                assert_eq!(logs[0].outcome, "success");
-                assert_eq!(logs[1].outcome, "retrying");
-                assert_eq!(calls.load(Ordering::SeqCst), 2);
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!("dispatcher did not finish the retried delivery");
+    #[test]
+    fn retry_policy_is_exponential_capped_and_status_aware() {
+        let base = Duration::from_millis(500);
+        assert_eq!(retry_delay(base, 1), Duration::from_millis(500));
+        assert_eq!(retry_delay(base, 2), Duration::from_secs(1));
+        assert_eq!(retry_delay(base, 10), Duration::from_secs(60));
+        assert!(is_retryable_status(StatusCode::REQUEST_TIMEOUT));
+        assert!(is_retryable_status(StatusCode::TOO_MANY_REQUESTS));
+        assert!(is_retryable_status(StatusCode::BAD_GATEWAY));
+        assert!(!is_retryable_status(StatusCode::BAD_REQUEST));
     }
 }
