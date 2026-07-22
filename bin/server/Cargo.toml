@@ -16,6 +16,9 @@ yunq-infra-postgres = { workspace = true }
 yunq-remediation = { workspace = true }
 yunq-infra-llm = { workspace = true }
 yunq-infra-pdf = { workspace = true }
+yunq-infra-github = { workspace = true }
+yunq-infra-memory = { workspace = true }
+yunq-cli = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }

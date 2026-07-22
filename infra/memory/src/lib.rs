@@ -406,3 +406,119 @@ impl MetricsTracker for InMemoryMetricsTracker {
         Ok(())
     }
 }
+
+/// In-memory `Sandbox` adapter: applies a proposal against pre-loaded file
+/// content without touching any real filesystem or git worktree. Used where
+/// there's no local checkout to sandbox in, e.g. the server, which persists
+/// issues in Postgres and fetches source on demand from GitHub rather than
+/// keeping a working tree on disk.
+#[derive(Default)]
+pub struct InMemorySandbox {
+    files: Mutex<BTreeMap<std::path::PathBuf, String>>,
+    originals: Mutex<BTreeMap<std::path::PathBuf, String>>,
+}
+
+impl InMemorySandbox {
+    /// Seeds the sandbox with a single file's known-good content.
+    pub fn with_file(path: impl Into<std::path::PathBuf>, content: impl Into<String>) -> Self {
+        let mut files = BTreeMap::new();
+        files.insert(path.into(), content.into());
+        Self { files: Mutex::new(files), originals: Mutex::new(BTreeMap::new()) }
+    }
+}
+
+impl yunq_remediation::Sandbox for InMemorySandbox {
+    fn apply_proposal(
+        &self,
+        proposal: &yunq_remediation::FixProposal,
+    ) -> Result<(), yunq_remediation::RemediationError> {
+        if proposal.original_snippet.is_empty() {
+            return Err(yunq_remediation::RemediationError::SandboxError(
+                "proposal snippet must not be empty".to_string(),
+            ));
+        }
+        let mut files = self.files.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let source = files.get(&proposal.file_path).cloned().ok_or_else(|| {
+            yunq_remediation::RemediationError::SandboxError(format!(
+                "no sandboxed content for {}",
+                proposal.file_path.display()
+            ))
+        })?;
+        let occurrences = source.matches(&proposal.original_snippet).count();
+        if occurrences != 1 {
+            return Err(yunq_remediation::RemediationError::SandboxError(format!(
+                "proposal snippet must match exactly once, matched {occurrences} times"
+            )));
+        }
+        let updated = source.replacen(&proposal.original_snippet, &proposal.replacement_snippet, 1);
+        self.originals
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(proposal.file_path.clone())
+            .or_insert(source);
+        files.insert(proposal.file_path.clone(), updated);
+        Ok(())
+    }
+
+    fn read_source(
+        &self,
+        file_path: &std::path::Path,
+    ) -> Result<String, yunq_remediation::RemediationError> {
+        self.files
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(file_path)
+            .cloned()
+            .ok_or_else(|| {
+                yunq_remediation::RemediationError::SandboxError(format!(
+                    "no sandboxed content for {}",
+                    file_path.display()
+                ))
+            })
+    }
+
+    fn rollback(&self) -> Result<(), yunq_remediation::RemediationError> {
+        let originals =
+            std::mem::take(&mut *self.originals.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        let mut files = self.files.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        for (path, content) in originals {
+            files.insert(path, content);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod in_memory_sandbox_tests {
+    use std::path::PathBuf;
+
+    use yunq_remediation::{FixProposal, Sandbox};
+
+    use super::InMemorySandbox;
+
+    fn proposal(original: &str, replacement: &str) -> FixProposal {
+        FixProposal {
+            file_path: PathBuf::from("src/lib.rs"),
+            explanation: "test".to_string(),
+            original_snippet: original.to_string(),
+            replacement_snippet: replacement.to_string(),
+        }
+    }
+
+    #[test]
+    fn applies_reads_and_rolls_back() {
+        let sandbox = InMemorySandbox::with_file("src/lib.rs", "let value = 1;\n");
+        sandbox.apply_proposal(&proposal("1", "2")).unwrap();
+        assert_eq!(sandbox.read_source(&PathBuf::from("src/lib.rs")).unwrap(), "let value = 2;\n");
+
+        sandbox.rollback().unwrap();
+        assert_eq!(sandbox.read_source(&PathBuf::from("src/lib.rs")).unwrap(), "let value = 1;\n");
+    }
+
+    #[test]
+    fn rejects_ambiguous_snippet() {
+        let sandbox = InMemorySandbox::with_file("src/lib.rs", "let a = 1;\nlet b = 1;\n");
+        let err = sandbox.apply_proposal(&proposal("1", "2")).unwrap_err();
+        assert!(matches!(err, yunq_remediation::RemediationError::SandboxError(_)));
+    }
+}

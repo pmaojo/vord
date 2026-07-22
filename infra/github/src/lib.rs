@@ -7,7 +7,8 @@
 //! PAT with "Commit statuses: write"), via `GITHUB_TOKEN` — exactly what
 //! GitHub Actions injects into every workflow run for free.
 
-use serde::Serialize;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
 use yunq_rules_engine::{AlmError, AlmStatusReporter, CommitSha, CommitStatus};
 
 const DEFAULT_API_BASE: &str = "https://api.github.com";
@@ -54,6 +55,65 @@ impl GitHubStatusReporter {
         self.api_base = base.into();
         self
     }
+
+    /// Fetches a file's content via the Contents API, at `git_ref` if given
+    /// or the repository's default branch otherwise. Used by the
+    /// Remediation Agent to read real source when it has no local checkout
+    /// to read from (the server persists issues in Postgres, never the
+    /// source tree they came from).
+    pub async fn fetch_file_content(
+        &self,
+        path: &str,
+        git_ref: Option<&str>,
+    ) -> Result<String, AlmError> {
+        let url = match git_ref {
+            Some(git_ref) => format!(
+                "{}/repos/{}/{}/contents/{}?ref={}",
+                self.api_base, self.owner, self.repo, path, git_ref
+            ),
+            None => format!("{}/repos/{}/{}/contents/{}", self.api_base, self.owner, self.repo, path),
+        };
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "yunq")
+            .send()
+            .await
+            .map_err(|e| AlmError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status_code = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(AlmError(format!("GitHub returned {status_code}: {text}")));
+        }
+
+        let parsed: ContentsResponse = response
+            .json()
+            .await
+            .map_err(|e| AlmError(format!("failed to parse GitHub contents response: {e}")))?;
+
+        if parsed.encoding != "base64" {
+            return Err(AlmError(format!(
+                "unsupported GitHub contents encoding {:?}",
+                parsed.encoding
+            )));
+        }
+
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(parsed.content.replace('\n', ""))
+            .map_err(|e| AlmError(format!("failed to decode base64 file content: {e}")))?;
+
+        String::from_utf8(decoded)
+            .map_err(|e| AlmError(format!("file content is not valid UTF-8: {e}")))
+    }
+}
+
+#[derive(Deserialize)]
+struct ContentsResponse {
+    content: String,
+    encoding: String,
 }
 
 #[derive(Serialize)]
@@ -192,5 +252,50 @@ mod tests {
             std::env::remove_var("GITHUB_TOKEN");
             std::env::remove_var("GITHUB_REPOSITORY");
         }
+    }
+
+    async fn serve_content(body: serde_json::Value) -> String {
+        let app = Router::new()
+            .route(
+                "/repos/{owner}/{repo}/contents/{*path}",
+                axum::routing::get(move || {
+                    let body = body.clone();
+                    async move { Json(body) }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn fetch_file_content_decodes_base64_response() {
+        let source = "fn main() {\n    eval(input);\n}\n";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(source);
+        let base = serve_content(serde_json::json!({
+            "content": encoded,
+            "encoding": "base64",
+        }))
+        .await;
+
+        let reporter = GitHubStatusReporter::new("t", "acme", "widgets").with_api_base(base);
+        let content = reporter.fetch_file_content("src/main.rs", Some("abc123")).await.unwrap();
+
+        assert_eq!(content, source);
+    }
+
+    #[tokio::test]
+    async fn fetch_file_content_rejects_non_base64_encoding() {
+        let base = serve_content(serde_json::json!({
+            "content": "not really",
+            "encoding": "none",
+        }))
+        .await;
+
+        let reporter = GitHubStatusReporter::new("t", "acme", "widgets").with_api_base(base);
+        let err = reporter.fetch_file_content("src/main.rs", Some("abc123")).await.unwrap_err();
+
+        assert!(err.0.contains("unsupported"), "unexpected error: {}", err.0);
     }
 }

@@ -3298,6 +3298,7 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "tokio",
  "yunq-ast",
  "yunq-infra-fs",
  "yunq-infra-github",
@@ -3371,19 +3372,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "yunq-infra-git"
-version = "0.1.1"
-dependencies = [
- "rand 0.8.7",
- "thiserror",
- "yunq-remediation",
-]
-
-[[package]]
 name = "yunq-infra-github"
 version = "0.1.1"
 dependencies = [
  "axum",
+ "base64",
  "reqwest",
  "serde",
  "serde_json",
@@ -3420,6 +3413,7 @@ version = "0.1.1"
 dependencies = [
  "futures",
  "yunq-ast",
+ "yunq-remediation",
  "yunq-rules-engine",
 ]
 
@@ -3756,6 +3750,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
  "yunq-ast",
  "yunq-rules-engine",
 ]
@@ -3838,7 +3833,10 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",
+ "yunq-cli",
+ "yunq-infra-github",
  "yunq-infra-llm",
+ "yunq-infra-memory",
  "yunq-infra-pdf",
  "yunq-infra-postgres",
  "yunq-remediation",

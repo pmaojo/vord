@@ -64,14 +64,69 @@ pub fn collect_sources(root: &Path) -> Result<Vec<SourceFile>, SourceLoadError> 
         };
         let relative = path.strip_prefix(root).unwrap_or(path);
         let display = if relative.as_os_str().is_empty() {
-            path.to_string_lossy()
+            // `root` itself is a single file (not a directory): there's no
+            // meaningful subpath to strip it to, so fall back to the full
+            // path with any leading `/` stripped — `SourceFile::new`
+            // rejects absolute paths, and silently dropping every file
+            // whenever `root` is passed as an absolute file path (e.g.
+            // `yunq scan /abs/path/to/file.ts`) is the bug this avoids.
+            path.to_string_lossy().trim_start_matches('/').to_string()
         } else {
-            relative.to_string_lossy()
+            relative.to_string_lossy().to_string()
         };
-        if let Ok(source) = SourceFile::new(display.to_string(), content, language) {
+        if let Ok(source) = SourceFile::new(display, content, language) {
             sources.push(source);
         }
     }
     sources.sort_by(|a, b| a.path().cmp(b.path()));
     Ok(sources)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scans_a_single_file_given_by_absolute_path() {
+        let dir = std::env::temp_dir().join(format!(
+            "yunq-collect-sources-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("app.ts");
+        std::fs::write(&file, "eval(x);\n").unwrap();
+
+        let absolute = file.canonicalize().unwrap();
+        let sources = collect_sources(&absolute).unwrap();
+
+        assert_eq!(sources.len(), 1, "expected the single file to be scanned");
+        assert!(!sources[0].path().starts_with('/'), "path must not be absolute: {}", sources[0].path());
+        assert_eq!(sources[0].content(), "eval(x);\n");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn scans_a_single_file_given_by_relative_path() {
+        let dir = std::env::temp_dir().join(format!(
+            "yunq-collect-sources-rel-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("app.ts");
+        std::fs::write(&file, "eval(x);\n").unwrap();
+
+        let sources = collect_sources(&file).unwrap();
+
+        assert_eq!(sources.len(), 1);
+        assert!(!sources[0].path().starts_with('/'));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

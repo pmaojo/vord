@@ -969,17 +969,28 @@ struct AgentFixProposalDto {
     issue_id: i64,
     modified_code: String,
     explanation: String,
+    /// Always true: only fixes that survive the generate→sandbox→re-scan→
+    /// verdict loop (the target issue is gone and no new issue appeared)
+    /// are ever returned by this endpoint.
+    verified: bool,
 }
 
 /// Assign an issue to the AI Remediation Agent to automatically generate a verified fix.
+///
+/// Runs the full verify-before-suggest loop: fetches the issue's real source
+/// from GitHub, asks the LLM provider for a fix, applies it in an isolated
+/// in-memory sandbox, and re-runs the analyzer. The proposal is only
+/// returned if the original issue is gone and no new issue was introduced.
 #[utoipa::path(
     post,
     path = "/api/issues/{id}/assign-to-agent",
     params(("id" = i64, Path, description = "Issue id")),
     responses(
-        (status = 200, description = "AI Remediation Agent proposal generated", body = AgentFixProposalDto),
+        (status = 200, description = "Verified AI Remediation Agent proposal generated", body = AgentFixProposalDto),
         (status = 402, description = "Pro or Enterprise plan required"),
-        (status = 404, description = "Issue not found")
+        (status = 404, description = "Issue not found"),
+        (status = 422, description = "No verified fix could be produced (source unavailable, or the fix didn't pass re-scan)"),
+        (status = 502, description = "GitHub or LLM provider request failed"),
     )
 )]
 async fn assign_to_agent(
@@ -1001,24 +1012,47 @@ async fn assign_to_agent(
         .await
         .map_err(workflow_error_response)?;
 
+    // The server never keeps a working tree on disk — issues are persisted
+    // in Postgres, not the source they came from — so the only way to get
+    // real code to hand the LLM is to fetch it from GitHub on demand.
+    let github = yunq_infra_github::GitHubStatusReporter::from_env().ok_or_else(|| {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "AI Remediation Agent requires GITHUB_TOKEN and GITHUB_REPOSITORY to fetch the issue's source".to_string(),
+        )
+    })?;
+    let file_path = issue.issue.file().to_string();
+    let git_ref = std::env::var("YUNQ_REMEDIATION_REF").ok();
+    let source = github
+        .fetch_file_content(&file_path, git_ref.as_deref())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not fetch source for {file_path}: {}", e.0)))?;
+
     let base_url = std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
     let api_key = std::env::var("YUNQ_LLM_API_KEY").unwrap_or_default();
     let model_name = std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string());
-
     let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key);
-    let prompt = yunq_remediation::FixPrompt {
-        rule_id: issue.issue.rule().as_str().to_string(),
-        issue_message: issue.issue.message().to_string(),
-        file_path: std::path::PathBuf::from(issue.issue.file()),
-        start_line: issue.issue.span().start_line as usize,
-        end_line: issue.issue.span().end_line as usize,
-        source_snippet: String::new(),
-        full_source: String::new(),
-    };
+    let sandbox = yunq_infra_memory::InMemorySandbox::with_file(&file_path, source.clone());
+    let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
+    let analyzer = yunq_cli::default_service(
+        yunq_infra_memory::InMemoryIssueStorage::new(),
+        yunq_infra_memory::InMemoryMetricsTracker::new(),
+    );
 
-    let proposal = yunq_remediation::LlmProvider::generate_fix(&adapter, &prompt)
+    let verdict = engine
+        .attempt_remediation(&issue.issue, std::path::Path::new(&file_path), &source, &analyzer)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Remediation Agent error: {e}")))?;
+
+    let proposal = match verdict {
+        yunq_remediation::RemediationVerdict::Accepted { proposal } => proposal,
+        yunq_remediation::RemediationVerdict::Rejected { reason } => {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("Remediation Agent could not produce a verified fix: {reason}"),
+            ));
+        }
+    };
 
     let _ = state.reader.set_assignee(id, Some("yunq-ai-agent".to_string())).await;
 
@@ -1026,6 +1060,7 @@ async fn assign_to_agent(
         issue_id: id,
         modified_code: proposal.replacement_snippet,
         explanation: proposal.explanation,
+        verified: true,
     }))
 }
 

@@ -408,6 +408,78 @@ pub fn render_text(
     out
 }
 
+/// Renders a ready-to-paste prompt handing the scan's findings to an AI
+/// coding agent (Claude Code, Cursor, etc.) — the same "here's what to fix"
+/// handoff tools like `react-doctor` print at the end of a run. Always
+/// plain text (regardless of `--format`): its only purpose is to be copied
+/// into a chat agent, not machine-parsed.
+pub fn render_agent_prompt(report: &AnalysisReport, gate: &GateEvaluation, scan_path: &str) -> String {
+    const MAX_LISTED_ISSUES: usize = 50;
+
+    let mut issues: Vec<&Issue> = report.issues().iter().collect();
+    issues.sort_by(|a, b| {
+        b.severity()
+            .cmp(&a.severity())
+            .then_with(|| a.file().cmp(b.file()))
+            .then_with(|| a.span().start_line.cmp(&b.span().start_line))
+    });
+
+    let mut out = String::new();
+    out.push_str("---- yunq agent prompt (copy everything below into your AI coding agent) ----\n");
+
+    if issues.is_empty() {
+        out.push_str(&format!(
+            "yunq analyzed {scan_path} and found no issues. Quality gate: {}. Nothing to fix.\n",
+            gate.status(),
+        ));
+        out.push_str("---- end of yunq agent prompt ----\n");
+        return out;
+    }
+
+    out.push_str(&format!(
+        "yunq analyzed {scan_path} and found {} issue(s) (quality gate: {}). Fix them one at a time, \
+         make the smallest change that resolves each one, and re-run `yunq scan {scan_path}` after \
+         every fix to confirm the issue is gone and no new one appeared.\n\n",
+        issues.len(),
+        gate.status(),
+    ));
+
+    for (n, issue) in issues.iter().take(MAX_LISTED_ISSUES).enumerate() {
+        out.push_str(&format!(
+            "{}. [{}] {} — {}:{}:{} — {}\n",
+            n + 1,
+            issue.severity().to_string().to_uppercase(),
+            issue.rule(),
+            issue.file(),
+            issue.span().start_line,
+            issue.span().start_col,
+            issue.message(),
+        ));
+    }
+    if issues.len() > MAX_LISTED_ISSUES {
+        out.push_str(&format!(
+            "... and {} more issue(s) — re-run `yunq scan {scan_path} --format json` for the full list.\n",
+            issues.len() - MAX_LISTED_ISSUES,
+        ));
+    }
+
+    if gate.status() == GateStatus::Failed {
+        out.push_str("\nPrioritize the issues blocking the quality gate:\n");
+        for failed in gate.failed_conditions() {
+            out.push_str(&format!(
+                "  - {} {} {} (actual: {})\n",
+                failed.condition.metric(),
+                failed.condition.operator().symbol(),
+                failed.condition.threshold(),
+                failed.value.unwrap_or_default(),
+            ));
+        }
+    }
+
+    out.push_str("---- end of yunq agent prompt ----\n");
+    out
+}
+
 pub fn render_json(
     report: &AnalysisReport,
     gate: &GateEvaluation,
