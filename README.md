@@ -1,6 +1,6 @@
 # yunq
 
-A SonarQube-alternative static analysis platform in Rust, built as a **hexagonal, SOLID Cargo workspace**: the volatile infrastructure (database, queue, parsers) never leaks into the core analysis logic.
+A SonarQube-alternative static analysis platform in Rust.
 
 ## Topology
 
