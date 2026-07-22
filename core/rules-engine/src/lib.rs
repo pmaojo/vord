@@ -2,12 +2,18 @@
 //! core needs from the outside world, the `Rule` extension point, and the
 //! `AnalyzerService` that orchestrates parse → rules → persist.
 
+mod alm;
 mod domain;
 mod new_code;
 mod ports;
 mod project;
 mod rule;
 mod service;
+
+pub use alm::{
+    AlmError, AlmStatusReporter, CommitSha, CommitStatus, CommitStatusState,
+    InvalidCommitShaError,
+};
 
 pub use domain::{
     AnalysisReport, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageSummary, Hotspot,
