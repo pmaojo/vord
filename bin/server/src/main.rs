@@ -581,6 +581,8 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
     let per_file = yunq_rules_owasp::all_rules()
         .into_iter()
         .chain(yunq_rules_smells::all_rules())
+        .chain(yunq_rules_iac::all_rules())
+        .chain(yunq_rules_a11y::all_rules())
         .map(|rule| {
             let metadata = rule.metadata();
             RuleDto {
