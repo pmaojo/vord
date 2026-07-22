@@ -100,6 +100,12 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 })
                 .transpose()?;
 
+            if let Some(config) = yunq_infra_fs::YunqConfig::load_from_dir(&path) {
+                if let Some(key) = &config.project.key {
+                    eprintln!("📋 Loaded project config ({key})");
+                }
+            }
+
             let cache = (!no_cache && path.is_dir())
                 .then(|| std::sync::Arc::new(FileAnalysisCache::open(path.join(".yunq-cache.json"))));
             let mut report =

@@ -5,6 +5,7 @@
 mod baseline;
 mod cache;
 mod cobertura;
+mod config;
 mod jacoco;
 mod junit;
 mod lcov;
@@ -14,6 +15,7 @@ mod worktree;
 pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura};
+pub use config::YunqConfig;
 pub use jacoco::{JacocoError, parse_jacoco};
 pub use junit::{JunitError, TestReportSummary, parse_junit};
 pub use lcov::{LcovError, parse_lcov};

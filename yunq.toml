@@ -1,0 +1,9 @@
+[project]
+key = "yunq-core-platform"
+name = "yunq — The Ultraperformant Code Analysis Platform"
+version = "0.1.0"
+
+[analysis]
+sources = ["bin", "core", "infra", "parsers", "rulesets"]
+exclusions = ["**/fixtures/**", "**/target/**"]
+profile = "Sonar way"
