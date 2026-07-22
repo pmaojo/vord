@@ -28,6 +28,9 @@ yunq-parser-ruby = { path = "parsers/treesitter-ruby" }
 yunq-parser-kotlin = { path = "parsers/treesitter-kotlin" }
 yunq-parser-swift = { path = "parsers/treesitter-swift" }
 yunq-parser-scala = { path = "parsers/treesitter-scala" }
+yunq-parser-html = { path = "parsers/treesitter-html" }
+yunq-parser-css = { path = "parsers/treesitter-css" }
+yunq-parser-xml = { path = "parsers/treesitter-xml" }
 yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }

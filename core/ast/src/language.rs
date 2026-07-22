@@ -16,9 +16,8 @@ impl LanguageIdentifier {
         let normalized = raw.to_ascii_lowercase();
         match normalized.as_str() {
             "rust" | "typescript" | "python" | "go" | "java" | "c" | "cpp" | "php" | "dockerfile"
-            | "yaml" | "json" | "csharp" | "ruby" | "kotlin" | "swift" | "scala" => {
-                Ok(Self(normalized))
-            }
+            | "yaml" | "json" | "csharp" | "ruby" | "kotlin" | "swift" | "scala" | "html"
+            | "css" | "xml" => Ok(Self(normalized)),
             _ => Err(UnsupportedLanguageError(raw.to_string())),
         }
     }
@@ -87,6 +86,18 @@ impl LanguageIdentifier {
         Self("scala".to_string())
     }
 
+    pub fn html() -> Self {
+        Self("html".to_string())
+    }
+
+    pub fn css() -> Self {
+        Self("css".to_string())
+    }
+
+    pub fn xml() -> Self {
+        Self("xml".to_string())
+    }
+
     /// Maps a file extension to its language, if the extension is supported.
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension.to_ascii_lowercase().as_str() {
@@ -106,6 +117,9 @@ impl LanguageIdentifier {
             "kt" | "kts" => Some(Self::kotlin()),
             "swift" => Some(Self::swift()),
             "scala" | "sc" => Some(Self::scala()),
+            "html" | "htm" => Some(Self::html()),
+            "css" => Some(Self::css()),
+            "xml" => Some(Self::xml()),
             _ => None,
         }
     }
@@ -153,6 +167,9 @@ mod tests {
         assert_eq!(LanguageIdentifier::from_extension("kt"), Some(LanguageIdentifier::kotlin()));
         assert_eq!(LanguageIdentifier::from_extension("swift"), Some(LanguageIdentifier::swift()));
         assert_eq!(LanguageIdentifier::from_extension("scala"), Some(LanguageIdentifier::scala()));
+        assert_eq!(LanguageIdentifier::from_extension("html"), Some(LanguageIdentifier::html()));
+        assert_eq!(LanguageIdentifier::from_extension("css"), Some(LanguageIdentifier::css()));
+        assert_eq!(LanguageIdentifier::from_extension("xml"), Some(LanguageIdentifier::xml()));
         assert_eq!(LanguageIdentifier::from_extension("cobol"), None);
     }
 }
