@@ -267,6 +267,7 @@ pub fn render_text(
     if let Some(new_code) = new_code {
         out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
     }
+    out.push_str(&format!("Health score: {}/100\n", report.health_score()));
     out.push_str(&format!("Rating: {}\n", report.rating()));
     out.push_str(&format!("Quality gate: {}\n", gate.status()));
     if gate.status() == GateStatus::Failed {

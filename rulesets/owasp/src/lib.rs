@@ -8,6 +8,7 @@ mod dockerfile_root;
 mod eval_usage;
 mod hardcoded_secret;
 mod injection;
+mod weak_crypto;
 
 pub use command_exec::CommandExecHotspotRule;
 pub use cross_file_injection::CrossFileInjectionRule;
@@ -15,6 +16,7 @@ pub use dockerfile_root::DockerfileRootUserRule;
 pub use eval_usage::EvalUsageRule;
 pub use hardcoded_secret::HardcodedSecretRule;
 pub use injection::InjectionRule;
+pub use weak_crypto::WeakCryptoRule;
 
 use yunq_rules_engine::{CrossFileRule, Rule};
 
@@ -26,6 +28,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(InjectionRule::new()),
         Box::new(CommandExecHotspotRule::new()),
         Box::new(DockerfileRootUserRule::new()),
+        Box::new(WeakCryptoRule::new()),
     ]
 }
 

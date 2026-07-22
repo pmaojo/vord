@@ -555,6 +555,18 @@ impl AnalysisReport {
         Rating::from_worst_severity(self.max_severity())
     }
 
+    /// Global Health Score (0–100) combining issues, hotspots, and duplication.
+    pub fn health_score(&self) -> u32 {
+        let blocker = *self.metrics.issues_by_severity().get(&Severity::Blocker).unwrap_or(&0) as u32;
+        let critical = *self.metrics.issues_by_severity().get(&Severity::Critical).unwrap_or(&0) as u32;
+        let major = *self.metrics.issues_by_severity().get(&Severity::Major).unwrap_or(&0) as u32;
+        let hotspots = self.hotspots.len() as u32;
+        let dup_penalty = (self.metrics.duplicated_lines_density() * 0.5) as u32;
+
+        let penalty = blocker * 10 + critical * 5 + major * 1 + hotspots * 2 + dup_penalty;
+        100u32.saturating_sub(penalty)
+    }
+
     /// Resolves a measure by key for quality-gate evaluation.
     /// Unknown keys yield `None` (the gate treats them as NoValue).
     pub fn measure(&self, key: &MetricKey) -> Option<f64> {
