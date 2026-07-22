@@ -23,9 +23,10 @@ use utoipa_swagger_ui::SwaggerUi;
 use yunq_infra_postgres::PgIssueStorage;
 use yunq_infra_sqs::SqsJobQueue;
 use yunq_rules_engine::{
-    HotspotReader, HotspotReview, HotspotStatus, IssueQuery, IssueReader, IssueStatus,
-    IssueTransition, IssueWorkflow, JobQueue, Resolution, RuleId, ScanJob, Severity, StoredHotspot,
-    StoredIssue, WorkflowError,
+    BulkOutcome, ChangelogAction, ChangelogEntry, HotspotReader, HotspotReview, HotspotStatus,
+    IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueQuery, IssueReader,
+    IssueStatus, IssueTransition, IssueWorkflow, JobQueue, Resolution, RuleId, ScanJob, Severity,
+    StoredHotspot, StoredIssue, WorkflowError,
 };
 
 struct AppState {
@@ -47,6 +48,8 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(list_issues))
         .routes(routes!(transition_issue))
         .routes(routes!(assign_issue))
+        .routes(routes!(bulk_transition_issues))
+        .routes(routes!(issue_changelog))
         .routes(routes!(list_hotspots))
         .routes(routes!(review_hotspot))
         .routes(routes!(list_rules))
@@ -137,9 +140,19 @@ struct IssuesQuery {
     file: Option<String>,
     /// Filter: exact assignee.
     assignee: Option<String>,
+    /// Comma-separated facets to compute alongside the page:
+    /// severity, status, rule (e.g. `facets=severity,rule`).
+    facets: Option<String>,
 }
 
 impl IssuesQuery {
+    fn requested_facets(&self) -> Vec<String> {
+        self.facets
+            .as_deref()
+            .map(|raw| raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect())
+            .unwrap_or_default()
+    }
+
     fn into_domain(self) -> Result<IssueQuery, String> {
         let severity = self
             .severity
@@ -171,6 +184,21 @@ struct IssuePageDto {
     page: usize,
     page_size: usize,
     total: usize,
+    /// Present only when the request included a `facets` param.
+    facets: Option<FacetsDto>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct FacetCountDto {
+    value: String,
+    count: usize,
+}
+
+#[derive(Serialize, ToSchema)]
+struct FacetsDto {
+    by_severity: Vec<FacetCountDto>,
+    by_status: Vec<FacetCountDto>,
+    by_rule: Vec<FacetCountDto>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -220,17 +248,47 @@ async fn list_issues(
     State(state): State<Arc<AppState>>,
     Query(query): Query<IssuesQuery>,
 ) -> Result<Json<IssuePageDto>, (StatusCode, String)> {
+    let requested_facets = query.requested_facets();
     let query = query.into_domain().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let page = state
         .reader
         .search_issues(&query)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    let facets = if requested_facets.is_empty() {
+        None
+    } else {
+        let computed = state
+            .reader
+            .facets(&query)
+            .await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+        Some(FacetsDto {
+            by_severity: if requested_facets.iter().any(|f| f == "severity") {
+                computed.by_severity.iter().map(|(s, c)| FacetCountDto { value: s.to_string(), count: *c }).collect()
+            } else {
+                Vec::new()
+            },
+            by_status: if requested_facets.iter().any(|f| f == "status") {
+                computed.by_status.iter().map(|(s, c)| FacetCountDto { value: s.to_string(), count: *c }).collect()
+            } else {
+                Vec::new()
+            },
+            by_rule: if requested_facets.iter().any(|f| f == "rule") {
+                computed.by_rule.iter().map(|(r, c)| FacetCountDto { value: r.to_string(), count: *c }).collect()
+            } else {
+                Vec::new()
+            },
+        })
+    };
+
     Ok(Json(IssuePageDto {
         items: page.items.iter().map(IssueDto::from).collect(),
         page: page.page,
         page_size: page.page_size,
         total: page.total,
+        facets,
     }))
 }
 
@@ -469,4 +527,129 @@ async fn assign_issue(
         .await
         .map_err(workflow_error_response)?;
     Ok(Json(IssueDto::from(&stored)))
+}
+
+#[derive(Deserialize, ToSchema)]
+struct BulkTransitionRequestDto {
+    issue_ids: Vec<i64>,
+    /// One of: confirm, resolve, reopen, close.
+    transition: String,
+    /// Required when transition is `resolve`: fixed, wont-fix, false-positive.
+    resolution: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct BulkOutcomeDto {
+    issue_id: i64,
+    status: &'static str,
+    issue: Option<IssueDto>,
+    error: Option<String>,
+}
+
+impl From<&BulkOutcome> for BulkOutcomeDto {
+    fn from(outcome: &BulkOutcome) -> Self {
+        match outcome {
+            BulkOutcome::Applied(stored) => Self {
+                issue_id: stored.id,
+                status: "applied",
+                issue: Some(IssueDto::from(stored)),
+                error: None,
+            },
+            BulkOutcome::Failed { issue_id, reason } => {
+                Self { issue_id: *issue_id, status: "failed", issue: None, error: Some(reason.clone()) }
+            }
+        }
+    }
+}
+
+/// Apply the same transition to many issues at once. Each issue succeeds or
+/// fails independently — one illegal transition does not abort the batch.
+#[utoipa::path(
+    post,
+    path = "/issues/bulk-transition",
+    request_body = BulkTransitionRequestDto,
+    responses(
+        (status = 200, description = "Per-issue outcomes", body = [BulkOutcomeDto]),
+        (status = 400, description = "Unknown transition or resolution"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+async fn bulk_transition_issues(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<BulkTransitionRequestDto>,
+) -> Result<Json<Vec<BulkOutcomeDto>>, (StatusCode, String)> {
+    let transition = parse_transition(&TransitionRequestDto {
+        transition: request.transition,
+        resolution: request.resolution,
+    })
+    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let outcomes = state
+        .reader
+        .bulk_transition(&request.issue_ids, transition)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    Ok(Json(outcomes.iter().map(BulkOutcomeDto::from).collect()))
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChangelogEntryDto {
+    action: &'static str,
+    from_status: Option<String>,
+    transition: Option<String>,
+    resolution: Option<String>,
+    assignee: Option<String>,
+    at: String,
+}
+
+impl From<&ChangelogEntry> for ChangelogEntryDto {
+    fn from(entry: &ChangelogEntry) -> Self {
+        match &entry.action {
+            ChangelogAction::Transitioned { from, transition } => {
+                let (name, resolution) = match transition {
+                    IssueTransition::Confirm => ("confirm", None),
+                    IssueTransition::Reopen => ("reopen", None),
+                    IssueTransition::Close => ("close", None),
+                    IssueTransition::Resolve(r) => ("resolve", Some(r.to_string())),
+                };
+                Self {
+                    action: "transitioned",
+                    from_status: Some(from.to_string()),
+                    transition: Some(name.to_string()),
+                    resolution,
+                    assignee: None,
+                    at: entry.at.clone(),
+                }
+            }
+            ChangelogAction::Assigned { assignee } => Self {
+                action: "assigned",
+                from_status: None,
+                transition: None,
+                resolution: None,
+                assignee: assignee.clone(),
+                at: entry.at.clone(),
+            },
+        }
+    }
+}
+
+/// The recorded workflow history of an issue (audit trail).
+#[utoipa::path(
+    get,
+    path = "/issues/{id}/changelog",
+    params(("id" = i64, Path, description = "Issue id")),
+    responses(
+        (status = 200, description = "Changelog entries, oldest first", body = [ChangelogEntryDto]),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+async fn issue_changelog(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<Json<Vec<ChangelogEntryDto>>, (StatusCode, String)> {
+    let entries = state
+        .reader
+        .changelog(id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    Ok(Json(entries.iter().map(ChangelogEntryDto::from).collect()))
 }

@@ -164,6 +164,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "facets",
+            "in": "query",
+            "description": "Comma-separated facets to compute alongside the page:\nseverity, status, rule (e.g. `facets=severity,rule`).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -179,6 +188,43 @@
           },
           "400": {
             "description": "Invalid filter value"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/issues/bulk-transition": {
+      "post": {
+        "summary": "Apply the same transition to many issues at once. Each issue succeeds or\nfails independently — one illegal transition does not abort the batch.",
+        "operationId": "bulk_transition_issues",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkTransitionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Per-issue outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BulkOutcomeDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown transition or resolution"
           },
           "502": {
             "description": "Storage backend unavailable"
@@ -225,6 +271,42 @@
           },
           "404": {
             "description": "Issue not found"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/issues/{id}/changelog": {
+      "get": {
+        "summary": "The recorded workflow history of an issue (audit trail).",
+        "operationId": "issue_changelog",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changelog entries, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChangelogEntryDto"
+                  }
+                }
+              }
+            }
           },
           "502": {
             "description": "Storage backend unavailable"
@@ -354,6 +436,148 @@
           }
         }
       },
+      "BulkOutcomeDto": {
+        "type": "object",
+        "required": [
+          "issue_id",
+          "status"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IssueDto"
+              }
+            ]
+          },
+          "issue_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "BulkTransitionRequestDto": {
+        "type": "object",
+        "required": [
+          "issue_ids",
+          "transition"
+        ],
+        "properties": {
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when transition is `resolve`: fixed, wont-fix, false-positive."
+          },
+          "transition": {
+            "type": "string",
+            "description": "One of: confirm, resolve, reopen, close."
+          }
+        }
+      },
+      "ChangelogEntryDto": {
+        "type": "object",
+        "required": [
+          "action",
+          "at"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "at": {
+            "type": "string"
+          },
+          "from_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "FacetCountDto": {
+        "type": "object",
+        "required": [
+          "value",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "FacetsDto": {
+        "type": "object",
+        "required": [
+          "by_severity",
+          "by_status",
+          "by_rule"
+        ],
+        "properties": {
+          "by_rule": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FacetCountDto"
+            }
+          },
+          "by_severity": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FacetCountDto"
+            }
+          },
+          "by_status": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FacetCountDto"
+            }
+          }
+        }
+      },
       "HotspotDto": {
         "type": "object",
         "required": [
@@ -471,6 +695,17 @@
           "total"
         ],
         "properties": {
+          "facets": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FacetsDto",
+                "description": "Present only when the request included a `facets` param."
+              }
+            ]
+          },
           "items": {
             "type": "array",
             "items": {
