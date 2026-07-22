@@ -77,7 +77,7 @@ tree-sitter-go = "0.23"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros", "json"] }
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 tower-lsp = "0.20"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rand = "0.8"
