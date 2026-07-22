@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "yunq API",
-    "description": "Static analysis platform: enqueue scans, read issues.",
+    "description": "Static analysis platform: REST API, OAuth, signed webhooks and operational metrics.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -10,6 +10,412 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/auth/me": {
+      "get": {
+        "summary": "Return the user attached to the current yunq bearer session.",
+        "operationId": "current_user",
+        "responses": {
+          "200": {
+            "description": "Current authenticated user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentUserDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or expired bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/auth/oauth/{provider}/callback": {
+      "get": {
+        "summary": "Finish OAuth login and exchange the provider code for a yunq bearer session.",
+        "operationId": "oauth_callback",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "github or gitlab",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAuth login completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthLoginDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Provider denied the request or parameters are missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid OAuth state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider exchange failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/oauth/{provider}/login": {
+      "get": {
+        "summary": "Start an OAuth 2.0 authorization-code flow with GitHub or GitLab.",
+        "operationId": "oauth_login",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "github or gitlab",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Redirect to the provider authorization page"
+          },
+          "404": {
+            "description": "Unknown provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider is not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/issues/{id}/assign-to-agent": {
+      "post": {
+        "summary": "Assign an issue to the AI Remediation Agent to automatically generate a verified fix.",
+        "operationId": "assign_to_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AI Remediation Agent proposal generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFixProposalDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Issue not found"
+          }
+        }
+      }
+    },
+    "/api/projects/{key}/badge.svg": {
+      "get": {
+        "summary": "Generate SVG status badge for a project.",
+        "operationId": "badge_svg",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SVG badge",
+            "content": {
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/metrics": {
+      "get": {
+        "summary": "Export process, HTTP, OAuth and webhook metrics in Prometheus text format.",
+        "operationId": "prometheus_metrics",
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks": {
+      "get": {
+        "summary": "List webhook subscriptions without exposing their signing secrets.",
+        "operationId": "list_webhooks",
+        "responses": {
+          "200": {
+            "description": "Webhook registrations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WebhookDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or expired bearer token"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Register a signed webhook subscription.",
+        "operationId": "create_webhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWebhookDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Webhook registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid URL, secret or event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or expired bearer token"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/webhooks/deliveries": {
+      "get": {
+        "summary": "Read the bounded delivery-attempt log, including retry and terminal outcomes.",
+        "operationId": "webhook_delivery_log",
+        "parameters": [
+          {
+            "name": "delivery_id",
+            "in": "query",
+            "description": "Filter all attempts for one delivery id.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum records to return (default 100, capped at 1000).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest delivery attempts first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WebhookAttemptDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or expired bearer token"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/webhooks/dispatch": {
+      "post": {
+        "summary": "Queue an event for all subscribed webhooks or one selected registration.",
+        "operationId": "dispatch_webhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchWebhookDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Deliveries queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QueuedDeliveryDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid event or subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or expired bearer token"
+          },
+          "404": {
+            "description": "Selected registration was not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dispatcher queue unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/hotspots": {
       "get": {
         "summary": "List the most recently detected security hotspots.",
@@ -420,10 +826,48 @@
           }
         }
       }
+    },
+    "/scim/v2/Users": {
+      "get": {
+        "summary": "SCIM 2.0 User Provisioning Endpoint.",
+        "operationId": "scim_users",
+        "responses": {
+          "200": {
+            "description": "SCIM 2.0 user list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScimUserListDto"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AgentFixProposalDto": {
+        "type": "object",
+        "required": [
+          "issue_id",
+          "modified_code",
+          "explanation"
+        ],
+        "properties": {
+          "explanation": {
+            "type": "string"
+          },
+          "issue_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "modified_code": {
+            "type": "string"
+          }
+        }
+      },
       "AssigneeRequestDto": {
         "type": "object",
         "properties": {
@@ -433,6 +877,17 @@
               "null"
             ],
             "description": "User to assign; null/omitted to unassign."
+          }
+        }
+      },
+      "AuthErrorDto": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
           }
         }
       },
@@ -531,6 +986,71 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "CreateWebhookDto": {
+        "type": "object",
+        "required": [
+          "url",
+          "secret",
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Event names such as `analysis.finished` or `gate.changed`."
+          },
+          "secret": {
+            "type": "string",
+            "description": "Shared signing secret. It is never returned by the API."
+          },
+          "url": {
+            "type": "string",
+            "description": "Absolute HTTP(S) endpoint that will receive JSON POST requests."
+          }
+        }
+      },
+      "CurrentUserDto": {
+        "type": "object",
+        "required": [
+          "user",
+          "session_expires_at"
+        ],
+        "properties": {
+          "session_expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "user": {
+            "$ref": "#/components/schemas/OAuthUserDto"
+          }
+        }
+      },
+      "DispatchWebhookDto": {
+        "type": "object",
+        "required": [
+          "event",
+          "payload"
+        ],
+        "properties": {
+          "event": {
+            "type": "string",
+            "description": "Event name delivered in the `X-Yunq-Event` header and JSON envelope."
+          },
+          "payload": {
+            "description": "Arbitrary event-specific JSON payload."
+          },
+          "webhook_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional registration id. When omitted, all subscribers receive it."
           }
         }
       },
@@ -726,6 +1246,91 @@
           }
         }
       },
+      "OAuthLoginDto": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "user"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "token_type": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/OAuthUserDto"
+          }
+        }
+      },
+      "OAuthUserDto": {
+        "type": "object",
+        "required": [
+          "provider",
+          "provider_user_id",
+          "username"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "provider_user_id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "QueuedDeliveryDto": {
+        "type": "object",
+        "required": [
+          "delivery_id",
+          "webhook_id",
+          "event",
+          "status"
+        ],
+        "properties": {
+          "delivery_id": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "webhook_id": {
+            "type": "string"
+          }
+        }
+      },
       "RuleDto": {
         "type": "object",
         "required": [
@@ -798,6 +1403,51 @@
           }
         }
       },
+      "ScimUserDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "user_name",
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "user_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ScimUserListDto": {
+        "type": "object",
+        "required": [
+          "schemas",
+          "total_results",
+          "resources"
+        ],
+        "properties": {
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScimUserDto"
+            }
+          },
+          "schemas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "total_results": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "TransitionRequestDto": {
         "type": "object",
         "required": [
@@ -816,6 +1466,114 @@
             "description": "One of: confirm, resolve, reopen, close."
           }
         }
+      },
+      "WebhookAttemptDto": {
+        "type": "object",
+        "required": [
+          "delivery_id",
+          "webhook_id",
+          "event",
+          "attempt",
+          "outcome",
+          "duration_ms",
+          "attempted_at"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "attempted_at": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "delivery_id": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event": {
+            "type": "string"
+          },
+          "http_status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "next_retry_in_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "webhook_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WebhookDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "url",
+          "events",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "WebhookErrorDto": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   }

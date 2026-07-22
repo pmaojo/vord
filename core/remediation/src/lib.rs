@@ -164,6 +164,7 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
 mod tests {
     use super::*;
 
+    #[allow(dead_code)]
     pub struct DummySandbox;
     impl Sandbox for DummySandbox {
         fn apply_proposal(&self, _proposal: &FixProposal) -> Result<(), RemediationError> {
