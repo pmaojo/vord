@@ -16,7 +16,9 @@ impl LanguageIdentifier {
         let normalized = raw.to_ascii_lowercase();
         match normalized.as_str() {
             "rust" | "typescript" | "python" | "go" | "java" | "c" | "cpp" | "php" | "dockerfile"
-            | "yaml" | "json" | "csharp" | "ruby" => Ok(Self(normalized)),
+            | "yaml" | "json" | "csharp" | "ruby" | "kotlin" | "swift" | "scala" => {
+                Ok(Self(normalized))
+            }
             _ => Err(UnsupportedLanguageError(raw.to_string())),
         }
     }
@@ -73,6 +75,18 @@ impl LanguageIdentifier {
         Self("ruby".to_string())
     }
 
+    pub fn kotlin() -> Self {
+        Self("kotlin".to_string())
+    }
+
+    pub fn swift() -> Self {
+        Self("swift".to_string())
+    }
+
+    pub fn scala() -> Self {
+        Self("scala".to_string())
+    }
+
     /// Maps a file extension to its language, if the extension is supported.
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension.to_ascii_lowercase().as_str() {
@@ -89,6 +103,9 @@ impl LanguageIdentifier {
             "json" => Some(Self::json()),
             "cs" => Some(Self::csharp()),
             "rb" => Some(Self::ruby()),
+            "kt" | "kts" => Some(Self::kotlin()),
+            "swift" => Some(Self::swift()),
+            "scala" | "sc" => Some(Self::scala()),
             _ => None,
         }
     }
@@ -133,6 +150,9 @@ mod tests {
         assert_eq!(LanguageIdentifier::from_extension("go"), Some(LanguageIdentifier::go()));
         assert_eq!(LanguageIdentifier::from_extension("rb"), Some(LanguageIdentifier::ruby()));
         assert_eq!(LanguageIdentifier::from_extension("cs"), Some(LanguageIdentifier::csharp()));
+        assert_eq!(LanguageIdentifier::from_extension("kt"), Some(LanguageIdentifier::kotlin()));
+        assert_eq!(LanguageIdentifier::from_extension("swift"), Some(LanguageIdentifier::swift()));
+        assert_eq!(LanguageIdentifier::from_extension("scala"), Some(LanguageIdentifier::scala()));
         assert_eq!(LanguageIdentifier::from_extension("cobol"), None);
     }
 }

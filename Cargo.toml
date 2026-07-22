@@ -25,6 +25,9 @@ yunq-parser-php = { path = "parsers/treesitter-php" }
 yunq-parser-dockerfile = { path = "parsers/treesitter-dockerfile" }
 yunq-parser-csharp = { path = "parsers/treesitter-csharp" }
 yunq-parser-ruby = { path = "parsers/treesitter-ruby" }
+yunq-parser-kotlin = { path = "parsers/treesitter-kotlin" }
+yunq-parser-swift = { path = "parsers/treesitter-swift" }
+yunq-parser-scala = { path = "parsers/treesitter-scala" }
 yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }
