@@ -10,11 +10,13 @@ use yunq_infra_fs::FileAnalysisCache;
 use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
 use yunq_parser_c::CParser;
 use yunq_parser_cpp::CppParser;
+use yunq_parser_csharp::CSharpParser;
 use yunq_parser_dockerfile::DockerfileParser;
 use yunq_parser_go::GoParser;
 use yunq_parser_java::JavaParser;
 use yunq_parser_php::PhpParser;
 use yunq_parser_python::PythonParser;
+use yunq_parser_ruby::RubyParser;
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_rules_engine::{
@@ -53,7 +55,9 @@ where
         .register_parser(Box::new(CParser::new()))
         .register_parser(Box::new(CppParser::new()))
         .register_parser(Box::new(PhpParser::new()))
-        .register_parser(Box::new(DockerfileParser::new()));
+        .register_parser(Box::new(DockerfileParser::new()))
+        .register_parser(Box::new(CSharpParser::new()))
+        .register_parser(Box::new(RubyParser::new()));
     for rule in rules {
         service = service.register_rule(rule);
     }

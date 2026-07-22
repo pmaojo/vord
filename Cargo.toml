@@ -23,6 +23,8 @@ yunq-parser-c = { path = "parsers/treesitter-c" }
 yunq-parser-cpp = { path = "parsers/treesitter-cpp" }
 yunq-parser-php = { path = "parsers/treesitter-php" }
 yunq-parser-dockerfile = { path = "parsers/treesitter-dockerfile" }
+yunq-parser-csharp = { path = "parsers/treesitter-csharp" }
+yunq-parser-ruby = { path = "parsers/treesitter-ruby" }
 yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }

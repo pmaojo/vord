@@ -18,6 +18,8 @@ yunq-parser-c = { workspace = true }
 yunq-parser-cpp = { workspace = true }
 yunq-parser-php = { workspace = true }
 yunq-parser-dockerfile = { workspace = true }
+yunq-parser-csharp = { workspace = true }
+yunq-parser-ruby = { workspace = true }
 yunq-rules-owasp = { workspace = true }
 yunq-rules-smells = { workspace = true }
 yunq-infra-memory = { workspace = true }
