@@ -21,7 +21,7 @@ pub use domain::{
     InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition, Metrics, Resolution,
     ScanJob, StoredHotspot, StoredIssue,
 };
-pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint};
+pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
 pub use project::{
     AnalysisContext, AnalysisScope, BranchName, InvalidBranchNameError, InvalidProjectKeyError,
     InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,
