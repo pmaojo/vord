@@ -35,12 +35,16 @@ use yunq_rules_engine::{
 
 mod auth;
 mod metrics;
+mod ops;
 mod webhooks;
+
+use ops::OpsStore;
 
 struct AppState {
     queue: Arc<dyn ScanQueuePort>,
     reader: Arc<dyn IssueApiStore>,
     gate: Arc<dyn GateBadgePort>,
+    ops: Arc<dyn OpsStore>,
     metrics: metrics::Metrics,
     webhooks: webhooks::WebhookDispatcher,
     auth: auth::OAuthService,
@@ -228,6 +232,11 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(stripe_webhook))
         .routes(routes!(export_compliance_pdf))
         .routes(routes!(list_projects))
+        .routes(routes!(ops::system_info))
+        .routes(routes!(ops::upsert_quality_gate))
+        .routes(routes!(ops::upsert_quality_profile))
+        .routes(routes!(ops::grant_permission, ops::revoke_permission))
+        .routes(routes!(ops::list_audit_log))
         .split_for_parts();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
@@ -248,8 +257,10 @@ async fn main() -> anyhow::Result<()> {
     let storage = PgIssueStorage::connect_lazy(&database_url)?;
     let reader: Arc<dyn IssueApiStore> = Arc::new(storage.clone());
     let gate: Arc<dyn GateBadgePort> = Arc::new(storage.clone());
+    let ops: Arc<dyn OpsStore> = Arc::new(storage.clone());
     let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
-    let state = Arc::new(AppState { queue, reader, gate, metrics: metrics.clone(), webhooks, auth });
+    let state =
+        Arc::new(AppState { queue, reader, gate, ops, metrics: metrics.clone(), webhooks, auth });
 
     let app = router
         .route("/health", get(|| async { "ok" }))
