@@ -7,10 +7,11 @@ use sqlx::postgres::{PgPoolOptions, PgRow, Postgres};
 use sqlx::{PgPool, QueryBuilder, Row};
 use yunq_ast::Span;
 use yunq_rules_engine::{
-    Hotspot, HotspotReader, HotspotReview, HotspotStatus, HotspotStorage, Issue, IssueQuery,
-    IssueReader, IssueStatus, IssueStorage, IssueTransition, IssueWorkflow, Metrics,
-    MetricsTracker, Page, Resolution, RuleId, Severity, StorageError, StoredHotspot, StoredIssue,
-    WorkflowError,
+    BulkOutcome, ChangelogAction, ChangelogEntry, Hotspot, HotspotReader, HotspotReview,
+    HotspotStatus, HotspotStorage, Issue, IssueBulkWorkflow, IssueChangelogReader,
+    IssueFacetReader, IssueFacets, IssueQuery, IssueReader, IssueStatus, IssueStorage,
+    IssueTransition, IssueWorkflow, Metrics, MetricsTracker, Page, Resolution, RuleId, Severity,
+    StorageError, StoredHotspot, StoredIssue, WorkflowError,
 };
 
 #[derive(Clone)]
@@ -109,14 +110,38 @@ fn issue_from_row(row: &PgRow) -> Result<StoredIssue, StorageError> {
 }
 
 /// Appends the query's conjunctive filters to a `WHERE 1=1` builder.
+enum FacetSkip {
+    None,
+    Severity,
+    Status,
+    Rule,
+}
+
 fn push_issue_filters<'a>(builder: &mut QueryBuilder<'a, Postgres>, query: &'a IssueQuery) {
-    if let Some(severity) = query.severity {
+    push_issue_filters_skip(builder, query, &FacetSkip::None);
+}
+
+/// Same filters as [`push_issue_filters`], optionally dropping one
+/// dimension's own condition — used to compute facet counts that answer
+/// "what if I also picked this value" rather than collapsing to it.
+fn push_issue_filters_skip<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    query: &'a IssueQuery,
+    skip: &FacetSkip,
+) {
+    if !matches!(skip, FacetSkip::Severity)
+        && let Some(severity) = query.severity
+    {
         builder.push(" AND severity = ").push_bind(severity.as_str().to_string());
     }
-    if let Some(status) = query.status {
+    if !matches!(skip, FacetSkip::Status)
+        && let Some(status) = query.status
+    {
         builder.push(" AND status = ").push_bind(status.to_string());
     }
-    if let Some(rule) = &query.rule {
+    if !matches!(skip, FacetSkip::Rule)
+        && let Some(rule) = &query.rule
+    {
         builder.push(" AND rule = ").push_bind(rule.as_str());
     }
     if let Some(file) = &query.file {
@@ -151,6 +176,55 @@ impl IssueReader for PgIssueStorage {
             page_size: query.normalized_page_size(),
             total: total as usize,
         })
+    }
+}
+
+impl IssueFacetReader for PgIssueStorage {
+    async fn facets(&self, query: &IssueQuery) -> Result<IssueFacets, StorageError> {
+        let mut by_severity_q = QueryBuilder::<Postgres>::new(
+            "SELECT severity, COUNT(*) AS n FROM issues WHERE 1=1",
+        );
+        push_issue_filters_skip(&mut by_severity_q, query, &FacetSkip::Severity);
+        by_severity_q.push(" GROUP BY severity");
+        let severity_rows =
+            by_severity_q.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let mut by_severity = std::collections::BTreeMap::new();
+        for row in &severity_rows {
+            let raw: String = row.try_get("severity").map_err(storage_err)?;
+            let severity = Severity::parse(&raw)
+                .ok_or_else(|| StorageError(format!("invalid severity {raw:?}")))?;
+            let count: i64 = row.try_get("n").map_err(storage_err)?;
+            by_severity.insert(severity, count as usize);
+        }
+
+        let mut by_status_q =
+            QueryBuilder::<Postgres>::new("SELECT status, COUNT(*) AS n FROM issues WHERE 1=1");
+        push_issue_filters_skip(&mut by_status_q, query, &FacetSkip::Status);
+        by_status_q.push(" GROUP BY status");
+        let status_rows = by_status_q.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let mut by_status = Vec::new();
+        for row in &status_rows {
+            let raw: String = row.try_get("status").map_err(storage_err)?;
+            let status = IssueStatus::parse(&raw)
+                .ok_or_else(|| StorageError(format!("invalid status {raw:?}")))?;
+            let count: i64 = row.try_get("n").map_err(storage_err)?;
+            by_status.push((status, count as usize));
+        }
+
+        let mut by_rule_q =
+            QueryBuilder::<Postgres>::new("SELECT rule, COUNT(*) AS n FROM issues WHERE 1=1");
+        push_issue_filters_skip(&mut by_rule_q, query, &FacetSkip::Rule);
+        by_rule_q.push(" GROUP BY rule");
+        let rule_rows = by_rule_q.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let mut by_rule = Vec::new();
+        for row in &rule_rows {
+            let raw: String = row.try_get("rule").map_err(storage_err)?;
+            let rule = RuleId::new(&raw).map_err(storage_err)?;
+            let count: i64 = row.try_get("n").map_err(storage_err)?;
+            by_rule.push((rule, count as usize));
+        }
+
+        Ok(IssueFacets { by_severity, by_status, by_rule })
     }
 }
 
@@ -259,6 +333,48 @@ impl PgIssueStorage {
             .map_err(storage_err)?;
         Ok(())
     }
+
+    async fn record_transition(
+        &self,
+        issue_id: i64,
+        from: IssueStatus,
+        transition: IssueTransition,
+    ) -> Result<(), WorkflowError> {
+        let (name, resolution) = match transition {
+            IssueTransition::Confirm => ("confirm", None),
+            IssueTransition::Reopen => ("reopen", None),
+            IssueTransition::Close => ("close", None),
+            IssueTransition::Resolve(r) => ("resolve", Some(r.to_string())),
+        };
+        sqlx::query(
+            "INSERT INTO issue_changelog (issue_id, action, from_status, transition, resolution)
+             VALUES ($1, 'transitioned', $2, $3, $4)",
+        )
+        .bind(issue_id)
+        .bind(from.to_string())
+        .bind(name)
+        .bind(resolution)
+        .execute(&self.pool)
+        .await
+        .map_err(storage_err)?;
+        Ok(())
+    }
+
+    async fn record_assignment(
+        &self,
+        issue_id: i64,
+        assignee: Option<&str>,
+    ) -> Result<(), WorkflowError> {
+        sqlx::query(
+            "INSERT INTO issue_changelog (issue_id, action, assignee) VALUES ($1, 'assigned', $2)",
+        )
+        .bind(issue_id)
+        .bind(assignee)
+        .execute(&self.pool)
+        .await
+        .map_err(storage_err)?;
+        Ok(())
+    }
 }
 
 impl IssueWorkflow for PgIssueStorage {
@@ -268,8 +384,10 @@ impl IssueWorkflow for PgIssueStorage {
         transition: IssueTransition,
     ) -> Result<StoredIssue, WorkflowError> {
         let mut stored = self.fetch_issue(issue_id).await?;
+        let from = stored.issue.status();
         stored.issue.apply(transition)?;
         self.store_workflow_state(&stored).await?;
+        self.record_transition(issue_id, from, transition).await?;
         Ok(stored)
     }
 
@@ -279,12 +397,82 @@ impl IssueWorkflow for PgIssueStorage {
         assignee: Option<String>,
     ) -> Result<StoredIssue, WorkflowError> {
         let mut stored = self.fetch_issue(issue_id).await?;
-        match assignee {
-            Some(user) => stored.issue.assign(user),
+        match &assignee {
+            Some(user) => stored.issue.assign(user.clone()),
             None => stored.issue.unassign(),
         }
         self.store_workflow_state(&stored).await?;
+        self.record_assignment(issue_id, assignee.as_deref()).await?;
         Ok(stored)
+    }
+}
+
+impl IssueBulkWorkflow for PgIssueStorage {
+    async fn bulk_transition(
+        &self,
+        issue_ids: &[i64],
+        transition: IssueTransition,
+    ) -> Result<Vec<BulkOutcome>, StorageError> {
+        let mut outcomes = Vec::with_capacity(issue_ids.len());
+        for &issue_id in issue_ids {
+            match IssueWorkflow::apply_transition(self, issue_id, transition).await {
+                Ok(stored) => outcomes.push(BulkOutcome::Applied(stored)),
+                Err(e) => outcomes.push(BulkOutcome::Failed { issue_id, reason: e.to_string() }),
+            }
+        }
+        Ok(outcomes)
+    }
+}
+
+impl IssueChangelogReader for PgIssueStorage {
+    async fn changelog(&self, issue_id: i64) -> Result<Vec<ChangelogEntry>, StorageError> {
+        let rows = sqlx::query(
+            "SELECT action, from_status, transition, resolution, assignee,
+                    to_char(at, 'YYYY-MM-DD\"T\"HH24:MI:SS.USZ') AS at
+             FROM issue_changelog WHERE issue_id = $1 ORDER BY id ASC",
+        )
+        .bind(issue_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(storage_err)?;
+
+        rows.iter()
+            .map(|row| {
+                let action_kind: String = row.try_get("action").map_err(storage_err)?;
+                let at: String = row.try_get("at").map_err(storage_err)?;
+                let action = match action_kind.as_str() {
+                    "transitioned" => {
+                        let from_raw: String = row.try_get("from_status").map_err(storage_err)?;
+                        let from = IssueStatus::parse(&from_raw)
+                            .ok_or_else(|| StorageError(format!("invalid status {from_raw:?}")))?;
+                        let transition_name: String =
+                            row.try_get("transition").map_err(storage_err)?;
+                        let transition = match transition_name.as_str() {
+                            "confirm" => IssueTransition::Confirm,
+                            "reopen" => IssueTransition::Reopen,
+                            "close" => IssueTransition::Close,
+                            "resolve" => {
+                                let raw: String =
+                                    row.try_get("resolution").map_err(storage_err)?;
+                                let resolution = Resolution::parse(&raw).ok_or_else(|| {
+                                    StorageError(format!("invalid resolution {raw:?}"))
+                                })?;
+                                IssueTransition::Resolve(resolution)
+                            }
+                            other => {
+                                return Err(StorageError(format!("invalid transition {other:?}")));
+                            }
+                        };
+                        ChangelogAction::Transitioned { from, transition }
+                    }
+                    "assigned" => ChangelogAction::Assigned {
+                        assignee: row.try_get("assignee").map_err(storage_err)?,
+                    },
+                    other => return Err(StorageError(format!("invalid changelog action {other:?}"))),
+                };
+                Ok(ChangelogEntry { issue_id, action, at })
+            })
+            .collect()
     }
 }
 

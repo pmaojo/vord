@@ -5,7 +5,7 @@ use yunq_ast::Span;
 use yunq_profiles::{MetricKey, Rating, RuleId, Severity};
 
 /// Workflow state of a tracked issue.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IssueStatus {
     Open,
     Confirmed,
@@ -100,6 +100,41 @@ pub struct StoredIssue {
 pub struct StoredHotspot {
     pub id: i64,
     pub hotspot: Hotspot,
+}
+
+/// Facet counts over a filtered issue search: how many matching issues fall
+/// into each severity / status / rule. Each facet is computed against every
+/// *other* active filter but ignores its own dimension's filter, so a
+/// sidebar can show "what if I also picked this value" rather than
+/// collapsing to the single value already selected.
+#[derive(Clone, Debug, Default)]
+pub struct IssueFacets {
+    pub by_severity: BTreeMap<Severity, usize>,
+    pub by_status: Vec<(IssueStatus, usize)>,
+    pub by_rule: Vec<(RuleId, usize)>,
+}
+
+/// One workflow action recorded against an issue, for audit/history display.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChangelogAction {
+    Transitioned { from: IssueStatus, transition: IssueTransition },
+    Assigned { assignee: Option<String> },
+}
+
+/// A single changelog entry. Storage adapters assign `at` (their own clock);
+/// the domain does not depend on wall-clock time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangelogEntry {
+    pub issue_id: i64,
+    pub action: ChangelogAction,
+    pub at: String,
+}
+
+/// The outcome of one bulk operation on a single issue.
+#[derive(Clone, Debug)]
+pub enum BulkOutcome {
+    Applied(StoredIssue),
+    Failed { issue_id: i64, reason: String },
 }
 
 /// A single detected problem, located in a file, with its workflow state.

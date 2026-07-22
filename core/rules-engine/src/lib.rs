@@ -10,9 +10,10 @@ mod rule;
 mod service;
 
 pub use domain::{
-    AnalysisReport, CoverageSummary, Hotspot, HotspotStatus, InvalidCoverageError,
-    InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError, Issue, IssueStatus,
-    IssueTransition, Metrics, Resolution, ScanJob, StoredHotspot, StoredIssue,
+    AnalysisReport, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageSummary, Hotspot,
+    HotspotStatus, InvalidCoverageError, InvalidIssueStateError, InvalidScanJobError,
+    InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition, Metrics, Resolution,
+    ScanJob, StoredHotspot, StoredIssue,
 };
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint};
 pub use project::{
@@ -21,8 +22,9 @@ pub use project::{
 };
 pub use ports::{
     AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotReader, HotspotReview,
-    HotspotStorage, IssueQuery, IssueReader, IssueStorage, IssueWorkflow, JobQueue, MetricsTracker,
-    Page, ParseError, QueueError, StorageError, WorkflowError,
+    HotspotStorage, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueQuery,
+    IssueReader, IssueStorage, IssueWorkflow, JobQueue, MetricsTracker, Page, ParseError,
+    QueueError, StorageError, WorkflowError,
 };
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 

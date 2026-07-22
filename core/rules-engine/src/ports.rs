@@ -9,8 +9,8 @@ use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_profiles::{RuleId, Severity};
 
 use crate::domain::{
-    Hotspot, HotspotStatus, InvalidTransitionError, Issue, IssueStatus, IssueTransition, Metrics,
-    ScanJob, StoredHotspot, StoredIssue,
+    BulkOutcome, ChangelogEntry, Hotspot, HotspotStatus, InvalidTransitionError, Issue,
+    IssueFacets, IssueStatus, IssueTransition, Metrics, ScanJob, StoredHotspot, StoredIssue,
 };
 
 /// Inbound port: turns raw source text into the neutral AST.
@@ -77,6 +77,35 @@ pub trait IssueReader: Send + Sync {
         &self,
         query: &IssueQuery,
     ) -> impl Future<Output = Result<Page<StoredIssue>, StorageError>> + Send;
+}
+
+/// Outbound port: aggregates issue counts per dimension for a filtered
+/// search — the sidebar facet counts a real Issues workspace needs.
+pub trait IssueFacetReader: Send + Sync {
+    fn facets(
+        &self,
+        query: &IssueQuery,
+    ) -> impl Future<Output = Result<IssueFacets, StorageError>> + Send;
+}
+
+/// Outbound port: applies the same transition to many issues in one call.
+/// Each issue succeeds or fails independently — one illegal transition does
+/// not abort the rest — mirroring the bulk-change UX of the Issues page.
+pub trait IssueBulkWorkflow: Send + Sync {
+    fn bulk_transition(
+        &self,
+        issue_ids: &[i64],
+        transition: IssueTransition,
+    ) -> impl Future<Output = Result<Vec<BulkOutcome>, StorageError>> + Send;
+}
+
+/// Outbound port: reads the recorded history of workflow actions on an
+/// issue (audit trail for the Issues page).
+pub trait IssueChangelogReader: Send + Sync {
+    fn changelog(
+        &self,
+        issue_id: i64,
+    ) -> impl Future<Output = Result<Vec<ChangelogEntry>, StorageError>> + Send;
 }
 
 /// Outbound port: persists detected security hotspots.
