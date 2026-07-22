@@ -34,6 +34,7 @@ yunq-parser-xml = { path = "parsers/treesitter-xml" }
 yunq-parser-json = { path = "parsers/treesitter-json" }
 yunq-parser-yaml = { path = "parsers/treesitter-yaml" }
 yunq-parser-hcl = { path = "parsers/treesitter-hcl" }
+yunq-parser-bash = { path = "parsers/treesitter-bash" }
 yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }
