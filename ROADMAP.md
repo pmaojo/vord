@@ -78,11 +78,18 @@ re-analysis on typical PRs.
 - **Duplication detection (CPD)**: ✅ core algorithm ported from
   `sonar-duplications`' `BlockChunker`/`CloneIndex` — statement-repetition
   collapsing, incremental Rabin-Karp rolling hash (base 31, default block
-  size 5), cross-file hash-indexed matching (`core/duplication`). Remaining
-  gap vs. upstream: statements are trimmed source lines, not real
-  per-language tokenizer output, so literal/whitespace normalization isn't
-  token-accurate yet — swap in per-language tokenizers reusing the
-  `parsers/treesitter-*` crates to close it.
+  size 5), cross-file hash-indexed matching (`core/duplication`). ✅
+  Tokenizer gap closed: statements are now real per-language tokens, not
+  trimmed source lines — a grammar-agnostic leaf walker
+  (`parsers/treesitter-tokens`) reused by all 23 tree-sitter-backed
+  `parsers/treesitter-*` crates via a new `AstParser::tokenize_for_duplication`
+  override collapses string/numeric literals to a shared placeholder and
+  drops comment nodes, so e.g. `x = 1;` and `x = 2;` hash as the same
+  statement and comment-only lines never register as duplicated, while
+  joining tokens with a single space makes intra-line whitespace
+  insignificant. Languages without a registered parser (or without one
+  overriding the default) fall back to `yunq_cpd::fallback_tokenize`'s
+  trimmed-line behavior, same as before.
 - **Metrics engine**: ✅ cyclomatic + cognitive complexity (per-function,
   existing rules), LOC/statements/functions/classes, comment density,
   max control-flow nesting depth — computed on the neutral AST in

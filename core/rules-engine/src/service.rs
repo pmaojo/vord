@@ -128,7 +128,20 @@ where
         }
 
         // Cross-file phase: copy-paste detection over the whole file set.
-        let duplication = yunq_cpd::find_duplicates(files, self.duplication);
+        // Each file's registered parser (if any) supplies real per-language
+        // tokens; files with no registered parser fall back to trimmed lines.
+        let tokenized: Vec<yunq_cpd::TokenizedFile> = files
+            .iter()
+            .map(|file| {
+                let lines = self
+                    .parsers
+                    .get(file.language())
+                    .map(|parser| parser.tokenize_for_duplication(file))
+                    .unwrap_or_else(|| yunq_cpd::fallback_tokenize(file));
+                yunq_cpd::TokenizedFile { path: file.path().to_string(), lines }
+            })
+            .collect();
+        let duplication = yunq_cpd::find_duplicates(&tokenized, self.duplication);
         metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
 
         // Cross-file rules (e.g. inter-procedural taint) need every AST at
