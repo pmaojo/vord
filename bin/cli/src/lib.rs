@@ -55,6 +55,8 @@ pub fn default_quality_gate() -> QualityGate {
         .with_condition(Condition::new(metric("blocker_issues"), ComparisonOperator::GreaterThan, 0.0))
         .with_condition(Condition::new(metric("critical_issues"), ComparisonOperator::GreaterThan, 0.0))
         .with_condition(Condition::new(metric("parse_failures"), ComparisonOperator::GreaterThan, 0.0))
+        // NoValue (ignored) unless a coverage report was ingested.
+        .with_condition(Condition::new(metric("coverage"), ComparisonOperator::LessThan, 80.0))
 }
 
 /// Scans a directory (or single file) with the default analyzer, without a

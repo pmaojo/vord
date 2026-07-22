@@ -16,6 +16,15 @@ pub struct ReportDto {
     /// Issues not present in the previous analysis (None on first scan).
     pub new_issue_total: Option<usize>,
     pub duplications: Vec<DuplicationDto>,
+    /// Present when an LCOV report was ingested.
+    pub coverage: Option<CoverageDto>,
+}
+
+#[derive(Serialize)]
+pub struct CoverageDto {
+    pub percent: Option<f64>,
+    pub covered_lines: usize,
+    pub coverable_lines: usize,
 }
 
 #[derive(Serialize)]
@@ -132,6 +141,11 @@ impl ReportDto {
             rating: report.rating().to_string(),
             quality_gate: gate_dto(gate),
             new_issue_total: new_code.map(|nc| nc.new_issues().len()),
+            coverage: report.coverage().map(|c| CoverageDto {
+                percent: c.percent(),
+                covered_lines: c.covered_lines(),
+                coverable_lines: c.coverable_lines(),
+            }),
             duplications: report
                 .duplications()
                 .iter()
@@ -238,6 +252,17 @@ pub fn render_text(
                 block.lines,
             ));
         }
+    }
+    if let Some(coverage) = report.coverage() {
+        out.push_str(&format!(
+            "Coverage: {} ({}/{} lines)\n",
+            coverage
+                .percent()
+                .map(|p| format!("{p:.1}%"))
+                .unwrap_or_else(|| "n/a".to_string()),
+            coverage.covered_lines(),
+            coverage.coverable_lines(),
+        ));
     }
     if let Some(new_code) = new_code {
         out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));

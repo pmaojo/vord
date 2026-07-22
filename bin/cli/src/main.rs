@@ -35,6 +35,9 @@ enum Command {
         /// Do not read or update the New Code baseline (.yunq-baseline.json).
         #[arg(long)]
         no_baseline: bool,
+        /// LCOV coverage report to ingest (enables the coverage gate condition).
+        #[arg(long)]
+        coverage: Option<PathBuf>,
     },
 }
 
@@ -57,7 +60,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Scan { path, format, fail_on, no_cache, enforce_gate, no_baseline } => {
+        Command::Scan { path, format, fail_on, no_cache, enforce_gate, no_baseline, coverage } => {
             let threshold = fail_on
                 .map(|raw| {
                     Severity::parse(&raw).ok_or_else(|| {
@@ -68,8 +71,13 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
 
             let cache = (!no_cache && path.is_dir())
                 .then(|| std::sync::Arc::new(FileAnalysisCache::open(path.join(".yunq-cache.json"))));
-            let report =
+            let mut report =
                 futures::executor::block_on(yunq_cli::scan_with_cache(&path, cache.clone()))?;
+            if let Some(lcov_path) = coverage {
+                let raw = std::fs::read_to_string(&lcov_path)
+                    .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", lcov_path.display()))?;
+                report.set_coverage(yunq_infra_fs::parse_lcov(&raw)?);
+            }
             if let Some(cache) = &cache
                 && let Err(e) = cache.persist()
             {

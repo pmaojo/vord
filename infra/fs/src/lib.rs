@@ -4,9 +4,11 @@
 
 mod baseline;
 mod cache;
+mod lcov;
 
 pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
+pub use lcov::{LcovError, parse_lcov};
 
 use std::io::ErrorKind;
 use std::path::Path;

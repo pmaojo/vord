@@ -10,9 +10,9 @@ mod rule;
 mod service;
 
 pub use domain::{
-    AnalysisReport, Hotspot, HotspotStatus, InvalidIssueStateError, InvalidScanJobError,
-    InvalidTransitionError, Issue, IssueStatus, IssueTransition, Metrics, Resolution, ScanJob,
-    StoredHotspot, StoredIssue,
+    AnalysisReport, CoverageSummary, Hotspot, HotspotStatus, InvalidCoverageError,
+    InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError, Issue, IssueStatus,
+    IssueTransition, Metrics, Resolution, ScanJob, StoredHotspot, StoredIssue,
 };
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint};
 pub use project::{

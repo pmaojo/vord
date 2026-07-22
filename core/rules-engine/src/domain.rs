@@ -416,18 +416,78 @@ impl Metrics {
     }
 }
 
+/// Line-coverage totals ingested from an external test-coverage report.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CoverageSummary {
+    covered_lines: usize,
+    coverable_lines: usize,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("covered lines ({covered}) cannot exceed coverable lines ({coverable})")]
+pub struct InvalidCoverageError {
+    pub covered: usize,
+    pub coverable: usize,
+}
+
+impl CoverageSummary {
+    pub fn new(covered_lines: usize, coverable_lines: usize) -> Result<Self, InvalidCoverageError> {
+        if covered_lines > coverable_lines {
+            return Err(InvalidCoverageError { covered: covered_lines, coverable: coverable_lines });
+        }
+        Ok(Self { covered_lines, coverable_lines })
+    }
+
+    /// Accumulates one file's counts.
+    pub fn add(&mut self, covered: usize, coverable: usize) -> Result<(), InvalidCoverageError> {
+        if covered > coverable {
+            return Err(InvalidCoverageError { covered, coverable });
+        }
+        self.covered_lines += covered;
+        self.coverable_lines += coverable;
+        Ok(())
+    }
+
+    pub fn covered_lines(&self) -> usize {
+        self.covered_lines
+    }
+
+    pub fn coverable_lines(&self) -> usize {
+        self.coverable_lines
+    }
+
+    /// Coverage percentage; `None` when nothing is coverable.
+    pub fn percent(&self) -> Option<f64> {
+        if self.coverable_lines == 0 {
+            None
+        } else {
+            Some(self.covered_lines as f64 * 100.0 / self.coverable_lines as f64)
+        }
+    }
+}
+
 /// The outcome of one analysis run.
 #[derive(Clone, Debug)]
 pub struct AnalysisReport {
     issues: Vec<Issue>,
     hotspots: Vec<Hotspot>,
     duplications: Vec<yunq_cpd::DuplicateBlock>,
+    coverage: Option<CoverageSummary>,
     metrics: Metrics,
 }
 
 impl AnalysisReport {
     pub fn new(issues: Vec<Issue>, hotspots: Vec<Hotspot>, metrics: Metrics) -> Self {
-        Self { issues, hotspots, duplications: Vec::new(), metrics }
+        Self { issues, hotspots, duplications: Vec::new(), coverage: None, metrics }
+    }
+
+    /// Attaches externally ingested test coverage to this report.
+    pub fn set_coverage(&mut self, coverage: CoverageSummary) {
+        self.coverage = Some(coverage);
+    }
+
+    pub fn coverage(&self) -> Option<&CoverageSummary> {
+        self.coverage.as_ref()
     }
 
     pub fn set_duplications(&mut self, duplications: Vec<yunq_cpd::DuplicateBlock>) {
@@ -480,6 +540,9 @@ impl AnalysisReport {
             "duplicated_lines" => Some(self.metrics.duplicated_lines() as f64),
             "duplicated_blocks" => Some(self.metrics.duplicated_blocks() as f64),
             "duplicated_lines_density" => Some(self.metrics.duplicated_lines_density()),
+            // NoValue when no coverage report was ingested — gate conditions
+            // on coverage are then ignored rather than failing blind.
+            "coverage" => self.coverage.and_then(|c| c.percent()),
             "hotspots_to_review" => Some(
                 self.hotspots.iter().filter(|h| h.status() == HotspotStatus::ToReview).count()
                     as f64,
