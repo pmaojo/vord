@@ -9,6 +9,7 @@ mod ports;
 mod project;
 mod rule;
 mod service;
+mod structural_metrics;
 
 pub use alm::{
     AlmError, AlmStatusReporter, CommitSha, CommitStatus, CommitStatusState,
@@ -33,6 +34,7 @@ pub use ports::{
     QueueError, StorageError, WorkflowError,
 };
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
+pub use structural_metrics::StructuralCounts;
 
 // Re-export duplication vocabulary so consumers depend on one facade.
 pub use yunq_cpd::{BlockRef, DuplicateBlock, DuplicationConfig};

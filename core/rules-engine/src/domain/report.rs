@@ -4,6 +4,7 @@ use yunq_profiles::{MetricKey, Rating, Severity};
 
 use super::hotspot::{Hotspot, HotspotStatus};
 use super::issue::Issue;
+use crate::structural_metrics::StructuralCounts;
 
 /// Aggregated counters for one analysis run.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -17,6 +18,11 @@ pub struct Metrics {
     duplicated_lines: usize,
     duplicated_blocks: usize,
     by_severity: BTreeMap<Severity, usize>,
+    functions: usize,
+    classes: usize,
+    statements: usize,
+    comment_lines: usize,
+    max_nesting_depth: usize,
 }
 
 impl Metrics {
@@ -48,6 +54,17 @@ impl Metrics {
     pub fn set_duplication(&mut self, duplicated_lines: usize, duplicated_blocks: usize) {
         self.duplicated_lines = duplicated_lines;
         self.duplicated_blocks = duplicated_blocks;
+    }
+
+    /// Folds one file's structural counters into the run-wide totals.
+    /// `max_nesting_depth` aggregates as a max, not a sum — it is a depth,
+    /// not a count.
+    pub fn add_structural(&mut self, structural: StructuralCounts) {
+        self.functions += structural.functions;
+        self.classes += structural.classes;
+        self.statements += structural.statements;
+        self.comment_lines += structural.comment_lines;
+        self.max_nesting_depth = self.max_nesting_depth.max(structural.max_nesting_depth);
     }
 
     pub fn count_issue(&mut self, severity: Severity) {
@@ -100,6 +117,36 @@ impl Metrics {
 
     pub fn issue_total(&self) -> usize {
         self.by_severity.values().sum()
+    }
+
+    pub fn functions(&self) -> usize {
+        self.functions
+    }
+
+    pub fn classes(&self) -> usize {
+        self.classes
+    }
+
+    pub fn statements(&self) -> usize {
+        self.statements
+    }
+
+    pub fn comment_lines(&self) -> usize {
+        self.comment_lines
+    }
+
+    pub fn max_nesting_depth(&self) -> usize {
+        self.max_nesting_depth
+    }
+
+    /// SonarQube's formula: comments as a share of comments + code lines.
+    pub fn comment_lines_density(&self) -> f64 {
+        let denominator = self.lines_of_code + self.comment_lines;
+        if denominator == 0 {
+            0.0
+        } else {
+            self.comment_lines as f64 * 100.0 / denominator as f64
+        }
     }
 }
 
@@ -248,6 +295,12 @@ impl AnalysisReport {
                     as f64,
             ),
             "debt_minutes" => Some(self.metrics.debt_minutes() as f64),
+            "functions" => Some(self.metrics.functions() as f64),
+            "classes" => Some(self.metrics.classes() as f64),
+            "statements" => Some(self.metrics.statements() as f64),
+            "comment_lines" => Some(self.metrics.comment_lines() as f64),
+            "comment_lines_density" => Some(self.metrics.comment_lines_density()),
+            "max_nesting_depth" => Some(self.metrics.max_nesting_depth() as f64),
             _ => None,
         }
     }

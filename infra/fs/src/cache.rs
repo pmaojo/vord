@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use yunq_ast::Span;
 use yunq_rules_engine::{
     AnalysisCache, CacheKey, CachedAnalysis, Hotspot, HotspotStatus, Issue, RuleId, Severity,
+    StructuralCounts,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -36,12 +37,25 @@ struct CachedHotspotDto {
     end_col: u32,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 struct CachedFileDto {
     lines: usize,
     debt_minutes: usize,
     issues: Vec<CachedIssueDto>,
     hotspots: Vec<CachedHotspotDto>,
+    // Added after the initial cache format shipped; entries written by
+    // older yunq versions simply come back as zero (fail-open, same
+    // migration pattern as `infra/fs::BaselineStore`).
+    #[serde(default)]
+    functions: usize,
+    #[serde(default)]
+    classes: usize,
+    #[serde(default)]
+    statements: usize,
+    #[serde(default)]
+    comment_lines: usize,
+    #[serde(default)]
+    max_nesting_depth: usize,
 }
 
 pub struct FileAnalysisCache {
@@ -104,13 +118,30 @@ fn to_domain(dto: &CachedFileDto) -> Option<CachedAnalysis> {
             ))
         })
         .collect::<Option<Vec<_>>>()?;
-    Some(CachedAnalysis { lines: dto.lines, debt_minutes: dto.debt_minutes, issues, hotspots })
+    Some(CachedAnalysis {
+        lines: dto.lines,
+        debt_minutes: dto.debt_minutes,
+        issues,
+        hotspots,
+        structural: StructuralCounts {
+            functions: dto.functions,
+            classes: dto.classes,
+            statements: dto.statements,
+            comment_lines: dto.comment_lines,
+            max_nesting_depth: dto.max_nesting_depth,
+        },
+    })
 }
 
 fn to_dto(value: &CachedAnalysis) -> CachedFileDto {
     CachedFileDto {
         lines: value.lines,
         debt_minutes: value.debt_minutes,
+        functions: value.structural.functions,
+        classes: value.structural.classes,
+        statements: value.structural.statements,
+        comment_lines: value.structural.comment_lines,
+        max_nesting_depth: value.structural.max_nesting_depth,
         hotspots: value
             .hotspots
             .iter()
@@ -167,6 +198,13 @@ mod tests {
         let value = CachedAnalysis {
             lines: 7,
             debt_minutes: 10,
+            structural: StructuralCounts {
+                functions: 2,
+                classes: 1,
+                statements: 5,
+                comment_lines: 3,
+                max_nesting_depth: 2,
+            },
             hotspots: vec![Hotspot::new(
                 RuleId::new("owasp:command-execution").unwrap(),
                 "review this",
@@ -195,6 +233,32 @@ mod tests {
         assert_eq!(hit.issues[0].message(), "boom");
         assert_eq!(hit.hotspots.len(), 1);
         assert_eq!(hit.hotspots[0].status(), HotspotStatus::ToReview);
+        assert_eq!(hit.structural, value.structural);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_structural_fields_fail_open_to_zero() {
+        // Simulates a cache file written by a yunq version that predates
+        // structural counters: the JSON simply omits those keys.
+        let dir = std::env::temp_dir()
+            .join(format!("yunq-cache-legacy-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cache.json");
+        let key = CacheKey { content_hash: 0x1, config_hash: 0x2 };
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"{}":{{"lines":3,"debt_minutes":0,"issues":[],"hotspots":[]}}}}"#,
+                key_string(&key)
+            ),
+        )
+        .unwrap();
+
+        let cache = FileAnalysisCache::open(&path);
+        let hit = cache.get(&key).expect("legacy entry still parses");
+        assert_eq!(hit.structural, StructuralCounts::default());
 
         std::fs::remove_dir_all(&dir).ok();
     }

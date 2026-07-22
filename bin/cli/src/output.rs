@@ -105,6 +105,12 @@ pub struct MetricsDto {
     pub lines_of_code: usize,
     pub issue_total: usize,
     pub debt_minutes: usize,
+    pub functions: usize,
+    pub classes: usize,
+    pub statements: usize,
+    pub comment_lines: usize,
+    pub comment_lines_density: f64,
+    pub max_nesting_depth: usize,
 }
 
 impl From<&Issue> for IssueDto {
@@ -170,6 +176,12 @@ impl ReportDto {
                 lines_of_code: metrics.lines_of_code(),
                 issue_total: metrics.issue_total(),
                 debt_minutes: metrics.debt_minutes(),
+                functions: metrics.functions(),
+                classes: metrics.classes(),
+                statements: metrics.statements(),
+                comment_lines: metrics.comment_lines(),
+                comment_lines_density: metrics.comment_lines_density(),
+                max_nesting_depth: metrics.max_nesting_depth(),
             },
         }
     }
@@ -238,6 +250,15 @@ pub fn render_text(
         "{} security hotspots to review, technical debt: {} min\n",
         report.hotspots().len(),
         metrics.debt_minutes(),
+    ));
+    out.push_str(&format!(
+        "{} functions, {} classes, {} statements, {} comment lines ({:.1}%), max nesting depth {}\n",
+        metrics.functions(),
+        metrics.classes(),
+        metrics.statements(),
+        metrics.comment_lines(),
+        metrics.comment_lines_density(),
+        metrics.max_nesting_depth(),
     ));
     if metrics.duplicated_blocks() > 0 {
         out.push_str(&format!(
