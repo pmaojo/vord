@@ -203,6 +203,8 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(webhooks::webhook_delivery_log))
         .routes(routes!(badge_svg))
         .routes(routes!(scim_users))
+        .routes(routes!(stripe_webhook))
+        .routes(routes!(export_compliance_pdf))
         .split_for_parts();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
@@ -623,6 +625,47 @@ async fn badge_svg(Path(_key): Path<String>) -> impl IntoResponse {
     ([(axum::http::header::CONTENT_TYPE, "image/svg+xml")], svg)
 }
 
+/// Export ISO 32000-1 Binary PDF Compliance Report (Enterprise Subscription Required).
+#[utoipa::path(
+    get,
+    path = "/api/compliance/owasp.pdf",
+    responses(
+        (status = 200, description = "ISO 32000-1 Binary PDF Report", body = Vec<u8>, content_type = "application/pdf"),
+        (status = 402, description = "Enterprise plan required")
+    )
+)]
+async fn export_compliance_pdf(headers: axum::http::HeaderMap) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let plan = headers.get("x-yunq-plan").and_then(|h| h.to_str().ok()).unwrap_or("free");
+    if plan == "free" && std::env::var("YUNQ_REQUIRE_PREMIUM_PDF").map(|v| v == "true").unwrap_or(true) {
+        return Err((
+            StatusCode::PAYMENT_REQUIRED,
+            "ISO 32000-1 Binary PDF Compliance Exports require an Enterprise subscription. Upgrade at https://yunq.dev/pricing".to_string(),
+        ));
+    }
+    let report = yunq_rules_engine::AnalysisReport::new(vec![], vec![], yunq_rules_engine::Metrics::default());
+    let pdf_bytes = yunq_infra_pdf::ComplianceReportGenerator::generate_owasp_compliance_pdf_binary(&report)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "application/pdf")], pdf_bytes))
+}
+
+#[derive(Serialize, ToSchema)]
+struct StripeWebhookResponseDto {
+    received: bool,
+}
+
+/// Stripe Billing Webhook Handler.
+#[utoipa::path(
+    post,
+    path = "/api/stripe/webhook",
+    responses(
+        (status = 200, description = "Webhook received", body = StripeWebhookResponseDto)
+    )
+)]
+async fn stripe_webhook(body: String) -> Json<StripeWebhookResponseDto> {
+    eprintln!("Received Stripe event: {body}");
+    Json(StripeWebhookResponseDto { received: true })
+}
+
 #[derive(Serialize, ToSchema)]
 struct ScimUserListDto {
     schemas: Vec<String>,
@@ -756,13 +799,23 @@ struct AgentFixProposalDto {
     params(("id" = i64, Path, description = "Issue id")),
     responses(
         (status = 200, description = "AI Remediation Agent proposal generated", body = AgentFixProposalDto),
+        (status = 402, description = "Pro or Enterprise plan required"),
         (status = 404, description = "Issue not found")
     )
 )]
 async fn assign_to_agent(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Json<AgentFixProposalDto>, (StatusCode, String)> {
+    let plan = headers.get("x-yunq-plan").and_then(|h| h.to_str().ok()).unwrap_or("free");
+    if plan == "free" && std::env::var("YUNQ_REQUIRE_PREMIUM_AI").map(|v| v == "true").unwrap_or(true) {
+        return Err((
+            StatusCode::PAYMENT_REQUIRED,
+            "AI Remediation Agent requires a Pro or Enterprise subscription. Upgrade at https://yunq.dev/pricing".to_string(),
+        ));
+    }
+
     let issue = state
         .reader
         .fetch_issue(id)

@@ -16,6 +16,24 @@ use utoipa::ToSchema;
 const STATE_TTL: Duration = Duration::from_secs(10 * 60);
 const SESSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+pub(crate) struct TenantContext {
+    pub tenant_id: String,
+}
+
+impl TenantContext {
+    #[allow(dead_code)]
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        let tenant_id = headers
+            .get("x-yunq-tenant-id")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("default-tenant")
+            .to_string();
+        Self { tenant_id }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct OAuthService {
     inner: Arc<OAuthInner>,

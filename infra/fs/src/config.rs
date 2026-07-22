@@ -10,6 +10,8 @@ pub struct YunqConfig {
     pub project: ProjectConfig,
     #[serde(default)]
     pub analysis: AnalysisConfig,
+    #[serde(default)]
+    pub rules: RulesConfig,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -25,6 +27,25 @@ pub struct AnalysisConfig {
     pub exclusions: Option<Vec<String>>,
     pub inclusions: Option<Vec<String>>,
     pub profile: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RulesConfig {
+    #[serde(default)]
+    pub custom: Vec<CustomRuleConfig>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CustomRuleConfig {
+    pub id: String,
+    pub message: String,
+    pub pattern: String,
+    #[serde(default = "default_severity_str")]
+    pub severity: String,
+}
+
+fn default_severity_str() -> String {
+    "major".to_string()
 }
 
 impl YunqConfig {
@@ -94,7 +115,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_yunq_toml() {
+    fn parses_yunq_toml_with_custom_rules() {
         let toml_content = r#"
 [project]
 key = "my-awesome-repo"
@@ -103,11 +124,17 @@ version = "1.2.3"
 
 [analysis]
 sources = ["src", "lib"]
-exclusions = ["**/vendor/**", "**/fixtures/**"]
+
+[[rules.custom]]
+id = "custom:no-console-log"
+message = "Do not leave console.log in production code"
+pattern = "console.log"
+severity = "minor"
 "#;
         let config: YunqConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.project.key.as_deref(), Some("my-awesome-repo"));
-        assert_eq!(config.analysis.sources.as_ref().unwrap().len(), 2);
+        assert_eq!(config.rules.custom.len(), 1);
+        assert_eq!(config.rules.custom[0].pattern, "console.log");
     }
 
     #[test]

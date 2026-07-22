@@ -3949,14 +3949,14 @@ dependencies = [
 
 [[package]]
 name = "yunq-ast"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "yunq-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3986,14 +3986,14 @@ dependencies = [
 
 [[package]]
 name = "yunq-cpd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "yunq-ast",
 ]
 
 [[package]]
 name = "yunq-infra-azure"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -4004,7 +4004,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-fs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ignore",
  "serde",
@@ -4018,7 +4018,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-git"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rand 0.8.7",
  "thiserror",
@@ -4027,7 +4027,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-github"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "reqwest",
@@ -4039,7 +4039,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-gitlab"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -4050,7 +4050,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-llm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -4062,7 +4062,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-memory"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "yunq-ast",
@@ -4071,7 +4071,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-pdf"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4081,7 +4081,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-postgres"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "sqlx",
  "thiserror",
@@ -4091,7 +4091,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-sqs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aws-config",
  "aws-sdk-sqs",
@@ -4103,7 +4103,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-lsp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tokio",
  "tower-lsp",
@@ -4115,7 +4115,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-c"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-c",
@@ -4125,7 +4125,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-cpp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-cpp",
@@ -4135,7 +4135,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-dockerfile"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "yunq-ast",
  "yunq-rules-engine",
@@ -4143,7 +4143,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-go"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-go",
@@ -4153,7 +4153,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-java"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-java",
@@ -4163,7 +4163,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-php"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-php",
@@ -4173,7 +4173,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-python"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-python",
@@ -4183,7 +4183,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-rust"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-rust",
@@ -4193,7 +4193,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-typescript"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-typescript",
@@ -4203,14 +4203,14 @@ dependencies = [
 
 [[package]]
 name = "yunq-profiles"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "yunq-remediation"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -4222,7 +4222,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "thiserror",
@@ -4233,7 +4233,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-owasp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-rust",
@@ -4244,7 +4244,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-smells"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-python",
@@ -4255,7 +4255,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4273,6 +4273,7 @@ dependencies = [
  "utoipa-axum",
  "utoipa-swagger-ui",
  "yunq-infra-llm",
+ "yunq-infra-pdf",
  "yunq-infra-postgres",
  "yunq-infra-sqs",
  "yunq-remediation",
@@ -4283,7 +4284,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-taint"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
  "yunq-ast",
@@ -4291,7 +4292,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-worker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "tokio",

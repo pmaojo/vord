@@ -4,6 +4,7 @@
 
 mod command_exec;
 mod cross_file_injection;
+mod custom_pattern;
 mod dockerfile_root;
 mod eval_usage;
 mod hardcoded_secret;
@@ -12,6 +13,7 @@ mod weak_crypto;
 
 pub use command_exec::CommandExecHotspotRule;
 pub use cross_file_injection::CrossFileInjectionRule;
+pub use custom_pattern::CustomPatternRule;
 pub use dockerfile_root::DockerfileRootUserRule;
 pub use eval_usage::EvalUsageRule;
 pub use hardcoded_secret::HardcodedSecretRule;
