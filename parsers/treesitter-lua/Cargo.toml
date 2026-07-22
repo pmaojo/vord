@@ -1,0 +1,12 @@
+[package]
+name = "yunq-parser-lua"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-ast = { workspace = true }
+yunq-rules-engine = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-lua = "0.5.0"

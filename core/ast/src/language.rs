@@ -17,7 +17,7 @@ impl LanguageIdentifier {
         match normalized.as_str() {
             "rust" | "typescript" | "python" | "go" | "java" | "c" | "cpp" | "php" | "dockerfile"
             | "yaml" | "json" | "csharp" | "ruby" | "kotlin" | "swift" | "scala" | "html"
-            | "css" | "xml" | "hcl" | "bash" => Ok(Self(normalized)),
+            | "css" | "xml" | "hcl" | "bash" | "groovy" | "lua" | "elixir" => Ok(Self(normalized)),
             _ => Err(UnsupportedLanguageError(raw.to_string())),
         }
     }
@@ -106,6 +106,18 @@ impl LanguageIdentifier {
         Self("bash".to_string())
     }
 
+    pub fn groovy() -> Self {
+        Self("groovy".to_string())
+    }
+
+    pub fn lua() -> Self {
+        Self("lua".to_string())
+    }
+
+    pub fn elixir() -> Self {
+        Self("elixir".to_string())
+    }
+
     /// Maps a file extension to its language, if the extension is supported.
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension.to_ascii_lowercase().as_str() {
@@ -130,6 +142,9 @@ impl LanguageIdentifier {
             "xml" => Some(Self::xml()),
             "tf" | "hcl" => Some(Self::hcl()),
             "sh" | "bash" => Some(Self::bash()),
+            "groovy" | "gvy" | "gy" | "gsh" => Some(Self::groovy()),
+            "lua" => Some(Self::lua()),
+            "ex" | "exs" => Some(Self::elixir()),
             _ => None,
         }
     }
@@ -182,6 +197,10 @@ mod tests {
         assert_eq!(LanguageIdentifier::from_extension("xml"), Some(LanguageIdentifier::xml()));
         assert_eq!(LanguageIdentifier::from_extension("tf"), Some(LanguageIdentifier::hcl()));
         assert_eq!(LanguageIdentifier::from_extension("sh"), Some(LanguageIdentifier::bash()));
+        assert_eq!(LanguageIdentifier::from_extension("groovy"), Some(LanguageIdentifier::groovy()));
+        assert_eq!(LanguageIdentifier::from_extension("lua"), Some(LanguageIdentifier::lua()));
+        assert_eq!(LanguageIdentifier::from_extension("ex"), Some(LanguageIdentifier::elixir()));
+        assert_eq!(LanguageIdentifier::from_extension("exs"), Some(LanguageIdentifier::elixir()));
         assert_eq!(LanguageIdentifier::from_extension("cobol"), None);
     }
 }

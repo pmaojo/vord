@@ -21,6 +21,10 @@ const BRANCH_KINDS: &[&str] = &[
     "conditional_expression",
     "ternary_expression",
     "boolean_operator",
+    "enhanced_for_statement", // Groovy/Java-family for-each
+    "switch_label", // Groovy's per-case switch marker
+    "repeat_statement", // Lua's `repeat ... until`
+    "elseif_statement", // Lua's `elseif` (no wrapping `elif_clause` node)
 ];
 
 /// Flags functions whose cyclomatic complexity exceeds a threshold.

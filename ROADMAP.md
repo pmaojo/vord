@@ -47,9 +47,13 @@ re-analysis on typical PRs.
   Java, Go, C, C++, PHP, Dockerfile, C#, Ruby, Kotlin (via the maintained
   `tree-sitter-kotlin-ng` grammar), Swift, Scala, HTML, CSS, XML, JSON,
   YAML (also covers CloudFormation/K8s manifests, which are just
-  YAML/JSON), HCL/Terraform, Bash/shell — all registered in
-  `bin/cli/src/lib.rs::default_service`. Roster stays open-ended for
-  further user-demand additions (e.g. Groovy, Lua, Elixir).
+  YAML/JSON), HCL/Terraform, Bash/shell, Groovy, Lua, Elixir — all
+  registered in `bin/cli/src/lib.rs::default_service`. Elixir's macro-based
+  grammar (no dedicated `if`/`case`/`for` node kinds — those are all plain
+  function calls) means the complexity rules under-count its branching
+  today; `def`/`defmodule` detection and everything else works. Roster
+  stays open-ended for further user-demand additions (e.g. Dart, Haskell,
+  Erlang).
 - **Rule catalog at scale**: port the high-value Sonar rules per language;
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.

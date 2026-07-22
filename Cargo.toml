@@ -35,6 +35,9 @@ yunq-parser-json = { path = "parsers/treesitter-json" }
 yunq-parser-yaml = { path = "parsers/treesitter-yaml" }
 yunq-parser-hcl = { path = "parsers/treesitter-hcl" }
 yunq-parser-bash = { path = "parsers/treesitter-bash" }
+yunq-parser-groovy = { path = "parsers/treesitter-groovy" }
+yunq-parser-lua = { path = "parsers/treesitter-lua" }
+yunq-parser-elixir = { path = "parsers/treesitter-elixir" }
 yunq-cpd = { path = "core/duplication" }
 yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }
@@ -64,7 +67,7 @@ futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 axum = "0.8"
-tree-sitter = "0.25"
+tree-sitter = "0.26.11"
 tree-sitter-typescript = "0.23"
 tree-sitter-rust = "0.24"
 tree-sitter-python = "0.23"

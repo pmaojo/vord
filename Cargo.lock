@@ -3334,9 +3334,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
-version = "0.25.10"
+version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78f873475d258561b06f1c595d93308a7ed124d9977cb26b148c2084a4a3cc87"
+checksum = "af1c71c1c4cc0920b20d6b0f6572e7682cd07a6a2faec71067a31fa394c586df"
 dependencies = [
  "cc",
  "regex",
@@ -3397,10 +3397,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-elixir"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66dd064a762ed95bfc29857fa3cb7403bb1e5cb88112de0f6341b7e47284ba40"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-go"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b13d476345220dbe600147dd444165c5791bf85ef53e28acbedd46112ee18431"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-groovy"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a20016017f0865ba902ca50354f92429de5de8df994e64ab7fae087a13c40ed"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -3461,6 +3481,16 @@ name = "tree-sitter-language"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-lua"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8daaf5f4235188a58603c39760d5fa5d4b920d36a299c934adddae757f32a10c"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
 
 [[package]]
 name = "tree-sitter-php"
@@ -4094,12 +4124,15 @@ dependencies = [
  "yunq-parser-csharp",
  "yunq-parser-css",
  "yunq-parser-dockerfile",
+ "yunq-parser-elixir",
  "yunq-parser-go",
+ "yunq-parser-groovy",
  "yunq-parser-hcl",
  "yunq-parser-html",
  "yunq-parser-java",
  "yunq-parser-json",
  "yunq-parser-kotlin",
+ "yunq-parser-lua",
  "yunq-parser-php",
  "yunq-parser-python",
  "yunq-parser-ruby",
@@ -4306,11 +4339,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-parser-elixir"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-elixir",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-parser-go"
 version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-go",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-groovy"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-groovy",
  "yunq-ast",
  "yunq-rules-engine",
 ]
@@ -4361,6 +4414,16 @@ version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-kotlin-ng",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-lua"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-lua",
  "yunq-ast",
  "yunq-rules-engine",
 ]

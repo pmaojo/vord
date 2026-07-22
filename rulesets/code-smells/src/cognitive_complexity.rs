@@ -30,11 +30,19 @@ const NESTING_KINDS: &[&str] = &[
     "type_switch_statement",
     "match_expression",
     "match_statement",
+    "enhanced_for_statement", // Groovy/Java-family for-each
+    "switch_expression", // Groovy's unified switch statement/expression form
+    "repeat_statement", // Lua's `repeat ... until`
 ];
 
 /// Structures that add a flat `+1` without increasing nesting depth —
 /// `else`/`elif` continue the same branch rather than nesting into it.
-const FLAT_KINDS: &[&str] = &["else_clause", "elif_clause"];
+const FLAT_KINDS: &[&str] = &[
+    "else_clause",
+    "elif_clause",
+    "elseif_statement", // Lua
+    "else_statement", // Lua (no wrapping `else_clause` node)
+];
 
 /// `break`/`continue` node kinds across the wired grammars. A plain
 /// `break`/`continue` is free (it doesn't add a new way to misread the
@@ -93,6 +101,7 @@ const BOOLEAN_OPS: &[&str] = &[
     "binary_expression",
     "boolean_operator",
     "logical_expression",
+    "binary_operator", // Elixir: every binary op (`&&`/`||`/`and`/`or`/+/==/...) shares this one kind
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
