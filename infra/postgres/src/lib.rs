@@ -14,8 +14,15 @@ use yunq_rules_engine::{
     StorageError, StoredHotspot, StoredIssue, WorkflowError,
 };
 
+mod audit;
+mod gate;
+mod permission;
+mod profile;
 mod queue;
+mod system;
+pub use audit::{AuditLogEntry, AuditLogQuery};
 pub use queue::PgJobConsumer;
+pub use system::SystemSnapshot;
 
 #[derive(Clone)]
 pub struct PgIssueStorage {

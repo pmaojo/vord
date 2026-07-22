@@ -2,9 +2,9 @@
 //! These DTOs are the CLI's own edge representation of the domain.
 
 use serde::Serialize;
-use yunq_infra_fs::TestReportSummary;
 use yunq_rules_engine::{
     AnalysisReport, ConditionStatus, GateEvaluation, GateStatus, Issue, NewCodeAnalysis,
+    TestReportSummary,
 };
 
 #[derive(Serialize)]
@@ -20,7 +20,7 @@ pub struct ReportDto {
     /// Present when a coverage report (LCOV/Cobertura/JaCoCo/llvm-cov) was ingested.
     pub coverage: Option<CoverageDto>,
     /// Present when a JUnit test report was ingested.
-    pub test_report: Option<TestReportSummary>,
+    pub test_report: Option<TestReportDto>,
 }
 
 #[derive(Serialize)]
@@ -28,6 +28,56 @@ pub struct CoverageDto {
     pub percent: Option<f64>,
     pub covered_lines: usize,
     pub coverable_lines: usize,
+}
+
+#[derive(Serialize)]
+pub struct TestReportDto {
+    pub total_tests: usize,
+    pub passed_tests: usize,
+    pub failed_tests: usize,
+    pub skipped_tests: usize,
+    pub errors: usize,
+    pub time_seconds: f64,
+    pub pass_rate: Option<f64>,
+    pub suites: Vec<TestSuiteDto>,
+}
+
+#[derive(Serialize)]
+pub struct TestSuiteDto {
+    pub name: String,
+    pub tests: usize,
+    pub passed: usize,
+    pub failures: usize,
+    pub errors: usize,
+    pub skipped: usize,
+    pub time_seconds: f64,
+}
+
+impl From<&TestReportSummary> for TestReportDto {
+    fn from(summary: &TestReportSummary) -> Self {
+        Self {
+            total_tests: summary.total_tests,
+            passed_tests: summary.passed_tests,
+            failed_tests: summary.failed_tests,
+            skipped_tests: summary.skipped_tests,
+            errors: summary.errors,
+            time_seconds: summary.time_seconds,
+            pass_rate: summary.pass_rate(),
+            suites: summary
+                .suites
+                .iter()
+                .map(|s| TestSuiteDto {
+                    name: s.name.clone(),
+                    tests: s.tests,
+                    passed: s.passed,
+                    failures: s.failures,
+                    errors: s.errors,
+                    skipped: s.skipped,
+                    time_seconds: s.time_seconds,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -156,7 +206,7 @@ impl ReportDto {
                 covered_lines: c.covered_lines(),
                 coverable_lines: c.coverable_lines(),
             }),
-            test_report: test_report.cloned(),
+            test_report: test_report.map(TestReportDto::from),
             duplications: report
                 .duplications()
                 .iter()
@@ -296,9 +346,23 @@ pub fn render_text(
     }
     if let Some(tests) = test_report {
         out.push_str(&format!(
-            "Tests: {} total, {} passed, {} failed, {} skipped, {} errors\n",
-            tests.total_tests, tests.passed_tests, tests.failed_tests, tests.skipped_tests, tests.errors,
+            "Tests: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
+            tests.total_tests,
+            tests.passed_tests,
+            tests.failed_tests,
+            tests.skipped_tests,
+            tests.errors,
+            tests.time_seconds,
         ));
+        if tests.suites.len() > 1 {
+            for suite in &tests.suites {
+                out.push_str(&format!(
+                    "  - {}: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
+                    suite.name, suite.tests, suite.passed, suite.failures, suite.errors, suite.skipped,
+                    suite.time_seconds,
+                ));
+            }
+        }
     }
     out.push_str(&format!("Health score: {}/100\n", report.health_score()));
     out.push_str(&format!("Rating: {}\n", report.rating()));

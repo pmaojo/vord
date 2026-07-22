@@ -11,4 +11,7 @@ pub use issue::{
     Issue, IssueFacets, IssueStatus, IssueTransition, Resolution, StoredIssue,
 };
 pub use job::{InvalidScanJobError, ScanJob};
-pub use report::{AnalysisReport, CoverageSummary, InvalidCoverageError, Metrics};
+pub use report::{
+    AnalysisReport, CoverageReport, CoverageSummary, FileCoverage, InvalidCoverageError, Metrics,
+    TestReportSummary, TestSuiteSummary,
+};

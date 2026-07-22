@@ -165,6 +165,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     yunq_infra_fs::parse_junit(&raw).map_err(anyhow::Error::from)
                 })
                 .transpose()?;
+            if let Some(summary) = &test_report {
+                report.set_test_report(summary.clone());
+            }
             if let Some(cache) = &cache
                 && let Err(e) = cache.persist()
             {

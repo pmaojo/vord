@@ -17,7 +17,7 @@ pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura};
 pub use config::YunqConfig;
 pub use jacoco::{JacocoError, parse_jacoco};
-pub use junit::{JunitError, TestReportSummary, parse_junit};
+pub use junit::{JunitError, parse_junit};
 pub use lcov::{LcovError, parse_lcov};
 pub use llvm_cov::{LlvmCovError, parse_llvm_cov};
 pub use worktree::WorktreeSandbox;

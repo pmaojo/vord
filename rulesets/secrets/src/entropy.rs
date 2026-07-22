@@ -1,0 +1,261 @@
+//! Shannon-entropy scoring for string literals that look like random
+//! tokens/keys even when they don't match any known provider signature.
+//! This is the generic net that catches private/self-hosted service tokens,
+//! newly-issued provider formats we haven't special-cased yet, and one-off
+//! random secrets.
+
+use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+
+/// Shannon entropy of `s`, in bits per character, computed from the
+/// character-frequency distribution within `s` itself (not a fixed
+/// alphabet). Empty input has zero entropy.
+pub fn shannon_entropy(s: &str) -> f64 {
+    if s.is_empty() {
+        return 0.0;
+    }
+    let mut freq: std::collections::HashMap<char, u32> = std::collections::HashMap::new();
+    let mut len: u32 = 0;
+    for c in s.chars() {
+        *freq.entry(c).or_insert(0) += 1;
+        len += 1;
+    }
+    let len = f64::from(len);
+    freq.values().fold(0.0, |acc, &count| {
+        let p = f64::from(count) / len;
+        acc - p * p.log2()
+    })
+}
+
+/// Strips one layer of matching quote characters (`"`, `'`, `` ` ``) so
+/// entropy is computed over the literal's value, not its syntax.
+fn strip_quotes(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if first == last && matches!(first, b'"' | b'\'' | b'`') {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
+}
+
+/// Common hex digest lengths (MD5, SHA-1, SHA-224/256, SHA-384, SHA-512) —
+/// high entropy but almost always a checksum or git commit SHA, not a
+/// secret.
+fn looks_like_hex_digest(s: &str) -> bool {
+    s.len() >= 8
+        && matches!(s.len(), 32 | 40 | 56 | 64 | 96 | 128)
+        && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// RFC 4122 UUID shape (`8-4-4-4-12` hex groups) — a common non-secret
+/// identifier that happens to have high entropy.
+fn looks_like_uuid(s: &str) -> bool {
+    let expected_lengths = [8, 4, 4, 4, 12];
+    let parts: Vec<&str> = s.split('-').collect();
+    parts.len() == expected_lengths.len()
+        && parts
+            .iter()
+            .zip(expected_lengths)
+            .all(|(part, len)| part.len() == len && part.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// URLs, filesystem paths and Subresource-Integrity/lockfile hash prefixes:
+/// all can be high-entropy but are not secrets.
+fn looks_like_url_path_or_integrity_hash(s: &str) -> bool {
+    const INTEGRITY_PREFIXES: &[&str] = &["sha1-", "sha256-", "sha384-", "sha512-"];
+    s.contains("://")
+        || s.starts_with("data:")
+        || s.starts_with('/')
+        || s.starts_with("./")
+        || s.starts_with("../")
+        || (s.contains('/') && s.contains('.'))
+        || INTEGRITY_PREFIXES.iter().any(|p| s.starts_with(p))
+}
+
+/// Real secrets/tokens are essentially always alphanumeric-plus-symbols
+/// (base64, hex-with-mixed-context, or `prefix_base62...`); plain English
+/// words and identifiers (camelCase, snake_case prose) contain only
+/// letters. Requiring a digit or a non-alphanumeric symbol filters most of
+/// that prose out while keeping token shapes.
+fn has_secret_like_charset(s: &str) -> bool {
+    let has_digit = s.bytes().any(|b| b.is_ascii_digit());
+    let has_symbol = s.bytes().any(|b| !b.is_ascii_alphanumeric());
+    has_digit || has_symbol
+}
+
+/// Flags string literals whose Shannon entropy is high enough to look like
+/// a random token/key, regardless of provider — the catch-all for
+/// private/self-hosted services and formats without a dedicated pattern.
+pub struct HighEntropyStringRule {
+    id: RuleId,
+    /// Minimum entropy, in bits per character, to flag.
+    threshold: f64,
+    /// Minimum literal length (post quote-stripping) to consider — short
+    /// strings don't carry enough signal to score reliably.
+    min_length: usize,
+}
+
+impl HighEntropyStringRule {
+    pub fn new() -> Self {
+        Self::with_threshold(3.5, 20)
+    }
+
+    /// Builds the rule with a custom threshold/minimum length, e.g. for a
+    /// stricter or looser profile.
+    pub fn with_threshold(threshold: f64, min_length: usize) -> Self {
+        Self { id: RuleId::new("secrets:high-entropy-string").expect("valid rule id"), threshold, min_length }
+    }
+}
+
+impl Default for HighEntropyStringRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Rule for HighEntropyStringRule {
+    fn id(&self) -> &RuleId {
+        &self.id
+    }
+
+    fn applies_to(&self, _language: &LanguageIdentifier) -> bool {
+        true
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Major
+    }
+
+    fn metadata(&self) -> RuleMetadata {
+        RuleMetadata {
+            description: "String literal has high Shannon entropy and looks like a random token/key rather than ordinary text. Catches unclassified and private/self-hosted service secrets that don't match a known provider format.".into(),
+            tags: vec!["security".into(), "secrets".into(), "owasp-a07".into()],
+            cwe: Some(798),
+            produces_hotspots: false,
+        }
+    }
+
+    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let mut findings = Vec::new();
+
+        for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+            let value = strip_quotes(literal.text());
+
+            if value.len() < self.min_length || value.contains(char::is_whitespace) {
+                continue;
+            }
+            if looks_like_hex_digest(value)
+                || looks_like_uuid(value)
+                || looks_like_url_path_or_integrity_hash(value)
+            {
+                continue;
+            }
+            if !has_secret_like_charset(value) {
+                continue;
+            }
+
+            let entropy = shannon_entropy(value);
+            if entropy >= self.threshold {
+                findings.push(Finding::new(
+                    format!(
+                        "string literal has high entropy ({entropy:.2} bits/char over {} chars) and looks like a random secret/token",
+                        value.chars().count()
+                    ),
+                    literal.span(),
+                ));
+            }
+        }
+
+        findings
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use yunq_ast::SourceFile;
+    use yunq_rules_engine::AstParser;
+
+    use super::*;
+
+    fn check_ts(code: &str) -> Vec<Finding> {
+        let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        HighEntropyStringRule::new().check(&file, &ast)
+    }
+
+    #[test]
+    fn entropy_of_repeated_char_is_zero() {
+        assert_eq!(shannon_entropy("aaaaaaaa"), 0.0);
+    }
+
+    #[test]
+    fn entropy_of_empty_string_is_zero() {
+        assert_eq!(shannon_entropy(""), 0.0);
+    }
+
+    #[test]
+    fn flags_random_looking_token() {
+        let code = "const apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
+        let findings = check_ts(code);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn ignores_short_strings() {
+        assert!(check_ts("const x = \"aB3!\";\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_plain_english_sentence() {
+        let code = "const msg = \"could not connect to the database, please retry\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_common_identifier_style_text() {
+        let code = "const description = \"aVeryDescriptiveHumanReadableConfigurationOptionName\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_git_sha1_and_sha256() {
+        let code = "const commit = \"a94a8fe5ccb19ba61c4c0873d391e987982fbbd3\";\n\
+                    const digest = \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_uuid() {
+        let code = "const requestId = \"550e8400-e29b-41d4-a716-446655440000\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_urls_and_paths() {
+        let code = "const url = \"https://example.com/some/very/long/descriptive/path\";\n\
+                    const p = \"/usr/local/share/some-long-application-name/config\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_subresource_integrity_hash() {
+        let code = "const sri = \"sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8wC\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn respects_custom_threshold() {
+        let file = SourceFile::new(
+            "t.ts",
+            "const apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let strict_rule = HighEntropyStringRule::with_threshold(5.9, 20);
+        assert!(strict_rule.check(&file, &ast).is_empty());
+    }
+}

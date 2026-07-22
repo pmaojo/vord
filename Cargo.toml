@@ -44,6 +44,7 @@ yunq-rules-owasp = { path = "rulesets/owasp" }
 yunq-rules-smells = { path = "rulesets/code-smells" }
 yunq-rules-iac = { path = "rulesets/iac" }
 yunq-rules-a11y = { path = "rulesets/a11y" }
+yunq-rules-secrets = { path = "rulesets/secrets" }
 yunq-infra-memory = { path = "infra/memory" }
 yunq-cli = { path = "bin/cli" }
 yunq-infra-fs = { path = "infra/fs" }
@@ -66,13 +67,14 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net
 futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
+quick-xml = "0.36"
 axum = "0.8"
 tree-sitter = "0.26.11"
 tree-sitter-typescript = "0.23"
 tree-sitter-rust = "0.24"
 tree-sitter-python = "0.23"
 tree-sitter-go = "0.23"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros", "json"] }
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
