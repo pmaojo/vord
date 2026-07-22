@@ -32,11 +32,11 @@ const FLAT_KINDS: &[&str] = &["else_clause", "elif_clause"];
 /// complexity, nested control flow costs more than sequential control flow,
 /// which tracks how hard a human finds a function to read.
 ///
-/// This implementation covers the structural nesting weighting, the metric's
-/// dominant term. It does not yet implement the boolean-operator-sequence
-/// increment (each break in a chain of `&&`/`||` also adds 1 in the full
-/// SonarSource formula) — grammar-portable detection of that needs operator
-/// text inspection per language and is left for a follow-up.
+/// Covers both dominant terms of the SonarSource formula: structural nesting
+/// weighting, and the boolean-operator-sequence increment (a chain of
+/// binary logical operators costs +1 per contiguous run of the same
+/// operator, plus +1 each time the operator changes — `a && b && c` costs 1,
+/// `a && b || c` costs 2).
 pub struct CognitiveComplexityRule {
     id: RuleId,
     max: u32,
@@ -54,11 +54,85 @@ impl Default for CognitiveComplexityRule {
     }
 }
 
+/// Node kinds across the wired tree-sitter grammars that represent a
+/// two-operand binary expression. Most of these fire far more often for
+/// arithmetic/comparison operators than for `&&`/`||` — [`logical_op`]
+/// filters those out by inspecting the actual operator token, so listing
+/// the kind here is just "candidate", not "confirmed logical".
 const BOOLEAN_OPS: &[&str] = &[
     "binary_expression",
     "boolean_operator",
     "logical_expression",
 ];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LogicalOp {
+    And,
+    Or,
+}
+
+/// tree-sitter's `named_children` (used by every parser adapter) drops
+/// anonymous tokens, so the `&&`/`||`/`and`/`or` keyword never survives as a
+/// child node — only the two operands do. Recover it from the raw source
+/// gap between them instead. Returns `None` for non-logical binary
+/// expressions (`+`, `==`, ...) and anything that isn't a plain two-operand
+/// node.
+fn logical_op(node: &AstNode) -> Option<LogicalOp> {
+    match node.kind() {
+        NodeKind::Other(kind) if BOOLEAN_OPS.contains(&kind.as_str()) => {}
+        _ => return None,
+    }
+    let [left, right] = node.children() else { return None };
+    let node_start = node.byte_range().start;
+    let gap_start = left.byte_range().end.saturating_sub(node_start);
+    let gap_end = right.byte_range().start.saturating_sub(node_start);
+    let text = node.text();
+    let between = text.get(gap_start..gap_end)?.trim();
+    match between {
+        "&&" | "and" => Some(LogicalOp::And),
+        "||" | "or" => Some(LogicalOp::Or),
+        _ => None,
+    }
+}
+
+/// Flattens a chain of same-family logical nodes (`a && b && c` nests as
+/// `(a && b) && c`) into the ordered sequence of operators a reader would
+/// scan left to right, so a homogeneous run can be told apart from a break.
+fn logical_sequence(node: &AstNode) -> Vec<LogicalOp> {
+    let Some(op) = logical_op(node) else { return Vec::new() };
+    let [left, right] = node.children() else { return Vec::new() };
+    let mut sequence = logical_sequence(left);
+    sequence.push(op);
+    sequence.extend(logical_sequence(right));
+    sequence
+}
+
+/// SonarSource's boolean-sequence rule: +1 for the first operator, +1 again
+/// each time it changes — repeats of the same operator in a row are free.
+fn logical_chain_cost(sequence: &[LogicalOp]) -> u32 {
+    let mut cost = 0;
+    let mut previous = None;
+    for &op in sequence {
+        if previous != Some(op) {
+            cost += 1;
+        }
+        previous = Some(op);
+    }
+    cost
+}
+
+/// The non-logical operands at the fringes of a logical chain — each may
+/// itself hide independent structure (a nested `if`, another unrelated
+/// boolean chain inside a call argument, ...) that still needs scoring.
+fn logical_leaves<'a>(node: &'a AstNode, out: &mut Vec<&'a AstNode>) {
+    match node.children() {
+        [left, right] if logical_op(node).is_some() => {
+            logical_leaves(left, out);
+            logical_leaves(right, out);
+        }
+        _ => out.push(node),
+    }
+}
 
 fn score(node: &AstNode, nesting: u32) -> u32 {
     node.children()
@@ -68,23 +142,20 @@ fn score(node: &AstNode, nesting: u32) -> u32 {
             if *child.kind() == NodeKind::FunctionDef {
                 return 0;
             }
-            let is_bool_op = match child.kind() {
-                NodeKind::Other(kind) if BOOLEAN_OPS.contains(&kind.as_str()) => {
-                    let text = child.text();
-                    text.contains("&&") || text.contains("||") || text.contains(" and ") || text.contains(" or ")
-                }
-                _ => false,
-            };
-            let bool_cost = if is_bool_op { 1 } else { 0 };
+            if logical_op(child).is_some() {
+                let sequence = logical_sequence(child);
+                let bool_cost = logical_chain_cost(&sequence);
+                let mut leaves = Vec::new();
+                logical_leaves(child, &mut leaves);
+                return bool_cost + leaves.iter().map(|leaf| score(leaf, nesting)).sum::<u32>();
+            }
 
             match child.kind() {
-                NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => {
-                    1 + bool_cost + score(child, nesting)
-                }
+                NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => 1 + score(child, nesting),
                 NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_str()) => {
-                    (1 + nesting) + bool_cost + score(child, nesting + 1)
+                    (1 + nesting) + score(child, nesting + 1)
                 }
-                _ => bool_cost + score(child, nesting),
+                _ => score(child, nesting),
             }
         })
         .sum()
@@ -193,6 +264,64 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("complexity 3"));
         assert!(check_python(code, 3).is_empty());
+    }
+
+    #[test]
+    fn homogeneous_boolean_chain_costs_once() {
+        // `a && b && c` is one contiguous run of the same operator: +1 total,
+        // not +1 per `&&` (SonarSource doesn't penalize repeating the same
+        // logical operator in a row).
+        let code = "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b && c\n}\n";
+        let findings = check_rust(code, 0);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("complexity 1"), "{}", findings[0].message);
+        assert!(check_rust(code, 1).is_empty());
+    }
+
+    #[test]
+    fn boolean_operator_switch_costs_again() {
+        // `a && b || c`: +1 for the first operator, +1 more for the switch
+        // to `||` — two breaks in the sequence, two increments.
+        let code = "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b || c\n}\n";
+        let findings = check_rust(code, 1);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+        assert!(check_rust(code, 2).is_empty());
+    }
+
+    #[test]
+    fn boolean_chain_with_two_switches() {
+        // `a || b || c && d` parses as `(a || b) || (c && d)`: sequence
+        // [||, ||, &&] — first `||` costs 1, the repeat costs 0, the switch
+        // to `&&` costs 1 again. Total 2, matching the single-switch case
+        // above despite having one more operator.
+        let code = "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {\n    a || b || c && d\n}\n";
+        let findings = check_rust(code, 1);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn boolean_operand_nesting_is_still_scored_but_not_inflated_by_the_operator() {
+        // The `&&` itself doesn't add nesting depth for its operands — an
+        // `if` sitting inside one operand is scored at the *outer* nesting
+        // level, not one level deeper because it's behind a `&&`.
+        let code = "fn f(a: bool, b: i32) -> bool {\n    a && (if b > 0 { true } else { false })\n}\n";
+        // bool chain (1) + nested if at nesting 0 (1+0) + its else (flat +1) = 3.
+        let findings = check_rust(code, 2);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("complexity 3"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn python_boolean_operator_uses_and_or_keywords() {
+        // Python's `and`/`or` are the same construct as `&&`/`||` elsewhere;
+        // the operator recovery must handle keyword operators, not just
+        // symbolic ones.
+        let code = "def f(a, b, c):\n    return a and b or c\n";
+        let findings = check_python(code, 1);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
     }
 
     #[test]
