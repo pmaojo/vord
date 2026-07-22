@@ -15,7 +15,9 @@ use yunq_parser_dockerfile::DockerfileParser;
 use yunq_parser_go::GoParser;
 use yunq_parser_java::JavaParser;
 use yunq_parser_css::CssParser;
+use yunq_parser_hcl::HclParser;
 use yunq_parser_html::HtmlParser;
+use yunq_parser_json::JsonParser;
 use yunq_parser_kotlin::KotlinParser;
 use yunq_parser_php::PhpParser;
 use yunq_parser_python::PythonParser;
@@ -25,6 +27,7 @@ use yunq_parser_scala::ScalaParser;
 use yunq_parser_swift::SwiftParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_parser_xml::XmlParser;
+use yunq_parser_yaml::YamlParser;
 use yunq_rules_engine::{
     AnalysisReport, AnalyzerService, ComparisonOperator, Condition, HotspotStorage, IssueStorage,
     MetricKey, MetricsTracker, QualityGate, QualityProfile, Rule,
@@ -69,7 +72,10 @@ where
         .register_parser(Box::new(ScalaParser::new()))
         .register_parser(Box::new(HtmlParser::new()))
         .register_parser(Box::new(CssParser::new()))
-        .register_parser(Box::new(XmlParser::new()));
+        .register_parser(Box::new(XmlParser::new()))
+        .register_parser(Box::new(JsonParser::new()))
+        .register_parser(Box::new(YamlParser::new()))
+        .register_parser(Box::new(HclParser::new()));
     for rule in rules {
         service = service.register_rule(rule);
     }

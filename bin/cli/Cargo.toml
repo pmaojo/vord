@@ -26,6 +26,9 @@ yunq-parser-scala = { workspace = true }
 yunq-parser-html = { workspace = true }
 yunq-parser-css = { workspace = true }
 yunq-parser-xml = { workspace = true }
+yunq-parser-json = { workspace = true }
+yunq-parser-yaml = { workspace = true }
+yunq-parser-hcl = { workspace = true }
 yunq-rules-owasp = { workspace = true }
 yunq-rules-smells = { workspace = true }
 yunq-infra-memory = { workspace = true }

@@ -17,7 +17,7 @@ impl LanguageIdentifier {
         match normalized.as_str() {
             "rust" | "typescript" | "python" | "go" | "java" | "c" | "cpp" | "php" | "dockerfile"
             | "yaml" | "json" | "csharp" | "ruby" | "kotlin" | "swift" | "scala" | "html"
-            | "css" | "xml" => Ok(Self(normalized)),
+            | "css" | "xml" | "hcl" => Ok(Self(normalized)),
             _ => Err(UnsupportedLanguageError(raw.to_string())),
         }
     }
@@ -98,6 +98,10 @@ impl LanguageIdentifier {
         Self("xml".to_string())
     }
 
+    pub fn hcl() -> Self {
+        Self("hcl".to_string())
+    }
+
     /// Maps a file extension to its language, if the extension is supported.
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension.to_ascii_lowercase().as_str() {
@@ -120,6 +124,7 @@ impl LanguageIdentifier {
             "html" | "htm" => Some(Self::html()),
             "css" => Some(Self::css()),
             "xml" => Some(Self::xml()),
+            "tf" | "hcl" => Some(Self::hcl()),
             _ => None,
         }
     }
@@ -170,6 +175,7 @@ mod tests {
         assert_eq!(LanguageIdentifier::from_extension("html"), Some(LanguageIdentifier::html()));
         assert_eq!(LanguageIdentifier::from_extension("css"), Some(LanguageIdentifier::css()));
         assert_eq!(LanguageIdentifier::from_extension("xml"), Some(LanguageIdentifier::xml()));
+        assert_eq!(LanguageIdentifier::from_extension("tf"), Some(LanguageIdentifier::hcl()));
         assert_eq!(LanguageIdentifier::from_extension("cobol"), None);
     }
 }

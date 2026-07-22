@@ -3397,6 +3397,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-hcl"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a7b2cc3d7121553b84309fab9d11b3ff3d420403eef9ae50f9fd1cd9d9cf012"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-html"
 version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3411,6 +3421,16 @@ name = "tree-sitter-java"
 version = "0.23.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0aa6cbcdc8c679b214e616fd3300da67da0e492e066df01bcf5a5921a71e90d6"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-json"
+version = "0.24.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d727acca406c0020cffc6cf35516764f36c8e3dc4408e5ebe2cb35a947ec471"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -3507,6 +3527,16 @@ name = "tree-sitter-xml"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e670041f591d994f54d597ddcd8f4ebc930e282c4c76a42268743b71f0c8b6b3"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-yaml"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53c223db85f05e34794f065454843b0668ebc15d240ada63e2b5939f43ce7c97"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -4054,8 +4084,10 @@ dependencies = [
  "yunq-parser-css",
  "yunq-parser-dockerfile",
  "yunq-parser-go",
+ "yunq-parser-hcl",
  "yunq-parser-html",
  "yunq-parser-java",
+ "yunq-parser-json",
  "yunq-parser-kotlin",
  "yunq-parser-php",
  "yunq-parser-python",
@@ -4065,6 +4097,7 @@ dependencies = [
  "yunq-parser-swift",
  "yunq-parser-typescript",
  "yunq-parser-xml",
+ "yunq-parser-yaml",
  "yunq-remediation",
  "yunq-rules-engine",
  "yunq-rules-owasp",
@@ -4260,6 +4293,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-parser-hcl"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-hcl",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-parser-html"
 version = "0.1.1"
 dependencies = [
@@ -4275,6 +4318,16 @@ version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-java",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-json"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-json",
  "yunq-ast",
  "yunq-rules-engine",
 ]
@@ -4365,6 +4418,16 @@ version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-xml",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-yaml"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-yaml",
  "yunq-ast",
  "yunq-rules-engine",
 ]
