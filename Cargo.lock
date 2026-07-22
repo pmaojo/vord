@@ -3347,10 +3347,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-bash"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e5ec769279cc91b561d3df0d8a5deb26b0ad40d183127f409494d6d8fc53062"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-c"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afd2b1bf1585dc2ef6d69e87d01db8adb059006649dd5f96f31aa789ee6e9c71"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-c-sharp"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1aac67f1ad71de1d6d39708d34811081c26dfa495658de6c14c34200849357c"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -3367,6 +3387,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-css"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5cbc5e18f29a2c6d6435891f42569525cf95435a3e01c2f1947abcde178686f"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-go"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3377,10 +3407,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-hcl"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a7b2cc3d7121553b84309fab9d11b3ff3d420403eef9ae50f9fd1cd9d9cf012"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-html"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "261b708e5d92061ede329babaaa427b819329a9d427a1d710abb0f67bbef63ee"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-java"
 version = "0.23.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0aa6cbcdc8c679b214e616fd3300da67da0e492e066df01bcf5a5921a71e90d6"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-json"
+version = "0.24.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d727acca406c0020cffc6cf35516764f36c8e3dc4408e5ebe2cb35a947ec471"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-kotlin-ng"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e800ebbda938acfbf224f4d2c34947a31994b1295ee6e819b65226c7b51b4450"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -3413,6 +3483,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-ruby"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0484ea4ef6bb9c575b4fdabde7e31340a8d2dbc7d52b321ac83da703249f95"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-rust"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3423,10 +3503,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-scala"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de5a4a7ff23a55474ce6a741d52aaeca7a82fe9421bb982b86e98c6ac8629397"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-swift"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe36052155b9dd69ca82b3b8f1b4ccfb2d867125ac1a4db1dd7331829242668c"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-typescript"
 version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c5f76ed8d947a75cc446d5fccd8b602ebf0cde64ccf2ffa434d873d7a575eff"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-xml"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e670041f591d994f54d597ddcd8f4ebc930e282c4c76a42268743b71f0c8b6b3"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-yaml"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53c223db85f05e34794f065454843b0668ebc15d240ada63e2b5939f43ce7c97"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -3968,15 +4088,27 @@ dependencies = [
  "yunq-infra-github",
  "yunq-infra-llm",
  "yunq-infra-memory",
+ "yunq-parser-bash",
  "yunq-parser-c",
  "yunq-parser-cpp",
+ "yunq-parser-csharp",
+ "yunq-parser-css",
  "yunq-parser-dockerfile",
  "yunq-parser-go",
+ "yunq-parser-hcl",
+ "yunq-parser-html",
  "yunq-parser-java",
+ "yunq-parser-json",
+ "yunq-parser-kotlin",
  "yunq-parser-php",
  "yunq-parser-python",
+ "yunq-parser-ruby",
  "yunq-parser-rust",
+ "yunq-parser-scala",
+ "yunq-parser-swift",
  "yunq-parser-typescript",
+ "yunq-parser-xml",
+ "yunq-parser-yaml",
  "yunq-remediation",
  "yunq-rules-engine",
  "yunq-rules-owasp",
@@ -4114,6 +4246,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-parser-bash"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-bash",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-parser-c"
 version = "0.1.1"
 dependencies = [
@@ -4129,6 +4271,26 @@ version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-cpp",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-csharp"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-c-sharp",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-css"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-css",
  "yunq-ast",
  "yunq-rules-engine",
 ]
@@ -4152,11 +4314,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-parser-hcl"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-hcl",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-html"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-html",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-parser-java"
 version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-java",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-json"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-json",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-kotlin"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-kotlin-ng",
  "yunq-ast",
  "yunq-rules-engine",
 ]
@@ -4182,6 +4384,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-parser-ruby"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-ruby",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-parser-rust"
 version = "0.1.1"
 dependencies = [
@@ -4192,11 +4404,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-parser-scala"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-scala",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-swift"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-swift",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-parser-typescript"
 version = "0.1.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-typescript",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-xml"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-xml",
+ "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-parser-yaml"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-yaml",
  "yunq-ast",
  "yunq-rules-engine",
 ]

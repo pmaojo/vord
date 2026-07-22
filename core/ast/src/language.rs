@@ -16,7 +16,8 @@ impl LanguageIdentifier {
         let normalized = raw.to_ascii_lowercase();
         match normalized.as_str() {
             "rust" | "typescript" | "python" | "go" | "java" | "c" | "cpp" | "php" | "dockerfile"
-            | "yaml" | "json" => Ok(Self(normalized)),
+            | "yaml" | "json" | "csharp" | "ruby" | "kotlin" | "swift" | "scala" | "html"
+            | "css" | "xml" | "hcl" | "bash" => Ok(Self(normalized)),
             _ => Err(UnsupportedLanguageError(raw.to_string())),
         }
     }
@@ -65,6 +66,46 @@ impl LanguageIdentifier {
         Self("json".to_string())
     }
 
+    pub fn csharp() -> Self {
+        Self("csharp".to_string())
+    }
+
+    pub fn ruby() -> Self {
+        Self("ruby".to_string())
+    }
+
+    pub fn kotlin() -> Self {
+        Self("kotlin".to_string())
+    }
+
+    pub fn swift() -> Self {
+        Self("swift".to_string())
+    }
+
+    pub fn scala() -> Self {
+        Self("scala".to_string())
+    }
+
+    pub fn html() -> Self {
+        Self("html".to_string())
+    }
+
+    pub fn css() -> Self {
+        Self("css".to_string())
+    }
+
+    pub fn xml() -> Self {
+        Self("xml".to_string())
+    }
+
+    pub fn hcl() -> Self {
+        Self("hcl".to_string())
+    }
+
+    pub fn bash() -> Self {
+        Self("bash".to_string())
+    }
+
     /// Maps a file extension to its language, if the extension is supported.
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension.to_ascii_lowercase().as_str() {
@@ -79,6 +120,16 @@ impl LanguageIdentifier {
             "dockerfile" | "docker" => Some(Self::dockerfile()),
             "yaml" | "yml" => Some(Self::yaml()),
             "json" => Some(Self::json()),
+            "cs" => Some(Self::csharp()),
+            "rb" => Some(Self::ruby()),
+            "kt" | "kts" => Some(Self::kotlin()),
+            "swift" => Some(Self::swift()),
+            "scala" | "sc" => Some(Self::scala()),
+            "html" | "htm" => Some(Self::html()),
+            "css" => Some(Self::css()),
+            "xml" => Some(Self::xml()),
+            "tf" | "hcl" => Some(Self::hcl()),
+            "sh" | "bash" => Some(Self::bash()),
             _ => None,
         }
     }
@@ -121,6 +172,16 @@ mod tests {
         );
         assert_eq!(LanguageIdentifier::from_extension("py"), Some(LanguageIdentifier::python()));
         assert_eq!(LanguageIdentifier::from_extension("go"), Some(LanguageIdentifier::go()));
-        assert_eq!(LanguageIdentifier::from_extension("rb"), None);
+        assert_eq!(LanguageIdentifier::from_extension("rb"), Some(LanguageIdentifier::ruby()));
+        assert_eq!(LanguageIdentifier::from_extension("cs"), Some(LanguageIdentifier::csharp()));
+        assert_eq!(LanguageIdentifier::from_extension("kt"), Some(LanguageIdentifier::kotlin()));
+        assert_eq!(LanguageIdentifier::from_extension("swift"), Some(LanguageIdentifier::swift()));
+        assert_eq!(LanguageIdentifier::from_extension("scala"), Some(LanguageIdentifier::scala()));
+        assert_eq!(LanguageIdentifier::from_extension("html"), Some(LanguageIdentifier::html()));
+        assert_eq!(LanguageIdentifier::from_extension("css"), Some(LanguageIdentifier::css()));
+        assert_eq!(LanguageIdentifier::from_extension("xml"), Some(LanguageIdentifier::xml()));
+        assert_eq!(LanguageIdentifier::from_extension("tf"), Some(LanguageIdentifier::hcl()));
+        assert_eq!(LanguageIdentifier::from_extension("sh"), Some(LanguageIdentifier::bash()));
+        assert_eq!(LanguageIdentifier::from_extension("cobol"), None);
     }
 }

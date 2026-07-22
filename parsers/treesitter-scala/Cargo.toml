@@ -1,0 +1,12 @@
+[package]
+name = "yunq-parser-scala"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-ast = { workspace = true }
+yunq-rules-engine = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-scala = "0.26.0"

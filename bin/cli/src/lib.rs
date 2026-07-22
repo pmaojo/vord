@@ -10,13 +10,25 @@ use yunq_infra_fs::FileAnalysisCache;
 use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
 use yunq_parser_c::CParser;
 use yunq_parser_cpp::CppParser;
+use yunq_parser_csharp::CSharpParser;
 use yunq_parser_dockerfile::DockerfileParser;
 use yunq_parser_go::GoParser;
 use yunq_parser_java::JavaParser;
+use yunq_parser_bash::BashParser;
+use yunq_parser_css::CssParser;
+use yunq_parser_hcl::HclParser;
+use yunq_parser_html::HtmlParser;
+use yunq_parser_json::JsonParser;
+use yunq_parser_kotlin::KotlinParser;
 use yunq_parser_php::PhpParser;
 use yunq_parser_python::PythonParser;
+use yunq_parser_ruby::RubyParser;
 use yunq_parser_rust::RustParser;
+use yunq_parser_scala::ScalaParser;
+use yunq_parser_swift::SwiftParser;
 use yunq_parser_typescript::TypeScriptParser;
+use yunq_parser_xml::XmlParser;
+use yunq_parser_yaml::YamlParser;
 use yunq_rules_engine::{
     AnalysisReport, AnalyzerService, ComparisonOperator, Condition, HotspotStorage, IssueStorage,
     MetricKey, MetricsTracker, QualityGate, QualityProfile, Rule,
@@ -53,7 +65,19 @@ where
         .register_parser(Box::new(CParser::new()))
         .register_parser(Box::new(CppParser::new()))
         .register_parser(Box::new(PhpParser::new()))
-        .register_parser(Box::new(DockerfileParser::new()));
+        .register_parser(Box::new(DockerfileParser::new()))
+        .register_parser(Box::new(CSharpParser::new()))
+        .register_parser(Box::new(RubyParser::new()))
+        .register_parser(Box::new(KotlinParser::new()))
+        .register_parser(Box::new(SwiftParser::new()))
+        .register_parser(Box::new(ScalaParser::new()))
+        .register_parser(Box::new(HtmlParser::new()))
+        .register_parser(Box::new(CssParser::new()))
+        .register_parser(Box::new(XmlParser::new()))
+        .register_parser(Box::new(JsonParser::new()))
+        .register_parser(Box::new(YamlParser::new()))
+        .register_parser(Box::new(HclParser::new()))
+        .register_parser(Box::new(BashParser::new()));
     for rule in rules {
         service = service.register_rule(rule);
     }

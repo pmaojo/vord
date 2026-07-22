@@ -1,0 +1,12 @@
+[package]
+name = "yunq-parser-bash"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-ast = { workspace = true }
+yunq-rules-engine = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-bash = "0.25.1"
