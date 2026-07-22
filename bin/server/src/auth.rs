@@ -116,6 +116,13 @@ pub(crate) struct CurrentUserDto {
     session_expires_at: u64,
 }
 
+impl CurrentUserDto {
+    /// The login/username to record as the actor on audit log entries.
+    pub(crate) fn username(&self) -> &str {
+        &self.user.username
+    }
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct AuthErrorDto {
     pub(crate) error: String,
