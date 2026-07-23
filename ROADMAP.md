@@ -73,10 +73,23 @@ re-analysis on typical PRs.
   HTML/CSS/HCL/YAML parsers exist, those categories are open:
   `iac:iam-wildcard-permission` and `iac:open-ingress-cidr` (Terraform HCL +
   Kubernetes/CloudFormation YAML) and `a11y:img-missing-alt` /
-  `a11y:missing-lang-attribute` (HTML). Still open: only ~22 rules total
-  vs. the ~100-check reference audit; React/JSX, OOP smells,
-  architecture/dependency cycles, and reactive-stream smells still need
-  symbol/type resolution the AST doesn't do yet.
+  `a11y:missing-lang-attribute` (HTML). ✅ React/JSX: `rulesets/react` (10
+  rules) closes the category previously blocked on symbol/type
+  resolution, by staying purely syntactic — rules-of-hooks (conditional
+  calls, naming convention), missing/inline-index list keys, a hook call
+  missing its dependency array, direct state mutation via a same-scope
+  `useState`/`useReducer` value, `dangerouslySetInnerHTML`, unsafe
+  `target="_blank"`, JSX `<img>` missing `alt`, and inline
+  function/object props on custom components. Reference tool for the
+  category: `react-doctor` (`npx react-doctor`, ~100 Oxlint-based checks +
+  a dead-code pass); this covers its syntactic subset; the same-scope
+  tracking used here (`own_scope_descendants` in
+  `rulesets/react/src/common.rs`) is still not full symbol resolution, so
+  `exhaustive-deps`-style checks (does the effect body reference
+  something outside its dependency array?) and unused-state/dead-code
+  detection remain out of reach and open. Still open otherwise: OOP
+  smells, architecture/dependency cycles, and reactive-stream smells all
+  need the same symbol/type resolution the AST doesn't do yet.
 - **Issue types & classification**: bug / vulnerability / code smell, plus
   MQR-style software-quality impacts (reliability, security,
   maintainability × severity) — support both classification modes like

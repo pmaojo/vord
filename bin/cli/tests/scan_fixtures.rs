@@ -19,11 +19,18 @@ fn scans_fixtures_and_finds_every_rule_family() {
         "smells:todo-comment",
         "smells:long-function",
         "smells:unwrap-usage",
+        "react:rules-of-hooks-conditional",
+        "react:hook-missing-deps-array",
+        "react:direct-state-mutation",
+        "react:array-index-key",
+        "react:jsx-img-missing-alt",
+        "react:unsafe-target-blank",
+        "react:inline-prop-function-in-component",
     ] {
         assert!(fired.contains(expected), "rule {expected} did not fire; fired: {fired:?}");
     }
 
-    assert_eq!(report.metrics().files_scanned(), 7);
+    assert_eq!(report.metrics().files_scanned(), 8);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);
@@ -38,10 +45,14 @@ fn scans_fixtures_and_finds_every_rule_family() {
     assert!(cross.message().contains("lib_exec.ts"));
 
     // OS-command hotspots fire as hotspots, not issues — Rust Command::new,
-    // Python os.system, and the execSync inside lib_exec.ts.
-    assert_eq!(report.hotspots().len(), 3);
+    // Python os.system, and the execSync inside lib_exec.ts — plus the
+    // `dangerouslySetInnerHTML` hotspot in the React fixture.
+    assert_eq!(report.hotspots().len(), 4);
     for hotspot in report.hotspots() {
-        assert_eq!(hotspot.rule().as_str(), "owasp:command-execution");
+        assert!(matches!(
+            hotspot.rule().as_str(),
+            "owasp:command-execution" | "react:dangerously-set-inner-html"
+        ));
     }
 
     // Python detections: eval issue and the hardcoded password.
@@ -63,6 +74,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
         assert!(issue.span().start_line >= 1);
         assert!(
             issue.file().ends_with(".ts")
+                || issue.file().ends_with(".tsx")
                 || issue.file().ends_with(".rs")
                 || issue.file().ends_with(".py")
                 || issue.file().ends_with(".tf")

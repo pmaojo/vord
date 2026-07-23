@@ -37,6 +37,7 @@ yunq-rules-owasp = { workspace = true }
 yunq-rules-smells = { workspace = true }
 yunq-rules-iac = { workspace = true }
 yunq-rules-a11y = { workspace = true }
+yunq-rules-react = { workspace = true }
 yunq-rules-secrets = { workspace = true }
 yunq-rules-rust = { workspace = true }
 yunq-infra-memory = { workspace = true }
