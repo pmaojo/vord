@@ -151,10 +151,14 @@ re-analysis on typical PRs.
   fixpoint, so `caller → helper → runner → sink` chains resolve across file
   boundaries; name resolution is a project-wide-by-name heuristic rather
   than a real import/export edge graph, a deliberate zero-config tradeoff.
-  ⚠️ Still open: **sanitizer modeling** — no concept yet of a function that
-  strips taint from a value, so any call reaching a summarized sink-bound
-  parameter is flagged regardless of intervening sanitization. SonarQube
-  sells the category commercially; yunq ships it open.
+  ✅ **Sanitizer modeling** ported: `TaintConfig::with_sanitizer` names a
+  function whose call cleanses taint — a sanitizer call is treated as a
+  boundary the analysis does not recurse past, so neither a source marker
+  nor a tainted argument inside it reaches the enclosing sink, in both the
+  intra-file (`core/taint/src/lib.rs`) and cross-file engines. Wired into
+  `owasp:xss` (`sanitize`/`escapeHtml`/`encodeURIComponent`) and
+  `owasp:injection`/`owasp:cross-file-injection` (`escape`/`escapeShellArg`).
+  SonarQube sells the category commercially; yunq ships it open.
 
 ## Phase 3 — Project & quality model (Clean as You Code)
 

@@ -28,7 +28,9 @@ impl CrossFileInjectionRule {
             .with_sink("system")
             .with_sink("popen")
             .with_sink("query")
-            .with_sink("Command::new");
+            .with_sink("Command::new")
+            .with_sanitizer("escape")
+            .with_sanitizer("escapeShellArg");
         Self {
             id: RuleId::new("owasp:cross-file-injection").expect("valid rule id"),
             analysis: CrossFileTaint::new(config),
@@ -135,6 +137,30 @@ mod tests {
             (lib.clone(), parser.parse(&lib).unwrap()),
             (main.clone(), parser.parse(&main).unwrap()),
         ];
+        assert!(CrossFileInjectionRule::new().check(&files).is_empty());
+    }
+
+    #[test]
+    fn sanitized_input_through_an_imported_helper_is_silent() {
+        let lib = SourceFile::new(
+            "lib.ts",
+            "import cp from 'child_process';\nexport function run(cmd: string) {\n  cp.execSync(cmd);\n}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let main = SourceFile::new(
+            "main.ts",
+            "import { run } from './lib';\nconst target = process.argv[2];\nrun(escapeShellArg(target));\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+
+        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let files = vec![
+            (lib.clone(), parser.parse(&lib).unwrap()),
+            (main.clone(), parser.parse(&main).unwrap()),
+        ];
+
         assert!(CrossFileInjectionRule::new().check(&files).is_empty());
     }
 }

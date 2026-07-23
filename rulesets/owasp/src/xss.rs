@@ -21,7 +21,10 @@ impl XssRule {
             .with_source_marker("location.search")
             .with_sink("write")
             .with_sink("insertAdjacentHTML")
-            .with_sink("html");
+            .with_sink("html")
+            .with_sanitizer("sanitize")
+            .with_sanitizer("escapeHtml")
+            .with_sanitizer("encodeURIComponent");
         Self { id: RuleId::new("owasp:xss").expect("valid rule id"), analysis: TaintAnalysis::new(config) }
     }
 }
@@ -83,6 +86,16 @@ mod tests {
     #[test]
     fn allows_untainted_dom_write() {
         let code = "const name = 'safe';\ndocument.write(name);\n";
+        let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+
+        let findings = XssRule::new().check(&file, &ast);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn allows_dom_write_of_a_sanitized_value() {
+        let code = "const name = DOMPurify.sanitize(req.query);\ndocument.write(name);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
 
