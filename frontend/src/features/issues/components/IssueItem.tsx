@@ -3,6 +3,7 @@ import { Issue, IssueStatus, IssueSeverity } from '../../../types';
 import { SeverityIcon } from '../../../components/common/SeverityIcon';
 import { TypeIcon } from '../../../components/common/TypeIcon';
 import { formatTimeAgo, formatDuration } from '../../../lib/utils';
+import { requestAiFix, AgentFixProposal } from '../../../lib/api';
 import {
   ChevronDown,
   ChevronRight,
@@ -14,7 +15,9 @@ import {
   CheckCircle,
   XCircle,
   HelpCircle,
-  Tag
+  Tag,
+  Loader2,
+  Lock
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 
@@ -34,9 +37,14 @@ export const IssueItem: React.FC<IssueItemProps> = ({
   onUpdateSeverity,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<'CODE' | 'DATAFLOW' | 'RULE'>('CODE');
+  const [activeTab, setActiveTab] = useState<'CODE' | 'DATAFLOW' | 'RULE' | 'REMEDIATION'>('CODE');
   const [currentStatus, setCurrentStatus] = useState<IssueStatus>(issue.status);
   const [currentSeverity, setCurrentSeverity] = useState<IssueSeverity>(issue.severity);
+
+  const [aiFix, setAiFix] = useState<AgentFixProposal | null>(null);
+  const [aiFixLoading, setAiFixLoading] = useState(false);
+  const [aiFixError, setAiFixError] = useState<string | null>(null);
+  const [upgradeRequired, setUpgradeRequired] = useState(false);
 
   const handleStatusChange = (newStatus: IssueStatus) => {
     setCurrentStatus(newStatus);
@@ -46,6 +54,22 @@ export const IssueItem: React.FC<IssueItemProps> = ({
   const handleSeverityChange = (newSeverity: IssueSeverity) => {
     setCurrentSeverity(newSeverity);
     if (onUpdateSeverity) onUpdateSeverity(issue.id, newSeverity);
+  };
+
+  const handleRequestAiFix = async () => {
+    setAiFixLoading(true);
+    setAiFixError(null);
+    setUpgradeRequired(false);
+    try {
+      const proposal = await requestAiFix(Number(issue.id));
+      setAiFix(proposal);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate AI fix';
+      setUpgradeRequired(/pro or enterprise/i.test(message));
+      setAiFixError(message);
+    } finally {
+      setAiFixLoading(false);
+    }
   };
 
   return (
@@ -192,6 +216,17 @@ export const IssueItem: React.FC<IssueItemProps> = ({
                 Why is this an issue?
               </button>
             )}
+
+            <button
+              onClick={() => setActiveTab('REMEDIATION')}
+              className={cn(
+                'px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5',
+                activeTab === 'REMEDIATION' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-200'
+              )}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+              AI Remediation
+            </button>
           </div>
 
           {/* TAB 1: CODE SNIPPET VIEWER */}
@@ -298,6 +333,79 @@ export const IssueItem: React.FC<IssueItemProps> = ({
                   </pre>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* TAB 4: AI REMEDIATION PROPOSAL */}
+          {activeTab === 'REMEDIATION' && (
+            <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4 text-xs text-slate-800">
+              {!aiFix && (
+                <div className="flex flex-col items-start gap-3">
+                  <p className="text-slate-600 leading-relaxed">
+                    Generate an AI-proposed code fix for this issue. Review the suggested change and
+                    explanation before applying it.
+                  </p>
+                  <button
+                    onClick={handleRequestAiFix}
+                    disabled={aiFixLoading}
+                    className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+                  >
+                    {aiFixLoading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5" />
+                    )}
+                    {aiFixLoading ? 'Generating fix...' : 'Generate AI Fix'}
+                  </button>
+
+                  {aiFixError && (
+                    <div
+                      className={cn(
+                        'w-full rounded-lg border p-3 flex items-start gap-2',
+                        upgradeRequired
+                          ? 'bg-amber-50 border-amber-200 text-amber-800'
+                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                      )}
+                    >
+                      {upgradeRequired ? (
+                        <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+                      ) : (
+                        <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      )}
+                      <span>{aiFixError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {aiFix && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-violet-800">
+                      <Sparkles className="w-4 h-4 text-violet-600" />
+                      <span>Proposed Fix</span>
+                    </div>
+                    <button
+                      onClick={handleRequestAiFix}
+                      disabled={aiFixLoading}
+                      className="text-[11px] font-bold text-violet-700 hover:text-violet-900 disabled:opacity-60 flex items-center gap-1"
+                    >
+                      {aiFixLoading ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3" />
+                      )}
+                      Regenerate
+                    </button>
+                  </div>
+
+                  <p className="text-slate-600 leading-relaxed">{aiFix.explanation}</p>
+
+                  <pre className="bg-slate-950 text-emerald-200 p-3 rounded-lg font-mono text-[11px] overflow-x-auto border border-slate-800">
+                    {aiFix.modified_code}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </div>

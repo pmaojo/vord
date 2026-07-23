@@ -24,8 +24,8 @@ export interface ApiIssuePage {
 
 export interface AgentFixProposal {
   issue_id: number;
-  modified_code: String;
-  explanation: String;
+  modified_code: string;
+  explanation: string;
 }
 
 export async function fetchHealthStatus(): Promise<{ status: string }> {
