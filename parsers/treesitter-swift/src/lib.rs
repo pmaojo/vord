@@ -64,21 +64,23 @@ fn span_of(node: tree_sitter::Node<'_>) -> Span {
     Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
 }
 
+const KIND_TABLE: &[(&str, NodeKind)] = &[
+    ("source_file", NodeKind::SourceUnit),
+    ("function_declaration", NodeKind::FunctionDef),
+    ("call_expression", NodeKind::Call),
+    ("line_string_literal", NodeKind::StringLiteral),
+    ("multi_line_string_literal", NodeKind::StringLiteral),
+    ("raw_string_literal", NodeKind::StringLiteral),
+    ("simple_identifier", NodeKind::Identifier),
+    ("property_declaration", NodeKind::VariableDecl),
+    ("assignment", NodeKind::Assignment),
+    ("navigation_expression", NodeKind::MemberAccess),
+    ("comment", NodeKind::Comment),
+    ("multiline_comment", NodeKind::Comment),
+];
+
 fn map_kind(kind: &str) -> NodeKind {
-    match kind {
-        "source_file" => NodeKind::SourceUnit,
-        "function_declaration" => NodeKind::FunctionDef,
-        "call_expression" => NodeKind::Call,
-        "line_string_literal" | "multi_line_string_literal" | "raw_string_literal" => {
-            NodeKind::StringLiteral
-        }
-        "simple_identifier" => NodeKind::Identifier,
-        "property_declaration" => NodeKind::VariableDecl,
-        "assignment" => NodeKind::Assignment,
-        "navigation_expression" => NodeKind::MemberAccess,
-        "comment" | "multiline_comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
-    }
+    yunq_ast::lookup_kind(KIND_TABLE, kind)
 }
 
 #[cfg(test)]

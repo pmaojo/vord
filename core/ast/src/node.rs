@@ -44,6 +44,19 @@ pub enum NodeKind {
     Other(String),
 }
 
+/// Shared table-lookup helper for parser `map_kind` functions: an
+/// `.iter().find()` over a `(tree-sitter kind, NodeKind)` table has
+/// cyclomatic complexity 1 regardless of table size, unlike the long
+/// `match` statement it replaces (McCabe counts every arm as a branch).
+/// Unmapped kinds fall back to `NodeKind::Other`.
+pub fn lookup_kind(table: &[(&str, NodeKind)], kind: &str) -> NodeKind {
+    table
+        .iter()
+        .find(|(ts_kind, _)| *ts_kind == kind)
+        .map(|(_, node_kind)| node_kind.clone())
+        .unwrap_or_else(|| NodeKind::Other(kind.to_string()))
+}
+
 /// A node of the language-neutral AST.
 ///
 /// Zero-copy by construction: every node in a parsed tree shares one

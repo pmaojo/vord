@@ -67,21 +67,26 @@ fn span_of(node: tree_sitter::Node<'_>) -> Span {
     Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
 }
 
+const KIND_TABLE: &[(&str, NodeKind)] = &[
+    ("source_file", NodeKind::SourceUnit),
+    ("function_declaration", NodeKind::FunctionDef),
+    ("anonymous_function", NodeKind::FunctionDef),
+    ("call_expression", NodeKind::Call),
+    ("string_literal", NodeKind::StringLiteral),
+    ("multiline_string_literal", NodeKind::StringLiteral),
+    ("identifier", NodeKind::Identifier),
+    ("qualified_identifier", NodeKind::Identifier),
+    ("property_declaration", NodeKind::VariableDecl),
+    ("variable_declaration", NodeKind::VariableDecl),
+    ("multi_variable_declaration", NodeKind::VariableDecl),
+    ("assignment", NodeKind::Assignment),
+    ("navigation_expression", NodeKind::MemberAccess),
+    ("line_comment", NodeKind::Comment),
+    ("block_comment", NodeKind::Comment),
+];
+
 fn map_kind(kind: &str) -> NodeKind {
-    match kind {
-        "source_file" => NodeKind::SourceUnit,
-        "function_declaration" | "anonymous_function" => NodeKind::FunctionDef,
-        "call_expression" => NodeKind::Call,
-        "string_literal" | "multiline_string_literal" => NodeKind::StringLiteral,
-        "identifier" | "qualified_identifier" => NodeKind::Identifier,
-        "property_declaration" | "variable_declaration" | "multi_variable_declaration" => {
-            NodeKind::VariableDecl
-        }
-        "assignment" => NodeKind::Assignment,
-        "navigation_expression" => NodeKind::MemberAccess,
-        "line_comment" | "block_comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
-    }
+    yunq_ast::lookup_kind(KIND_TABLE, kind)
 }
 
 #[cfg(test)]

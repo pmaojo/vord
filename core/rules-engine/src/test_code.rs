@@ -47,38 +47,36 @@ pub fn rust_test_module_ranges(content: &str) -> Vec<LineRange> {
     ranges
 }
 
+/// If `bytes[i]` starts a string, raw string, or char literal, returns the
+/// index just past it (its contents skipped as opaque). `None` if `i` isn't
+/// the start of one of those (including a lifetime apostrophe, which looks
+/// like a char literal but never closes).
+fn skip_opaque_span(bytes: &[u8], i: usize) -> Option<usize> {
+    match bytes[i] {
+        b'"' => Some(skip_string(bytes, i)),
+        b'r' if matches!(bytes.get(i + 1), Some(b'"') | Some(b'#')) => skip_raw_string(bytes, i),
+        b'\'' => skip_char_literal(bytes, i),
+        _ => None,
+    }
+}
+
 /// Given the byte index of an opening `{`, finds the index of its matching
-/// closing `}`, treating the contents of string literals as opaque (never
-/// counting braces inside them).
+/// closing `}`, treating the contents of string/raw-string/char literals as
+/// opaque (never counting braces inside them — see [`skip_opaque_span`]).
 fn match_brace(bytes: &[u8], open_idx: usize) -> Option<usize> {
     let mut depth: i32 = 0;
     let mut i = open_idx;
     while i < bytes.len() {
+        if let Some(next) = skip_opaque_span(bytes, i) {
+            i = next;
+            continue;
+        }
         match bytes[i] {
             b'{' => depth += 1,
             b'}' => {
                 depth -= 1;
                 if depth == 0 {
                     return Some(i);
-                }
-            }
-            b'"' => {
-                i = skip_string(bytes, i);
-                continue;
-            }
-            b'r' if matches!(bytes.get(i + 1), Some(b'"') | Some(b'#')) => {
-                if let Some(next) = skip_raw_string(bytes, i) {
-                    i = next;
-                    continue;
-                }
-            }
-            // A char literal (`'{'`, `'\n'`, `'\u{7b}'`) can smuggle in a
-            // stray brace byte; a lifetime apostrophe (`'a`) never closes
-            // and falls through to be counted as an ordinary byte.
-            b'\'' => {
-                if let Some(next) = skip_char_literal(bytes, i) {
-                    i = next;
-                    continue;
                 }
             }
             _ => {}

@@ -75,28 +75,33 @@ fn span_of(node: tree_sitter::Node<'_>) -> Span {
     Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
 }
 
+const KIND_TABLE: &[(&str, NodeKind)] = &[
+    ("program", NodeKind::SourceUnit),
+    ("function_declaration", NodeKind::FunctionDef),
+    ("function_expression", NodeKind::FunctionDef),
+    ("arrow_function", NodeKind::FunctionDef),
+    ("method_definition", NodeKind::FunctionDef),
+    ("generator_function_declaration", NodeKind::FunctionDef),
+    // `new_expression` maps to Call so `new Function(...)` is visible to
+    // security rules; its first named child is the callee, as required.
+    ("call_expression", NodeKind::Call),
+    ("new_expression", NodeKind::Call),
+    ("string", NodeKind::StringLiteral),
+    ("template_string", NodeKind::StringLiteral),
+    ("identifier", NodeKind::Identifier),
+    ("property_identifier", NodeKind::Identifier),
+    ("shorthand_property_identifier", NodeKind::Identifier),
+    ("shorthand_property_identifier_pattern", NodeKind::Identifier),
+    ("assignment_expression", NodeKind::Assignment),
+    ("augmented_assignment_expression", NodeKind::Assignment),
+    ("variable_declarator", NodeKind::VariableDecl),
+    ("member_expression", NodeKind::MemberAccess),
+    ("subscript_expression", NodeKind::MemberAccess),
+    ("comment", NodeKind::Comment),
+];
+
 fn map_kind(kind: &str) -> NodeKind {
-    match kind {
-        "program" => NodeKind::SourceUnit,
-        "function_declaration"
-        | "function_expression"
-        | "arrow_function"
-        | "method_definition"
-        | "generator_function_declaration" => NodeKind::FunctionDef,
-        // `new_expression` maps to Call so `new Function(...)` is visible to
-        // security rules; its first named child is the callee, as required.
-        "call_expression" | "new_expression" => NodeKind::Call,
-        "string" | "template_string" => NodeKind::StringLiteral,
-        "identifier"
-        | "property_identifier"
-        | "shorthand_property_identifier"
-        | "shorthand_property_identifier_pattern" => NodeKind::Identifier,
-        "assignment_expression" | "augmented_assignment_expression" => NodeKind::Assignment,
-        "variable_declarator" => NodeKind::VariableDecl,
-        "member_expression" | "subscript_expression" => NodeKind::MemberAccess,
-        "comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
-    }
+    yunq_ast::lookup_kind(KIND_TABLE, kind)
 }
 
 #[cfg(test)]

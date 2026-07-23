@@ -64,19 +64,23 @@ fn span_of(node: tree_sitter::Node<'_>) -> Span {
     Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
 }
 
+const KIND_TABLE: &[(&str, NodeKind)] = &[
+    ("chunk", NodeKind::SourceUnit),
+    ("function_declaration", NodeKind::FunctionDef),
+    ("function_definition", NodeKind::FunctionDef),
+    ("function_call", NodeKind::Call),
+    ("string", NodeKind::StringLiteral),
+    ("identifier", NodeKind::Identifier),
+    ("variable_declaration", NodeKind::VariableDecl),
+    ("implicit_variable_declaration", NodeKind::VariableDecl),
+    ("assignment_statement", NodeKind::Assignment),
+    ("dot_index_expression", NodeKind::MemberAccess),
+    ("method_index_expression", NodeKind::MemberAccess),
+    ("comment", NodeKind::Comment),
+];
+
 fn map_kind(kind: &str) -> NodeKind {
-    match kind {
-        "chunk" => NodeKind::SourceUnit,
-        "function_declaration" | "function_definition" => NodeKind::FunctionDef,
-        "function_call" => NodeKind::Call,
-        "string" => NodeKind::StringLiteral,
-        "identifier" => NodeKind::Identifier,
-        "variable_declaration" | "implicit_variable_declaration" => NodeKind::VariableDecl,
-        "assignment_statement" => NodeKind::Assignment,
-        "dot_index_expression" | "method_index_expression" => NodeKind::MemberAccess,
-        "comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
-    }
+    yunq_ast::lookup_kind(KIND_TABLE, kind)
 }
 
 #[cfg(test)]
