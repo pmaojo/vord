@@ -160,50 +160,57 @@ struct GitHubEmail {
     verified: bool,
 }
 
+/// The GitHub OAuth provider config, if `YUNQ_GITHUB_*` credentials are set.
+fn github_provider(public_url: &str) -> anyhow::Result<Option<(OAuthProvider, ProviderConfig)>> {
+    let Some((client_id, client_secret)) = credentials("YUNQ_GITHUB") else { return Ok(None) };
+    let web_base = env_base_url("YUNQ_GITHUB_URL", "https://github.com")?;
+    let api_base = env_base_url("YUNQ_GITHUB_API_URL", "https://api.github.com")?;
+    Ok(Some((
+        OAuthProvider::GitHub,
+        ProviderConfig {
+            client_id,
+            client_secret,
+            authorize_url: format!("{web_base}/login/oauth/authorize"),
+            token_url: format!("{web_base}/login/oauth/access_token"),
+            user_url: format!("{api_base}/user"),
+            email_url: Some(format!("{api_base}/user/emails")),
+            redirect_uri: std::env::var("YUNQ_GITHUB_REDIRECT_URI")
+                .unwrap_or_else(|_| format!("{public_url}/api/auth/oauth/github/callback")),
+            scope: "read:user user:email".to_string(),
+        },
+    )))
+}
+
+/// The GitLab OAuth provider config, if `YUNQ_GITLAB_*` credentials are set.
+fn gitlab_provider(public_url: &str) -> anyhow::Result<Option<(OAuthProvider, ProviderConfig)>> {
+    let Some((client_id, client_secret)) = credentials("YUNQ_GITLAB") else { return Ok(None) };
+    let web_base = env_base_url("YUNQ_GITLAB_URL", "https://gitlab.com")?;
+    Ok(Some((
+        OAuthProvider::GitLab,
+        ProviderConfig {
+            client_id,
+            client_secret,
+            authorize_url: format!("{web_base}/oauth/authorize"),
+            token_url: format!("{web_base}/oauth/token"),
+            user_url: format!("{web_base}/api/v4/user"),
+            email_url: None,
+            redirect_uri: std::env::var("YUNQ_GITLAB_REDIRECT_URI")
+                .unwrap_or_else(|_| format!("{public_url}/api/auth/oauth/gitlab/callback")),
+            scope: "read_user".to_string(),
+        },
+    )))
+}
+
 impl OAuthService {
     pub(crate) fn from_env() -> anyhow::Result<Self> {
         let public_url = std::env::var("YUNQ_PUBLIC_URL")
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
         let public_url = public_url.trim_end_matches('/');
         let mut providers = HashMap::new();
-
-        if let Some((client_id, client_secret)) = credentials("YUNQ_GITHUB") {
-            let web_base = env_base_url("YUNQ_GITHUB_URL", "https://github.com")?;
-            let api_base = env_base_url("YUNQ_GITHUB_API_URL", "https://api.github.com")?;
-            providers.insert(
-                OAuthProvider::GitHub,
-                ProviderConfig {
-                    client_id,
-                    client_secret,
-                    authorize_url: format!("{web_base}/login/oauth/authorize"),
-                    token_url: format!("{web_base}/login/oauth/access_token"),
-                    user_url: format!("{api_base}/user"),
-                    email_url: Some(format!("{api_base}/user/emails")),
-                    redirect_uri: std::env::var("YUNQ_GITHUB_REDIRECT_URI").unwrap_or_else(|_| {
-                        format!("{public_url}/api/auth/oauth/github/callback")
-                    }),
-                    scope: "read:user user:email".to_string(),
-                },
-            );
-        }
-
-        if let Some((client_id, client_secret)) = credentials("YUNQ_GITLAB") {
-            let web_base = env_base_url("YUNQ_GITLAB_URL", "https://gitlab.com")?;
-            providers.insert(
-                OAuthProvider::GitLab,
-                ProviderConfig {
-                    client_id,
-                    client_secret,
-                    authorize_url: format!("{web_base}/oauth/authorize"),
-                    token_url: format!("{web_base}/oauth/token"),
-                    user_url: format!("{web_base}/api/v4/user"),
-                    email_url: None,
-                    redirect_uri: std::env::var("YUNQ_GITLAB_REDIRECT_URI").unwrap_or_else(|_| {
-                        format!("{public_url}/api/auth/oauth/gitlab/callback")
-                    }),
-                    scope: "read_user".to_string(),
-                },
-            );
+        for provider in [github_provider(public_url)?, gitlab_provider(public_url)?] {
+            if let Some((key, config)) = provider {
+                providers.insert(key, config);
+            }
         }
 
         let client = Client::builder()

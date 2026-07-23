@@ -124,15 +124,16 @@ impl Metrics {
         }
     }
 
-    fn render(&self) -> String {
-        let mut output = String::with_capacity(4096);
-        metric_header(&mut output, "yunq_process_uptime_seconds", "Seconds since the server started", "gauge");
+    fn render_process_metrics(&self, output: &mut String) {
+        metric_header(output, "yunq_process_uptime_seconds", "Seconds since the server started", "gauge");
         let _ = writeln!(output, "yunq_process_uptime_seconds {}", self.inner.started.elapsed().as_secs_f64());
-        metric_header(&mut output, "yunq_http_active_requests", "HTTP requests currently being served", "gauge");
+        metric_header(output, "yunq_http_active_requests", "HTTP requests currently being served", "gauge");
         let _ = writeln!(output, "yunq_http_active_requests {}", self.inner.active_requests.load(Ordering::Relaxed));
+    }
 
+    fn render_http_metrics(&self, output: &mut String) {
         let http = self.inner.http.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        metric_header(&mut output, "yunq_http_requests_total", "Completed HTTP requests", "counter");
+        metric_header(output, "yunq_http_requests_total", "Completed HTTP requests", "counter");
         for ((method, route, status), count) in &http.requests {
             let _ = writeln!(
                 output,
@@ -143,12 +144,7 @@ impl Metrics {
                 count
             );
         }
-        metric_header(
-            &mut output,
-            "yunq_http_request_duration_seconds",
-            "HTTP request latency in seconds",
-            "histogram",
-        );
+        metric_header(output, "yunq_http_request_duration_seconds", "HTTP request latency in seconds", "histogram");
         for ((method, route), histogram) in &http.latency {
             for (index, upper_bound) in LATENCY_BUCKETS.iter().enumerate() {
                 let _ = writeln!(
@@ -169,20 +165,28 @@ impl Metrics {
             let _ = writeln!(output, "yunq_http_request_duration_seconds_sum{{{labels}}} {}", histogram.sum_seconds);
             let _ = writeln!(output, "yunq_http_request_duration_seconds_count{{{labels}}} {}", histogram.count);
         }
-        drop(http);
+    }
 
-        atomic_counter(&mut output, "yunq_oauth_logins_total", "Completed OAuth logins", "result", [
+    fn render_oauth_and_webhook_metrics(&self, output: &mut String) {
+        atomic_counter(output, "yunq_oauth_logins_total", "Completed OAuth logins", "result", [
             ("success", &self.inner.oauth_successes),
             ("failure", &self.inner.oauth_failures),
         ]);
-        simple_atomic(&mut output, "yunq_webhook_deliveries_queued_total", "Webhook deliveries accepted by the dispatcher", &self.inner.webhook_queued);
-        simple_atomic(&mut output, "yunq_webhook_delivery_attempts_total", "Webhook HTTP delivery attempts", &self.inner.webhook_attempts);
-        atomic_counter(&mut output, "yunq_webhook_deliveries_total", "Completed webhook deliveries", "result", [
+        simple_atomic(output, "yunq_webhook_deliveries_queued_total", "Webhook deliveries accepted by the dispatcher", &self.inner.webhook_queued);
+        simple_atomic(output, "yunq_webhook_delivery_attempts_total", "Webhook HTTP delivery attempts", &self.inner.webhook_attempts);
+        atomic_counter(output, "yunq_webhook_deliveries_total", "Completed webhook deliveries", "result", [
             ("success", &self.inner.webhook_successes),
             ("failure", &self.inner.webhook_failures),
         ]);
-        simple_atomic(&mut output, "yunq_webhook_retries_total", "Webhook retries scheduled", &self.inner.webhook_retries);
-        simple_atomic(&mut output, "yunq_webhook_queue_errors_total", "Webhook deliveries rejected because the queue was unavailable", &self.inner.webhook_queue_errors);
+        simple_atomic(output, "yunq_webhook_retries_total", "Webhook retries scheduled", &self.inner.webhook_retries);
+        simple_atomic(output, "yunq_webhook_queue_errors_total", "Webhook deliveries rejected because the queue was unavailable", &self.inner.webhook_queue_errors);
+    }
+
+    fn render(&self) -> String {
+        let mut output = String::with_capacity(4096);
+        self.render_process_metrics(&mut output);
+        self.render_http_metrics(&mut output);
+        self.render_oauth_and_webhook_metrics(&mut output);
         output
     }
 }

@@ -209,9 +209,11 @@ impl Modify for SecurityAddon {
 ), modifiers(&SecurityAddon))]
 struct ApiDoc;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+/// Builds the full route table plus its generated OpenAPI document.
+/// Doesn't touch any adapter or the network — used both by the real
+/// server and by `yunq-server openapi`'s deterministic contract export.
+fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(enqueue_scan))
         .routes(routes!(list_issues))
         .routes(routes!(transition_issue))
@@ -241,7 +243,31 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(ops::upsert_quality_profile))
         .routes(routes!(ops::grant_permission, ops::revoke_permission))
         .routes(routes!(ops::list_audit_log))
-        .split_for_parts();
+        .split_for_parts()
+}
+
+/// Wires the real adapters (Postgres-backed storage, metrics, webhooks,
+/// OAuth) into the shared application state.
+fn build_app_state() -> anyhow::Result<Arc<AppState>> {
+    let metrics = metrics::Metrics::new();
+    let webhooks = webhooks::WebhookDispatcher::from_env(metrics.clone())?;
+    let auth = auth::OAuthService::from_env()?;
+
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
+    let storage = PgIssueStorage::connect_lazy(&database_url)?;
+    let reader: Arc<dyn IssueApiStore> = Arc::new(storage.clone());
+    let gate: Arc<dyn GateBadgePort> = Arc::new(storage.clone());
+    let coverage: Arc<dyn CoveragePort> = Arc::new(storage.clone());
+    let ops: Arc<dyn OpsStore> = Arc::new(storage.clone());
+    let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
+
+    Ok(Arc::new(AppState { queue, reader, gate, coverage, ops, metrics, webhooks, auth }))
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let (router, api) = build_router();
 
     // `yunq-server openapi` prints the contract and exits — deterministic
     // export for frontend codegen, no adapters or network involved.
@@ -250,34 +276,12 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let metrics = metrics::Metrics::new();
-    let webhooks = webhooks::WebhookDispatcher::from_env(metrics.clone())?;
-    let auth = auth::OAuthService::from_env()?;
-
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
+    let state = build_app_state()?;
     let bind = std::env::var("YUNQ_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
-
-    let storage = PgIssueStorage::connect_lazy(&database_url)?;
-    let reader: Arc<dyn IssueApiStore> = Arc::new(storage.clone());
-    let gate: Arc<dyn GateBadgePort> = Arc::new(storage.clone());
-    let coverage: Arc<dyn CoveragePort> = Arc::new(storage.clone());
-    let ops: Arc<dyn OpsStore> = Arc::new(storage.clone());
-    let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
-    let state = Arc::new(AppState {
-        queue,
-        reader,
-        gate,
-        coverage,
-        ops,
-        metrics: metrics.clone(),
-        webhooks,
-        auth,
-    });
 
     let app = router
         .route("/health", get(|| async { "ok" }))
-        .layer(axum::middleware::from_fn_with_state(metrics, metrics::track_request))
+        .layer(axum::middleware::from_fn_with_state(state.metrics.clone(), metrics::track_request))
         .merge(SwaggerUi::new("/api-docs").url("/api-docs/openapi.json", api))
         .with_state(state);
 
@@ -1013,61 +1017,12 @@ async fn assign_to_agent(
     headers: axum::http::HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Json<AgentFixProposalDto>, (StatusCode, String)> {
-    let plan = headers.get("x-yunq-plan").and_then(|h| h.to_str().ok()).unwrap_or("free");
-    if plan == "free" && std::env::var("YUNQ_REQUIRE_PREMIUM_AI").map(|v| v == "true").unwrap_or(true) {
-        return Err((
-            StatusCode::PAYMENT_REQUIRED,
-            "AI Remediation Agent requires a Pro or Enterprise subscription. Upgrade at https://yunq.dev/pricing".to_string(),
-        ));
-    }
+    require_premium_plan(&headers)?;
 
-    let issue = state
-        .reader
-        .fetch_issue(id)
-        .await
-        .map_err(workflow_error_response)?;
-
-    // The server never keeps a working tree on disk — issues are persisted
-    // in Postgres, not the source they came from — so the only way to get
-    // real code to hand the LLM is to fetch it from GitHub on demand.
-    let github = yunq_infra_github::GitHubStatusReporter::from_env().ok_or_else(|| {
-        (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "AI Remediation Agent requires GITHUB_TOKEN and GITHUB_REPOSITORY to fetch the issue's source".to_string(),
-        )
-    })?;
+    let issue = state.reader.fetch_issue(id).await.map_err(workflow_error_response)?;
     let file_path = issue.issue.file().to_string();
-    let git_ref = std::env::var("YUNQ_REMEDIATION_REF").ok();
-    let source = github
-        .fetch_file_content(&file_path, git_ref.as_deref())
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not fetch source for {file_path}: {}", e.0)))?;
-
-    let base_url = std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-    let api_key = std::env::var("YUNQ_LLM_API_KEY").unwrap_or_default();
-    let model_name = std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string());
-    let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key);
-    let sandbox = yunq_infra_memory::InMemorySandbox::with_file(&file_path, source.clone());
-    let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
-    let analyzer = yunq_cli::default_service(
-        yunq_infra_memory::InMemoryIssueStorage::new(),
-        yunq_infra_memory::InMemoryMetricsTracker::new(),
-    );
-
-    let verdict = engine
-        .attempt_remediation(&issue.issue, std::path::Path::new(&file_path), &source, &analyzer)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Remediation Agent error: {e}")))?;
-
-    let proposal = match verdict {
-        yunq_remediation::RemediationVerdict::Accepted { proposal } => proposal,
-        yunq_remediation::RemediationVerdict::Rejected { reason } => {
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                format!("Remediation Agent could not produce a verified fix: {reason}"),
-            ));
-        }
-    };
+    let source = fetch_issue_source(&file_path).await?;
+    let proposal = generate_agent_fix(&issue.issue, &file_path, source).await?;
 
     let _ = state.reader.set_assignee(id, Some("yunq-ai-agent".to_string())).await;
 
@@ -1077,6 +1032,67 @@ async fn assign_to_agent(
         explanation: proposal.explanation,
         verified: true,
     }))
+}
+
+fn require_premium_plan(headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String)> {
+    let plan = headers.get("x-yunq-plan").and_then(|h| h.to_str().ok()).unwrap_or("free");
+    if plan == "free" && std::env::var("YUNQ_REQUIRE_PREMIUM_AI").map(|v| v == "true").unwrap_or(true) {
+        return Err((
+            StatusCode::PAYMENT_REQUIRED,
+            "AI Remediation Agent requires a Pro or Enterprise subscription. Upgrade at https://yunq.dev/pricing".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// The server never keeps a working tree on disk — issues are persisted in
+/// Postgres, not the source they came from — so the only way to get real
+/// code to hand the LLM is to fetch it from GitHub on demand.
+async fn fetch_issue_source(file_path: &str) -> Result<String, (StatusCode, String)> {
+    let github = yunq_infra_github::GitHubStatusReporter::from_env().ok_or_else(|| {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "AI Remediation Agent requires GITHUB_TOKEN and GITHUB_REPOSITORY to fetch the issue's source".to_string(),
+        )
+    })?;
+    let git_ref = std::env::var("YUNQ_REMEDIATION_REF").ok();
+    github
+        .fetch_file_content(file_path, git_ref.as_deref())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not fetch source for {file_path}: {}", e.0)))
+}
+
+/// Builds the verify-before-suggest remediation engine and runs it,
+/// translating a rejected verdict into the same `Err` shape as a hard
+/// failure — the caller only cares whether it got a usable proposal.
+async fn generate_agent_fix(
+    issue: &yunq_rules_engine::Issue,
+    file_path: &str,
+    source: String,
+) -> Result<yunq_remediation::FixProposal, (StatusCode, String)> {
+    let base_url = std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    let api_key = std::env::var("YUNQ_LLM_API_KEY").unwrap_or_default();
+    let model_name = std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string());
+    let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key);
+    let sandbox = yunq_infra_memory::InMemorySandbox::with_file(file_path, source.clone());
+    let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
+    let analyzer = yunq_cli::default_service(
+        yunq_infra_memory::InMemoryIssueStorage::new(),
+        yunq_infra_memory::InMemoryMetricsTracker::new(),
+    );
+
+    let verdict = engine
+        .attempt_remediation(issue, std::path::Path::new(file_path), &source, &analyzer)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Remediation Agent error: {e}")))?;
+
+    match verdict {
+        yunq_remediation::RemediationVerdict::Accepted { proposal } => Ok(proposal),
+        yunq_remediation::RemediationVerdict::Rejected { reason } => Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("Remediation Agent could not produce a verified fix: {reason}"),
+        )),
+    }
 }
 
 #[derive(Deserialize, ToSchema)]
