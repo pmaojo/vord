@@ -3937,6 +3937,7 @@ dependencies = [
  "utoipa-axum",
  "utoipa-swagger-ui",
  "yunq-cli",
+ "yunq-infra-fs",
  "yunq-infra-github",
  "yunq-infra-llm",
  "yunq-infra-memory",

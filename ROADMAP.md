@@ -135,8 +135,14 @@ re-analysis on typical PRs.
   `core/rules-engine/src/gate_defaults.rs`); coverage-on-new-code diffs covered lines against
   changed-line sets (`CoverageReport::coverage_on_new_code`), wired into the CLI via
   `--coverage`/`--cobertura`/`--jacoco`/`--llvm-cov`/`--istanbul`/`--coverage-report`+`--coverage-format`
-  and `--coverage-diff` (`bin/cli/src/main.rs`). Not yet wired: no server-side HTTP endpoint
-  ingests or persists coverage reports — only the CLI computes it at scan time.
+  and `--coverage-diff` (`bin/cli/src/main.rs`). ✅ Server-side gap closed: `POST
+  /api/projects/{key}/coverage` ingests a raw report (auto-detected or explicit
+  `format` query param) against the project's most recent analysis and persists
+  the summary (`analysis_coverage` table, migration 0014); `GET
+  /api/projects/{key}/coverage` reads it back (`CoverageStorage`/
+  `CoverageResultReader` ports, `infra/postgres/src/coverage.rs`,
+  `bin/server/src/coverage.rs`) — so a CI job can upload a report without
+  shelling out to the CLI.
 - **Test report ingestion**: ✅ JUnit XML parser (`infra/fs/src/junit.rs`)
   wired into the CLI `--junit` flag and test-summary measures.
 - **Cross-file taint analysis**: ✅ inter-procedural summaries and
