@@ -329,7 +329,6 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
 
                                         if let Err(e) = reporter.report_pull_request_review(
                                             pr_number,
-                                            &sha,
                                             new_issues,
                                             &desc,
                                         ).await {
