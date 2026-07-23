@@ -614,6 +614,7 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
         .chain(yunq_rules_iac::all_rules())
         .chain(yunq_rules_a11y::all_rules())
         .chain(yunq_rules_secrets::all_rules())
+        .chain(yunq_rules_rust::all_rules())
         .map(|rule| {
             let metadata = rule.metadata();
             RuleDto {

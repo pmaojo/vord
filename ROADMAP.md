@@ -57,9 +57,17 @@ re-analysis on typical PRs.
 - **Rule catalog at scale**: port the high-value Sonar rules per language;
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.
-  22 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
-  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`) plus
-  duplication and taint. Latest additions (2026-07-22) unblock two
+  26 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
+  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 4 in
+  `rulesets/rust`) plus duplication and taint. The dedicated `rulesets/rust`
+  crate (2026-07-23) is the first language-specific ruleset (as opposed to
+  the neutral-AST checks in `rulesets/code-smells` that merely happen to
+  apply to every language): `rust:unsafe-undocumented` (an `unsafe` block
+  with no adjacent `SAFETY` comment), `rust:mem-transmute` and
+  `rust:mem-forget` (hotspots on the two classic ways to break soundness or
+  leak without `unsafe` itself), and `rust:process-exit`
+  (`process::exit`/`process::abort` skip `Drop` cleanup) — on top of the
+  existing `smells:unwrap-usage`. Latest additions (2026-07-22) unblock two
   categories the earlier catalog audit (`specs/rule-catalog-gap-closure`)
   had marked "viable but blocked on a missing parser" — now that the
   HTML/CSS/HCL/YAML parsers exist, those categories are open:
