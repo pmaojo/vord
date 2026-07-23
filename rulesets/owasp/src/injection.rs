@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 use yunq_taint::{TaintAnalysis, TaintConfig};
 
 /// Taint-based injection detection for TypeScript: user-controlled input
@@ -49,6 +49,10 @@ impl Rule for InjectionRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Blocker
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {

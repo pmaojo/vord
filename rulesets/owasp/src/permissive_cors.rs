@@ -1,7 +1,7 @@
 //! Rule: flags CORS configuration that allows any origin.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct PermissiveCorsRule {
     id: RuleId,
@@ -30,6 +30,10 @@ impl Rule for PermissiveCorsRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {

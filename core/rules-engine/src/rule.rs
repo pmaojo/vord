@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
-use yunq_profiles::{RuleId, Severity};
+use yunq_profiles::{default_impact, IssueType, RuleId, Severity, SoftwareQualityImpact};
 
 /// Whether a detection is a definite problem (issue) or security-sensitive
 /// code that needs human review (hotspot).
@@ -65,6 +65,24 @@ pub trait Rule: Send + Sync {
         RuleMetadata::default()
     }
 
+    /// The classic SonarQube classification: which of Bug/Vulnerability/
+    /// CodeSmell this rule's findings are. Defaults to `CodeSmell`, the
+    /// common case — override for rules that detect a Bug or Vulnerability.
+    fn issue_type(&self) -> IssueType {
+        IssueType::CodeSmell
+    }
+
+    /// MQR software-quality impacts (reliability/security/maintainability ×
+    /// severity) this rule's findings carry, alongside [`Rule::issue_type`] —
+    /// modern SonarQube classifies every issue both ways at once rather than
+    /// picking one. Defaults to the single impact SonarQube's own
+    /// classic-to-MQR migration derives from `issue_type` and
+    /// `default_severity`; override for rules that affect more than one
+    /// quality (e.g. a vulnerability that's also a reliability risk).
+    fn software_quality_impacts(&self) -> Vec<SoftwareQualityImpact> {
+        vec![default_impact(self.issue_type(), self.default_severity())]
+    }
+
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding>;
 }
 
@@ -82,6 +100,16 @@ pub trait CrossFileRule: Send + Sync {
 
     fn metadata(&self) -> RuleMetadata {
         RuleMetadata::default()
+    }
+
+    /// See [`Rule::issue_type`].
+    fn issue_type(&self) -> IssueType {
+        IssueType::CodeSmell
+    }
+
+    /// See [`Rule::software_quality_impacts`].
+    fn software_quality_impacts(&self) -> Vec<SoftwareQualityImpact> {
+        vec![default_impact(self.issue_type(), self.default_severity())]
     }
 
     /// Findings are reported against an index into `files`.

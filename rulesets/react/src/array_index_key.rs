@@ -5,7 +5,7 @@
 //! item after the list changes shape.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{attribute_value, find_attribute, is_jsx_kind, map_callback_functions, own_scope_descendants};
 
@@ -47,6 +47,10 @@ impl Rule for ArrayIndexKeyRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn metadata(&self) -> RuleMetadata {

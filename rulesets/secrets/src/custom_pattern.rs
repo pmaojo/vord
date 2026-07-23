@@ -7,7 +7,7 @@
 
 use regex::Regex;
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// A secret-detection rule built from a user-supplied regex pattern. Wire
 /// this up from `yunq.toml`/quality-profile parameters (one instance per
@@ -55,6 +55,10 @@ impl Rule for CustomSecretPatternRule {
 
     fn default_severity(&self) -> Severity {
         self.severity
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn metadata(&self) -> RuleMetadata {

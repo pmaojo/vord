@@ -1,7 +1,7 @@
 //! Rule: flags Dockerfiles that run as root (missing USER instruction).
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct DockerfileRootUserRule {
     id: RuleId,
@@ -34,6 +34,10 @@ impl Rule for DockerfileRootUserRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {

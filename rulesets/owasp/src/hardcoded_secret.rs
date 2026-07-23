@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const SUSPICIOUS_NAMES: &[&str] =
     &["password", "passwd", "secret", "apikey", "api_key", "token", "credential"];
@@ -67,6 +67,10 @@ impl Rule for HardcodedSecretRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Blocker
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn metadata(&self) -> yunq_rules_engine::RuleMetadata {

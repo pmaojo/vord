@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 /// Flags bare `.unwrap()` in Rust code: a potential panic that should be
 /// handled or justified. `.expect(msg)` is deliberately not flagged — the
@@ -35,6 +35,10 @@ impl Rule for UnwrapUsageRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {

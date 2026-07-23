@@ -3,12 +3,14 @@
 //! Pure domain.
 
 mod gate;
+mod impact;
 mod rating;
 
 pub use gate::{
     ComparisonOperator, Condition, ConditionResult, ConditionStatus, GateEvaluation, GateStatus,
     InvalidMetricKeyError, MetricKey, QualityGate,
 };
+pub use impact::{default_impact, ImpactSeverity, SoftwareQuality, SoftwareQualityImpact};
 pub use rating::{
     aggregate_remediation_effort, debt_ratio, reliability_and_security_ratings, DebtRatingGrid,
     IssueType, Rating, RemediationEffortSummary, ReliabilitySecurityRatings,

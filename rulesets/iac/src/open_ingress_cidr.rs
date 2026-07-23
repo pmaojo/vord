@@ -2,7 +2,7 @@
 //! internet (`0.0.0.0/0`) in Terraform or Kubernetes/CloudFormation YAML.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 const OPEN_CIDR: &str = "0.0.0.0/0";
 
@@ -33,6 +33,10 @@ impl Rule for OpenIngressCidrRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn remediation_effort_minutes(&self) -> u32 {

@@ -6,7 +6,7 @@
 //! hooks exist for — there's no valid reason to call either without one.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{call_arguments, callee_name};
 
@@ -48,6 +48,10 @@ impl Rule for HookMissingDepsArrayRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn metadata(&self) -> RuleMetadata {

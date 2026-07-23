@@ -2,7 +2,7 @@
 //! (Python pickle/PyYAML, Java ObjectInputStream, Ruby Marshal, PHP unserialize).
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const UNSAFE_MARKERS: &[&str] = &[
     "pickle.loads",
@@ -43,6 +43,10 @@ impl Rule for InsecureDeserializationRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {

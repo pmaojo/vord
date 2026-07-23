@@ -1775,11 +1775,29 @@
           }
         }
       },
+      "ImpactDto": {
+        "type": "object",
+        "description": "One MQR software-quality impact, serialized alongside the classic type.",
+        "required": [
+          "quality",
+          "severity"
+        ],
+        "properties": {
+          "quality": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        }
+      },
       "IssueDto": {
         "type": "object",
         "required": [
           "id",
           "rule",
+          "type",
+          "impacts",
           "severity",
           "file",
           "line",
@@ -1806,6 +1824,12 @@
             "type": "integer",
             "format": "int64"
           },
+          "impacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImpactDto"
+            }
+          },
           "line": {
             "type": "integer",
             "format": "int32",
@@ -1827,6 +1851,9 @@
             "type": "string"
           },
           "status": {
+            "type": "string"
+          },
+          "type": {
             "type": "string"
           }
         }
@@ -2099,7 +2126,9 @@
           "tags",
           "default_severity",
           "remediation_effort_minutes",
-          "produces_hotspots"
+          "produces_hotspots",
+          "type",
+          "impacts"
         ],
         "properties": {
           "cwe": {
@@ -2119,6 +2148,12 @@
           "id": {
             "type": "string"
           },
+          "impacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImpactDto"
+            }
+          },
           "produces_hotspots": {
             "type": "boolean"
           },
@@ -2132,6 +2167,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "type": {
+            "type": "string"
           }
         }
       },

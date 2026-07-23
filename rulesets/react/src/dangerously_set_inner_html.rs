@@ -3,7 +3,7 @@
 //! XSS sink the moment the value isn't fully trusted, static markup.
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{attribute_name, is_other};
 
@@ -34,6 +34,10 @@ impl Rule for DangerouslySetInnerHtmlRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn metadata(&self) -> RuleMetadata {

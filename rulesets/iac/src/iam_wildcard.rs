@@ -3,7 +3,7 @@
 //! Kubernetes `Role`/`ClusterRole` rules).
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 const MARKERS: &[&str] = &[
     "\"action\": \"*\"",
@@ -45,6 +45,10 @@ impl Rule for IamWildcardPermissionRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn remediation_effort_minutes(&self) -> u32 {

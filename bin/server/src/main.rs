@@ -10,7 +10,8 @@
 //! Env: `DATABASE_URL`, `YUNQ_BIND` (default 0.0.0.0:8080), OAuth and
 //! webhook settings documented in the project README.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -29,8 +30,8 @@ use yunq_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, GateResultReader, GateResultSummary, GateStatus,
     HotspotReader, HotspotReview, HotspotStatus, IssueBulkWorkflow, IssueChangelogReader,
     IssueFacetReader, IssueFetcher, IssueQuery, IssueReader, IssueStatus, IssueTransition,
-    IssueWorkflow, JobQueue, Page, QueueError, Resolution, RuleId, ScanJob, Severity, StorageError,
-    StoredHotspot, StoredIssue, WorkflowError, IssueFacets,
+    IssueType, IssueWorkflow, JobQueue, Page, QueueError, Resolution, RuleId, ScanJob, Severity,
+    SoftwareQualityImpact, StorageError, StoredHotspot, StoredIssue, WorkflowError, IssueFacets,
 };
 
 mod auth;
@@ -409,10 +410,42 @@ struct FacetsDto {
     by_rule: Vec<FacetCountDto>,
 }
 
+/// One MQR software-quality impact, serialized alongside the classic type.
+#[derive(Serialize, ToSchema)]
+struct ImpactDto {
+    quality: String,
+    severity: String,
+}
+
+impl From<&SoftwareQualityImpact> for ImpactDto {
+    fn from(impact: &SoftwareQualityImpact) -> Self {
+        Self { quality: impact.quality.to_string(), severity: impact.severity.to_string() }
+    }
+}
+
+/// A rule's classic type and MQR impacts, indexed by rule id — the same
+/// dual classification SonarQube exposes on `GET /rules`, looked up here so
+/// `GET /issues` can carry it on every issue too without a schema change:
+/// an issue's classification is entirely determined by which rule raised it.
+static RULE_CLASSIFICATIONS: LazyLock<HashMap<String, (IssueType, Vec<SoftwareQualityImpact>)>> =
+    LazyLock::new(|| {
+        let mut map = HashMap::new();
+        for rule in rule_catalog() {
+            map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
+        }
+        for rule in yunq_rules_owasp::all_cross_rules() {
+            map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
+        }
+        map
+    });
+
 #[derive(Serialize, ToSchema)]
 struct IssueDto {
     id: i64,
     rule: String,
+    #[serde(rename = "type")]
+    issue_type: String,
+    impacts: Vec<ImpactDto>,
     severity: String,
     file: String,
     line: u32,
@@ -423,12 +456,28 @@ struct IssueDto {
     assignee: Option<String>,
 }
 
+impl IssueDto {
+    /// An issue's classic type + MQR impacts are entirely determined by
+    /// which rule raised it; rules absent from the catalog (shouldn't
+    /// happen in practice) fall back to the same default `Rule::issue_type`
+    /// uses.
+    fn classification_for(rule_id: &str) -> (String, Vec<ImpactDto>) {
+        RULE_CLASSIFICATIONS
+            .get(rule_id)
+            .map(|(t, i)| (t.to_string(), i.iter().map(ImpactDto::from).collect()))
+            .unwrap_or_else(|| (IssueType::CodeSmell.to_string(), Vec::new()))
+    }
+}
+
 impl From<&StoredIssue> for IssueDto {
     fn from(stored: &StoredIssue) -> Self {
         let issue = &stored.issue;
+        let (issue_type, impacts) = IssueDto::classification_for(issue.rule().as_str());
         Self {
             id: stored.id,
             rule: issue.rule().to_string(),
+            issue_type,
+            impacts,
             severity: issue.severity().to_string(),
             file: issue.file().to_string(),
             line: issue.span().start_line,
@@ -607,6 +656,21 @@ async fn list_hotspots(
     Ok(Json(hotspots.iter().map(HotspotDto::from).collect()))
 }
 
+/// Every per-file rule this server's analyzers ship with, across every
+/// ruleset crate — the composition root for the rule catalog, shared by the
+/// `/api/rules` handler and the issue classification lookup.
+fn rule_catalog() -> Vec<Box<dyn yunq_rules_engine::Rule>> {
+    yunq_rules_owasp::all_rules()
+        .into_iter()
+        .chain(yunq_rules_smells::all_rules())
+        .chain(yunq_rules_iac::all_rules())
+        .chain(yunq_rules_a11y::all_rules())
+        .chain(yunq_rules_react::all_rules())
+        .chain(yunq_rules_secrets::all_rules())
+        .chain(yunq_rules_rust::all_rules())
+        .collect()
+}
+
 #[derive(Serialize, ToSchema)]
 struct RuleDto {
     id: String,
@@ -616,6 +680,9 @@ struct RuleDto {
     default_severity: String,
     remediation_effort_minutes: u32,
     produces_hotspots: bool,
+    #[serde(rename = "type")]
+    issue_type: String,
+    impacts: Vec<ImpactDto>,
 }
 
 /// The catalog of every rule this server's analyzers ship with.
@@ -625,26 +692,20 @@ struct RuleDto {
     responses((status = 200, description = "Rule catalog", body = [RuleDto]))
 )]
 async fn list_rules() -> Json<Vec<RuleDto>> {
-    let per_file = yunq_rules_owasp::all_rules()
-        .into_iter()
-        .chain(yunq_rules_smells::all_rules())
-        .chain(yunq_rules_iac::all_rules())
-        .chain(yunq_rules_a11y::all_rules())
-        .chain(yunq_rules_react::all_rules())
-        .chain(yunq_rules_secrets::all_rules())
-        .chain(yunq_rules_rust::all_rules())
-        .map(|rule| {
-            let metadata = rule.metadata();
-            RuleDto {
-                id: rule.id().to_string(),
-                description: metadata.description,
-                tags: metadata.tags,
-                cwe: metadata.cwe,
-                default_severity: rule.default_severity().to_string(),
-                remediation_effort_minutes: rule.remediation_effort_minutes(),
-                produces_hotspots: metadata.produces_hotspots,
-            }
-        });
+    let per_file = rule_catalog().into_iter().map(|rule| {
+        let metadata = rule.metadata();
+        RuleDto {
+            id: rule.id().to_string(),
+            description: metadata.description,
+            tags: metadata.tags,
+            cwe: metadata.cwe,
+            default_severity: rule.default_severity().to_string(),
+            remediation_effort_minutes: rule.remediation_effort_minutes(),
+            produces_hotspots: metadata.produces_hotspots,
+            issue_type: rule.issue_type().to_string(),
+            impacts: rule.software_quality_impacts().iter().map(ImpactDto::from).collect(),
+        }
+    });
     let cross_file = yunq_rules_owasp::all_cross_rules().into_iter().map(|rule| {
         let metadata = rule.metadata();
         RuleDto {
@@ -655,9 +716,49 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
             default_severity: rule.default_severity().to_string(),
             remediation_effort_minutes: rule.remediation_effort_minutes(),
             produces_hotspots: metadata.produces_hotspots,
+            issue_type: rule.issue_type().to_string(),
+            impacts: rule.software_quality_impacts().iter().map(ImpactDto::from).collect(),
         }
     });
     Json(per_file.chain(cross_file).collect())
+}
+
+#[cfg(test)]
+mod issue_classification_tests {
+    use super::*;
+
+    #[test]
+    fn known_rule_carries_its_classic_type_and_mqr_impact() {
+        let (issue_type, impacts) = RULE_CLASSIFICATIONS.get("owasp:eval-usage").expect("rule is in the catalog");
+        assert_eq!(issue_type.to_string(), "vulnerability");
+        assert_eq!(impacts.len(), 1);
+        assert_eq!(impacts[0].quality.to_string(), "security");
+    }
+
+    #[test]
+    fn cross_file_rule_is_also_classified() {
+        assert!(RULE_CLASSIFICATIONS.contains_key("owasp:cross-file-injection"));
+    }
+
+    #[test]
+    fn unknown_rule_id_falls_back_to_code_smell_with_no_impacts() {
+        let (issue_type, impacts) = IssueDto::classification_for("no-such:rule");
+        assert_eq!(issue_type, "code_smell");
+        assert!(impacts.is_empty());
+    }
+
+    #[test]
+    fn rule_catalog_is_not_empty_and_every_rule_is_classified() {
+        let rules = rule_catalog();
+        assert!(!rules.is_empty());
+        for rule in &rules {
+            assert!(
+                RULE_CLASSIFICATIONS.contains_key(rule.id().as_str()),
+                "rule {} missing from the classification catalog",
+                rule.id()
+            );
+        }
+    }
 }
 
 #[derive(Deserialize, ToSchema)]

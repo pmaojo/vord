@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn is_forget_path(callee_text: &str) -> bool {
     callee_text.ends_with("mem::forget")
@@ -37,6 +37,10 @@ impl Rule for MemForgetRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn remediation_effort_minutes(&self) -> u32 {

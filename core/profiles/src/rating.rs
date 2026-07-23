@@ -126,6 +126,31 @@ pub enum IssueType {
     CodeSmell,
 }
 
+impl IssueType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IssueType::Bug => "bug",
+            IssueType::Vulnerability => "vulnerability",
+            IssueType::CodeSmell => "code_smell",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.to_ascii_lowercase().as_str() {
+            "bug" => Some(IssueType::Bug),
+            "vulnerability" => Some(IssueType::Vulnerability),
+            "code_smell" | "code-smell" => Some(IssueType::CodeSmell),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for IssueType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// A project/component's Reliability and Security ratings, computed
 /// independently of each other.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,6 +261,15 @@ mod tests {
         assert_eq!(ratings.reliability, Rating::D);
         // ...independently of the worst vulnerability (Major -> C).
         assert_eq!(ratings.security, Rating::C);
+    }
+
+    #[test]
+    fn issue_type_parses_and_displays_round_trip() {
+        for issue_type in [IssueType::Bug, IssueType::Vulnerability, IssueType::CodeSmell] {
+            assert_eq!(IssueType::parse(&issue_type.to_string()), Some(issue_type));
+        }
+        assert_eq!(IssueType::parse("code-smell"), Some(IssueType::CodeSmell));
+        assert_eq!(IssueType::parse("nonsense"), None);
     }
 
     #[test]

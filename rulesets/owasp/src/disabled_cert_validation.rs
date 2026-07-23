@@ -1,7 +1,7 @@
 //! Rule: flags code that disables TLS/SSL certificate validation.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const MARKERS: &[&str] = &[
     "rejectUnauthorized: false",
@@ -42,6 +42,10 @@ impl Rule for DisabledCertValidationRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {

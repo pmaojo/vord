@@ -90,10 +90,15 @@ re-analysis on typical PRs.
   detection remain out of reach and open. Still open otherwise: OOP
   smells, architecture/dependency cycles, and reactive-stream smells all
   need the same symbol/type resolution the AST doesn't do yet.
-- **Issue types & classification**: bug / vulnerability / code smell, plus
-  MQR-style software-quality impacts (reliability, security,
-  maintainability × severity) — support both classification modes like
-  modern SonarQube.
+- **Issue types & classification**: ✅ every rule declares a classic
+  `IssueType` (bug / vulnerability / code smell, `Rule::issue_type`,
+  `core/rules-engine/src/rule.rs`) alongside MQR-style software-quality
+  impacts (reliability, security, maintainability × severity —
+  `SoftwareQuality`/`ImpactSeverity`/`SoftwareQualityImpact`,
+  `core/profiles/src/impact.rs`), derived by default from the classic type
+  via `default_impact` and overridable per rule. Both classification modes
+  are exposed simultaneously on `GET /api/rules` and `GET /api/issues`
+  (`type` + `impacts` fields), matching modern SonarQube.
 - **Secrets detection**: ✅ dedicated `rulesets/secrets` crate — entropy
   detection (`entropy.rs`), provider patterns for AWS/GCP/Azure/Stripe/
   private-key blocks (`provider_patterns.rs`), and custom-pattern support for

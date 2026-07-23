@@ -1,7 +1,7 @@
 //! User-defined custom pattern rule (Semgrep-style matching from `yunq.toml`).
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct CustomPatternRule {
     id: RuleId,
@@ -33,6 +33,10 @@ impl Rule for CustomPatternRule {
 
     fn default_severity(&self) -> Severity {
         self.severity
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
