@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use yunq_taint::{CrossFileTaint, TaintConfig};
 
 /// Inter-procedural, cross-file injection detection: user input passed into
@@ -51,6 +51,10 @@ impl CrossFileRule for CrossFileInjectionRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Blocker
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn remediation_effort_minutes(&self) -> u32 {

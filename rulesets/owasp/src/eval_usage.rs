@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 /// Flags dynamic code execution: `eval(...)` / `new Function(...)` in
 /// TypeScript, `eval(...)` / `exec(...)` in Python.
@@ -30,6 +30,10 @@ impl Rule for EvalUsageRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn metadata(&self) -> yunq_rules_engine::RuleMetadata {

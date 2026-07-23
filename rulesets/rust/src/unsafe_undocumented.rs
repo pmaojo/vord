@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 /// Whether the contiguous run of comment lines directly above `start_line`
 /// (1-based) mentions `SAFETY`. Stops at the first line that is neither a
@@ -50,6 +50,10 @@ impl Rule for UnsafeUndocumentedRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn remediation_effort_minutes(&self) -> u32 {

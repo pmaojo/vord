@@ -4,7 +4,7 @@
 //! tabnabbing (CWE-1022).
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{attribute_value, find_attribute, tag_name};
 
@@ -41,6 +41,10 @@ impl Rule for UnsafeTargetBlankRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn metadata(&self) -> RuleMetadata {

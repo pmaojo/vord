@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 use yunq_taint::{TaintAnalysis, TaintConfig};
 
 /// Taint-based Cross-Site Scripting detection: user-controlled input reaching
@@ -46,6 +46,10 @@ impl Rule for XssRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Blocker
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {

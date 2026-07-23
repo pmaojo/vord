@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const TS_SINKS: &[&str] = &["exec", "execSync", "spawn", "spawnSync"];
 
@@ -33,6 +33,10 @@ impl Rule for CommandExecHotspotRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn remediation_effort_minutes(&self) -> u32 {

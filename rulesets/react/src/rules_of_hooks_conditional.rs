@@ -5,7 +5,7 @@
 //! desyncs a component's state.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{hook_call_name, is_other};
 
@@ -122,6 +122,10 @@ impl Rule for RulesOfHooksConditionalRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn metadata(&self) -> RuleMetadata {

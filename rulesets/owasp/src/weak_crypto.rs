@@ -1,7 +1,7 @@
 //! Rule: flags weak cryptographic algorithms (MD5, SHA1, DES, RC4).
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct WeakCryptoRule {
     id: RuleId,
@@ -34,6 +34,10 @@ impl Rule for WeakCryptoRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {

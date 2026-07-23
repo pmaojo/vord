@@ -5,7 +5,7 @@
 //! re-render even though the underlying data changed.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{callee_name, is_other, own_scope_descendants};
 
@@ -60,6 +60,10 @@ impl Rule for DirectStateMutationRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn metadata(&self) -> RuleMetadata {

@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn is_transmute_path(callee_text: &str) -> bool {
     let base = callee_text.split("::<").next().unwrap_or(callee_text);
@@ -39,6 +39,10 @@ impl Rule for MemTransmuteRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Critical
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn remediation_effort_minutes(&self) -> u32 {

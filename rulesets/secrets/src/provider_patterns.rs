@@ -8,7 +8,7 @@
 
 use regex::Regex;
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// One provider credential format: id, human description, and the regex
 /// that recognizes it. Patterns are deliberately anchored with `\b`/length
@@ -114,6 +114,10 @@ impl Rule for RegexSecretRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Blocker
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn metadata(&self) -> RuleMetadata {

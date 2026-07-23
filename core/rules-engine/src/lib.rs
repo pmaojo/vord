@@ -49,7 +49,8 @@ pub use service::{AnalyzeError, AnalyzerService};
 
 // Re-export the quality model so consumers depend on one facade.
 pub use yunq_profiles::{
-    ComparisonOperator, Condition, ConditionResult, ConditionStatus, GateEvaluation, GateStatus,
-    InvalidMetricKeyError, InvalidRuleIdError, MetricKey, QualityGate, QualityProfile, Rating,
-    RuleId, Severity,
+    default_impact, ComparisonOperator, Condition, ConditionResult, ConditionStatus,
+    GateEvaluation, GateStatus, ImpactSeverity, InvalidMetricKeyError, InvalidRuleIdError,
+    IssueType, MetricKey, QualityGate, QualityProfile, Rating, RuleId, Severity, SoftwareQuality,
+    SoftwareQualityImpact,
 };

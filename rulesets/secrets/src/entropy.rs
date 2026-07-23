@@ -5,7 +5,7 @@
 //! random secrets.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// Shannon entropy of `s`, in bits per character, computed from the
 /// character-frequency distribution within `s` itself (not a fixed
@@ -192,6 +192,10 @@ impl Rule for HighEntropyStringRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Vulnerability
     }
 
     fn metadata(&self) -> RuleMetadata {

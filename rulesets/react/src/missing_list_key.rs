@@ -5,7 +5,7 @@
 //! here there isn't even an attempt.
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{find_attribute, is_jsx_kind, is_other, map_callback_functions, own_scope_descendants, tag_name};
 
@@ -44,6 +44,10 @@ impl Rule for MissingListKeyRule {
 
     fn default_severity(&self) -> Severity {
         Severity::Major
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::Bug
     }
 
     fn metadata(&self) -> RuleMetadata {
