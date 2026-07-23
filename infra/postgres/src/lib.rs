@@ -63,28 +63,36 @@ fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
 }
 
+/// Postgres binds a statement to at most 65535 parameters; issues bind 11
+/// columns each, so this leaves comfortable headroom while still turning a
+/// whole scan's worth of issues into a handful of round trips instead of one
+/// per issue.
+const ISSUE_BATCH_ROWS: usize = 1000;
+
 impl IssueStorage for PgIssueStorage {
     async fn save_issues(&self, issues: &[Issue]) -> Result<(), StorageError> {
+        if issues.is_empty() {
+            return Ok(());
+        }
         let mut tx = self.pool.begin().await.map_err(storage_err)?;
-        for issue in issues {
-            sqlx::query(
-                "INSERT INTO issues (rule, severity, file, start_line, start_col, end_line, end_col, message, status, resolution, assignee)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-            )
-            .bind(issue.rule().as_str())
-            .bind(issue.severity().as_str())
-            .bind(issue.file())
-            .bind(issue.span().start_line as i32)
-            .bind(issue.span().start_col as i32)
-            .bind(issue.span().end_line as i32)
-            .bind(issue.span().end_col as i32)
-            .bind(issue.message())
-            .bind(issue.status().to_string())
-            .bind(issue.resolution().map(|r| r.to_string()))
-            .bind(issue.assignee())
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_err)?;
+        for chunk in issues.chunks(ISSUE_BATCH_ROWS) {
+            let mut builder = QueryBuilder::<Postgres>::new(
+                "INSERT INTO issues (rule, severity, file, start_line, start_col, end_line, end_col, message, status, resolution, assignee) ",
+            );
+            builder.push_values(chunk, |mut row, issue| {
+                row.push_bind(issue.rule().as_str())
+                    .push_bind(issue.severity().as_str())
+                    .push_bind(issue.file())
+                    .push_bind(issue.span().start_line as i32)
+                    .push_bind(issue.span().start_col as i32)
+                    .push_bind(issue.span().end_line as i32)
+                    .push_bind(issue.span().end_col as i32)
+                    .push_bind(issue.message())
+                    .push_bind(issue.status().to_string())
+                    .push_bind(issue.resolution().map(|r| r.to_string()))
+                    .push_bind(issue.assignee());
+            });
+            builder.build().execute(&mut *tx).await.map_err(storage_err)?;
         }
         tx.commit().await.map_err(storage_err)
     }
@@ -276,25 +284,31 @@ fn hotspot_from_row(row: &PgRow) -> Result<StoredHotspot, StorageError> {
     })
 }
 
+/// 8 columns per hotspot; see `ISSUE_BATCH_ROWS` for why this is chunked
+/// rather than one giant statement.
+const HOTSPOT_BATCH_ROWS: usize = 1000;
+
 impl HotspotStorage for PgIssueStorage {
     async fn save_hotspots(&self, hotspots: &[Hotspot]) -> Result<(), StorageError> {
+        if hotspots.is_empty() {
+            return Ok(());
+        }
         let mut tx = self.pool.begin().await.map_err(storage_err)?;
-        for hotspot in hotspots {
-            sqlx::query(
-                "INSERT INTO hotspots (rule, message, file, start_line, start_col, end_line, end_col, status)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-            )
-            .bind(hotspot.rule().as_str())
-            .bind(hotspot.message())
-            .bind(hotspot.file())
-            .bind(hotspot.span().start_line as i32)
-            .bind(hotspot.span().start_col as i32)
-            .bind(hotspot.span().end_line as i32)
-            .bind(hotspot.span().end_col as i32)
-            .bind(hotspot.status().to_string())
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_err)?;
+        for chunk in hotspots.chunks(HOTSPOT_BATCH_ROWS) {
+            let mut builder = QueryBuilder::<Postgres>::new(
+                "INSERT INTO hotspots (rule, message, file, start_line, start_col, end_line, end_col, status) ",
+            );
+            builder.push_values(chunk, |mut row, hotspot| {
+                row.push_bind(hotspot.rule().as_str())
+                    .push_bind(hotspot.message())
+                    .push_bind(hotspot.file())
+                    .push_bind(hotspot.span().start_line as i32)
+                    .push_bind(hotspot.span().start_col as i32)
+                    .push_bind(hotspot.span().end_line as i32)
+                    .push_bind(hotspot.span().end_col as i32)
+                    .push_bind(hotspot.status().to_string());
+            });
+            builder.build().execute(&mut *tx).await.map_err(storage_err)?;
         }
         tx.commit().await.map_err(storage_err)
     }
@@ -514,5 +528,104 @@ impl MetricsTracker for PgIssueStorage {
         .await
         .map_err(storage_err)?;
         Ok(())
+    }
+}
+
+/// Exercises the batched `save_issues`/`save_hotspots` inserts against a
+/// real Postgres instead of just type-checking the `QueryBuilder` usage —
+/// `push_values` builds SQL by hand, so only a live round trip proves the
+/// generated statement is valid and every column lands in the right place.
+/// `#[ignore]`d by default so `cargo test` needs no database, matching this
+/// crate's "no live database at build time" design; run explicitly with
+/// `cargo test -p yunq-infra-postgres -- --ignored` against
+/// `DATABASE_URL` (defaults to the same connection string the worker uses).
+#[cfg(test)]
+mod live_db_tests {
+    use super::*;
+    use yunq_rules_engine::Hotspot;
+
+    async fn connected_storage() -> PgIssueStorage {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
+        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        storage.migrate().await.unwrap();
+        sqlx::query("DELETE FROM issues").execute(storage.pool()).await.unwrap();
+        sqlx::query("DELETE FROM hotspots").execute(storage.pool()).await.unwrap();
+        storage
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn batch_insert_round_trips_every_issue_column() {
+        let storage = connected_storage().await;
+
+        let issues: Vec<Issue> = (0..5)
+            .map(|i| {
+                Issue::new(
+                    RuleId::new("owasp:sql-injection").unwrap(),
+                    Severity::Major,
+                    format!("issue {i}"),
+                    format!("src/file{i}.rs"),
+                    Span::new(1, 0, 1, 10),
+                )
+            })
+            .collect();
+        storage.save_issues(&issues).await.unwrap();
+
+        let rows = sqlx::query(&format!("SELECT {ISSUE_COLUMNS} FROM issues ORDER BY id"))
+            .fetch_all(storage.pool())
+            .await
+            .unwrap();
+        let restored: Vec<StoredIssue> =
+            rows.iter().map(issue_from_row).collect::<Result<_, _>>().unwrap();
+        assert_eq!(restored.len(), 5);
+        for (i, stored) in restored.iter().enumerate() {
+            assert_eq!(stored.issue.message(), format!("issue {i}"));
+            assert_eq!(stored.issue.file(), format!("src/file{i}.rs"));
+            assert_eq!(stored.issue.severity(), Severity::Major);
+            assert_eq!(stored.issue.status(), IssueStatus::Open);
+        }
+
+        // Documented no-op: must not open a transaction or error.
+        storage.save_issues(&[]).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM issues")
+            .fetch_one(storage.pool())
+            .await
+            .unwrap();
+        assert_eq!(count, 5);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn batch_insert_round_trips_every_hotspot_column() {
+        let storage = connected_storage().await;
+
+        let hotspots: Vec<Hotspot> = (0..5)
+            .map(|i| {
+                Hotspot::new(
+                    RuleId::new("owasp:hotspot").unwrap(),
+                    format!("hotspot {i}"),
+                    format!("src/file{i}.rs"),
+                    Span::new(2, 0, 2, 5),
+                )
+            })
+            .collect();
+        storage.save_hotspots(&hotspots).await.unwrap();
+
+        let rows = sqlx::query(
+            "SELECT id, rule, message, file, start_line, start_col, end_line, end_col, status
+             FROM hotspots ORDER BY id",
+        )
+        .fetch_all(storage.pool())
+        .await
+        .unwrap();
+        let restored: Vec<StoredHotspot> =
+            rows.iter().map(hotspot_from_row).collect::<Result<_, _>>().unwrap();
+        assert_eq!(restored.len(), 5);
+        for (i, stored) in restored.iter().enumerate() {
+            assert_eq!(stored.hotspot.message(), format!("hotspot {i}"));
+            assert_eq!(stored.hotspot.file(), format!("src/file{i}.rs"));
+            assert_eq!(stored.hotspot.status(), HotspotStatus::ToReview);
+        }
     }
 }

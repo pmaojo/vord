@@ -60,7 +60,7 @@ pub enum Severity {
 }
 
 impl Severity {
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Severity::Info => "info",
             Severity::Minor => "minor",

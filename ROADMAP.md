@@ -53,8 +53,39 @@ re-analysis on typical PRs.
   themselves are individually heap-allocated (`Vec<AstNode>` children, no
   arena) — a bump-allocator rewrite is a much larger structural change, not
   attempted here.
-- **I/O**: mmap large files, batched Postgres writes (`COPY`/multi-row
-  inserts), SQS batch send/receive.
+- **I/O**: ✅ **(this session)** `PgIssueStorage::save_issues`/`save_hotspots`
+  (`infra/postgres/src/lib.rs`) previously ran one `INSERT` per issue/hotspot
+  inside a single transaction — N round trips for N findings, the dominant
+  cost on any file with more than a handful of issues. Both now build one
+  multi-row `INSERT ... VALUES ($1,$2,...),($..),...` per up-to-1000-row
+  chunk via `sqlx::QueryBuilder::push_values` (chunked to stay under
+  Postgres' 65535-bind-parameter ceiling — 1000 rows × 11/8 columns leaves
+  wide headroom), collapsing a whole scan's writes into a handful of
+  statements. `Severity::as_str` (`core/profiles/src/lib.rs`) also widened
+  from `&str` to `&'static str` — its match arms were always `'static`
+  literals, the elided lifetime just hadn't been asked to prove it, and
+  `push_values`' closure-based API (values must outlive the immediate
+  statement, unlike `.bind()` calls that execute inline) surfaced the
+  borrow the old signature couldn't satisfy. Verified against a live
+  Postgres (not just type-checked): `infra/postgres/src/live_db_tests`,
+  `#[ignore]`d by default so `cargo test` still needs no database (this
+  crate's existing design), run explicitly with `cargo test -p
+  yunq-infra-postgres -- --ignored` — round-trips 5 issues and 5 hotspots
+  through the batched insert and asserts every column, plus that an empty
+  slice is a true no-op. `cargo test --workspace` (minus `yunq-server`/
+  `yunq-frontend`, both green separately) and `cargo clippy -p
+  yunq-infra-postgres -p yunq-profiles --all-targets` stay clean. Still
+  open: mmap for large files (the CLI's `std::fs::read_to_string` copies
+  every file into a `String` regardless of size — real but likely
+  lower-value than the items above, since it needs unsafe code to avoid
+  re-copying into the existing `Arc<str>` source buffer and only pays off
+  on unusually large files) and queue-side batching — there is no SQS here
+  despite the name: the job queue is Postgres `LISTEN`/`NOTIFY` with
+  `SKIP LOCKED` (`infra/postgres/src/queue.rs`), and its one caller
+  (`POST /scan`) enqueues a single job per request, so a batch-claim/-enqueue
+  API would have no real caller today — worth doing once the still-open
+  monorepo directory-subtree sharding below actually produces many jobs per
+  scan, not before.
 - **Benchmarks as tests**: ✅ real `criterion` suite (`benches/` — a proper
   workspace member, `yunq-benchmarks`; the previous `benches/benchmarks.rs`
   was never wired into any `Cargo.toml` and had not been compiled or run at
