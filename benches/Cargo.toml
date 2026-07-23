@@ -1,0 +1,22 @@
+[package]
+name = "yunq-benchmarks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+yunq-ast = { workspace = true }
+yunq-cli = { workspace = true }
+yunq-rules-engine = { workspace = true }
+yunq-parser-rust = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "benchmarks"
+path = "benchmarks.rs"
+harness = false

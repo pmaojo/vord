@@ -74,7 +74,7 @@ fn map_kind(kind: &str) -> NodeKind {
         "stream" => NodeKind::SourceUnit,
         "string_scalar" | "double_quote_scalar" | "single_quote_scalar" => NodeKind::StringLiteral,
         "comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
+        other => NodeKind::Other(yunq_ast::intern(other)),
     }
 }
 

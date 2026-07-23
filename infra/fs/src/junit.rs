@@ -23,18 +23,13 @@ pub enum JunitError {
     Malformed(String),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Outcome {
+    #[default]
     Passed,
     Failed,
     Errored,
     Skipped,
-}
-
-impl Default for Outcome {
-    fn default() -> Self {
-        Outcome::Passed
-    }
 }
 
 /// Running totals for the `<testsuite>` currently being parsed.

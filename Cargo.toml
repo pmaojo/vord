@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/*", "infra/*", "parsers/*", "rulesets/*", "bin/*"]
+members = ["core/*", "infra/*", "parsers/*", "rulesets/*", "bin/*", "benches"]
 
 [workspace.package]
 version = "0.1.1"
