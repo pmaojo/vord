@@ -312,7 +312,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     };
 
                     if let Some(reporter) = reporter {
-                        use yunq_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
+                        use yunq_rules_engine::{AlmStatusReporter, AlmPullRequestReporter, CommitStatus, CommitStatusState};
                         let state = if gate.status() == yunq_rules_engine::GateStatus::Passed {
                             CommitStatusState::Success
                         } else {
@@ -326,9 +326,29 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                             "Gate {gate_label}: {} issues found",
                             report.issues().len()
                         );
-                        let status = CommitStatus::new(state, desc);
+                        let status = CommitStatus::new(state, desc.clone());
                         if let Err(e) = reporter.report_commit_status(&sha, &status).await {
                             eprintln!("warning: could not report commit status to GitHub: {e}");
+                        }
+
+                        // PR Review Comments
+                        if let Ok(github_ref) = std::env::var("GITHUB_REF") {
+                            // GITHUB_REF format: refs/pull/42/merge
+                            if let Some(pr_str) = github_ref.strip_prefix("refs/pull/").and_then(|s| s.split('/').next()) {
+                                if let Ok(pr_num) = pr_str.parse::<u32>() {
+                                    if let Ok(pr_number) = yunq_rules_engine::PullRequestNumber::new(pr_num) {
+                                        let new_issues = new_code.as_ref().map(|nc| nc.new_issues()).unwrap_or(&[]);
+
+                                        if let Err(e) = reporter.report_pull_request_review(
+                                            pr_number,
+                                            new_issues,
+                                            &desc,
+                                        ).await {
+                                            eprintln!("warning: could not report pull request review to GitHub: {e}");
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

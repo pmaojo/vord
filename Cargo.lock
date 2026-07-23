@@ -3462,6 +3462,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "yunq-ast",
+ "yunq-profiles",
  "yunq-rules-engine",
 ]
 

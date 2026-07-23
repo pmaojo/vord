@@ -97,6 +97,22 @@ pub trait AlmStatusReporter: Send + Sync {
     ) -> impl Future<Output = Result<(), AlmError>> + Send;
 }
 
+/// Outbound port: reports new issues as review comments on a pull request.
+///
+/// Deliberately takes no commit SHA: `GITHUB_SHA` on a `pull_request` CI
+/// event is the ephemeral merge commit, not one that belongs to the PR's
+/// own history, so an implementation must resolve the real head commit
+/// itself (e.g. by looking up the pull request) rather than trust one
+/// passed in by the caller.
+pub trait AlmPullRequestReporter: Send + Sync {
+    fn report_pull_request_review(
+        &self,
+        pr_number: crate::project::PullRequestNumber,
+        new_issues: &[crate::domain::Issue],
+        gate_summary: &str,
+    ) -> impl Future<Output = Result<(), AlmError>> + Send;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
