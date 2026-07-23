@@ -19,6 +19,25 @@ const PROVIDER_SIGNATURES: &[(&str, usize, &str)] = &[
     ("-----BEGIN", 20, "private key material"),
 ];
 
+/// Whether `value` — a credential-looking variable's initializer, or a
+/// sub-expression reached while unwinding one — is itself a hardcoded string
+/// literal, as opposed to a literal merely buried somewhere inside it. Only
+/// follows a `Call`'s callee (first child) and a `MemberAccess`'s receiver
+/// (first child): that's the chain a wrapped literal keeps exposing through
+/// (`"secret".to_string()`, `"secret".into()`), whereas a literal passed as
+/// an *argument* — `env::var("API_KEY")`, `header.strip_prefix("Bearer ")`,
+/// `localStorage.getItem("session_token")` — is a lookup key or env var
+/// name, not the variable's actual value, and is deliberately never visited.
+fn own_literal(value: &AstNode) -> Option<&AstNode> {
+    if *value.kind() == NodeKind::StringLiteral && value.text().len() > 2 {
+        return Some(value);
+    }
+    match value.kind() {
+        NodeKind::Call | NodeKind::MemberAccess => value.first_child().and_then(own_literal),
+        _ => None,
+    }
+}
+
 /// Flags string literals assigned to credential-looking variables, and
 /// AWS access key ids appearing anywhere in string literals.
 pub struct HardcodedSecretRule {
@@ -75,10 +94,7 @@ impl Rule for HardcodedSecretRule {
                 continue;
             }
             for value in &node.children()[1..] {
-                if let Some(literal) = value
-                    .descendants()
-                    .find(|n| *n.kind() == NodeKind::StringLiteral && n.text().len() > 2)
-                {
+                if let Some(literal) = own_literal(value) {
                     findings.push(Finding::new(
                         format!("credential-looking variable `{}` holds a hardcoded string literal", target.text()),
                         literal.span(),
@@ -117,6 +133,12 @@ mod tests {
         HardcodedSecretRule::new().check(&file, &ast)
     }
 
+    fn check_rust(code: &str) -> Vec<Finding> {
+        let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
+        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        HardcodedSecretRule::new().check(&file, &ast)
+    }
+
     #[test]
     fn flags_password_literal_and_aws_key() {
         let findings =
@@ -147,5 +169,45 @@ mod tests {
         // The short prose literal fails the length guard; only the four
         // real-looking tokens are flagged.
         assert_eq!(findings.len(), 4);
+    }
+
+    #[test]
+    fn does_not_flag_a_lookup_key_passed_to_a_credential_named_variable() {
+        // The string literal here is `localStorage`'s lookup key, not the
+        // token's actual value — yunq's own dogfood scan flagged exactly
+        // this shape in frontend/src/lib/api.ts before this fix.
+        assert!(check_ts("const token = localStorage.getItem('yunq_session_token');\n").is_empty());
+    }
+
+    #[test]
+    fn does_not_flag_an_env_var_name_read_into_a_credential_named_variable() {
+        // `"YUNQ_LLM_API_KEY"` is the environment variable's *name*, not a
+        // hardcoded secret value (infra/llm/src/lib.rs's real shape).
+        assert!(check_rust("fn f() {\n    let api_key = std::env::var(\"YUNQ_LLM_API_KEY\").unwrap_or_default();\n}\n").is_empty());
+    }
+
+    #[test]
+    fn does_not_flag_a_header_prefix_argument() {
+        // `"Bearer "` is the prefix being stripped off an incoming header
+        // value, not a hardcoded token (bin/server/src/auth.rs's real shape).
+        let code = "fn f(value: &str) {\n    let token = value.strip_prefix(\"Bearer \").unwrap_or(value);\n}\n";
+        assert!(check_rust(code).is_empty());
+    }
+
+    #[test]
+    fn does_not_flag_a_format_string_naming_an_env_var() {
+        // `credentials()`'s real shape: the format string names the env var
+        // to read, it isn't the secret itself.
+        let code = "fn f(prefix: &str) {\n    let client_secret = std::env::var(format!(\"{prefix}_CLIENT_SECRET\")).ok();\n}\n";
+        assert!(check_rust(code).is_empty());
+    }
+
+    #[test]
+    fn still_flags_a_literal_wrapped_in_to_string_or_into() {
+        // A literal reached only through a receiver chain (never through a
+        // call's *argument* position) is still the variable's own value —
+        // must stay flagged.
+        assert_eq!(check_rust("fn f() {\n    let password = \"hunter2\".to_string();\n}\n").len(), 1);
+        assert_eq!(check_rust("fn f() {\n    let token: String = \"hunter2\".into();\n}\n").len(), 1);
     }
 }

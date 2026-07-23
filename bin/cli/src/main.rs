@@ -22,67 +22,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Analyze a directory or file and report issues.
-    Scan {
-        path: PathBuf,
-        #[arg(long, value_enum, default_value_t = Format::Text)]
-        format: Format,
-        /// Exit with a non-zero status if any issue at or above this severity is found.
-        #[arg(long)]
-        fail_on: Option<String>,
-        /// Disable the incremental analysis cache (.yunq-cache.json).
-        #[arg(long)]
-        no_cache: bool,
-        /// Exit with status 3 when the quality gate fails.
-        #[arg(long)]
-        enforce_gate: bool,
-        /// Do not read or update the New Code baseline (.yunq-baseline.json).
-        #[arg(long)]
-        no_baseline: bool,
-        /// LCOV coverage report to ingest (enables the coverage gate condition).
-        #[arg(long)]
-        coverage: Option<PathBuf>,
-        /// Cobertura XML coverage report to ingest.
-        #[arg(long)]
-        cobertura: Option<PathBuf>,
-        /// JaCoCo XML coverage report to ingest.
-        #[arg(long)]
-        jacoco: Option<PathBuf>,
-        /// llvm-cov JSON export coverage report to ingest.
-        #[arg(long = "llvm-cov")]
-        llvm_cov: Option<PathBuf>,
-        /// Istanbul native JSON coverage report (`coverage-final.json`) to ingest.
-        #[arg(long)]
-        istanbul: Option<PathBuf>,
-        /// Coverage report in any supported format (LCOV, Cobertura, JaCoCo,
-        /// llvm-cov, Istanbul), auto-detected from content unless
-        /// `--coverage-format` is given.
-        #[arg(long)]
-        coverage_report: Option<PathBuf>,
-        /// Format for `--coverage-report` (lcov|cobertura|jacoco|llvm-cov|istanbul).
-        /// Auto-detected when omitted.
-        #[arg(long)]
-        coverage_format: Option<String>,
-        /// Unified diff (e.g. `git diff <ref>...HEAD --unified=0`) naming the
-        /// "new" lines coverage is restricted to for the coverage-on-new-code
-        /// measure. Only takes effect when a coverage report is also given.
-        #[arg(long)]
-        coverage_diff: Option<PathBuf>,
-        /// JUnit XML test report to ingest (printed as a test summary).
-        #[arg(long)]
-        junit: Option<PathBuf>,
-        /// Git commit SHA for reporting ALM commit status.
-        #[arg(long)]
-        commit_sha: Option<String>,
-        /// GitHub API token (defaults to GITHUB_TOKEN env var).
-        #[arg(long)]
-        github_token: Option<String>,
-        /// GitHub repository in owner/repo format (defaults to GITHUB_REPOSITORY env var).
-        #[arg(long)]
-        github_repo: Option<String>,
-        /// Print a ready-to-paste prompt handing the findings to an AI coding agent.
-        #[arg(long)]
-        agent_prompt: bool,
-    },
+    // Boxed: `ScanArgs` is far larger than every other variant, so leaving it
+    // inline would size the whole enum (and every `Option<Command>`) to its
+    // largest member.
+    Scan(Box<ScanArgs>),
     /// Generate an AI remediation fix for a target issue or file.
     Fix {
         /// File path containing the issue to fix.
@@ -102,6 +45,69 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+}
+
+#[derive(clap::Args)]
+struct ScanArgs {
+    path: PathBuf,
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    format: Format,
+    /// Exit with a non-zero status if any issue at or above this severity is found.
+    #[arg(long)]
+    fail_on: Option<String>,
+    /// Disable the incremental analysis cache (.yunq-cache.json).
+    #[arg(long)]
+    no_cache: bool,
+    /// Exit with status 3 when the quality gate fails.
+    #[arg(long)]
+    enforce_gate: bool,
+    /// Do not read or update the New Code baseline (.yunq-baseline.json).
+    #[arg(long)]
+    no_baseline: bool,
+    /// LCOV coverage report to ingest (enables the coverage gate condition).
+    #[arg(long)]
+    coverage: Option<PathBuf>,
+    /// Cobertura XML coverage report to ingest.
+    #[arg(long)]
+    cobertura: Option<PathBuf>,
+    /// JaCoCo XML coverage report to ingest.
+    #[arg(long)]
+    jacoco: Option<PathBuf>,
+    /// llvm-cov JSON export coverage report to ingest.
+    #[arg(long = "llvm-cov")]
+    llvm_cov: Option<PathBuf>,
+    /// Istanbul native JSON coverage report (`coverage-final.json`) to ingest.
+    #[arg(long)]
+    istanbul: Option<PathBuf>,
+    /// Coverage report in any supported format (LCOV, Cobertura, JaCoCo,
+    /// llvm-cov, Istanbul), auto-detected from content unless
+    /// `--coverage-format` is given.
+    #[arg(long)]
+    coverage_report: Option<PathBuf>,
+    /// Format for `--coverage-report` (lcov|cobertura|jacoco|llvm-cov|istanbul).
+    /// Auto-detected when omitted.
+    #[arg(long)]
+    coverage_format: Option<String>,
+    /// Unified diff (e.g. `git diff <ref>...HEAD --unified=0`) naming the
+    /// "new" lines coverage is restricted to for the coverage-on-new-code
+    /// measure. Only takes effect when a coverage report is also given.
+    #[arg(long)]
+    coverage_diff: Option<PathBuf>,
+    /// JUnit XML test report to ingest (printed as a test summary).
+    #[arg(long)]
+    junit: Option<PathBuf>,
+    /// Git commit SHA for reporting ALM commit status.
+    #[arg(long)]
+    commit_sha: Option<String>,
+    /// GitHub API token (defaults to GITHUB_TOKEN env var).
+    #[arg(long)]
+    github_token: Option<String>,
+    /// GitHub repository in owner/repo format (defaults to GITHUB_REPOSITORY env var).
+    #[arg(long)]
+    github_repo: Option<String>,
+    /// Print a ready-to-paste prompt handing the findings to an AI coding agent.
+    #[arg(long)]
+    agent_prompt: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -126,27 +132,28 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
         None | Some(Command::Wizard) => wizard::run().await,
         Some(Command::Init { yes }) => wizard::install_ci(&std::env::current_dir()?, yes),
-        Some(Command::Scan {
-            path,
-            format,
-            fail_on,
-            no_cache,
-            enforce_gate,
-            no_baseline,
-            coverage,
-            cobertura,
-            jacoco,
-            llvm_cov,
-            istanbul,
-            coverage_report,
-            coverage_format,
-            coverage_diff,
-            junit,
-            commit_sha,
-            github_token,
-            github_repo,
-            agent_prompt,
-        }) => {
+        Some(Command::Scan(args)) => {
+            let ScanArgs {
+                path,
+                format,
+                fail_on,
+                no_cache,
+                enforce_gate,
+                no_baseline,
+                coverage,
+                cobertura,
+                jacoco,
+                llvm_cov,
+                istanbul,
+                coverage_report,
+                coverage_format,
+                coverage_diff,
+                junit,
+                commit_sha,
+                github_token,
+                github_repo,
+                agent_prompt,
+            } = *args;
             let threshold = fail_on
                 .map(|raw| {
                     Severity::parse(&raw).ok_or_else(|| {
@@ -155,16 +162,19 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 })
                 .transpose()?;
 
-            if let Some(config) = yunq_infra_fs::YunqConfig::load_from_dir(&path) {
-                if let Some(key) = &config.project.key {
-                    eprintln!("📋 Loaded project config ({key})");
-                }
-            }
+            let exclusions = yunq_infra_fs::YunqConfig::load_from_dir(&path)
+                .map(|config| {
+                    if let Some(key) = &config.project.key {
+                        eprintln!("📋 Loaded project config ({key})");
+                    }
+                    config.analysis.exclusions.unwrap_or_default()
+                })
+                .unwrap_or_default();
 
             let cache = (!no_cache && path.is_dir())
                 .then(|| std::sync::Arc::new(FileAnalysisCache::open(path.join(".yunq-cache.json"))));
             let mut report =
-                yunq_cli::scan_with_cache(&path, cache.clone()).await?;
+                yunq_cli::scan_with_exclusions(&path, cache.clone(), &exclusions).await?;
             // `_report` variants carry per-file/per-line detail (needed for
             // coverage-on-new-code below) alongside the flat totals; the
             // detail is merged into `coverage_detail` while the totals feed

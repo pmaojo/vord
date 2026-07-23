@@ -3443,6 +3443,7 @@ dependencies = [
 name = "yunq-infra-fs"
 version = "0.1.1"
 dependencies = [
+ "globset",
  "ignore",
  "quick-xml",
  "serde",

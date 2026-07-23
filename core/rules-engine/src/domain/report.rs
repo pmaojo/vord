@@ -505,7 +505,7 @@ impl AnalysisReport {
         let hotspots = self.hotspots.len() as u32;
         let dup_penalty = (self.metrics.duplicated_lines_density() * 0.5) as u32;
 
-        let penalty = blocker * 10 + critical * 5 + major * 1 + hotspots * 2 + dup_penalty;
+        let penalty = blocker * 10 + critical * 5 + major + hotspots * 2 + dup_penalty;
         100u32.saturating_sub(penalty)
     }
 
