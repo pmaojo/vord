@@ -3,8 +3,8 @@
 
 use serde::Serialize;
 use yunq_rules_engine::{
-    AnalysisReport, ConditionStatus, GateEvaluation, GateStatus, Issue, NewCodeAnalysis,
-    TestReportSummary,
+    AnalysisReport, ConditionStatus, CoverageSummary, DuplicateBlock, GateEvaluation, GateStatus,
+    Hotspot, Issue, Metrics, NewCodeAnalysis, TestReportSummary,
 };
 
 #[derive(Serialize)]
@@ -183,6 +183,64 @@ impl From<&Issue> for IssueDto {
     }
 }
 
+impl From<&Hotspot> for HotspotDto {
+    fn from(h: &Hotspot) -> Self {
+        Self {
+            rule: h.rule().to_string(),
+            file: h.file().to_string(),
+            line: h.span().start_line,
+            column: h.span().start_col,
+            message: h.message().to_string(),
+            status: h.status().to_string(),
+        }
+    }
+}
+
+impl From<&DuplicateBlock> for DuplicationDto {
+    fn from(d: &DuplicateBlock) -> Self {
+        Self {
+            first_file: d.first.file.clone(),
+            first_lines: format!("{}-{}", d.first.start_line, d.first.end_line),
+            second_file: d.second.file.clone(),
+            second_lines: format!("{}-{}", d.second.start_line, d.second.end_line),
+            lines: d.lines,
+        }
+    }
+}
+
+impl From<&Metrics> for MetricsDto {
+    fn from(metrics: &Metrics) -> Self {
+        Self {
+            files_scanned: metrics.files_scanned(),
+            files_skipped: metrics.files_skipped(),
+            parse_failures: metrics.parse_failures(),
+            cache_hits: metrics.cache_hits(),
+            lines_of_code: metrics.lines_of_code(),
+            issue_total: metrics.issue_total(),
+            debt_minutes: metrics.debt_minutes(),
+            functions: metrics.functions(),
+            classes: metrics.classes(),
+            statements: metrics.statements(),
+            comment_lines: metrics.comment_lines(),
+            comment_lines_density: metrics.comment_lines_density(),
+            max_nesting_depth: metrics.max_nesting_depth(),
+        }
+    }
+}
+
+impl From<&CoverageSummary> for CoverageDto {
+    fn from(c: &CoverageSummary) -> Self {
+        Self {
+            percent: c.percent(),
+            covered_lines: c.covered_lines(),
+            coverable_lines: c.coverable_lines(),
+            branch_percent: c.percent_branches(),
+            covered_branches: c.covered_branches(),
+            coverable_branches: c.coverable_branches(),
+        }
+    }
+}
+
 impl ReportDto {
     pub fn build(
         report: &AnalysisReport,
@@ -191,71 +249,22 @@ impl ReportDto {
         test_report: Option<&TestReportSummary>,
         coverage_new_code: Option<f64>,
     ) -> Self {
-        let metrics = report.metrics();
         Self {
             issues: report.issues().iter().map(IssueDto::from).collect(),
-            hotspots: report
-                .hotspots()
-                .iter()
-                .map(|h| HotspotDto {
-                    rule: h.rule().to_string(),
-                    file: h.file().to_string(),
-                    line: h.span().start_line,
-                    column: h.span().start_col,
-                    message: h.message().to_string(),
-                    status: h.status().to_string(),
-                })
-                .collect(),
+            hotspots: report.hotspots().iter().map(HotspotDto::from).collect(),
             rating: report.rating().to_string(),
             quality_gate: gate_dto(gate),
             new_issue_total: new_code.map(|nc| nc.new_issues().len()),
-            coverage: report.coverage().map(|c| CoverageDto {
-                percent: c.percent(),
-                covered_lines: c.covered_lines(),
-                coverable_lines: c.coverable_lines(),
-                branch_percent: c.percent_branches(),
-                covered_branches: c.covered_branches(),
-                coverable_branches: c.coverable_branches(),
-            }),
+            coverage: report.coverage().map(CoverageDto::from),
             test_report: test_report.map(TestReportDto::from),
             coverage_new_code,
-            duplications: report
-                .duplications()
-                .iter()
-                .map(|d| DuplicationDto {
-                    first_file: d.first.file.clone(),
-                    first_lines: format!("{}-{}", d.first.start_line, d.first.end_line),
-                    second_file: d.second.file.clone(),
-                    second_lines: format!("{}-{}", d.second.start_line, d.second.end_line),
-                    lines: d.lines,
-                })
-                .collect(),
-            metrics: MetricsDto {
-                files_scanned: metrics.files_scanned(),
-                files_skipped: metrics.files_skipped(),
-                parse_failures: metrics.parse_failures(),
-                cache_hits: metrics.cache_hits(),
-                lines_of_code: metrics.lines_of_code(),
-                issue_total: metrics.issue_total(),
-                debt_minutes: metrics.debt_minutes(),
-                functions: metrics.functions(),
-                classes: metrics.classes(),
-                statements: metrics.statements(),
-                comment_lines: metrics.comment_lines(),
-                comment_lines_density: metrics.comment_lines_density(),
-                max_nesting_depth: metrics.max_nesting_depth(),
-            },
+            duplications: report.duplications().iter().map(DuplicationDto::from).collect(),
+            metrics: MetricsDto::from(report.metrics()),
         }
     }
 }
 
-pub fn render_text(
-    report: &AnalysisReport,
-    gate: &GateEvaluation,
-    new_code: Option<&NewCodeAnalysis>,
-    test_report: Option<&TestReportSummary>,
-    coverage_new_code: Option<f64>,
-) -> String {
+fn render_issues_text(out: &mut String, report: &AnalysisReport) {
     let mut issues: Vec<&Issue> = report.issues().iter().collect();
     issues.sort_by(|a, b| {
         b.severity()
@@ -263,8 +272,6 @@ pub fn render_text(
             .then_with(|| a.file().cmp(b.file()))
             .then_with(|| a.span().start_line.cmp(&b.span().start_line))
     });
-
-    let mut out = String::new();
     for issue in &issues {
         out.push_str(&format!(
             "{:<8} {:<24} {}:{}:{}  {}\n",
@@ -276,7 +283,9 @@ pub fn render_text(
             issue.message(),
         ));
     }
+}
 
+fn render_hotspots_text(out: &mut String, report: &AnalysisReport) {
     for hotspot in report.hotspots() {
         out.push_str(&format!(
             "{:<8} {:<24} {}:{}:{}  {} [{}]\n",
@@ -289,7 +298,9 @@ pub fn render_text(
             hotspot.status(),
         ));
     }
+}
 
+fn render_metrics_summary_text(out: &mut String, report: &AnalysisReport) {
     let metrics = report.metrics();
     let by_severity = metrics
         .issues_by_severity()
@@ -308,7 +319,6 @@ pub fn render_text(
         metrics.issue_total(),
         if by_severity.is_empty() { "none".to_string() } else { by_severity },
     ));
-
     out.push_str(&format!(
         "{} security hotspots to review, technical debt: {} min\n",
         report.hotspots().len(),
@@ -323,43 +333,45 @@ pub fn render_text(
         metrics.comment_lines_density(),
         metrics.max_nesting_depth(),
     ));
-    if metrics.duplicated_blocks() > 0 {
-        out.push_str(&format!(
-            "Duplication: {} blocks, {} lines ({:.1}%)\n",
-            metrics.duplicated_blocks(),
-            metrics.duplicated_lines(),
-            metrics.duplicated_lines_density(),
-        ));
-        for block in report.duplications() {
-            out.push_str(&format!(
-                "  = {}:{}-{} <-> {}:{}-{} ({} lines)\n",
-                block.first.file,
-                block.first.start_line,
-                block.first.end_line,
-                block.second.file,
-                block.second.start_line,
-                block.second.end_line,
-                block.lines,
-            ));
-        }
+}
+
+fn render_duplications_text(out: &mut String, report: &AnalysisReport) {
+    let metrics = report.metrics();
+    if metrics.duplicated_blocks() == 0 {
+        return;
     }
+    out.push_str(&format!(
+        "Duplication: {} blocks, {} lines ({:.1}%)\n",
+        metrics.duplicated_blocks(),
+        metrics.duplicated_lines(),
+        metrics.duplicated_lines_density(),
+    ));
+    for block in report.duplications() {
+        out.push_str(&format!(
+            "  = {}:{}-{} <-> {}:{}-{} ({} lines)\n",
+            block.first.file,
+            block.first.start_line,
+            block.first.end_line,
+            block.second.file,
+            block.second.start_line,
+            block.second.end_line,
+            block.lines,
+        ));
+    }
+}
+
+fn render_coverage_text(out: &mut String, report: &AnalysisReport, coverage_new_code: Option<f64>) {
     if let Some(coverage) = report.coverage() {
         out.push_str(&format!(
             "Coverage: {} ({}/{} lines)\n",
-            coverage
-                .percent()
-                .map(|p| format!("{p:.1}%"))
-                .unwrap_or_else(|| "n/a".to_string()),
+            coverage.percent().map(|p| format!("{p:.1}%")).unwrap_or_else(|| "n/a".to_string()),
             coverage.covered_lines(),
             coverage.coverable_lines(),
         ));
         if coverage.coverable_branches() > 0 {
             out.push_str(&format!(
                 "Branch coverage: {} ({}/{} branches)\n",
-                coverage
-                    .percent_branches()
-                    .map(|p| format!("{p:.1}%"))
-                    .unwrap_or_else(|| "n/a".to_string()),
+                coverage.percent_branches().map(|p| format!("{p:.1}%")).unwrap_or_else(|| "n/a".to_string()),
                 coverage.covered_branches(),
                 coverage.coverable_branches(),
             ));
@@ -368,31 +380,27 @@ pub fn render_text(
     if let Some(percent) = coverage_new_code {
         out.push_str(&format!("Coverage on new code: {percent:.1}%\n"));
     }
-    if let Some(new_code) = new_code {
-        out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
-    }
-    if let Some(tests) = test_report {
-        out.push_str(&format!(
-            "Tests: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
-            tests.total_tests,
-            tests.passed_tests,
-            tests.failed_tests,
-            tests.skipped_tests,
-            tests.errors,
-            tests.time_seconds,
-        ));
-        if tests.suites.len() > 1 {
-            for suite in &tests.suites {
-                out.push_str(&format!(
-                    "  - {}: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
-                    suite.name, suite.tests, suite.passed, suite.failures, suite.errors, suite.skipped,
-                    suite.time_seconds,
-                ));
-            }
+}
+
+fn render_test_report_text(out: &mut String, test_report: Option<&TestReportSummary>) {
+    let Some(tests) = test_report else { return };
+    out.push_str(&format!(
+        "Tests: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
+        tests.total_tests, tests.passed_tests, tests.failed_tests, tests.skipped_tests, tests.errors,
+        tests.time_seconds,
+    ));
+    if tests.suites.len() > 1 {
+        for suite in &tests.suites {
+            out.push_str(&format!(
+                "  - {}: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
+                suite.name, suite.tests, suite.passed, suite.failures, suite.errors, suite.skipped,
+                suite.time_seconds,
+            ));
         }
     }
-    out.push_str(&format!("Health score: {}/100\n", report.health_score()));
-    out.push_str(&format!("Rating: {}\n", report.rating()));
+}
+
+fn render_gate_text(out: &mut String, gate: &GateEvaluation) {
     out.push_str(&format!("Quality gate: {}\n", gate.status()));
     if gate.status() == GateStatus::Failed {
         for failed in gate.failed_conditions() {
@@ -405,6 +413,28 @@ pub fn render_text(
             ));
         }
     }
+}
+
+pub fn render_text(
+    report: &AnalysisReport,
+    gate: &GateEvaluation,
+    new_code: Option<&NewCodeAnalysis>,
+    test_report: Option<&TestReportSummary>,
+    coverage_new_code: Option<f64>,
+) -> String {
+    let mut out = String::new();
+    render_issues_text(&mut out, report);
+    render_hotspots_text(&mut out, report);
+    render_metrics_summary_text(&mut out, report);
+    render_duplications_text(&mut out, report);
+    render_coverage_text(&mut out, report, coverage_new_code);
+    if let Some(new_code) = new_code {
+        out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
+    }
+    render_test_report_text(&mut out, test_report);
+    out.push_str(&format!("Health score: {}/100\n", report.health_score()));
+    out.push_str(&format!("Rating: {}\n", report.rating()));
+    render_gate_text(&mut out, gate);
     out
 }
 
@@ -413,9 +443,46 @@ pub fn render_text(
 /// handoff tools like `react-doctor` print at the end of a run. Always
 /// plain text (regardless of `--format`): its only purpose is to be copied
 /// into a chat agent, not machine-parsed.
-pub fn render_agent_prompt(report: &AnalysisReport, gate: &GateEvaluation, scan_path: &str) -> String {
-    const MAX_LISTED_ISSUES: usize = 50;
+const MAX_PROMPT_LISTED_ISSUES: usize = 50;
 
+fn render_agent_prompt_issue_list(out: &mut String, issues: &[&Issue], scan_path: &str) {
+    for (n, issue) in issues.iter().take(MAX_PROMPT_LISTED_ISSUES).enumerate() {
+        out.push_str(&format!(
+            "{}. [{}] {} — {}:{}:{} — {}\n",
+            n + 1,
+            issue.severity().to_string().to_uppercase(),
+            issue.rule(),
+            issue.file(),
+            issue.span().start_line,
+            issue.span().start_col,
+            issue.message(),
+        ));
+    }
+    if issues.len() > MAX_PROMPT_LISTED_ISSUES {
+        out.push_str(&format!(
+            "... and {} more issue(s) — re-run `yunq scan {scan_path} --format json` for the full list.\n",
+            issues.len() - MAX_PROMPT_LISTED_ISSUES,
+        ));
+    }
+}
+
+fn render_agent_prompt_gate_conditions(out: &mut String, gate: &GateEvaluation) {
+    if gate.status() != GateStatus::Failed {
+        return;
+    }
+    out.push_str("\nPrioritize the issues blocking the quality gate:\n");
+    for failed in gate.failed_conditions() {
+        out.push_str(&format!(
+            "  - {} {} {} (actual: {})\n",
+            failed.condition.metric(),
+            failed.condition.operator().symbol(),
+            failed.condition.threshold(),
+            failed.value.unwrap_or_default(),
+        ));
+    }
+}
+
+pub fn render_agent_prompt(report: &AnalysisReport, gate: &GateEvaluation, scan_path: &str) -> String {
     let mut issues: Vec<&Issue> = report.issues().iter().collect();
     issues.sort_by(|a, b| {
         b.severity()
@@ -444,37 +511,8 @@ pub fn render_agent_prompt(report: &AnalysisReport, gate: &GateEvaluation, scan_
         gate.status(),
     ));
 
-    for (n, issue) in issues.iter().take(MAX_LISTED_ISSUES).enumerate() {
-        out.push_str(&format!(
-            "{}. [{}] {} — {}:{}:{} — {}\n",
-            n + 1,
-            issue.severity().to_string().to_uppercase(),
-            issue.rule(),
-            issue.file(),
-            issue.span().start_line,
-            issue.span().start_col,
-            issue.message(),
-        ));
-    }
-    if issues.len() > MAX_LISTED_ISSUES {
-        out.push_str(&format!(
-            "... and {} more issue(s) — re-run `yunq scan {scan_path} --format json` for the full list.\n",
-            issues.len() - MAX_LISTED_ISSUES,
-        ));
-    }
-
-    if gate.status() == GateStatus::Failed {
-        out.push_str("\nPrioritize the issues blocking the quality gate:\n");
-        for failed in gate.failed_conditions() {
-            out.push_str(&format!(
-                "  - {} {} {} (actual: {})\n",
-                failed.condition.metric(),
-                failed.condition.operator().symbol(),
-                failed.condition.threshold(),
-                failed.value.unwrap_or_default(),
-            ));
-        }
-    }
+    render_agent_prompt_issue_list(&mut out, &issues, scan_path);
+    render_agent_prompt_gate_conditions(&mut out, gate);
 
     out.push_str("---- end of yunq agent prompt ----\n");
     out
