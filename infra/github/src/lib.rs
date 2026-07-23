@@ -167,6 +167,25 @@ struct IssueCommentRequest {
     body: String,
 }
 
+/// The general summary comment body: the yunq marker + gate summary, plus
+/// (when non-empty) a bulleted list of issues that fell outside the PR diff.
+fn build_summary_body(gate_summary: &str, fallback_issues: &[Issue]) -> String {
+    let mut body = format!("<!-- yunq-pr-comment -->\n{}\n\n", gate_summary);
+    if !fallback_issues.is_empty() {
+        body.push_str("### ⚠️ Issues outside the pull request diff\n\n");
+        for issue in fallback_issues {
+            body.push_str(&format!(
+                "- **{}** in `{}:{}`: {}\n",
+                issue.rule(),
+                issue.file(),
+                issue.span().start_line,
+                issue.message()
+            ));
+        }
+    }
+    body
+}
+
 #[derive(Deserialize)]
 struct PullRequestResponse {
     head: PullRequestHead,
@@ -252,6 +271,116 @@ impl GitHubStatusReporter {
     }
 }
 
+impl GitHubStatusReporter {
+    /// Posts one review comment for `issue` at `commit_id`, skipping it if
+    /// an equivalent comment already exists (same path/line/rule). Returns
+    /// `Some(issue)` when GitHub rejected the comment as outside the PR
+    /// diff (422) — the caller folds those into the general summary
+    /// instead — and propagates any other failure.
+    async fn post_issue_review_comment(
+        &self,
+        comments_url: &str,
+        commit_id: &str,
+        existing_comments: &[PullRequestCommentResponse],
+        issue: &Issue,
+    ) -> Result<Option<Issue>, AlmError> {
+        let body = format!("**{}**\n{}", issue.rule(), issue.message());
+
+        if existing_comments.iter().any(|c| {
+            c.path == issue.file()
+                && c.line_number() == Some(issue.span().start_line)
+                && c.body.contains(issue.rule().as_str())
+        }) {
+            return Ok(None);
+        }
+
+        let req_body = PullRequestCommentRequest {
+            commit_id,
+            path: issue.file(),
+            line: issue.span().start_line,
+            body: body.clone(),
+        };
+
+        let response = self
+            .client
+            .post(comments_url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "yunq")
+            .json(&req_body)
+            .send()
+            .await
+            .map_err(|e| AlmError(e.to_string()))?;
+
+        if response.status().is_success() {
+            return Ok(None);
+        }
+        if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
+            return Ok(Some(issue.clone()));
+        }
+        let status_code = response.status();
+        let text = response.text().await.unwrap_or_default();
+        Err(AlmError(format!("GitHub returned {status_code}: {text}")))
+    }
+
+    /// Sends `req_body` as a PATCH to `existing`'s comment when one is
+    /// given, else as a POST creating a new comment at `issue_comments_url`.
+    async fn send_summary_comment(
+        &self,
+        existing: Option<&IssueCommentResponse>,
+        issue_comments_url: &str,
+        req_body: &IssueCommentRequest,
+    ) -> Result<reqwest::Response, AlmError> {
+        let request = match existing {
+            Some(existing) => {
+                let update_url =
+                    format!("{}/repos/{}/{}/issues/comments/{}", self.api_base, self.owner, self.repo, existing.id);
+                self.client.patch(&update_url)
+            }
+            None => self.client.post(issue_comments_url),
+        };
+        request
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "yunq")
+            .json(req_body)
+            .send()
+            .await
+            .map_err(|e| AlmError(e.to_string()))
+    }
+
+    /// Creates or updates the single yunq-tagged general summary comment on
+    /// the PR (identified by the `<!-- yunq-pr-comment -->` marker),
+    /// listing any issues that fell outside the diff.
+    async fn upsert_summary_comment(
+        &self,
+        pr: u32,
+        gate_summary: &str,
+        fallback_issues: &[Issue],
+    ) -> Result<(), AlmError> {
+        let general_body = build_summary_body(gate_summary, fallback_issues);
+
+        let issue_comments_url =
+            format!("{}/repos/{}/{}/issues/{}/comments", self.api_base, self.owner, self.repo, pr);
+        let existing_issue_comments: Vec<IssueCommentResponse> =
+            self.get_all_pages(&issue_comments_url).await?;
+        let existing_comment =
+            existing_issue_comments.iter().find(|c| c.body.contains("<!-- yunq-pr-comment -->"));
+
+        let req_body = IssueCommentRequest { body: general_body };
+        let response =
+            self.send_summary_comment(existing_comment, &issue_comments_url, &req_body).await?;
+
+        if !response.status().is_success() {
+            let status_code = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(AlmError(format!("GitHub returned {status_code}: {text}")));
+        }
+
+        Ok(())
+    }
+}
+
 impl AlmPullRequestReporter for GitHubStatusReporter {
     async fn report_pull_request_review(
         &self,
@@ -268,97 +397,15 @@ impl AlmPullRequestReporter for GitHubStatusReporter {
             self.get_all_pages(&comments_url).await?;
 
         let mut fallback_issues = Vec::new();
-
         for issue in new_issues {
-            let body = format!("**{}**\n{}", issue.rule(), issue.message());
-
-            // Check for duplicates
-            if existing_comments.iter().any(|c| {
-                c.path == issue.file()
-                    && c.line_number() == Some(issue.span().start_line)
-                    && c.body.contains(issue.rule().as_str())
-            }) {
-                continue;
-            }
-
-            let req_body = PullRequestCommentRequest {
-                commit_id: &commit_id,
-                path: issue.file(),
-                line: issue.span().start_line,
-                body: body.clone(),
-            };
-
-            let response = self
-                .client
-                .post(&comments_url)
-                .bearer_auth(&self.token)
-                .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "yunq")
-                .json(&req_body)
-                .send()
-                .await
-                .map_err(|e| AlmError(e.to_string()))?;
-
-            if !response.status().is_success() {
-                // If it's a 422 Unprocessable Entity, it usually means the line is outside the PR diff.
-                if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
-                    fallback_issues.push(issue.clone());
-                } else {
-                    let status_code = response.status();
-                    let text = response.text().await.unwrap_or_default();
-                    return Err(AlmError(format!("GitHub returned {status_code}: {text}")));
-                }
+            if let Some(fallback) =
+                self.post_issue_review_comment(&comments_url, &commit_id, &existing_comments, issue).await?
+            {
+                fallback_issues.push(fallback);
             }
         }
 
-        // Handle fallback and general summary
-        let mut general_body = format!("<!-- yunq-pr-comment -->\n{}\n\n", gate_summary);
-        if !fallback_issues.is_empty() {
-            general_body.push_str("### ⚠️ Issues outside the pull request diff\n\n");
-            for issue in &fallback_issues {
-                general_body.push_str(&format!("- **{}** in `{}:{}`: {}\n", issue.rule(), issue.file(), issue.span().start_line, issue.message()));
-            }
-        }
-
-        let issue_comments_url = format!("{}/repos/{}/{}/issues/{}/comments", self.api_base, self.owner, self.repo, pr);
-
-        let existing_issue_comments: Vec<IssueCommentResponse> =
-            self.get_all_pages(&issue_comments_url).await?;
-
-        let existing_comment = existing_issue_comments.iter().find(|c| c.body.contains("<!-- yunq-pr-comment -->"));
-
-        let req_body = IssueCommentRequest { body: general_body };
-
-        let response = if let Some(existing) = existing_comment {
-            let update_url = format!("{}/repos/{}/{}/issues/comments/{}", self.api_base, self.owner, self.repo, existing.id);
-            self.client
-                .patch(&update_url)
-                .bearer_auth(&self.token)
-                .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "yunq")
-                .json(&req_body)
-                .send()
-                .await
-                .map_err(|e| AlmError(e.to_string()))?
-        } else {
-            self.client
-                .post(&issue_comments_url)
-                .bearer_auth(&self.token)
-                .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "yunq")
-                .json(&req_body)
-                .send()
-                .await
-                .map_err(|e| AlmError(e.to_string()))?
-        };
-
-        if !response.status().is_success() {
-            let status_code = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(AlmError(format!("GitHub returned {status_code}: {text}")));
-        }
-
-        Ok(())
+        self.upsert_summary_comment(pr, gate_summary, &fallback_issues).await
     }
 }
 

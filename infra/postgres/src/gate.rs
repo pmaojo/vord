@@ -113,7 +113,10 @@ impl PgIssueStorage {
     /// to it, or the instance-wide default gate row, or (if neither row
     /// exists — a fresh database with migrations not yet seeded) the
     /// built-in `default_gate()` baked into the binary.
-    pub async fn gate_for_project(&self, project_id: i64) -> Result<QualityGate, StorageError> {
+    /// The gate id explicitly assigned to the project, or (if unassigned)
+    /// the instance-wide default gate's id, or `None` if neither row exists
+    /// (a fresh database with migrations not yet seeded).
+    async fn resolved_gate_id(&self, project_id: i64) -> Result<Option<i64>, StorageError> {
         let assigned: Option<i64> =
             sqlx::query("SELECT gate_id FROM projects WHERE id = $1")
                 .bind(project_id)
@@ -125,18 +128,20 @@ impl PgIssueStorage {
                 .map_err(storage_err)?
                 .flatten();
 
-        let gate_id = match assigned {
-            Some(id) => Some(id),
+        match assigned {
+            Some(id) => Ok(Some(id)),
             None => sqlx::query("SELECT id FROM quality_gates WHERE is_default LIMIT 1")
                 .fetch_optional(&self.pool)
                 .await
                 .map_err(storage_err)?
                 .map(|row| row.try_get::<i64, _>("id"))
                 .transpose()
-                .map_err(storage_err)?,
-        };
+                .map_err(storage_err),
+        }
+    }
 
-        let Some(gate_id) = gate_id else {
+    pub async fn gate_for_project(&self, project_id: i64) -> Result<QualityGate, StorageError> {
+        let Some(gate_id) = self.resolved_gate_id(project_id).await? else {
             return Ok(default_gate());
         };
 
@@ -289,7 +294,47 @@ impl PgIssueStorage {
     }
 }
 
+fn rows_to_conditions(rows: &[PgRow]) -> Result<Vec<(String, ComparisonOperator, f64)>, StorageError> {
+    let mut conditions = Vec::with_capacity(rows.len());
+    for row in rows {
+        let metric: String = row.try_get("metric").map_err(storage_err)?;
+        let operator: String = row.try_get("operator").map_err(storage_err)?;
+        let threshold: f64 = row.try_get("threshold").map_err(storage_err)?;
+        conditions.push((metric, operator_from_column(&operator)?, threshold));
+    }
+    Ok(conditions)
+}
+
 impl PgIssueStorage {
+    /// Replaces the full condition set of a gate: deletes all existing rows,
+    /// then inserts `conditions` in order.
+    async fn replace_gate_conditions(
+        tx: &mut sqlx::PgConnection,
+        gate_id: i64,
+        conditions: &[(String, ComparisonOperator, f64)],
+    ) -> Result<(), StorageError> {
+        sqlx::query("DELETE FROM quality_gate_conditions WHERE gate_id = $1")
+            .bind(gate_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(storage_err)?;
+
+        for (metric, operator, threshold) in conditions {
+            sqlx::query(
+                "INSERT INTO quality_gate_conditions (gate_id, metric, operator, threshold)
+                 VALUES ($1, $2, $3, $4)",
+            )
+            .bind(gate_id)
+            .bind(metric)
+            .bind(operator_to_column(*operator))
+            .bind(threshold)
+            .execute(&mut *tx)
+            .await
+            .map_err(storage_err)?;
+        }
+        Ok(())
+    }
+
     /// Creates the named gate if it doesn't exist yet, then replaces its
     /// full condition set — the write path behind
     /// `PUT /api/quality-gates/{name}`. Returns `(before, after)` condition
@@ -322,33 +367,9 @@ impl PgIssueStorage {
         .fetch_all(&mut *tx)
         .await
         .map_err(storage_err)?;
-        let mut before = Vec::with_capacity(before_rows.len());
-        for row in &before_rows {
-            let metric: String = row.try_get("metric").map_err(storage_err)?;
-            let operator: String = row.try_get("operator").map_err(storage_err)?;
-            let threshold: f64 = row.try_get("threshold").map_err(storage_err)?;
-            before.push((metric, operator_from_column(&operator)?, threshold));
-        }
+        let before = rows_to_conditions(&before_rows)?;
 
-        sqlx::query("DELETE FROM quality_gate_conditions WHERE gate_id = $1")
-            .bind(gate_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_err)?;
-
-        for (metric, operator, threshold) in conditions {
-            sqlx::query(
-                "INSERT INTO quality_gate_conditions (gate_id, metric, operator, threshold)
-                 VALUES ($1, $2, $3, $4)",
-            )
-            .bind(gate_id)
-            .bind(metric)
-            .bind(operator_to_column(*operator))
-            .bind(threshold)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_err)?;
-        }
+        Self::replace_gate_conditions(&mut tx, gate_id, conditions).await?;
 
         tx.commit().await.map_err(storage_err)?;
         Ok((before, conditions.to_vec()))

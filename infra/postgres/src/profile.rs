@@ -11,6 +11,56 @@ fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
 }
 
+async fn profile_activations(
+    tx: &mut sqlx::PgConnection,
+    profile_id: i64,
+) -> Result<Vec<(String, String)>, StorageError> {
+    let rows = sqlx::query(
+        "SELECT rule, severity FROM quality_profile_activations
+         WHERE profile_id = $1 ORDER BY id",
+    )
+    .bind(profile_id)
+    .fetch_all(tx)
+    .await
+    .map_err(storage_err)?;
+    let mut activations = Vec::with_capacity(rows.len());
+    for row in &rows {
+        activations.push((
+            row.try_get::<String, _>("rule").map_err(storage_err)?,
+            row.try_get::<String, _>("severity").map_err(storage_err)?,
+        ));
+    }
+    Ok(activations)
+}
+
+async fn replace_profile_activations(
+    tx: &mut sqlx::PgConnection,
+    profile_id: i64,
+    activations: &[(RuleId, Severity)],
+) -> Result<Vec<(String, String)>, StorageError> {
+    sqlx::query("DELETE FROM quality_profile_activations WHERE profile_id = $1")
+        .bind(profile_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(storage_err)?;
+
+    let mut after = Vec::with_capacity(activations.len());
+    for (rule, severity) in activations {
+        sqlx::query(
+            "INSERT INTO quality_profile_activations (profile_id, rule, severity)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(profile_id)
+        .bind(rule.as_str())
+        .bind(severity.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(storage_err)?;
+        after.push((rule.as_str().to_string(), severity.as_str().to_string()));
+    }
+    Ok(after)
+}
+
 impl PgIssueStorage {
     /// Creates the named profile if it doesn't exist yet, then replaces its
     /// full set of rule activations — the write path behind
@@ -36,42 +86,8 @@ impl PgIssueStorage {
         .try_get("id")
         .map_err(storage_err)?;
 
-        let before_rows = sqlx::query(
-            "SELECT rule, severity FROM quality_profile_activations
-             WHERE profile_id = $1 ORDER BY id",
-        )
-        .bind(profile_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(storage_err)?;
-        let mut before = Vec::with_capacity(before_rows.len());
-        for row in &before_rows {
-            before.push((
-                row.try_get::<String, _>("rule").map_err(storage_err)?,
-                row.try_get::<String, _>("severity").map_err(storage_err)?,
-            ));
-        }
-
-        sqlx::query("DELETE FROM quality_profile_activations WHERE profile_id = $1")
-            .bind(profile_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_err)?;
-
-        let mut after = Vec::with_capacity(activations.len());
-        for (rule, severity) in activations {
-            sqlx::query(
-                "INSERT INTO quality_profile_activations (profile_id, rule, severity)
-                 VALUES ($1, $2, $3)",
-            )
-            .bind(profile_id)
-            .bind(rule.as_str())
-            .bind(severity.as_str())
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_err)?;
-            after.push((rule.as_str().to_string(), severity.as_str().to_string()));
-        }
+        let before = profile_activations(&mut tx, profile_id).await?;
+        let after = replace_profile_activations(&mut tx, profile_id, activations).await?;
 
         tx.commit().await.map_err(storage_err)?;
         Ok((before, after))
