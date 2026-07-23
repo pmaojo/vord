@@ -4,12 +4,8 @@ import { useGlobalStore } from '../../stores/global-store';
 import {
   Search,
   HelpCircle,
-  Bell,
-  ShieldCheck,
   User,
-  LogOut,
   ChevronDown,
-  Sparkles
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -87,15 +83,6 @@ export const TopNavbar: React.FC = () => {
             <HelpCircle className="w-4 h-4" />
           </a>
 
-          {/* Notifications */}
-          <button
-            className="p-1.5 text-gray-300 hover:text-white hover:bg-[#3b4b5b] rounded transition-colors relative"
-            title="Notifications"
-          >
-            <Bell className="w-4 h-4" />
-            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#4b9fd5] ring-2 ring-[#233445]"></span>
-          </button>
-
           {/* User Profile */}
           <div className="relative">
             <button
@@ -133,30 +120,6 @@ export const TopNavbar: React.FC = () => {
                     <User className="w-3.5 h-3.5 text-slate-400" />
                     My Account & Security
                   </Link>
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setUserDropdownOpen(false);
-                      alert('You are logged in as System Administrator.');
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-[#4b9fd5]" />
-                    License & Features
-                  </a>
-                </div>
-                <div className="border-t border-gray-100 pt-1">
-                  <button
-                    onClick={() => {
-                      setUserDropdownOpen(false);
-                      alert('yunq Session: You are using local administrator privileges.');
-                    }}
-                    className="w-full text-left flex items-center gap-2 px-4 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Log out
-                  </button>
                 </div>
               </div>
             )}

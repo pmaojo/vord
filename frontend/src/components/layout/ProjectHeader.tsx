@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Project } from '../../types';
 import { QualityGateBadge } from '../common/QualityGateBadge';
-import { GitBranch, FolderGit2, Calendar, Settings } from 'lucide-react';
+import { GitBranch, FolderGit2, Calendar, Settings, X, Plus, Trash2, Loader2 } from 'lucide-react';
 import { formatTimeAgo, cn } from '../../lib/utils';
+import { grantPermission, revokePermission } from '../../lib/api';
+import { useAuditLog } from '../../lib/queries';
 
 interface ProjectHeaderProps {
   project: Project;
@@ -18,6 +21,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
 }) => {
   const { projectKey } = useParams<{ projectKey: string }>();
   const encodedKey = encodeURIComponent(project.key);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const subNavs = [
     { label: 'Overview', path: `/projects/${encodedKey}/overview` },
@@ -79,9 +83,9 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
 
             {/* Settings button */}
             <button
-              onClick={() => alert(`Project settings for ${project.name}`)}
+              onClick={() => setSettingsOpen(true)}
               className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
-              title="Project Settings"
+              title="Project Permissions"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -106,6 +110,120 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
               {nav.label}
             </NavLink>
           ))}
+        </div>
+      </div>
+
+      {settingsOpen && <ProjectPermissionsModal projectKey={project.key} onClose={() => setSettingsOpen(false)} />}
+    </div>
+  );
+};
+
+const ProjectPermissionsModal: React.FC<{ projectKey: string; onClose: () => void }> = ({ projectKey, onClose }) => {
+  const queryClient = useQueryClient();
+  const { data: auditLog, isLoading } = useAuditLog('project_permission');
+  const [userLogin, setUserLogin] = useState('');
+  const [role, setRole] = useState('viewer');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const grants = (auditLog?.items ?? []).filter((entry) => entry.entity_id.startsWith(`${projectKey}:`));
+
+  const handleGrant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userLogin) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await grantPermission(projectKey, userLogin, role);
+      setUserLogin('');
+      queryClient.invalidateQueries({ queryKey: ['audit-log', 'project_permission'] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to grant permission');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRevoke = async (user: string) => {
+    try {
+      await revokePermission(projectKey, user);
+      queryClient.invalidateQueries({ queryKey: ['audit-log', 'project_permission'] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke permission');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+          <h3 className="text-lg font-bold text-slate-900">Project Permissions</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-500 mb-4 font-mono">{projectKey}</p>
+
+        <form onSubmit={handleGrant} className="flex items-end gap-2 mb-4">
+          <div className="flex-1">
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">User Login</label>
+            <input
+              type="text"
+              value={userLogin}
+              onChange={(e) => setUserLogin(e.target.value)}
+              placeholder="octocat"
+              className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-mono"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Role</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold"
+            >
+              <option value="admin">admin</option>
+              <option value="editor">editor</option>
+              <option value="viewer">viewer</option>
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white font-bold text-xs rounded flex items-center gap-1.5"
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+          </button>
+        </form>
+
+        {error && (
+          <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2.5 py-1.5 mb-3">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-1 text-xs font-mono max-h-48 overflow-y-auto">
+          {isLoading && <div className="text-slate-400">Loading...</div>}
+          {!isLoading && grants.length === 0 && <div className="text-slate-400">No grants recorded yet.</div>}
+          {grants.map((entry) => {
+            const user = entry.entity_id.split(':')[1];
+            const afterRole =
+              entry.after && typeof entry.after === 'object' && 'role' in (entry.after as Record<string, unknown>)
+                ? String((entry.after as Record<string, unknown>).role)
+                : null;
+            return (
+              <div key={entry.id} className="flex items-center justify-between border-b border-slate-100 py-1.5">
+                <span>{user} {afterRole ? `(${afterRole})` : '(revoked)'}</span>
+                {afterRole && (
+                  <button onClick={() => handleRevoke(user)} className="text-rose-500 hover:text-rose-700">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
