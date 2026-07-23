@@ -206,60 +206,60 @@ impl WebhookDispatcher {
         hooks
     }
 
+    /// The webhook(s) `request` targets: the one named by `webhook_id`, or
+    /// every registration subscribed to `request.event` when none is given.
+    fn resolve_webhooks(&self, request: &DispatchWebhookDto) -> Result<Vec<WebhookRegistration>, WebhookError> {
+        let registrations = self.inner.registrations.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(webhook_id) = request.webhook_id.as_ref() {
+            let webhook = registrations
+                .get(webhook_id)
+                .cloned()
+                .ok_or_else(|| webhook_error(StatusCode::NOT_FOUND, "webhook registration not found"))?;
+            Ok(vec![webhook])
+        } else {
+            Ok(registrations.values().filter(|webhook| webhook.events.contains(&request.event)).cloned().collect())
+        }
+    }
+
+    /// Builds the delivery job for `webhook`/`request` and hands it to the
+    /// dispatcher channel, returning the queued-delivery DTO on success.
+    async fn queue_delivery(
+        &self,
+        webhook: WebhookRegistration,
+        request: &DispatchWebhookDto,
+    ) -> Result<QueuedDeliveryDto, WebhookError> {
+        if !webhook.events.contains(&request.event) {
+            return Err(webhook_error(StatusCode::BAD_REQUEST, "target webhook is not subscribed to this event"));
+        }
+        let delivery_id = crate::auth::random_token(16);
+        let body = serde_json::to_vec(&serde_json::json!({
+            "id": delivery_id.clone(),
+            "event": request.event.clone(),
+            "created_at": unix_millis(),
+            "payload": request.payload.clone(),
+        }))
+        .map_err(|error| webhook_error(StatusCode::BAD_REQUEST, error.to_string()))?;
+        let job = DeliveryJob {
+            delivery_id: delivery_id.clone(),
+            webhook: webhook.clone(),
+            event: request.event.clone(),
+            body,
+        };
+        self.inner.sender.send(job).await.map_err(|_| {
+            self.inner.metrics.webhook_queue_error();
+            webhook_error(StatusCode::SERVICE_UNAVAILABLE, "webhook dispatcher is unavailable")
+        })?;
+        self.inner.metrics.webhook_queued();
+        Ok(QueuedDeliveryDto { delivery_id, webhook_id: webhook.id, event: request.event.clone(), status: "queued" })
+    }
+
     async fn dispatch(&self, request: DispatchWebhookDto) -> Result<Vec<QueuedDeliveryDto>, WebhookError> {
         validate_event(&request.event)?;
-        let webhooks = {
-            let registrations = self
-                .inner
-                .registrations
-                .read()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(webhook_id) = request.webhook_id.as_ref() {
-                vec![registrations.get(webhook_id).cloned().ok_or_else(|| {
-                    webhook_error(StatusCode::NOT_FOUND, "webhook registration not found")
-                })?]
-            } else {
-                registrations
-                    .values()
-                    .filter(|webhook| webhook.events.contains(&request.event))
-                    .cloned()
-                    .collect()
-            }
-        };
+        let webhooks = self.resolve_webhooks(&request)?;
 
         let mut queued = Vec::with_capacity(webhooks.len());
         for webhook in webhooks {
-            if !webhook.events.contains(&request.event) {
-                return Err(webhook_error(
-                    StatusCode::BAD_REQUEST,
-                    "target webhook is not subscribed to this event",
-                ));
-            }
-            let delivery_id = crate::auth::random_token(16);
-            let body = serde_json::to_vec(&serde_json::json!({
-                "id": delivery_id.clone(),
-                "event": request.event.clone(),
-                "created_at": unix_millis(),
-                "payload": request.payload.clone(),
-            }))
-            .map_err(|error| webhook_error(StatusCode::BAD_REQUEST, error.to_string()))?;
-            let job = DeliveryJob {
-                delivery_id: delivery_id.clone(),
-                webhook: webhook.clone(),
-                event: request.event.clone(),
-                body,
-            };
-            self.inner.sender.send(job).await.map_err(|_| {
-                self.inner.metrics.webhook_queue_error();
-                webhook_error(StatusCode::SERVICE_UNAVAILABLE, "webhook dispatcher is unavailable")
-            })?;
-            self.inner.metrics.webhook_queued();
-            queued.push(QueuedDeliveryDto {
-                delivery_id,
-                webhook_id: webhook.id,
-                event: request.event.clone(),
-                status: "queued",
-            });
+            queued.push(self.queue_delivery(webhook, &request).await?);
         }
         Ok(queued)
     }
@@ -285,38 +285,49 @@ async fn run_dispatcher(inner: Arc<DispatcherInner>, mut receiver: mpsc::Receive
     }
 }
 
+/// The outcome of one HTTP delivery attempt, before retry policy is applied.
+struct AttemptOutcome {
+    success: bool,
+    retryable: bool,
+    http_status: Option<u16>,
+    error: Option<String>,
+    elapsed: Duration,
+}
+
+/// Sends one signed HTTP delivery attempt for `job` and classifies the
+/// result — success, a retryable failure (5xx/network error), or a
+/// terminal one (4xx).
+async fn send_delivery_attempt(inner: &DispatcherInner, job: &DeliveryJob) -> AttemptOutcome {
+    let started = Instant::now();
+    let signature = sign_payload(&job.webhook.secret, &job.body);
+    let response = inner
+        .client
+        .post(&job.webhook.url)
+        .header("content-type", "application/json")
+        .header("x-yunq-event", &job.event)
+        .header("x-yunq-delivery", &job.delivery_id)
+        .header("x-yunq-signature-256", signature) // yunq-ignore: secrets:high-entropy-string (HTTP header name, not a secret value)
+        .body(job.body.clone())
+        .send()
+        .await;
+    let elapsed = started.elapsed();
+    let (success, retryable, http_status, error) = match response {
+        Ok(response) if response.status().is_success() => (true, false, Some(response.status().as_u16()), None),
+        Ok(response) => {
+            let status = response.status();
+            (false, is_retryable_status(status), Some(status.as_u16()), Some(format!("endpoint returned {status}")))
+        }
+        Err(error) => (false, true, None, Some(error.to_string())),
+    };
+    AttemptOutcome { success, retryable, http_status, error, elapsed }
+}
+
 async fn deliver_with_retries(inner: &DispatcherInner, job: DeliveryJob) {
     for attempt in 1..=inner.max_attempts {
         inner.metrics.webhook_attempted();
-        let started = Instant::now();
-        let signature = sign_payload(&job.webhook.secret, &job.body);
-        let response = inner
-            .client
-            .post(&job.webhook.url)
-            .header("content-type", "application/json")
-            .header("x-yunq-event", &job.event)
-            .header("x-yunq-delivery", &job.delivery_id)
-            .header("x-yunq-signature-256", signature)
-            .body(job.body.clone())
-            .send()
-            .await;
-        let elapsed = started.elapsed();
-        let (success, retryable, http_status, error) = match response {
-            Ok(response) if response.status().is_success() => {
-                (true, false, Some(response.status().as_u16()), None)
-            }
-            Ok(response) => {
-                let status = response.status();
-                (
-                    false,
-                    is_retryable_status(status),
-                    Some(status.as_u16()),
-                    Some(format!("endpoint returned {status}")),
-                )
-            }
-            Err(error) => (false, true, None, Some(error.to_string())),
-        };
-        let will_retry = !success && retryable && attempt < inner.max_attempts;
+        let outcome = send_delivery_attempt(inner, &job).await;
+
+        let will_retry = !outcome.success && outcome.retryable && attempt < inner.max_attempts;
         let delay = will_retry.then(|| retry_delay(inner.retry_base, attempt));
         record_attempt(
             inner,
@@ -325,7 +336,7 @@ async fn deliver_with_retries(inner: &DispatcherInner, job: DeliveryJob) {
                 webhook_id: job.webhook.id.clone(),
                 event: job.event.clone(),
                 attempt,
-                outcome: if success {
+                outcome: if outcome.success {
                     "success"
                 } else if will_retry {
                     "retrying"
@@ -333,14 +344,14 @@ async fn deliver_with_retries(inner: &DispatcherInner, job: DeliveryJob) {
                     "failed"
                 }
                 .to_string(),
-                http_status,
-                error,
-                duration_ms: elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+                http_status: outcome.http_status,
+                error: outcome.error,
+                duration_ms: outcome.elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
                 attempted_at: unix_millis(),
                 next_retry_in_ms: delay.map(|duration| duration.as_millis() as u64),
             },
         );
-        if success {
+        if outcome.success {
             inner.metrics.webhook_succeeded();
             return;
         }

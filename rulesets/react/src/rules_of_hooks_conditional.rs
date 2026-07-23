@@ -42,36 +42,48 @@ fn is_early_return_guard(if_node: &AstNode) -> bool {
     !has_else && if_node.children().get(1).is_some_and(branch_terminates)
 }
 
+fn report_if_conditional_hook_call(node: &AstNode, conditional: bool, findings: &mut Vec<Finding>) {
+    if !conditional {
+        return;
+    }
+    if let Some(name) = hook_call_name(node) {
+        findings.push(Finding::new(
+            format!(
+                "React Hook `{name}` is called conditionally; Hooks must run in the same order on every render"
+            ),
+            node.span(),
+        ));
+    }
+}
+
+/// A block/program's children run in sequence, so a statement after an
+/// unconditional early exit (`return`/`throw`, or an early-return guard) is
+/// itself reached conditionally even though it isn't nested inside a branch.
+fn walk_block(node: &AstNode, conditional: bool, findings: &mut Vec<Finding>) {
+    let mut after_return = false;
+    for child in node.children() {
+        if *child.kind() == NodeKind::FunctionDef {
+            continue;
+        }
+        walk(child, conditional || after_return || is_conditional_kind(child), findings);
+        if is_other(child, "return_statement")
+            || is_other(child, "throw_statement")
+            || (is_other(child, "if_statement") && is_early_return_guard(child))
+        {
+            after_return = true;
+        }
+    }
+}
+
 /// Walks `node`'s subtree tracking whether the current position is reached
 /// conditionally, stopping at nested `FunctionDef` boundaries (a hook call
 /// inside a distinct nested function is that function's own concern, judged
 /// independently when the top-level scan reaches it).
 fn walk(node: &AstNode, conditional: bool, findings: &mut Vec<Finding>) {
-    if conditional {
-        if let Some(name) = hook_call_name(node) {
-            findings.push(Finding::new(
-                format!(
-                    "React Hook `{name}` is called conditionally; Hooks must run in the same order on every render"
-                ),
-                node.span(),
-            ));
-        }
-    }
+    report_if_conditional_hook_call(node, conditional, findings);
 
     if is_other(node, "statement_block") || is_other(node, "program") {
-        let mut after_return = false;
-        for child in node.children() {
-            if *child.kind() == NodeKind::FunctionDef {
-                continue;
-            }
-            walk(child, conditional || after_return || is_conditional_kind(child), findings);
-            if is_other(child, "return_statement")
-                || is_other(child, "throw_statement")
-                || (is_other(child, "if_statement") && is_early_return_guard(child))
-            {
-                after_return = true;
-            }
-        }
+        walk_block(node, conditional, findings);
         return;
     }
 

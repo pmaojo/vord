@@ -108,28 +108,37 @@ fn is_match_operator(node: tree_sitter::Node<'_>, source: &str) -> bool {
     source.get(left.end_byte()..right.start_byte()).map(|gap| gap.trim() == "=").unwrap_or(false)
 }
 
-fn map_kind(node: tree_sitter::Node<'_>, source: &str) -> NodeKind {
+/// The macro-detection cases that can't be table-driven: they depend on
+/// the call target text or the operator recovered from a source gap, not
+/// on `node.kind()` alone.
+fn special_case_kind(node: tree_sitter::Node<'_>, source: &str) -> Option<NodeKind> {
     if let Some(target) = call_target(node, source) {
         if DEF_MACROS.contains(&target) {
-            return NodeKind::FunctionDef;
+            return Some(NodeKind::FunctionDef);
         }
         if MODULE_MACROS.contains(&target) {
-            return NodeKind::Other("defmodule".to_string());
+            return Some(NodeKind::Other("defmodule".to_string()));
         }
     }
     if is_match_operator(node, source) {
-        return NodeKind::Assignment;
+        return Some(NodeKind::Assignment);
     }
-    match node.kind() {
-        "source" => NodeKind::SourceUnit,
-        "call" => NodeKind::Call,
-        "anonymous_function" => NodeKind::FunctionDef,
-        "string" | "charlist" => NodeKind::StringLiteral,
-        "identifier" => NodeKind::Identifier,
-        "dot" => NodeKind::MemberAccess,
-        "comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
-    }
+    None
+}
+
+const KIND_TABLE: &[(&str, NodeKind)] = &[
+    ("source", NodeKind::SourceUnit),
+    ("call", NodeKind::Call),
+    ("anonymous_function", NodeKind::FunctionDef),
+    ("string", NodeKind::StringLiteral),
+    ("charlist", NodeKind::StringLiteral),
+    ("identifier", NodeKind::Identifier),
+    ("dot", NodeKind::MemberAccess),
+    ("comment", NodeKind::Comment),
+];
+
+fn map_kind(node: tree_sitter::Node<'_>, source: &str) -> NodeKind {
+    special_case_kind(node, source).unwrap_or_else(|| yunq_ast::lookup_kind(KIND_TABLE, node.kind()))
 }
 
 #[cfg(test)]

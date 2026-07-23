@@ -39,13 +39,19 @@ impl Rule for SelectStarRule {
         Severity::Minor
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        if yunq_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
+        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::StringLiteral)
+            .filter(|literal| !yunq_rules_engine::in_ranges(&test_ranges, literal.span().start_line))
             .filter(|literal| contains_select_star(literal.text()))
             .map(|literal| {
                 Finding::new(
-                    "query uses SELECT *; name the columns you actually need",
+                    "query selects every column with `*`; name the columns you actually need",
                     literal.span(),
                 )
             })

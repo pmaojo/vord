@@ -64,23 +64,29 @@ fn span_of(node: tree_sitter::Node<'_>) -> Span {
     Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
 }
 
+const KIND_TABLE: &[(&str, NodeKind)] = &[
+    ("compilation_unit", NodeKind::SourceUnit),
+    ("method_declaration", NodeKind::FunctionDef),
+    ("local_function_statement", NodeKind::FunctionDef),
+    ("constructor_declaration", NodeKind::FunctionDef),
+    ("destructor_declaration", NodeKind::FunctionDef),
+    ("invocation_expression", NodeKind::Call),
+    ("string_literal", NodeKind::StringLiteral),
+    ("raw_string_literal", NodeKind::StringLiteral),
+    ("verbatim_string_literal", NodeKind::StringLiteral),
+    ("interpolated_string_expression", NodeKind::StringLiteral),
+    ("identifier", NodeKind::Identifier),
+    ("variable_declaration", NodeKind::VariableDecl),
+    ("local_declaration_statement", NodeKind::VariableDecl),
+    ("field_declaration", NodeKind::VariableDecl),
+    ("assignment_expression", NodeKind::Assignment),
+    ("member_access_expression", NodeKind::MemberAccess),
+    ("conditional_access_expression", NodeKind::MemberAccess),
+    ("comment", NodeKind::Comment),
+];
+
 fn map_kind(kind: &str) -> NodeKind {
-    match kind {
-        "compilation_unit" => NodeKind::SourceUnit,
-        "method_declaration" | "local_function_statement" | "constructor_declaration"
-        | "destructor_declaration" => NodeKind::FunctionDef,
-        "invocation_expression" => NodeKind::Call,
-        "string_literal" | "raw_string_literal" | "verbatim_string_literal"
-        | "interpolated_string_expression" => NodeKind::StringLiteral,
-        "identifier" => NodeKind::Identifier,
-        "variable_declaration" | "local_declaration_statement" | "field_declaration" => {
-            NodeKind::VariableDecl
-        }
-        "assignment_expression" => NodeKind::Assignment,
-        "member_access_expression" | "conditional_access_expression" => NodeKind::MemberAccess,
-        "comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
-    }
+    yunq_ast::lookup_kind(KIND_TABLE, kind)
 }
 
 #[cfg(test)]

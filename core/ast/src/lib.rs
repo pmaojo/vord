@@ -7,5 +7,5 @@ mod node;
 mod source;
 
 pub use language::{LanguageIdentifier, UnsupportedLanguageError};
-pub use node::{AstNode, Descendants, NodeKind, Span};
+pub use node::{AstNode, Descendants, NodeKind, Span, lookup_kind};
 pub use source::{SourceFile, SourceFileError};

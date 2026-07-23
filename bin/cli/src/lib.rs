@@ -41,6 +41,38 @@ use yunq_rules_engine::{
 
 pub mod output;
 
+/// Every parser the default service registers. Its own flat data literal
+/// (complexity 1) so `default_service` doesn't carry the whole fluent
+/// registration chain's line count.
+fn all_default_parsers() -> Vec<Box<dyn yunq_rules_engine::AstParser>> {
+    vec![
+        Box::new(TypeScriptParser::new()),
+        Box::new(RustParser::new()),
+        Box::new(PythonParser::new()),
+        Box::new(GoParser::new()),
+        Box::new(JavaParser::new()),
+        Box::new(CParser::new()),
+        Box::new(CppParser::new()),
+        Box::new(PhpParser::new()),
+        Box::new(DockerfileParser::new()),
+        Box::new(CSharpParser::new()),
+        Box::new(RubyParser::new()),
+        Box::new(KotlinParser::new()),
+        Box::new(SwiftParser::new()),
+        Box::new(ScalaParser::new()),
+        Box::new(HtmlParser::new()),
+        Box::new(CssParser::new()),
+        Box::new(XmlParser::new()),
+        Box::new(JsonParser::new()),
+        Box::new(YamlParser::new()),
+        Box::new(HclParser::new()),
+        Box::new(BashParser::new()),
+        Box::new(GroovyParser::new()),
+        Box::new(LuaParser::new()),
+        Box::new(ElixirParser::new()),
+    ]
+}
+
 /// Builds the default analyzer: both parsers, every shipped rule, and a
 /// profile activating each rule at its default severity.
 pub fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
@@ -66,31 +98,10 @@ where
             .chain(cross_rules.iter().map(|r| (r.id().clone(), r.default_severity()))),
     );
 
-    let mut service = AnalyzerService::new(profile, storage, metrics)
-        .register_parser(Box::new(TypeScriptParser::new()))
-        .register_parser(Box::new(RustParser::new()))
-        .register_parser(Box::new(PythonParser::new()))
-        .register_parser(Box::new(GoParser::new()))
-        .register_parser(Box::new(JavaParser::new()))
-        .register_parser(Box::new(CParser::new()))
-        .register_parser(Box::new(CppParser::new()))
-        .register_parser(Box::new(PhpParser::new()))
-        .register_parser(Box::new(DockerfileParser::new()))
-        .register_parser(Box::new(CSharpParser::new()))
-        .register_parser(Box::new(RubyParser::new()))
-        .register_parser(Box::new(KotlinParser::new()))
-        .register_parser(Box::new(SwiftParser::new()))
-        .register_parser(Box::new(ScalaParser::new()))
-        .register_parser(Box::new(HtmlParser::new()))
-        .register_parser(Box::new(CssParser::new()))
-        .register_parser(Box::new(XmlParser::new()))
-        .register_parser(Box::new(JsonParser::new()))
-        .register_parser(Box::new(YamlParser::new()))
-        .register_parser(Box::new(HclParser::new()))
-        .register_parser(Box::new(BashParser::new()))
-        .register_parser(Box::new(GroovyParser::new()))
-        .register_parser(Box::new(LuaParser::new()))
-        .register_parser(Box::new(ElixirParser::new()));
+    let mut service = AnalyzerService::new(profile, storage, metrics);
+    for parser in all_default_parsers() {
+        service = service.register_parser(parser);
+    }
     for rule in rules {
         service = service.register_rule(rule);
     }
@@ -169,7 +180,20 @@ pub async fn scan_with_exclusions(
     cache: Option<Arc<FileAnalysisCache>>,
     exclusions: &[String],
 ) -> anyhow::Result<AnalysisReport> {
-    let sources = yunq_infra_fs::collect_sources_excluding(path, exclusions)?;
+    scan_with_project_config(path, cache, &[], exclusions).await
+}
+
+/// Scans with an optional incremental cache, `yunq.toml`'s
+/// `[analysis] sources` (directories to scan — the whole tree when empty),
+/// and its `[analysis] exclusions` globs (matched against each file's path
+/// relative to `path`).
+pub async fn scan_with_project_config(
+    path: &Path,
+    cache: Option<Arc<FileAnalysisCache>>,
+    source_dirs: &[String],
+    exclusions: &[String],
+) -> anyhow::Result<AnalysisReport> {
+    let sources = yunq_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
     let mut service =
         default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
     if let Some(cache) = cache {

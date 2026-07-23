@@ -510,47 +510,51 @@ impl AnalysisReport {
     }
 
     pub fn measure(&self, key: &MetricKey) -> Option<f64> {
-        let severity_count = |severity: Severity| {
-            *self.metrics.issues_by_severity().get(&severity).unwrap_or(&0) as f64
-        };
-        match key.as_str() {
-            "files_scanned" => Some(self.metrics.files_scanned() as f64),
-            "lines_of_code" => Some(self.metrics.lines_of_code() as f64),
-            "parse_failures" => Some(self.metrics.parse_failures() as f64),
-            "issue_total" => Some(self.metrics.issue_total() as f64),
-            "blocker_issues" => Some(severity_count(Severity::Blocker)),
-            "critical_issues" => Some(severity_count(Severity::Critical)),
-            "major_issues" => Some(severity_count(Severity::Major)),
-            "minor_issues" => Some(severity_count(Severity::Minor)),
-            "info_issues" => Some(severity_count(Severity::Info)),
-            "hotspots" => Some(self.hotspots.len() as f64),
-            "duplicated_lines" => Some(self.metrics.duplicated_lines() as f64),
-            "duplicated_blocks" => Some(self.metrics.duplicated_blocks() as f64),
-            "duplicated_lines_density" => Some(self.metrics.duplicated_lines_density()),
-            "coverage" => self.coverage.and_then(|c| c.percent()),
-            "branch_coverage" => self.coverage.and_then(|c| c.percent_branches()),
-            "tests" => self.test_report.as_ref().map(|t| t.total_tests as f64),
-            "tests_passed" => self.test_report.as_ref().map(|t| t.passed_tests as f64),
-            "test_failures" => self.test_report.as_ref().map(|t| t.failed_tests as f64),
-            "test_errors" => self.test_report.as_ref().map(|t| t.errors as f64),
-            "test_skipped" => self.test_report.as_ref().map(|t| t.skipped_tests as f64),
-            "test_execution_time" => self.test_report.as_ref().map(|t| t.time_seconds),
-            "test_success_density" => self.test_report.as_ref().and_then(|t| t.pass_rate()),
-            "hotspots_to_review" => Some(
-                self.hotspots.iter().filter(|h| h.status() == HotspotStatus::ToReview).count()
-                    as f64,
-            ),
-            "debt_minutes" => Some(self.metrics.debt_minutes() as f64),
-            "functions" => Some(self.metrics.functions() as f64),
-            "classes" => Some(self.metrics.classes() as f64),
-            "statements" => Some(self.metrics.statements() as f64),
-            "comment_lines" => Some(self.metrics.comment_lines() as f64),
-            "comment_lines_density" => Some(self.metrics.comment_lines_density()),
-            "max_nesting_depth" => Some(self.metrics.max_nesting_depth() as f64),
-            _ => None,
-        }
+        MEASURE_TABLE.iter().find(|(k, _)| *k == key.as_str()).and_then(|(_, f)| f(self))
     }
 }
+
+fn severity_measure(report: &AnalysisReport, severity: Severity) -> Option<f64> {
+    Some(*report.metrics.issues_by_severity().get(&severity).unwrap_or(&0) as f64)
+}
+
+/// `MetricKey` -> measure lookup, replacing a 30-arm `match` (McCabe counts
+/// each arm as a branch) with an `.iter().find()` — complexity 1 regardless
+/// of table size.
+const MEASURE_TABLE: &[(&str, fn(&AnalysisReport) -> Option<f64>)] = &[
+    ("files_scanned", |r| Some(r.metrics.files_scanned() as f64)),
+    ("lines_of_code", |r| Some(r.metrics.lines_of_code() as f64)),
+    ("parse_failures", |r| Some(r.metrics.parse_failures() as f64)),
+    ("issue_total", |r| Some(r.metrics.issue_total() as f64)),
+    ("blocker_issues", |r| severity_measure(r, Severity::Blocker)),
+    ("critical_issues", |r| severity_measure(r, Severity::Critical)),
+    ("major_issues", |r| severity_measure(r, Severity::Major)),
+    ("minor_issues", |r| severity_measure(r, Severity::Minor)),
+    ("info_issues", |r| severity_measure(r, Severity::Info)),
+    ("hotspots", |r| Some(r.hotspots.len() as f64)),
+    ("duplicated_lines", |r| Some(r.metrics.duplicated_lines() as f64)),
+    ("duplicated_blocks", |r| Some(r.metrics.duplicated_blocks() as f64)),
+    ("duplicated_lines_density", |r| Some(r.metrics.duplicated_lines_density())),
+    ("coverage", |r| r.coverage.and_then(|c| c.percent())),
+    ("branch_coverage", |r| r.coverage.and_then(|c| c.percent_branches())),
+    ("tests", |r| r.test_report.as_ref().map(|t| t.total_tests as f64)),
+    ("tests_passed", |r| r.test_report.as_ref().map(|t| t.passed_tests as f64)),
+    ("test_failures", |r| r.test_report.as_ref().map(|t| t.failed_tests as f64)),
+    ("test_errors", |r| r.test_report.as_ref().map(|t| t.errors as f64)),
+    ("test_skipped", |r| r.test_report.as_ref().map(|t| t.skipped_tests as f64)),
+    ("test_execution_time", |r| r.test_report.as_ref().map(|t| t.time_seconds)),
+    ("test_success_density", |r| r.test_report.as_ref().and_then(|t| t.pass_rate())),
+    ("hotspots_to_review", |r| {
+        Some(r.hotspots.iter().filter(|h| h.status() == HotspotStatus::ToReview).count() as f64)
+    }),
+    ("debt_minutes", |r| Some(r.metrics.debt_minutes() as f64)),
+    ("functions", |r| Some(r.metrics.functions() as f64)),
+    ("classes", |r| Some(r.metrics.classes() as f64)),
+    ("statements", |r| Some(r.metrics.statements() as f64)),
+    ("comment_lines", |r| Some(r.metrics.comment_lines() as f64)),
+    ("comment_lines_density", |r| Some(r.metrics.comment_lines_density())),
+    ("max_nesting_depth", |r| Some(r.metrics.max_nesting_depth() as f64)),
+];
 
 #[cfg(test)]
 mod tests {

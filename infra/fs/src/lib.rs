@@ -56,47 +56,84 @@ pub fn collect_sources_excluding(
     root: &Path,
     exclusions: &[String],
 ) -> Result<Vec<SourceFile>, SourceLoadError> {
+    collect_sources_scoped(root, &[], exclusions)
+}
+
+/// Same as [`collect_sources_excluding`], but when `source_dirs` is
+/// non-empty only walks those directories (relative to `root`) instead of
+/// the whole tree — `yunq.toml`'s `[analysis] sources`. An empty
+/// `source_dirs` walks all of `root`, same as before.
+pub fn collect_sources_scoped(
+    root: &Path,
+    source_dirs: &[String],
+    exclusions: &[String],
+) -> Result<Vec<SourceFile>, SourceLoadError> {
     let excludes = build_globset(exclusions)?;
+    let roots: Vec<std::path::PathBuf> = if source_dirs.is_empty() {
+        vec![root.to_path_buf()]
+    } else {
+        source_dirs.iter().map(|dir| root.join(dir)).collect()
+    };
+
     let mut sources = Vec::new();
-    for entry in WalkBuilder::new(root).build() {
-        let entry = entry.map_err(|e| SourceLoadError::Walk(e.to_string()))?;
-        if !entry.file_type().is_some_and(|t| t.is_file()) {
-            continue;
-        }
-        let path = entry.path();
-        let Some(language) = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .and_then(LanguageIdentifier::from_extension)
-        else {
-            continue;
-        };
-        let relative = path.strip_prefix(root).unwrap_or(path);
-        if excludes.is_match(relative) {
-            continue;
-        }
-        let content = match std::fs::read_to_string(path) {
-            Ok(content) => content,
-            Err(e) if e.kind() == ErrorKind::InvalidData => continue,
-            Err(e) => return Err(e.into()),
-        };
-        let display = if relative.as_os_str().is_empty() {
-            // `root` itself is a single file (not a directory): there's no
-            // meaningful subpath to strip it to, so fall back to the full
-            // path with any leading `/` stripped — `SourceFile::new`
-            // rejects absolute paths, and silently dropping every file
-            // whenever `root` is passed as an absolute file path (e.g.
-            // `yunq scan /abs/path/to/file.ts`) is the bug this avoids.
-            path.to_string_lossy().trim_start_matches('/').to_string()
-        } else {
-            relative.to_string_lossy().to_string()
-        };
-        if let Ok(source) = SourceFile::new(display, content, language) {
-            sources.push(source);
+    for walk_root in &roots {
+        for entry in WalkBuilder::new(walk_root).build() {
+            let entry = entry.map_err(|e| SourceLoadError::Walk(e.to_string()))?;
+            if let Some(source) = load_source_entry(&entry, root, &excludes)? {
+                sources.push(source);
+            }
         }
     }
     sources.sort_by(|a, b| a.path().cmp(b.path()));
     Ok(sources)
+}
+
+/// Loads one walk entry into a [`SourceFile`], or `None` if it's not a
+/// regular file, has an unsupported extension, matches an exclusion glob,
+/// or isn't valid UTF-8 — every case `collect_sources_scoped`'s loop body
+/// used to skip inline via `continue`.
+fn load_source_entry(
+    entry: &ignore::DirEntry,
+    root: &Path,
+    excludes: &GlobSet,
+) -> Result<Option<SourceFile>, SourceLoadError> {
+    if !entry.file_type().is_some_and(|t| t.is_file()) {
+        return Ok(None);
+    }
+    let path = entry.path();
+    let Some(language) =
+        path.extension().and_then(|e| e.to_str()).and_then(LanguageIdentifier::from_extension)
+    else {
+        return Ok(None);
+    };
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    if is_excluded(relative, excludes) {
+        return Ok(None);
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == ErrorKind::InvalidData => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let display = display_path(path, relative);
+    Ok(SourceFile::new(display, content, language).ok())
+}
+
+fn is_excluded(relative: &Path, excludes: &GlobSet) -> bool {
+    excludes.is_match(relative)
+}
+
+/// `SourceFile::new` rejects absolute paths, so when `root` itself is a
+/// single file (there's no meaningful subpath to strip it to) fall back to
+/// the full path with any leading `/` stripped, rather than silently
+/// dropping every file whenever `root` is passed as an absolute file path
+/// (e.g. `yunq scan /abs/path/to/file.ts`).
+fn display_path(path: &Path, relative: &Path) -> String {
+    if relative.as_os_str().is_empty() {
+        path.to_string_lossy().trim_start_matches('/').to_string()
+    } else {
+        relative.to_string_lossy().to_string()
+    }
 }
 
 fn build_globset(patterns: &[String]) -> Result<GlobSet, SourceLoadError> {

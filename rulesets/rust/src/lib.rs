@@ -1,7 +1,8 @@
 //! Rust-specific rules: idioms and anti-patterns that only make sense for
 //! this language (`unsafe`, `mem::transmute`/`mem::forget`, abrupt process
 //! termination). Language-neutral checks (unwrap/expect, complexity,
-//! TODOs, …) that also apply to Rust live in `rulesets/code-smells`.
+//! postponed-work comments, …) that also apply to Rust live in
+//! `rulesets/code-smells`.
 
 mod mem_forget;
 mod mem_transmute;

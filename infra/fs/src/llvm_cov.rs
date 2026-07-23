@@ -54,6 +54,29 @@ pub fn parse_llvm_cov(content: &str) -> Result<CoverageSummary, LlvmCovError> {
     parse_llvm_cov_report(content)?.summary().map_err(|e| LlvmCovError::Malformed(e.to_string()))
 }
 
+/// `(line, count)` for one llvm-cov segment
+/// (`[line, col, count, hasCount, isRegionEntry, isGapRegion]`), if it
+/// carries a count at all (`hasCount`).
+fn segment_hit(segment: &[Value]) -> Option<(u32, usize)> {
+    let has_count = segment.get(3).and_then(Value::as_bool).unwrap_or(false);
+    if !has_count {
+        return None;
+    }
+    let line = segment.first().and_then(Value::as_u64)?;
+    let count = segment.get(2).and_then(Value::as_u64)?;
+    Some((line as u32, count as usize))
+}
+
+fn file_coverage_detail(file: &LlvmCovFile) -> FileCoverage {
+    let mut coverage = FileCoverage::new(file.filename.clone().unwrap_or_default());
+    for segment in &file.segments {
+        if let Some((line, count)) = segment_hit(segment) {
+            coverage.record_line(line, count);
+        }
+    }
+    coverage
+}
+
 /// Like [`parse_llvm_cov`], but also returns per-file line-hit detail for
 /// coverage-on-new-code.
 pub fn parse_llvm_cov_report(content: &str) -> Result<CoverageReport, LlvmCovError> {
@@ -67,34 +90,20 @@ pub fn parse_llvm_cov_report(content: &str) -> Result<CoverageReport, LlvmCovErr
     let mut files = Vec::new();
     let mut records = 0usize;
 
-    for data in export.data {
-        for file in data.files {
-            let covered = file.summary.lines.covered;
-            let total = file.summary.lines.count;
-            if total == 0 {
-                continue;
-            }
-            total_covered_lines += covered;
-            total_lines += total;
-            if let Some(branches) = &file.summary.branches {
-                total_covered_branches += branches.covered;
-                total_branches += branches.count;
-            }
-            records += 1;
-
-            let mut coverage = FileCoverage::new(file.filename.unwrap_or_default());
-            for segment in &file.segments {
-                let line = segment.first().and_then(Value::as_u64);
-                let count = segment.get(2).and_then(Value::as_u64);
-                let has_count = segment.get(3).and_then(Value::as_bool).unwrap_or(false);
-                if let (Some(line), Some(count)) = (line, count) {
-                    if has_count {
-                        coverage.record_line(line as u32, count as usize);
-                    }
-                }
-            }
-            files.push(coverage);
+    for file in export.data.into_iter().flat_map(|data| data.files) {
+        let covered = file.summary.lines.covered;
+        let total = file.summary.lines.count;
+        if total == 0 {
+            continue;
         }
+        total_covered_lines += covered;
+        total_lines += total;
+        if let Some(branches) = &file.summary.branches {
+            total_covered_branches += branches.covered;
+            total_branches += branches.count;
+        }
+        records += 1;
+        files.push(file_coverage_detail(&file));
     }
 
     if records == 0 {

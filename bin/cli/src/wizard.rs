@@ -19,6 +19,36 @@ use crate::output;
 const CI_WORKFLOW_PATH: &str = ".github/workflows/yunq.yml";
 const CI_ACTION_REF: &str = "pmaojo/yunq@main";
 
+/// Resolves the chosen scope to a scan path/diff-file-list, runs the scan,
+/// persists the cache, and evaluates the gate — everything `run()`'s
+/// `'rescan` loop needs before it can enter the action menu.
+async fn scan_for_scope(
+    theme: &ColorfulTheme,
+    root: &Path,
+    git_root: Option<&Path>,
+) -> anyhow::Result<(PathBuf, Option<Vec<String>>, AnalysisReport, GateEvaluation)> {
+    let scope = prompt_scope(theme, git_root)?;
+    let (scan_path, diff_files) = match scope {
+        Scope::WholeRepo => (root.to_path_buf(), None),
+        Scope::Diff { base } => (root.to_path_buf(), changed_files(root, &base)),
+        Scope::Custom(path) => (path, None),
+    };
+
+    println!("\nAnalizando {}...", scan_path.display());
+    let cache = scan_path
+        .is_dir()
+        .then(|| std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(scan_path.join(".yunq-cache.json"))));
+    let report = yunq_cli::scan_with_cache(&scan_path, cache.clone()).await?;
+    if let Some(cache) = &cache
+        && let Err(e) = cache.persist()
+    {
+        eprintln!("warning: could not persist analysis cache: {e}");
+    }
+    let gate = yunq_cli::default_quality_gate().evaluate(|key| report.measure(key));
+
+    Ok((scan_path, diff_files, report, gate))
+}
+
 pub async fn run() -> anyhow::Result<ExitCode> {
     if !is_interactive() {
         eprintln!(
@@ -35,24 +65,7 @@ pub async fn run() -> anyhow::Result<ExitCode> {
     print_welcome(&root, git_root.as_deref());
 
     'rescan: loop {
-        let scope = prompt_scope(&theme, git_root.as_deref())?;
-        let (scan_path, diff_files) = match scope {
-            Scope::WholeRepo => (root.clone(), None),
-            Scope::Diff { base } => (root.clone(), changed_files(&root, &base)),
-            Scope::Custom(path) => (path, None),
-        };
-
-        println!("\nAnalizando {}...", scan_path.display());
-        let cache = scan_path.is_dir().then(|| {
-            std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(scan_path.join(".yunq-cache.json")))
-        });
-        let report = yunq_cli::scan_with_cache(&scan_path, cache.clone()).await?;
-        if let Some(cache) = &cache
-            && let Err(e) = cache.persist()
-        {
-            eprintln!("warning: could not persist analysis cache: {e}");
-        }
-        let gate = yunq_cli::default_quality_gate().evaluate(|key| report.measure(key));
+        let (scan_path, diff_files, report, gate) = scan_for_scope(&theme, &root, git_root.as_deref()).await?;
 
         print_summary(&report, &gate, diff_files.as_deref());
 
@@ -189,6 +202,62 @@ fn action_menu(theme: &ColorfulTheme, report: &AnalysisReport, git_root: Option<
     Ok(actions.remove(choice))
 }
 
+fn issue_labels(issues: &[&Issue]) -> Vec<String> {
+    let mut labels: Vec<String> = issues
+        .iter()
+        .map(|issue| {
+            format!(
+                "[{}] {} — {}:{} — {}",
+                issue.severity().as_str().to_uppercase(),
+                issue.rule(),
+                issue.file(),
+                issue.span().start_line,
+                truncate(issue.message(), 60),
+            )
+        })
+        .collect();
+    labels.push("‹ volver".to_string());
+    labels
+}
+
+/// Confirms and applies (or skips) an AI-verified fix for one issue.
+/// Always returns `Ok` — a rejected/failed fix is reported to the user,
+/// not propagated, so the caller's loop keeps offering the rest.
+async fn remediate_one(theme: &ColorfulTheme, scan_path: &Path, issue: &Issue) -> anyhow::Result<()> {
+    let confirmed = Confirm::with_theme(theme)
+        .with_prompt(format!(
+            "¿Aplicar y verificar un fix con IA para `{}` en {}:{}? Se aplica directamente al archivo y se \
+             revierte solo si no verifica.",
+            issue.rule(),
+            issue.file(),
+            issue.span().start_line,
+        ))
+        .default(false)
+        .interact()?;
+    if !confirmed {
+        return Ok(());
+    }
+
+    let file_path = scan_path.join(issue.file());
+    match yunq_cli::remediate_issue(&file_path, issue.rule().as_str(), None).await {
+        Ok((path, yunq_remediation::RemediationVerdict::Accepted { proposal })) => {
+            println!(
+                "\n✅ Fix verificado y aplicado en {}:\n{}\n\nExplicación: {}",
+                path.display(),
+                proposal.replacement_snippet,
+                proposal.explanation,
+            );
+        }
+        Ok((_, yunq_remediation::RemediationVerdict::Rejected { reason })) => {
+            eprintln!("❌ No se pudo verificar un fix: {reason}");
+        }
+        Err(err) => {
+            eprintln!("❌ Error al intentar el fix: {err:#}");
+        }
+    }
+    Ok(())
+}
+
 async fn remediate_loop(
     theme: &ColorfulTheme,
     report: &AnalysisReport,
@@ -206,20 +275,7 @@ async fn remediate_loop(
             println!("No hay más issues para arreglar.");
             return Ok(());
         }
-        let mut labels: Vec<String> = issues
-            .iter()
-            .map(|issue| {
-                format!(
-                    "[{}] {} — {}:{} — {}",
-                    issue.severity().as_str().to_uppercase(),
-                    issue.rule(),
-                    issue.file(),
-                    issue.span().start_line,
-                    truncate(issue.message(), 60),
-                )
-            })
-            .collect();
-        labels.push("‹ volver".to_string());
+        let labels = issue_labels(&issues);
 
         let choice =
             Select::with_theme(theme).with_prompt("Elige un issue para arreglar").items(&labels).default(0).interact()?;
@@ -227,37 +283,7 @@ async fn remediate_loop(
             return Ok(());
         }
 
-        let issue = issues[choice];
-        let confirmed = Confirm::with_theme(theme)
-            .with_prompt(format!(
-                "¿Aplicar y verificar un fix con IA para `{}` en {}:{}? Se aplica directamente al archivo y se \
-                 revierte solo si no verifica.",
-                issue.rule(),
-                issue.file(),
-                issue.span().start_line,
-            ))
-            .default(false)
-            .interact()?;
-
-        if confirmed {
-            let file_path = scan_path.join(issue.file());
-            match yunq_cli::remediate_issue(&file_path, issue.rule().as_str(), None).await {
-                Ok((path, yunq_remediation::RemediationVerdict::Accepted { proposal })) => {
-                    println!(
-                        "\n✅ Fix verificado y aplicado en {}:\n{}\n\nExplicación: {}",
-                        path.display(),
-                        proposal.replacement_snippet,
-                        proposal.explanation,
-                    );
-                }
-                Ok((_, yunq_remediation::RemediationVerdict::Rejected { reason })) => {
-                    eprintln!("❌ No se pudo verificar un fix: {reason}");
-                }
-                Err(err) => {
-                    eprintln!("❌ Error al intentar el fix: {err:#}");
-                }
-            }
-        }
+        remediate_one(theme, scan_path, issues[choice]).await?;
         // Best-effort: drop it from this session's list either way so the
         // same issue isn't offered twice without a fresh scan reloading it.
         issues.remove(choice);

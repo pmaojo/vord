@@ -65,19 +65,27 @@ fn span_of(node: tree_sitter::Node<'_>) -> Span {
     Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
 }
 
+const KIND_TABLE: &[(&str, NodeKind)] = &[
+    ("source_file", NodeKind::SourceUnit),
+    ("function_item", NodeKind::FunctionDef),
+    ("closure_expression", NodeKind::FunctionDef),
+    ("call_expression", NodeKind::Call),
+    ("macro_invocation", NodeKind::Call),
+    ("string_literal", NodeKind::StringLiteral),
+    ("raw_string_literal", NodeKind::StringLiteral),
+    ("identifier", NodeKind::Identifier),
+    ("field_identifier", NodeKind::Identifier),
+    ("shorthand_field_identifier", NodeKind::Identifier),
+    ("assignment_expression", NodeKind::Assignment),
+    ("compound_assignment_expr", NodeKind::Assignment),
+    ("let_declaration", NodeKind::VariableDecl),
+    ("field_expression", NodeKind::MemberAccess),
+    ("line_comment", NodeKind::Comment),
+    ("block_comment", NodeKind::Comment),
+];
+
 fn map_kind(kind: &str) -> NodeKind {
-    match kind {
-        "source_file" => NodeKind::SourceUnit,
-        "function_item" | "closure_expression" => NodeKind::FunctionDef,
-        "call_expression" | "macro_invocation" => NodeKind::Call,
-        "string_literal" | "raw_string_literal" => NodeKind::StringLiteral,
-        "identifier" | "field_identifier" | "shorthand_field_identifier" => NodeKind::Identifier,
-        "assignment_expression" | "compound_assignment_expr" => NodeKind::Assignment,
-        "let_declaration" => NodeKind::VariableDecl,
-        "field_expression" => NodeKind::MemberAccess,
-        "line_comment" | "block_comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
-    }
+    yunq_ast::lookup_kind(KIND_TABLE, kind)
 }
 
 #[cfg(test)]

@@ -12,6 +12,27 @@ use std::collections::{BTreeMap, BTreeSet};
 /// lines. Malformed or unrecognized lines are skipped rather than erroring —
 /// diff parsing here is best-effort support for an optional feature, not a
 /// strict format the tool controls.
+/// Applies one hunk-body line for `path` to `result`/`new_line`. Returns
+/// whether the hunk is still trustworthy afterward — `false` if this line
+/// doesn't match any recognized hunk-body shape, ending the hunk early.
+fn apply_hunk_line(line: &str, path: &str, result: &mut BTreeMap<String, BTreeSet<u32>>, new_line: &mut u32) -> bool {
+    if line.strip_prefix('+').is_some() {
+        result.entry(path.to_string()).or_default().insert(*new_line);
+        *new_line += 1;
+    } else if line.starts_with('-') {
+        // Removed from the old file; does not exist on the new side.
+    } else if line.starts_with(' ') || line.is_empty() {
+        *new_line += 1;
+    } else if line.starts_with('\\') {
+        // "\ No newline at end of file" — not a content line.
+    } else {
+        // Anything else ends the hunk body unexpectedly; stop trusting
+        // `new_line` until the next `@@`.
+        return false;
+    }
+    true
+}
+
 pub fn changed_lines_from_unified_diff(diff: &str) -> BTreeMap<String, BTreeSet<u32>> {
     let mut result: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
     let mut current_file: Option<String> = None;
@@ -32,24 +53,10 @@ pub fn changed_lines_from_unified_diff(diff: &str) -> BTreeMap<String, BTreeSet<
             } else {
                 in_hunk = false;
             }
-        } else if in_hunk {
-            if let Some(path) = &current_file {
-                if let Some(added) = line.strip_prefix('+') {
-                    let _ = added; // content unused — only the line number matters
-                    result.entry(path.clone()).or_default().insert(new_line);
-                    new_line += 1;
-                } else if line.starts_with('-') {
-                    // Removed from the old file; does not exist on the new side.
-                } else if line.starts_with(' ') || line.is_empty() {
-                    new_line += 1;
-                } else if line.starts_with('\\') {
-                    // "\ No newline at end of file" — not a content line.
-                } else {
-                    // Anything else ends the hunk body unexpectedly; stop
-                    // trusting `new_line` until the next `@@`.
-                    in_hunk = false;
-                }
-            }
+        } else if in_hunk
+            && let Some(path) = &current_file
+        {
+            in_hunk = apply_hunk_line(line, path, &mut result, &mut new_line);
         }
     }
 

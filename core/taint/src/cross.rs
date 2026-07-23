@@ -104,6 +104,143 @@ impl CrossFileTaint {
         flows
     }
 
+    /// Propagates taint through variable bindings (`VariableDecl`/
+    /// `Assignment`) to a local fixpoint: repeatedly re-scans until no
+    /// binding's known origins grow, so a chain like `a = b; c = a;`
+    /// resolves regardless of declaration order.
+    fn propagate_bindings(
+        &self,
+        body: &AstNode,
+        tainted: &mut HashMap<String, Origins>,
+        summaries: &HashMap<String, Summary>,
+    ) {
+        loop {
+            let mut changed = false;
+            for node in body
+                .descendants()
+                .filter(|n| matches!(n.kind(), NodeKind::VariableDecl | NodeKind::Assignment))
+            {
+                let Some(target) = node.first_child() else { continue };
+                if *target.kind() != NodeKind::Identifier {
+                    continue;
+                }
+                let mut origins = Origins::new();
+                for value in &node.children()[1..] {
+                    origins.extend(self.origins_of(value, tainted, summaries));
+                }
+                if origins.is_empty() {
+                    continue;
+                }
+                let entry = tainted.entry(target.text().to_string()).or_default();
+                let before = entry.len();
+                entry.extend(origins);
+                changed |= entry.len() != before;
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+
+    /// Direct sink: only parameters feed the summary; direct source→sink
+    /// stays with the intra-file analysis.
+    fn record_direct_sink(
+        &self,
+        call: &AstNode,
+        callee: &AstNode,
+        name: &str,
+        file: &str,
+        tainted: &HashMap<String, Origins>,
+        summaries: &HashMap<String, Summary>,
+        summary: &mut Summary,
+    ) {
+        if !self.is_sink(callee) {
+            return;
+        }
+        for arg in &call.children()[1..] {
+            for origin in self.origins_of(arg, tainted, summaries) {
+                if let Origin::Param(i) = origin {
+                    summary.param_to_sink.entry(i).or_insert_with(|| format!("`{name}` ({file})"));
+                }
+            }
+        }
+    }
+
+    /// Summarized call: its dangerous parameters are extended sinks — a
+    /// param-origin extends this region's own summary, a source-origin
+    /// emits a finding directly (the flow is complete here).
+    #[allow(clippy::too_many_arguments)]
+    fn record_summarized_call(
+        &self,
+        call: &AstNode,
+        name: &str,
+        file: &str,
+        tainted: &HashMap<String, Origins>,
+        summaries: &HashMap<String, Summary>,
+        summary: &mut Summary,
+        emissions: &mut Vec<CrossFileFlow>,
+    ) {
+        let Some(callee_summary) = summaries.get(name) else { return };
+        for (arg_index, arg) in call.children()[1..].iter().enumerate() {
+            let Some(sink) = callee_summary.param_to_sink.get(&arg_index) else { continue };
+            for origin in self.origins_of(arg, tainted, summaries) {
+                match origin {
+                    Origin::Param(i) => {
+                        summary.param_to_sink.entry(i).or_insert_with(|| format!("{sink} via `{name}`"));
+                    }
+                    Origin::Source(source) => emissions.push(CrossFileFlow {
+                        file: file.to_string(),
+                        span: call.span(),
+                        message: format!(
+                            "user input from `{source}` reaches sink {sink} through call to `{name}`"
+                        ),
+                    }),
+                }
+            }
+        }
+    }
+
+    /// Call sites: builds the summary and emits cross-file flows.
+    fn analyze_calls(
+        &self,
+        body: &AstNode,
+        file: &str,
+        tainted: &HashMap<String, Origins>,
+        summaries: &HashMap<String, Summary>,
+        summary: &mut Summary,
+        emissions: &mut Vec<CrossFileFlow>,
+    ) {
+        for call in body.descendants().filter(|n| *n.kind() == NodeKind::Call) {
+            let Some(callee) = call.first_child() else { continue };
+            let name = callee_name(callee);
+            self.record_direct_sink(call, callee, &name, file, tainted, summaries, summary);
+            self.record_summarized_call(call, &name, file, tainted, summaries, summary, emissions);
+        }
+    }
+
+    /// Returns: which taints escape through the return value.
+    fn analyze_returns(
+        &self,
+        body: &AstNode,
+        tainted: &HashMap<String, Origins>,
+        summaries: &HashMap<String, Summary>,
+        summary: &mut Summary,
+    ) {
+        for ret in body.descendants().filter(|n| match n.kind() {
+            NodeKind::Other(kind) => kind.starts_with("return"),
+            _ => false,
+        }) {
+            for origin in self.origins_of(ret, tainted, summaries) {
+                match origin {
+                    Origin::Param(i) => {
+                        summary.param_to_return.insert(i);
+                    }
+                    Origin::Source(_) => summary.returns_source = true,
+                }
+            }
+        }
+    }
+
     /// Analyzes one region (a function body or a whole file): propagates
     /// taint through bindings, consults summaries at call sites, and returns
     /// this region's summary plus any source→summarized-sink emissions.
@@ -119,100 +256,37 @@ impl CrossFileTaint {
             .enumerate()
             .map(|(i, name)| (name.clone(), BTreeSet::from([Origin::Param(i)])))
             .collect();
+        self.propagate_bindings(body, &mut tainted, summaries);
 
-        // Propagate through bindings to a local fixpoint.
-        loop {
-            let mut changed = false;
-            for node in body
-                .descendants()
-                .filter(|n| matches!(n.kind(), NodeKind::VariableDecl | NodeKind::Assignment))
-            {
-                let Some(target) = node.first_child() else { continue };
-                if *target.kind() != NodeKind::Identifier {
-                    continue;
-                }
-                let mut origins = Origins::new();
-                for value in &node.children()[1..] {
-                    origins.extend(self.origins_of(value, &tainted, summaries));
-                }
-                if origins.is_empty() {
-                    continue;
-                }
-                let entry = tainted.entry(target.text().to_string()).or_default();
-                let before = entry.len();
-                entry.extend(origins);
-                changed |= entry.len() != before;
-            }
-            if !changed {
-                break;
-            }
-        }
-
-        // Call sites: build the summary and emit cross-file flows.
         let mut summary = Summary::default();
         let mut emissions = Vec::new();
-        for call in body.descendants().filter(|n| *n.kind() == NodeKind::Call) {
-            let Some(callee) = call.first_child() else { continue };
-            let name = callee_name(callee);
-
-            // Direct sink: only parameters feed the summary; direct
-            // source→sink stays with the intra-file analysis.
-            if self.is_sink(callee) {
-                for arg in &call.children()[1..] {
-                    for origin in self.origins_of(arg, &tainted, summaries) {
-                        if let Origin::Param(i) = origin {
-                            summary
-                                .param_to_sink
-                                .entry(i)
-                                .or_insert_with(|| format!("`{name}` ({file})"));
-                        }
-                    }
-                }
-            }
-
-            // Summarized call: its dangerous parameters are extended sinks.
-            if let Some(callee_summary) = summaries.get(&name) {
-                for (arg_index, arg) in call.children()[1..].iter().enumerate() {
-                    let Some(sink) = callee_summary.param_to_sink.get(&arg_index) else {
-                        continue;
-                    };
-                    for origin in self.origins_of(arg, &tainted, summaries) {
-                        match origin {
-                            Origin::Param(i) => {
-                                summary
-                                    .param_to_sink
-                                    .entry(i)
-                                    .or_insert_with(|| format!("{sink} via `{name}`"));
-                            }
-                            Origin::Source(source) => emissions.push(CrossFileFlow {
-                                file: file.to_string(),
-                                span: call.span(),
-                                message: format!(
-                                    "user input from `{source}` reaches sink {sink} through call to `{name}`"
-                                ),
-                            }),
-                        }
-                    }
-                }
-            }
-        }
-
-        // Returns: which taints escape through the return value.
-        for ret in body.descendants().filter(|n| match n.kind() {
-            NodeKind::Other(kind) => kind.starts_with("return"),
-            _ => false,
-        }) {
-            for origin in self.origins_of(ret, &tainted, summaries) {
-                match origin {
-                    Origin::Param(i) => {
-                        summary.param_to_return.insert(i);
-                    }
-                    Origin::Source(_) => summary.returns_source = true,
-                }
-            }
-        }
+        self.analyze_calls(body, file, &tainted, summaries, &mut summary, &mut emissions);
+        self.analyze_returns(body, &tainted, summaries, &mut summary);
 
         (summary, emissions)
+    }
+
+    /// All taint origins reaching a `Call` node: does it return
+    /// source-tainted data itself, or forward one of its own tainted
+    /// arguments through to its return value (per its summary)?
+    fn call_origins(
+        &self,
+        node: &AstNode,
+        tainted: &HashMap<String, Origins>,
+        summaries: &HashMap<String, Summary>,
+    ) -> Origins {
+        let mut origins = Origins::new();
+        let Some(callee) = node.first_child() else { return origins };
+        let Some(summary) = summaries.get(&callee_name(callee)) else { return origins };
+        if summary.returns_source {
+            origins.insert(Origin::Source(format!("{}()", callee_name(callee))));
+        }
+        for (i, arg) in node.children()[1..].iter().enumerate() {
+            if summary.param_to_return.contains(&i) {
+                origins.extend(self.origins_of(arg, tainted, summaries));
+            }
+        }
+        origins
     }
 
     /// All taint origins reaching an expression subtree.
@@ -235,18 +309,7 @@ impl CrossFileTaint {
                         origins.extend(known.iter().cloned());
                     }
                 }
-                NodeKind::Call => {
-                    let Some(callee) = node.first_child() else { continue };
-                    let Some(summary) = summaries.get(&callee_name(callee)) else { continue };
-                    if summary.returns_source {
-                        origins.insert(Origin::Source(format!("{}()", callee_name(callee))));
-                    }
-                    for (i, arg) in node.children()[1..].iter().enumerate() {
-                        if summary.param_to_return.contains(&i) {
-                            origins.extend(self.origins_of(arg, tainted, summaries));
-                        }
-                    }
-                }
+                NodeKind::Call => origins.extend(self.call_origins(node, tainted, summaries)),
                 _ => {}
             }
         }

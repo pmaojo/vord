@@ -24,113 +24,156 @@ pub fn parse_lcov(content: &str) -> Result<CoverageSummary, LcovError> {
     parse_lcov_report(content)?.summary().map_err(|e| LcovError::Inconsistent(e.to_string()))
 }
 
-/// Like [`parse_lcov`], but also returns per-file line-hit detail for
-/// coverage-on-new-code.
-pub fn parse_lcov_report(content: &str) -> Result<CoverageReport, LcovError> {
-    let mut files = Vec::new();
-    let mut total_covered_lines = 0usize;
-    let mut total_coverable_lines = 0usize;
-    let mut total_covered_branches = 0usize;
-    let mut total_coverable_branches = 0usize;
-    let mut records = 0usize;
+fn parse_count(value: &str, line: usize, content: &str) -> Result<usize, LcovError> {
+    value.trim().parse::<usize>().map_err(|_| LcovError::Malformed { line, content: content.to_string() })
+}
 
-    // Per-record state.
-    let mut source_file: Option<String> = None;
-    let mut da_lines: BTreeMap<u32, usize> = BTreeMap::new();
-    let mut da_covered = 0usize;
-    let mut da_total = 0usize;
-    let mut lh: Option<usize> = None;
-    let mut lf: Option<usize> = None;
-    let mut brda_covered = 0usize;
-    let mut brda_total = 0usize;
-    let mut brh: Option<usize> = None;
-    let mut brf: Option<usize> = None;
+/// State accumulated between `SF:` and `end_of_record` for one file's
+/// record — one method per line prefix `parse_lcov_report`'s loop can
+/// dispatch to, instead of a long inline `if`/`else if` chain.
+#[derive(Default)]
+struct RecordAccumulator {
+    source_file: Option<String>,
+    da_lines: BTreeMap<u32, usize>,
+    da_covered: usize,
+    da_total: usize,
+    lh: Option<usize>,
+    lf: Option<usize>,
+    brda_covered: usize,
+    brda_total: usize,
+    brh: Option<usize>,
+    brf: Option<usize>,
+}
 
-    let parse_count = |value: &str, line: usize, content: &str| {
-        value
-            .trim()
-            .parse::<usize>()
-            .map_err(|_| LcovError::Malformed { line, content: content.to_string() })
-    };
+impl RecordAccumulator {
+    fn handle_da(&mut self, rest: &str, index: usize, raw: &str) -> Result<(), LcovError> {
+        let mut parts = rest.splitn(2, ',');
+        let malformed = || LcovError::Malformed { line: index + 1, content: raw.to_string() };
+        let (line_no, hits) = (parts.next().ok_or_else(malformed)?, parts.next().ok_or_else(malformed)?);
+        let line_no = parse_count(line_no, index + 1, raw)? as u32;
+        // Hits may carry a checksum suffix (`,<checksum>`) — already split off.
+        let hits = parse_count(hits.split(',').next().unwrap_or(hits), index + 1, raw)?;
+        self.da_lines.insert(line_no, hits);
+        self.da_total += 1;
+        if hits > 0 {
+            self.da_covered += 1;
+        }
+        Ok(())
+    }
 
-    for (index, raw) in content.lines().enumerate() {
-        let line = raw.trim();
-        if let Some(rest) = line.strip_prefix("SF:") {
-            source_file = Some(rest.trim().to_string());
-        } else if let Some(rest) = line.strip_prefix("DA:") {
-            let mut parts = rest.splitn(2, ',');
-            let (line_no, hits) = (
-                parts.next().ok_or_else(|| LcovError::Malformed {
-                    line: index + 1,
-                    content: raw.to_string(),
-                })?,
-                parts.next().ok_or_else(|| LcovError::Malformed {
-                    line: index + 1,
-                    content: raw.to_string(),
-                })?,
-            );
-            let line_no = parse_count(line_no, index + 1, raw)? as u32;
-            // Hits may carry a checksum suffix (`,<checksum>`) — already split off.
-            let hits = parse_count(hits.split(',').next().unwrap_or(hits), index + 1, raw)?;
-            da_lines.insert(line_no, hits);
-            da_total += 1;
-            if hits > 0 {
-                da_covered += 1;
-            }
-        } else if let Some(rest) = line.strip_prefix("BRDA:") {
-            let parts: Vec<&str> = rest.splitn(4, ',').collect();
-            let taken = parts.get(3).ok_or_else(|| LcovError::Malformed {
-                line: index + 1,
-                content: raw.to_string(),
-            })?;
-            brda_total += 1;
-            if taken.trim().parse::<usize>().is_ok_and(|hits| hits > 0) {
-                brda_covered += 1;
-            }
-        } else if let Some(rest) = line.strip_prefix("LH:") {
-            lh = Some(parse_count(rest, index + 1, raw)?);
-        } else if let Some(rest) = line.strip_prefix("LF:") {
-            lf = Some(parse_count(rest, index + 1, raw)?);
-        } else if let Some(rest) = line.strip_prefix("BRH:") {
-            brh = Some(parse_count(rest, index + 1, raw)?);
-        } else if let Some(rest) = line.strip_prefix("BRF:") {
-            brf = Some(parse_count(rest, index + 1, raw)?);
-        } else if line == "end_of_record" {
-            let (line_covered, line_total) = match (lh, lf) {
-                (Some(h), Some(f)) => (h, f),
-                _ => (da_covered, da_total),
-            };
-            let (branch_covered, branch_total) = match (brh, brf) {
-                (Some(h), Some(f)) => (h, f),
-                _ => (brda_covered, brda_total),
-            };
-            total_covered_lines += line_covered;
-            total_coverable_lines += line_total;
-            total_covered_branches += branch_covered;
-            total_coverable_branches += branch_total;
+    fn handle_brda(&mut self, rest: &str, index: usize, raw: &str) -> Result<(), LcovError> {
+        let parts: Vec<&str> = rest.splitn(4, ',').collect();
+        let taken = parts
+            .get(3)
+            .ok_or_else(|| LcovError::Malformed { line: index + 1, content: raw.to_string() })?;
+        self.brda_total += 1;
+        if taken.trim().parse::<usize>().is_ok_and(|hits| hits > 0) {
+            self.brda_covered += 1;
+        }
+        Ok(())
+    }
 
-            let mut file = FileCoverage::new(source_file.clone().unwrap_or_default());
-            for (&line_no, &hits) in &da_lines {
-                file.record_line(line_no, hits);
-            }
-            files.push(file);
-            records += 1;
-            (source_file, da_lines, da_covered, da_total, lh, lf, brda_covered, brda_total, brh, brf) =
-                (None, BTreeMap::new(), 0, 0, None, None, 0, 0, None, None);
+    /// `(covered, total)` lines for this record — the declared `LH`/`LF`
+    /// totals when present, else the count derived from `DA:` entries.
+    fn line_totals(&self) -> (usize, usize) {
+        match (self.lh, self.lf) {
+            (Some(h), Some(f)) => (h, f),
+            _ => (self.da_covered, self.da_total),
         }
     }
 
-    if records == 0 {
-        Err(LcovError::Empty)
-    } else {
-        Ok(CoverageReport::new(
-            files,
-            total_covered_lines,
-            total_coverable_lines,
-            total_covered_branches,
-            total_coverable_branches,
-        ))
+    /// `(covered, total)` branches for this record — the declared
+    /// `BRH`/`BRF` totals when present, else the count derived from
+    /// `BRDA:` entries.
+    fn branch_totals(&self) -> (usize, usize) {
+        match (self.brh, self.brf) {
+            (Some(h), Some(f)) => (h, f),
+            _ => (self.brda_covered, self.brda_total),
+        }
     }
+
+    fn into_file(self) -> FileCoverage {
+        let mut file = FileCoverage::new(self.source_file.unwrap_or_default());
+        for (&line_no, &hits) in &self.da_lines {
+            file.record_line(line_no, hits);
+        }
+        file
+    }
+}
+
+/// Whole-report state: the finished per-file records and running totals,
+/// plus the record currently being accumulated.
+#[derive(Default)]
+struct ReportAccumulator {
+    files: Vec<FileCoverage>,
+    total_covered_lines: usize,
+    total_coverable_lines: usize,
+    total_covered_branches: usize,
+    total_coverable_branches: usize,
+    records: usize,
+    current: RecordAccumulator,
+}
+
+impl ReportAccumulator {
+    /// Dispatches one trimmed source line by its LCOV prefix.
+    fn handle_line(&mut self, line: &str, index: usize, raw: &str) -> Result<(), LcovError> {
+        if let Some(rest) = line.strip_prefix("SF:") {
+            self.current.source_file = Some(rest.trim().to_string());
+        } else if let Some(rest) = line.strip_prefix("DA:") {
+            self.current.handle_da(rest, index, raw)?;
+        } else if let Some(rest) = line.strip_prefix("BRDA:") {
+            self.current.handle_brda(rest, index, raw)?;
+        } else if let Some(rest) = line.strip_prefix("LH:") {
+            self.current.lh = Some(parse_count(rest, index + 1, raw)?);
+        } else if let Some(rest) = line.strip_prefix("LF:") {
+            self.current.lf = Some(parse_count(rest, index + 1, raw)?);
+        } else if let Some(rest) = line.strip_prefix("BRH:") {
+            self.current.brh = Some(parse_count(rest, index + 1, raw)?);
+        } else if let Some(rest) = line.strip_prefix("BRF:") {
+            self.current.brf = Some(parse_count(rest, index + 1, raw)?);
+        } else if line == "end_of_record" {
+            self.finish_record();
+        }
+        Ok(())
+    }
+
+    /// Folds the current record's totals into the running totals and
+    /// starts a fresh record.
+    fn finish_record(&mut self) {
+        let (line_covered, line_total) = self.current.line_totals();
+        let (branch_covered, branch_total) = self.current.branch_totals();
+        self.total_covered_lines += line_covered;
+        self.total_coverable_lines += line_total;
+        self.total_covered_branches += branch_covered;
+        self.total_coverable_branches += branch_total;
+
+        self.files.push(std::mem::take(&mut self.current).into_file());
+        self.records += 1;
+    }
+
+    fn into_report(self) -> Result<CoverageReport, LcovError> {
+        if self.records == 0 {
+            Err(LcovError::Empty)
+        } else {
+            Ok(CoverageReport::new(
+                self.files,
+                self.total_covered_lines,
+                self.total_coverable_lines,
+                self.total_covered_branches,
+                self.total_coverable_branches,
+            ))
+        }
+    }
+}
+
+/// Like [`parse_lcov`], but also returns per-file line-hit detail for
+/// coverage-on-new-code.
+pub fn parse_lcov_report(content: &str) -> Result<CoverageReport, LcovError> {
+    let mut acc = ReportAccumulator::default();
+    for (index, raw) in content.lines().enumerate() {
+        acc.handle_line(raw.trim(), index, raw)?;
+    }
+    acc.into_report()
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
 
-/// Tracks `TODO`/`FIXME` comments so postponed work stays visible.
+/// Tracks postponed-work comment markers so they stay visible.
 pub struct TodoCommentRule {
     id: RuleId,
 }

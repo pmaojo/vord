@@ -77,6 +77,47 @@ where
     service
 }
 
+/// Evaluates the project's assigned gate (or the built-in default, if none
+/// was assigned) against this analysis' measures, and persists the outcome
+/// so the status badge reflects a real result instead of a hardcoded
+/// value. Best-effort: a failure here must not fail the scan job itself
+/// (the issues/hotspots/metrics are already durable).
+async fn persist_gate_result(gate_storage: &PgIssueStorage, job: &ScanJob, report: &yunq_rules_engine::AnalysisReport) {
+    const DEFAULT_BRANCH: &str = "main";
+    let project_id = match gate_storage.ensure_project(job.project()).await {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!("warning: could not resolve project {}: {e}", job.project());
+            return;
+        }
+    };
+
+    let gate =
+        gate_storage.gate_for_project(project_id).await.unwrap_or_else(|_| yunq_rules_engine::default_gate());
+    let evaluation = gate.evaluate(|key| report.measure(key));
+    let analysis_id = match gate_storage
+        .record_analysis(
+            project_id,
+            DEFAULT_BRANCH,
+            report.metrics().lines_of_code() as i64,
+            report.metrics().issue_total() as i32,
+        )
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!("warning: could not record analysis: {e}");
+            return;
+        }
+    };
+
+    if let Err(e) = gate_storage.save_gate_result(analysis_id, &evaluation).await {
+        eprintln!("warning: could not persist gate result: {e}");
+    } else {
+        println!("quality gate for {}: {}", job.project(), evaluation.status());
+    }
+}
+
 async fn handle_job<S, M>(
     service: &AnalyzerService<S, M>,
     gate_storage: &PgIssueStorage,
@@ -99,40 +140,7 @@ where
         report.metrics().issue_total()
     );
 
-    // Quality gate: evaluate the project's assigned gate (or the built-in
-    // default, if none was assigned) against this analysis' measures, and
-    // persist the outcome so the status badge reflects a real result instead
-    // of a hardcoded value. Best-effort: a failure here must not fail the
-    // scan job itself (the issues/hotspots/metrics are already durable).
-    const DEFAULT_BRANCH: &str = "main";
-    match gate_storage.ensure_project(job.project()).await {
-        Ok(project_id) => {
-            let gate = gate_storage
-                .gate_for_project(project_id)
-                .await
-                .unwrap_or_else(|_| yunq_rules_engine::default_gate());
-            let evaluation = gate.evaluate(|key| report.measure(key));
-            match gate_storage
-                .record_analysis(
-                    project_id,
-                    DEFAULT_BRANCH,
-                    report.metrics().lines_of_code() as i64,
-                    report.metrics().issue_total() as i32,
-                )
-                .await
-            {
-                Ok(analysis_id) => {
-                    if let Err(e) = gate_storage.save_gate_result(analysis_id, &evaluation).await {
-                        eprintln!("warning: could not persist gate result: {e}");
-                    } else {
-                        println!("quality gate for {}: {}", job.project(), evaluation.status());
-                    }
-                }
-                Err(e) => eprintln!("warning: could not record analysis: {e}"),
-            }
-        }
-        Err(e) => eprintln!("warning: could not resolve project {}: {e}", job.project()),
-    }
+    persist_gate_result(gate_storage, &job, &report).await;
 
     Ok(())
 }

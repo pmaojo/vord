@@ -40,12 +40,20 @@ impl Rule for WeakCryptoRule {
         if ast.kind() != &NodeKind::SourceUnit {
             return Vec::new();
         }
+        if yunq_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
+        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         let content = file.content();
         let weak_patterns = ["MD5", "Md5", "md5", "SHA1", "Sha1", "sha1", "DES", "RC4"];
 
         for (idx, line) in content.lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if yunq_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             let trimmed = line.trim();
             if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with('*') {
                 continue;

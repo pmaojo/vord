@@ -78,46 +78,68 @@ impl Rule for HardcodedSecretRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for node in ast
-            .descendants()
-            .filter(|n| matches!(n.kind(), NodeKind::VariableDecl | NodeKind::Assignment))
-        {
-            let Some(target) = node.first_child() else { continue };
-            if *target.kind() != NodeKind::Identifier {
-                continue;
-            }
-            let name = target.text().to_ascii_lowercase();
-            if !SUSPICIOUS_NAMES.iter().any(|s| name.contains(s)) {
-                continue;
-            }
-            for value in &node.children()[1..] {
-                if let Some(literal) = own_literal(value) {
-                    findings.push(Finding::new(
-                        format!("credential-looking variable `{}` holds a hardcoded string literal", target.text()),
-                        literal.span(),
-                    ));
-                }
-            }
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        if yunq_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
         }
+        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+        let in_test = |line: u32| yunq_rules_engine::in_ranges(&test_ranges, line);
 
-        for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
-            let text = literal.text();
-            if let Some((_, _, provider)) = PROVIDER_SIGNATURES
-                .iter()
-                .find(|(marker, min_len, _)| text.contains(marker) && text.len() >= *min_len)
-            {
+        let mut findings = credential_assignment_findings(ast, &in_test);
+        findings.extend(provider_signature_findings(ast, &in_test));
+        findings
+    }
+}
+
+/// Flags string literals assigned (directly, or via a receiver chain like
+/// `.to_string()`/`.into()`) to a credential-looking variable name.
+fn credential_assignment_findings(ast: &AstNode, in_test: &impl Fn(u32) -> bool) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for node in ast
+        .descendants()
+        .filter(|n| matches!(n.kind(), NodeKind::VariableDecl | NodeKind::Assignment))
+    {
+        let Some(target) = node.first_child() else { continue };
+        if *target.kind() != NodeKind::Identifier {
+            continue;
+        }
+        let name = target.text().to_ascii_lowercase();
+        if !SUSPICIOUS_NAMES.iter().any(|s| name.contains(s)) {
+            continue;
+        }
+        for value in &node.children()[1..] {
+            if let Some(literal) = own_literal(value) {
+                if in_test(literal.span().start_line) {
+                    continue;
+                }
                 findings.push(Finding::new(
-                    format!("string literal looks like a {provider}"),
+                    format!("credential-looking variable `{}` holds a hardcoded string literal", target.text()),
                     literal.span(),
                 ));
             }
         }
-
-        findings
     }
+    findings
+}
+
+/// Flags string literals anywhere in the file matching a well-known
+/// credential provider signature (AWS, GitHub, Stripe, Slack, Google,
+/// private keys).
+fn provider_signature_findings(ast: &AstNode, in_test: &impl Fn(u32) -> bool) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+        if in_test(literal.span().start_line) {
+            continue;
+        }
+        let text = literal.text();
+        if let Some((_, _, provider)) = PROVIDER_SIGNATURES
+            .iter()
+            .find(|(marker, min_len, _)| text.contains(marker) && text.len() >= *min_len)
+        {
+            findings.push(Finding::new(format!("string literal looks like a {provider}"), literal.span()));
+        }
+    }
+    findings
 }
 
 #[cfg(test)]

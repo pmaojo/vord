@@ -169,6 +169,129 @@ fn chunk_blocks(statements: &[Statement], block_size: usize) -> Vec<Block> {
     blocks
 }
 
+/// Hash -> every (file, block index) that produced it, across all files:
+/// SonarQube's CloneIndex — duplicates are found by hash lookup, not by
+/// comparing every pair of files against each other.
+fn build_hash_index(per_file_blocks: &[Vec<Block>]) -> HashMap<u64, Vec<(usize, usize)>> {
+    let mut index: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
+    for (file_index, blocks) in per_file_blocks.iter().enumerate() {
+        for (block_index, block) in blocks.iter().enumerate() {
+            index.entry(block.hash).or_default().push((file_index, block_index));
+        }
+    }
+    index
+}
+
+/// Records one matching pair of block locations, keyed by
+/// `(file_a, file_b, delta)` where `delta = block_index_b - block_index_a`
+/// — grouping by delta lets consecutive matching blocks be recognized as
+/// one contiguous run. `a`/`b` are order-independent (the smaller location
+/// is treated as `a`); a location never matches itself.
+fn record_pair(
+    matches: &mut BTreeMap<(usize, usize, isize), BTreeSet<usize>>,
+    a: (usize, usize),
+    b: (usize, usize),
+) {
+    if a == b {
+        return;
+    }
+    let (file_a, idx_a) = a;
+    let (file_b, idx_b) = b;
+    let delta = idx_b as isize - idx_a as isize;
+    matches.entry((file_a, file_b, delta)).or_default().insert(idx_b);
+}
+
+fn group_matches_by_delta(
+    index: &HashMap<u64, Vec<(usize, usize)>>,
+) -> BTreeMap<(usize, usize, isize), BTreeSet<usize>> {
+    let mut matches = BTreeMap::new();
+    for locations in index.values() {
+        if locations.len() < 2 {
+            continue;
+        }
+        for i in 0..locations.len() {
+            for j in (i + 1)..locations.len() {
+                let (a, b) =
+                    if locations[i] <= locations[j] { (locations[i], locations[j]) } else { (locations[j], locations[i]) };
+                record_pair(&mut matches, a, b);
+            }
+        }
+    }
+    matches
+}
+
+/// Collapses a sorted set of block-index "starts" into maximal runs of
+/// consecutive indices, each returned as an inclusive `(run_start, run_end)`.
+fn consecutive_runs(starts: &BTreeSet<usize>) -> Vec<(usize, usize)> {
+    let mut runs = Vec::new();
+    let mut run_start: Option<usize> = None;
+    let mut previous: Option<usize> = None;
+    for &start in starts {
+        match previous {
+            Some(prev) if start == prev + 1 => {}
+            Some(prev) => {
+                runs.push((
+                    run_start.expect("run_start is set on the first iteration and only cleared by this arm, which reads it first"),
+                    prev,
+                ));
+                run_start = Some(start);
+            }
+            None => run_start = Some(start),
+        }
+        previous = Some(start);
+    }
+    if let (Some(rs), Some(prev)) = (run_start, previous) {
+        runs.push((rs, prev));
+    }
+    runs
+}
+
+/// Builds the `DuplicateBlock` for one matched run and records every line
+/// it covers into `duplicated`.
+#[allow(clippy::too_many_arguments)]
+fn record_duplicate_run(
+    files: &[TokenizedFile],
+    per_file_blocks: &[Vec<Block>],
+    per_file_statements: &[Vec<Statement>],
+    file_a: usize,
+    file_b: usize,
+    delta: isize,
+    run_start: usize,
+    run_end: usize,
+    duplicated: &mut BTreeSet<(usize, u32)>,
+) -> DuplicateBlock {
+    let blocks_a = &per_file_blocks[file_a];
+    let blocks_b = &per_file_blocks[file_b];
+    let a_start = (run_start as isize - delta) as usize;
+    let a_end = (run_end as isize - delta) as usize;
+    let block_a = blocks_a[a_start];
+    let block_a_end = blocks_a[a_end];
+    let block_b = blocks_b[run_start];
+    let block_b_end = blocks_b[run_end];
+
+    let stmts_a = &per_file_statements[file_a];
+    let stmts_b = &per_file_statements[file_b];
+    for stmt in &stmts_a[block_a.stmt_start..=block_a_end.stmt_end] {
+        duplicated.insert((file_a, stmt.line_number));
+    }
+    for stmt in &stmts_b[block_b.stmt_start..=block_b_end.stmt_end] {
+        duplicated.insert((file_b, stmt.line_number));
+    }
+
+    let first = BlockRef {
+        file: files[file_a].path.clone(),
+        start_line: stmts_a[block_a.stmt_start].line_number,
+        end_line: stmts_a[block_a_end.stmt_end].line_number,
+    };
+    let second = BlockRef {
+        file: files[file_b].path.clone(),
+        start_line: stmts_b[block_b.stmt_start].line_number,
+        end_line: stmts_b[block_b_end.stmt_end].line_number,
+    };
+    let lines = (second.end_line - second.start_line + 1) as usize;
+    DuplicateBlock { first, second, lines }
+}
+
 pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> DuplicationReport {
     let block_size = config.block_size.max(2);
     let per_file_statements: Vec<Vec<Statement>> =
@@ -176,93 +299,24 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
     let per_file_blocks: Vec<Vec<Block>> =
         per_file_statements.iter().map(|s| chunk_blocks(s, block_size)).collect();
 
-    // Hash -> every (file, block index) that produced it, across all files:
-    // SonarQube's CloneIndex — duplicates are found by hash lookup, not by
-    // comparing every pair of files against each other.
-    let mut index: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
-    for (file_index, blocks) in per_file_blocks.iter().enumerate() {
-        for (block_index, block) in blocks.iter().enumerate() {
-            index.entry(block.hash).or_default().push((file_index, block_index));
-        }
-    }
-
-    // (file_a, file_b, delta) -> matched block indices in file_b, where
-    // delta = block_index_b - block_index_a. Grouping by delta lets
-    // consecutive matching blocks be recognized as one contiguous run.
-    let mut matches: BTreeMap<(usize, usize, isize), BTreeSet<usize>> = BTreeMap::new();
-    for locations in index.values() {
-        if locations.len() < 2 {
-            continue;
-        }
-        for i in 0..locations.len() {
-            for j in (i + 1)..locations.len() {
-                let (a, b) = if locations[i] <= locations[j] {
-                    (locations[i], locations[j])
-                } else {
-                    (locations[j], locations[i])
-                };
-                if a == b {
-                    continue;
-                }
-                let (file_a, idx_a) = a;
-                let (file_b, idx_b) = b;
-                let delta = idx_b as isize - idx_a as isize;
-                matches.entry((file_a, file_b, delta)).or_default().insert(idx_b);
-            }
-        }
-    }
+    let index = build_hash_index(&per_file_blocks);
+    let matches = group_matches_by_delta(&index);
 
     let mut blocks_out = Vec::new();
     let mut duplicated: BTreeSet<(usize, u32)> = BTreeSet::new();
     for ((file_a, file_b, delta), starts) in matches {
-        let mut run_start: Option<usize> = None;
-        let mut previous: Option<usize> = None;
-        let mut flush = |run_start: usize, run_end: usize| {
-            let blocks_a = &per_file_blocks[file_a];
-            let blocks_b = &per_file_blocks[file_b];
-            let a_start = (run_start as isize - delta) as usize;
-            let a_end = (run_end as isize - delta) as usize;
-            let block_a = blocks_a[a_start];
-            let block_a_end = blocks_a[a_end];
-            let block_b = blocks_b[run_start];
-            let block_b_end = blocks_b[run_end];
-
-            let stmts_a = &per_file_statements[file_a];
-            let stmts_b = &per_file_statements[file_b];
-            for stmt in &stmts_a[block_a.stmt_start..=block_a_end.stmt_end] {
-                duplicated.insert((file_a, stmt.line_number));
-            }
-            for stmt in &stmts_b[block_b.stmt_start..=block_b_end.stmt_end] {
-                duplicated.insert((file_b, stmt.line_number));
-            }
-
-            let first = BlockRef {
-                file: files[file_a].path.clone(),
-                start_line: stmts_a[block_a.stmt_start].line_number,
-                end_line: stmts_a[block_a_end.stmt_end].line_number,
-            };
-            let second = BlockRef {
-                file: files[file_b].path.clone(),
-                start_line: stmts_b[block_b.stmt_start].line_number,
-                end_line: stmts_b[block_b_end.stmt_end].line_number,
-            };
-            let lines = (second.end_line - second.start_line + 1) as usize;
-            blocks_out.push(DuplicateBlock { first, second, lines });
-        };
-
-        for &start in &starts {
-            match previous {
-                Some(prev) if start == prev + 1 => {}
-                Some(prev) => {
-                    flush(run_start.unwrap(), prev);
-                    run_start = Some(start);
-                }
-                None => run_start = Some(start),
-            }
-            previous = Some(start);
-        }
-        if let (Some(rs), Some(prev)) = (run_start, previous) {
-            flush(rs, prev);
+        for (run_start, run_end) in consecutive_runs(&starts) {
+            blocks_out.push(record_duplicate_run(
+                files,
+                &per_file_blocks,
+                &per_file_statements,
+                file_a,
+                file_b,
+                delta,
+                run_start,
+                run_end,
+                &mut duplicated,
+            ));
         }
     }
 
