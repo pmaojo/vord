@@ -14,7 +14,7 @@ use yunq_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 #[command(name = "yunq", about = "yunq static analysis", version)]
 struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -114,7 +114,8 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Scan {
+        None => run_wizard().await,
+        Some(Command::Scan {
             path,
             format,
             fail_on,
@@ -134,7 +135,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             github_token,
             github_repo,
             agent_prompt,
-        } => {
+        }) => {
             let threshold = fail_on
                 .map(|raw| {
                     Severity::parse(&raw).ok_or_else(|| {
@@ -365,7 +366,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 Ok(ExitCode::SUCCESS)
             }
         }
-        Command::Fix { path, issue, model } => {
+        Some(Command::Fix { path, issue, model }) => {
             println!("🤖 Requesting AI remediation for issue '{issue}' in {}...", path.display());
 
             let path = path
@@ -434,4 +435,195 @@ fn find_git_root(start: &Path) -> Option<PathBuf> {
             return None;
         }
     }
+}
+
+async fn run_wizard() -> anyhow::Result<ExitCode> {
+    let scope_options = [
+        "Complete repository",
+        "Changed lines only (diff against base branch)",
+    ];
+    let selection = dialoguer::Select::new()
+        .with_prompt("What do you want to scan?")
+        .items(&scope_options)
+        .default(0)
+        .interact()?;
+
+    let mut changed_lines_diff = None;
+
+    if selection == 1 {
+        let base_branch: String = dialoguer::Input::new()
+            .with_prompt("Base branch to diff against")
+            .default("main".to_string())
+            .interact_text()?;
+
+        let git_output = std::process::Command::new("git")
+            .args(["diff", &format!("{}...HEAD", base_branch), "--unified=0"])
+            .output()?;
+
+        if !git_output.status.success() {
+            let stderr = String::from_utf8_lossy(&git_output.stderr);
+            anyhow::bail!("git diff failed: {}", stderr);
+        }
+
+        let diff_str = String::from_utf8(git_output.stdout)?;
+        changed_lines_diff = Some(yunq_infra_fs::changed_lines_from_unified_diff(&diff_str));
+    }
+
+    println!("🔍 Scanning current directory...");
+    let current_dir = std::env::current_dir()?;
+    let mut report = yunq_cli::scan_with_cache(&current_dir, None).await?;
+
+    if let Some(diff) = changed_lines_diff {
+        let filtered_issues: Vec<yunq_rules_engine::Issue> = report
+            .issues()
+            .iter()
+            .filter(|issue| {
+                if let Some(changed_lines) = diff.get(issue.file()) {
+                    changed_lines.contains(&issue.span().start_line)
+                } else {
+                    false
+                }
+            })
+            .cloned()
+            .collect();
+        report = yunq_rules_engine::AnalysisReport::new(
+            filtered_issues,
+            Vec::new(),
+            yunq_rules_engine::Metrics::new(),
+        );
+    }
+
+    if report.issues().is_empty() {
+        println!("✅ No issues found! You are good to go.");
+    } else {
+        loop {
+            let action_options = vec![
+                "Print AI agent prompt".to_string(),
+                "Fix issues automatically using AI".to_string(),
+                "Exit".to_string(),
+            ];
+
+            let action_selection = dialoguer::Select::new()
+                .with_prompt(format!("Found {} issues. What do you want to do?", report.issues().len()))
+                .items(&action_options)
+                .default(0)
+                .interact()?;
+
+            let selected = &action_options[action_selection];
+            match selected.as_str() {
+                "Print AI agent prompt" => {
+                    let gate = yunq_cli::default_quality_gate().evaluate(|_| None);
+                    let prompt = output::render_agent_prompt(
+                        &report,
+                        &gate,
+                        &current_dir.display().to_string(),
+                    );
+                    println!("\n{}\n", prompt);
+                }
+                "Fix issues automatically using AI" => {
+                    let service = yunq_cli::default_service(
+                        yunq_infra_memory::InMemoryIssueStorage::new(),
+                        yunq_infra_memory::InMemoryMetricsTracker::new(),
+                    );
+
+                    for issue in report.issues() {
+                        let base_url = std::env::var("YUNQ_LLM_BASE_URL")
+                            .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+                        let api_key = std::env::var("YUNQ_LLM_API_KEY").unwrap_or_default();
+                        let model_name = std::env::var("YUNQ_LLM_MODEL")
+                            .unwrap_or_else(|_| "llama3".to_string());
+                        let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key);
+                        let issue_path = current_dir.join(issue.file());
+                        let git_root = match find_git_root(&issue_path) {
+                            Some(root) => root,
+                            None => {
+                                eprintln!("⚠️ Skipping {}: not inside a Git worktree", issue.file());
+                                continue;
+                            }
+                        };
+
+                        let sandbox = match yunq_infra_fs::WorktreeSandbox::new(&git_root) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                eprintln!("⚠️ Skipping {}: failed to create sandbox: {}", issue.file(), e);
+                                continue;
+                            }
+                        };
+
+                        let source_code = match std::fs::read_to_string(&issue_path) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                eprintln!("⚠️ Skipping {}: cannot read file: {}", issue.file(), e);
+                                continue;
+                            }
+                        };
+
+                        let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
+
+                        println!("🤖 Attempting to fix '{}' in {}...", issue.rule().as_str(), issue.file());
+                        match engine.attempt_remediation(issue, &issue_path, &source_code, &service).await {
+                            Ok(yunq_remediation::RemediationVerdict::Accepted { proposal }) => {
+                                println!("\n✅ Verified fix applied (issue gone, no regressions):");
+                                println!("{}", proposal.replacement_snippet);
+                                println!("\nExplanation: {}\n", proposal.explanation);
+
+                                let confirmation = dialoguer::Confirm::new()
+                                    .with_prompt("Continue to the next issue?")
+                                    .default(true)
+                                    .interact()?;
+                                if !confirmation {
+                                    break;
+                                }
+                            }
+                            Ok(yunq_remediation::RemediationVerdict::Rejected { reason }) => {
+                                eprintln!("❌ Could not produce a verified fix: {}\n", reason);
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Remediation error: {}\n", e);
+                            }
+                        }
+                    }
+                }
+                "Exit" => {
+                    break;
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    let workflow_path = current_dir.join(".github").join("workflows").join("yunq.yml");
+    if !workflow_path.exists() {
+        let generate_workflow = dialoguer::Confirm::new()
+            .with_prompt("No CI workflow detected. Do you want to generate one?")
+            .default(true)
+            .interact()?;
+
+        if generate_workflow {
+            let github_dir = current_dir.join(".github").join("workflows");
+            std::fs::create_dir_all(&github_dir)?;
+
+            let workflow_content = r#"name: 'yunq Static Analysis'
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run yunq
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+"#;
+            std::fs::write(&workflow_path, workflow_content)?;
+            println!("✅ Generated CI workflow at {}", workflow_path.display());
+        }
+    }
+
+    Ok(ExitCode::SUCCESS)
 }
