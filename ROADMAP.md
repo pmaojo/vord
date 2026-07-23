@@ -124,8 +124,16 @@ re-analysis on typical PRs.
   covers "class" or "statement" — the disk-backed analysis cache
   (`infra/fs::FileAnalysisCache`) fails open (defaults to zero) on entries
   written before this landed.
-- **Coverage ingestion**: LCOV, Cobertura, JaCoCo, `llvm-cov`, Istanbul;
-  line + branch coverage, coverage-on-new-code.
+- **Coverage ingestion**: ✅ all five formats parsed (`infra/fs/src/{lcov,cobertura,jacoco,istanbul,llvm_cov}.rs`)
+  behind a unified auto-detecting dispatcher (`infra/fs/src/coverage.rs::parse_coverage_report`,
+  `CoverageFormat`); line + branch coverage aggregate into `CoverageSummary`/`FileCoverage`
+  (`core/rules-engine/src/domain/report.rs`), exposed as `coverage`/`branch_coverage` measures
+  (`AnalysisReport::measure`) with a default quality-gate condition (`coverage < 80`,
+  `core/rules-engine/src/gate_defaults.rs`); coverage-on-new-code diffs covered lines against
+  changed-line sets (`CoverageReport::coverage_on_new_code`), wired into the CLI via
+  `--coverage`/`--cobertura`/`--jacoco`/`--llvm-cov`/`--istanbul`/`--coverage-report`+`--coverage-format`
+  and `--coverage-diff` (`bin/cli/src/main.rs`). Not yet wired: no server-side HTTP endpoint
+  ingests or persists coverage reports — only the CLI computes it at scan time.
 - **Test report ingestion**: JUnit XML / test execution counts.
 - **Cross-file taint analysis**: module graph (imports/exports as edges),
   inter-procedural summaries, sanitizer modeling — SonarQube sells this as
