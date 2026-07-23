@@ -55,9 +55,28 @@ re-analysis on typical PRs.
   attempted here.
 - **I/O**: mmap large files, batched Postgres writes (`COPY`/multi-row
   inserts), SQS batch send/receive.
-- **Benchmarks as tests**: `criterion` suite over a large corpus vendored in
-  `benches/corpus/`; CI fails on >10% regression. Track LOC/s, peak RSS,
-  p99 file latency.
+- **Benchmarks as tests**: ✅ real `criterion` suite (`benches/` — a proper
+  workspace member, `yunq-benchmarks`; the previous `benches/benchmarks.rs`
+  was never wired into any `Cargo.toml` and had not been compiled or run at
+  all) over a real ~11.8k-line, 69-file corpus vendored in
+  `benches/corpus/rust/` (this repo's own `core`/`rulesets` sources — real
+  code, already license-clear to vendor). `bench_full_pipeline_corpus`
+  drives `yunq_cli::scan`, the exact entry point the real CLI uses — every
+  registered parser, every registered rule, CPD, cross-file taint — and
+  reports `Throughput::Elements` so Criterion's own output is in LOC/s, the
+  roadmap's own unit. **Measured in this sandbox** (`cargo bench -p
+  yunq-benchmarks`, single run, shared/throttled CPU — treat as a floor, not
+  a hardware-independent number): **~67.6k elem/s (LOC/s)** full pipeline,
+  **~24.4k parses/s** (41µs/parse) for a bare ~10-line function. This
+  supersedes the unverified "~398k LOC/s" figure that had been circulating
+  with no working benchmark behind it — that number was never reproducible
+  because the harness measuring it didn't exist. Below the >=100k LOC/s
+  target; the interning landed this session and the still-open items above
+  (arena allocation, cross-file/server-side caching) are exactly what would
+  close the gap. Still open: CI regression gating (`cargo bench` in CI
+  comparing against a stored baseline, failing on >10% regression) and
+  peak-RSS/p99-latency tracking — this session only builds the harness and
+  a first real measurement, not the CI wiring around it.
 - **Scale-out**: stateless workers already horizontal on SQS; shard analysis
   of monorepos by directory subtree.
 
