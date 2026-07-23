@@ -4,7 +4,7 @@
 use serde::Serialize;
 use yunq_rules_engine::{
     AnalysisReport, ConditionStatus, CoverageSummary, DuplicateBlock, GateEvaluation, GateStatus,
-    Hotspot, Issue, Metrics, NewCodeAnalysis, TestReportSummary,
+    Hotspot, Issue, Metrics, NewCodeAnalysis, RemediationEffortSummary, TestReportSummary,
 };
 
 #[derive(Serialize)]
@@ -13,6 +13,8 @@ pub struct ReportDto {
     pub hotspots: Vec<HotspotDto>,
     pub metrics: MetricsDto,
     pub rating: String,
+    pub reliability_rating: String,
+    pub security_rating: String,
     pub quality_gate: GateDto,
     /// Issues not present in the previous analysis (None on first scan).
     pub new_issue_total: Option<usize>,
@@ -168,6 +170,33 @@ pub struct MetricsDto {
     pub comment_lines: usize,
     pub comment_lines_density: f64,
     pub max_nesting_depth: usize,
+    /// Remediation effort (minutes) by rule, worst first — which rule is
+    /// generating the most technical debt.
+    pub remediation_effort_by_rule: Vec<RuleEffortDto>,
+    /// Remediation effort (minutes) by file, worst first — which file would
+    /// benefit most from cleanup.
+    pub remediation_effort_by_component: Vec<ComponentEffortDto>,
+}
+
+#[derive(Serialize)]
+pub struct RuleEffortDto {
+    pub rule: String,
+    pub minutes: u32,
+}
+
+#[derive(Serialize)]
+pub struct ComponentEffortDto {
+    pub component: String,
+    pub minutes: u32,
+}
+
+/// Sorts by descending minutes, breaking ties on the key so JSON output is
+/// deterministic across runs regardless of `HashMap` iteration order.
+fn sorted_effort(mut entries: Vec<(String, u32)>) -> Vec<(String, u32)> {
+    entries.sort_by(|(a_key, a_minutes), (b_key, b_minutes)| {
+        b_minutes.cmp(a_minutes).then_with(|| a_key.cmp(b_key))
+    });
+    entries
 }
 
 impl From<&Issue> for IssueDto {
@@ -224,8 +253,26 @@ impl From<&Metrics> for MetricsDto {
             comment_lines: metrics.comment_lines(),
             comment_lines_density: metrics.comment_lines_density(),
             max_nesting_depth: metrics.max_nesting_depth(),
+            remediation_effort_by_rule: remediation_effort_by_rule_dto(metrics.remediation_effort()),
+            remediation_effort_by_component: remediation_effort_by_component_dto(metrics.remediation_effort()),
         }
     }
+}
+
+fn remediation_effort_by_rule_dto(effort: &RemediationEffortSummary) -> Vec<RuleEffortDto> {
+    let by_rule = effort.by_rule.iter().map(|(rule, minutes)| (rule.to_string(), *minutes)).collect();
+    sorted_effort(by_rule)
+        .into_iter()
+        .map(|(rule, minutes)| RuleEffortDto { rule, minutes })
+        .collect()
+}
+
+fn remediation_effort_by_component_dto(effort: &RemediationEffortSummary) -> Vec<ComponentEffortDto> {
+    let by_component = effort.by_component.iter().map(|(c, m)| (c.clone(), *m)).collect();
+    sorted_effort(by_component)
+        .into_iter()
+        .map(|(component, minutes)| ComponentEffortDto { component, minutes })
+        .collect()
 }
 
 impl From<&CoverageSummary> for CoverageDto {
@@ -253,6 +300,8 @@ impl ReportDto {
             issues: report.issues().iter().map(IssueDto::from).collect(),
             hotspots: report.hotspots().iter().map(HotspotDto::from).collect(),
             rating: report.rating().to_string(),
+            reliability_rating: report.reliability_rating().to_string(),
+            security_rating: report.security_rating().to_string(),
             quality_gate: gate_dto(gate),
             new_issue_total: new_code.map(|nc| nc.new_issues().len()),
             coverage: report.coverage().map(CoverageDto::from),
@@ -433,7 +482,12 @@ pub fn render_text(
     }
     render_test_report_text(&mut out, test_report);
     out.push_str(&format!("Health score: {}/100\n", report.health_score()));
-    out.push_str(&format!("Rating: {}\n", report.rating()));
+    out.push_str(&format!(
+        "Ratings: maintainability {}, reliability {}, security {}\n",
+        report.rating(),
+        report.reliability_rating(),
+        report.security_rating(),
+    ));
     render_gate_text(&mut out, gate);
     out
 }

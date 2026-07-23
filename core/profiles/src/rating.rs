@@ -67,6 +67,14 @@ impl fmt::Display for Rating {
     }
 }
 
+impl Default for Rating {
+    /// No qualifying issues present rates A — the same empty-bucket
+    /// convention [`reliability_and_security_ratings`] already uses.
+    fn default() -> Self {
+        Rating::A
+    }
+}
+
 /// Minutes to develop one line of code from scratch — SonarQube's
 /// `sonar.technicalDebt.developmentCost`, default 30.
 pub const DEFAULT_DEV_COST_MINUTES_PER_LINE: f64 = 30.0;

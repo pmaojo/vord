@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use yunq_cpd::DuplicateBlock;
-use yunq_profiles::{MetricKey, Rating, Severity};
+use yunq_profiles::{IssueType, MetricKey, Rating, RemediationEffortSummary, RuleId, Severity};
 
 use super::hotspot::{Hotspot, HotspotStatus};
 use super::issue::Issue;
@@ -23,6 +23,9 @@ pub struct Metrics {
     statements: usize,
     comment_lines: usize,
     max_nesting_depth: usize,
+    reliability_rating: Rating,
+    security_rating: Rating,
+    remediation_effort: RemediationEffortSummary,
 }
 
 impl Metrics {
@@ -69,6 +72,30 @@ impl Metrics {
 
     pub fn count_issue(&mut self, severity: Severity) {
         *self.by_severity.entry(severity).or_default() += 1;
+    }
+
+    /// Folds one issue's classic type + severity into the running
+    /// Reliability/Security ratings — worst [`Rating::from_severity`] wins
+    /// within each type, mirroring `reliability_and_security_ratings`, with
+    /// code smells touching neither — and its remediation cost into the
+    /// by-rule/by-component debt breakdown (every issue counts toward this
+    /// regardless of type, same population as [`Self::add_debt`]'s total).
+    pub fn record_issue_type_and_effort(
+        &mut self,
+        issue_type: IssueType,
+        severity: Severity,
+        rule: RuleId,
+        component: &str,
+        minutes: u32,
+    ) {
+        let rating = Rating::from_severity(severity);
+        match issue_type {
+            IssueType::Bug => self.reliability_rating = self.reliability_rating.max(rating),
+            IssueType::Vulnerability => self.security_rating = self.security_rating.max(rating),
+            IssueType::CodeSmell => {}
+        }
+        *self.remediation_effort.by_rule.entry(rule).or_insert(0) += minutes;
+        *self.remediation_effort.by_component.entry(component.to_string()).or_insert(0) += minutes;
     }
 
     pub fn files_scanned(&self) -> usize {
@@ -137,6 +164,25 @@ impl Metrics {
 
     pub fn max_nesting_depth(&self) -> usize {
         self.max_nesting_depth
+    }
+
+    /// Worst [`Rating::from_severity`] among open `Bug` issues (`A` if
+    /// there are none) — independent of Maintainability's debt-ratio grid.
+    pub fn reliability_rating(&self) -> Rating {
+        self.reliability_rating
+    }
+
+    /// Same algorithm as [`Self::reliability_rating`], over `Vulnerability`
+    /// issues instead of `Bug`s.
+    pub fn security_rating(&self) -> Rating {
+        self.security_rating
+    }
+
+    /// Cumulative remediation effort grouped by rule and by component —
+    /// which rule generates the most debt, and which file would benefit
+    /// most from cleanup.
+    pub fn remediation_effort(&self) -> &RemediationEffortSummary {
+        &self.remediation_effort
     }
 
     /// SonarQube's formula: comments as a share of comments + code lines.
@@ -498,6 +544,26 @@ impl AnalysisReport {
         Rating::from_debt_ratio(ratio)
     }
 
+    /// Reliability rating (A–E): worst severity among open `Bug` issues.
+    /// A different algorithm from [`Self::rating`] — a worst-severity
+    /// lookup, not a cost ratio — per SonarQube's
+    /// `ReliabilityAndSecurityRatingMeasuresVisitor`.
+    pub fn reliability_rating(&self) -> Rating {
+        self.metrics.reliability_rating()
+    }
+
+    /// Security rating (A–E): same algorithm as [`Self::reliability_rating`]
+    /// over `Vulnerability` issues instead of `Bug`s.
+    pub fn security_rating(&self) -> Rating {
+        self.metrics.security_rating()
+    }
+
+    /// Remediation effort (minutes) aggregated by rule and by component —
+    /// the drill-down view behind [`Self::rating`]'s total debt.
+    pub fn remediation_effort(&self) -> &RemediationEffortSummary {
+        self.metrics.remediation_effort()
+    }
+
     pub fn health_score(&self) -> u32 {
         let blocker = *self.metrics.issues_by_severity().get(&Severity::Blocker).unwrap_or(&0) as u32;
         let critical = *self.metrics.issues_by_severity().get(&Severity::Critical).unwrap_or(&0) as u32;
@@ -518,10 +584,25 @@ fn severity_measure(report: &AnalysisReport, severity: Severity) -> Option<f64> 
     Some(*report.metrics.issues_by_severity().get(&severity).unwrap_or(&0) as f64)
 }
 
+/// SonarQube's numeric encoding for the A–E letter ratings (`1.0`..`5.0`),
+/// so ratings can drive quality gate conditions like any other measure
+/// (e.g. `reliability_rating > 1.0` fails the gate on any open bug).
+fn rating_measure(rating: Rating) -> f64 {
+    match rating {
+        Rating::A => 1.0,
+        Rating::B => 2.0,
+        Rating::C => 3.0,
+        Rating::D => 4.0,
+        Rating::E => 5.0,
+    }
+}
+
+type MeasureFn = fn(&AnalysisReport) -> Option<f64>;
+
 /// `MetricKey` -> measure lookup, replacing a 30-arm `match` (McCabe counts
 /// each arm as a branch) with an `.iter().find()` — complexity 1 regardless
 /// of table size.
-const MEASURE_TABLE: &[(&str, fn(&AnalysisReport) -> Option<f64>)] = &[
+const MEASURE_TABLE: &[(&str, MeasureFn)] = &[
     ("files_scanned", |r| Some(r.metrics.files_scanned() as f64)),
     ("lines_of_code", |r| Some(r.metrics.lines_of_code() as f64)),
     ("parse_failures", |r| Some(r.metrics.parse_failures() as f64)),
@@ -554,6 +635,9 @@ const MEASURE_TABLE: &[(&str, fn(&AnalysisReport) -> Option<f64>)] = &[
     ("comment_lines", |r| Some(r.metrics.comment_lines() as f64)),
     ("comment_lines_density", |r| Some(r.metrics.comment_lines_density())),
     ("max_nesting_depth", |r| Some(r.metrics.max_nesting_depth() as f64)),
+    ("maintainability_rating", |r| Some(rating_measure(r.rating()))),
+    ("reliability_rating", |r| Some(rating_measure(r.metrics.reliability_rating()))),
+    ("security_rating", |r| Some(rating_measure(r.metrics.security_rating()))),
 ];
 
 #[cfg(test)]
@@ -688,5 +772,58 @@ mod tests {
         let mut changed: BTreeMap<String, std::collections::BTreeSet<u32>> = BTreeMap::new();
         changed.insert("src/a.rs".to_string(), [10u32, 11].into_iter().collect());
         assert_eq!(report.coverage_on_new_code(&changed), Some(50.0));
+    }
+
+    fn rule(id: &str) -> RuleId {
+        RuleId::new(id).unwrap()
+    }
+
+    #[test]
+    fn no_bugs_or_vulnerabilities_recorded_means_both_ratings_default_to_a() {
+        let mut metrics = Metrics::new();
+        metrics.record_issue_type_and_effort(IssueType::CodeSmell, Severity::Blocker, rule("smells:x"), "a.rs", 5);
+        assert_eq!(metrics.reliability_rating(), Rating::A);
+        assert_eq!(metrics.security_rating(), Rating::A);
+    }
+
+    #[test]
+    fn reliability_and_security_ratings_track_worst_severity_independently() {
+        let mut metrics = Metrics::new();
+        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Minor, rule("bugs:a"), "a.rs", 5);
+        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Critical, rule("bugs:b"), "b.rs", 10);
+        metrics.record_issue_type_and_effort(IssueType::Vulnerability, Severity::Major, rule("owasp:c"), "c.rs", 15);
+        // Worst bug (Critical -> D) drives reliability...
+        assert_eq!(metrics.reliability_rating(), Rating::D);
+        // ...independently of the worst vulnerability (Major -> C).
+        assert_eq!(metrics.security_rating(), Rating::C);
+    }
+
+    #[test]
+    fn remediation_effort_accumulates_by_rule_and_component_across_all_issue_types() {
+        let mut metrics = Metrics::new();
+        let bug_rule = rule("bugs:null-deref");
+        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Major, bug_rule.clone(), "a.rs", 20);
+        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Major, bug_rule.clone(), "b.rs", 20);
+        metrics.record_issue_type_and_effort(IssueType::CodeSmell, Severity::Minor, rule("smells:x"), "a.rs", 30);
+
+        let effort = metrics.remediation_effort();
+        assert_eq!(effort.by_rule[&bug_rule], 40);
+        assert_eq!(effort.by_component["a.rs"], 50);
+        assert_eq!(effort.by_component["b.rs"], 20);
+    }
+
+    #[test]
+    fn rating_measures_are_exposed_on_the_report() {
+        let mut metrics = Metrics::new();
+        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Blocker, rule("bugs:a"), "a.rs", 5);
+        metrics.record_issue_type_and_effort(IssueType::Vulnerability, Severity::Minor, rule("owasp:b"), "b.rs", 5);
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), metrics);
+
+        assert_eq!(report.reliability_rating(), Rating::E);
+        assert_eq!(report.security_rating(), Rating::B);
+        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
+        assert_eq!(report.measure(&key("security_rating")), Some(2.0));
+        assert_eq!(report.measure(&key("maintainability_rating")), Some(1.0));
     }
 }

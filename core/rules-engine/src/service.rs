@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use yunq_ast::{LanguageIdentifier, SourceFile};
-use yunq_profiles::QualityProfile;
+use yunq_profiles::{IssueType, QualityProfile, RuleId};
 
 use crate::domain::{AnalysisReport, Hotspot, Issue, Metrics};
 use crate::ports::{
@@ -43,8 +43,15 @@ pub enum AnalyzeError {
 
 /// Folds per-file outcomes into the running metrics, returning the
 /// combined issues/hotspots — the reduction step behind `analyze_files`'s
-/// per-file phase.
-fn fold_outcomes(outcomes: Vec<FileOutcome>, metrics: &mut Metrics) -> (Vec<Issue>, Vec<Hotspot>) {
+/// per-file phase. `classifications` is the rule-id -> (classic issue type,
+/// remediation effort) table built once from the registered rules, needed
+/// here because a cached/replayed `Issue` only carries its `RuleId`, not
+/// the `Rule` object itself.
+fn fold_outcomes(
+    outcomes: Vec<FileOutcome>,
+    metrics: &mut Metrics,
+    classifications: &HashMap<RuleId, (IssueType, u32)>,
+) -> (Vec<Issue>, Vec<Hotspot>) {
     let mut issues: Vec<Issue> = Vec::new();
     let mut hotspots: Vec<Hotspot> = Vec::new();
     for outcome in outcomes {
@@ -67,6 +74,15 @@ fn fold_outcomes(outcomes: Vec<FileOutcome>, metrics: &mut Metrics) -> (Vec<Issu
                 }
                 for issue in file_issues {
                     metrics.count_issue(issue.severity());
+                    if let Some(&(issue_type, minutes)) = classifications.get(issue.rule()) {
+                        metrics.record_issue_type_and_effort(
+                            issue_type,
+                            issue.severity(),
+                            issue.rule().clone(),
+                            issue.file(),
+                            minutes,
+                        );
+                    }
                     issues.push(issue);
                 }
                 hotspots.extend(file_hotspots);
@@ -164,14 +180,34 @@ where
                 let Some((file, _)) = parsed.get(file_index) else { continue };
                 metrics.count_issue(severity);
                 metrics.add_debt(rule.remediation_effort_minutes() as usize);
+                metrics.record_issue_type_and_effort(
+                    rule.issue_type(),
+                    severity,
+                    rule.id().clone(),
+                    file.path(),
+                    rule.remediation_effort_minutes(),
+                );
                 issues.push(Issue::new(rule.id().clone(), severity, finding.message, file.path(), finding.span));
             }
         }
     }
 
+    /// Rule id -> (classic issue type, remediation effort minutes), built
+    /// once per run from the registered rules. Used to derive Reliability/
+    /// Security ratings and remediation-effort aggregation from issues
+    /// after the fact, since a cached/replayed `Issue` carries only its
+    /// `RuleId`, not the `Rule` trait object that knows its classification.
+    fn rule_classifications(&self) -> HashMap<RuleId, (IssueType, u32)> {
+        self.rules
+            .iter()
+            .map(|r| (r.id().clone(), (r.issue_type(), r.remediation_effort_minutes())))
+            .collect()
+    }
+
     pub async fn analyze_files(&self, files: &[SourceFile]) -> Result<AnalysisReport, AnalyzeError> {
         let mut metrics = Metrics::new();
-        let (mut issues, hotspots) = fold_outcomes(self.analyze_all(files), &mut metrics);
+        let classifications = self.rule_classifications();
+        let (mut issues, hotspots) = fold_outcomes(self.analyze_all(files), &mut metrics, &classifications);
 
         let duplication = self.detect_duplication(files);
         metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
@@ -388,6 +424,7 @@ mod tests {
     use super::*;
     use crate::ports::{MetricsTracker, ParseError};
     use crate::rule::Finding;
+    use yunq_profiles::Rating;
 
     struct FakeParser {
         language: LanguageIdentifier,
@@ -430,6 +467,40 @@ mod tests {
 
         fn check(&self, _file: &SourceFile, _ast: &AstNode) -> Vec<Finding> {
             vec![Finding::new("found it", Span::new(1, 1, 1, 5))]
+        }
+    }
+
+    /// A rule that always finds a Blocker `Bug`, used to prove Reliability
+    /// rating and remediation-effort aggregation are actually wired into
+    /// `analyze_files`, not just unit-tested against `Metrics` directly.
+    struct AlwaysFindsBugRule {
+        id: RuleId,
+        language: LanguageIdentifier,
+    }
+
+    impl Rule for AlwaysFindsBugRule {
+        fn id(&self) -> &RuleId {
+            &self.id
+        }
+
+        fn applies_to(&self, language: &LanguageIdentifier) -> bool {
+            *language == self.language
+        }
+
+        fn default_severity(&self) -> Severity {
+            Severity::Blocker
+        }
+
+        fn issue_type(&self) -> IssueType {
+            IssueType::Bug
+        }
+
+        fn remediation_effort_minutes(&self) -> u32 {
+            25
+        }
+
+        fn check(&self, _file: &SourceFile, _ast: &AstNode) -> Vec<Finding> {
+            vec![Finding::new("null deref", Span::new(1, 1, 1, 5))]
         }
     }
 
@@ -621,5 +692,43 @@ mod tests {
         assert_eq!(report.metrics().parse_failures(), 1);
         assert_eq!(report.metrics().files_skipped(), 1);
         assert_eq!(report.metrics().files_scanned(), 0);
+    }
+
+    #[test]
+    fn reliability_rating_and_remediation_effort_are_wired_into_a_real_report() {
+        let bug_rule = RuleId::new("bugs:null-deref").unwrap();
+        let smell_rule = RuleId::new("smells:always").unwrap();
+        let mut profile = QualityProfile::new("test");
+        profile.activate(bug_rule.clone(), Severity::Blocker);
+        profile.activate(smell_rule.clone(), Severity::Minor);
+
+        let storage = CapturingStorage::default();
+        let metrics = CapturingMetrics::default();
+        let service = AnalyzerService::new(profile, &storage, &metrics)
+            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: false }))
+            .register_rule(Box::new(AlwaysFindsBugRule {
+                id: bug_rule.clone(),
+                language: LanguageIdentifier::rust(),
+            }))
+            .register_rule(Box::new(AlwaysFindsRule {
+                id: smell_rule.clone(),
+                language: LanguageIdentifier::rust(),
+            }));
+
+        let report =
+            futures::executor::block_on(service.analyze_files(&[rust_file("a.rs")])).unwrap();
+
+        // A Blocker bug drives Reliability to E; no vulnerabilities keep Security at A;
+        // the plain code smell (default type, no override) touches neither.
+        assert_eq!(report.reliability_rating(), Rating::E);
+        assert_eq!(report.security_rating(), Rating::A);
+
+        let effort = report.remediation_effort();
+        assert_eq!(effort.by_rule[&bug_rule], 25);
+        assert_eq!(effort.by_component["a.rs"], 25 + 10); // bug (25) + default smell effort (10)
+
+        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
+        assert_eq!(report.measure(&key("security_rating")), Some(1.0));
     }
 }

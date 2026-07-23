@@ -51,6 +51,6 @@ pub use service::{AnalyzeError, AnalyzerService};
 pub use yunq_profiles::{
     default_impact, ComparisonOperator, Condition, ConditionResult, ConditionStatus,
     GateEvaluation, GateStatus, ImpactSeverity, InvalidMetricKeyError, InvalidRuleIdError,
-    IssueType, MetricKey, QualityGate, QualityProfile, Rating, RuleId, Severity, SoftwareQuality,
-    SoftwareQualityImpact,
+    IssueType, MetricKey, QualityGate, QualityProfile, Rating, RemediationEffortSummary, RuleId,
+    Severity, SoftwareQuality, SoftwareQualityImpact,
 };
