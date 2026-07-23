@@ -50,6 +50,7 @@ where
         .chain(yunq_rules_smells::all_rules())
         .chain(yunq_rules_iac::all_rules())
         .chain(yunq_rules_a11y::all_rules())
+        .chain(yunq_rules_react::all_rules())
         .chain(yunq_rules_secrets::all_rules())
         .collect();
     let cross_rules = yunq_rules_owasp::all_cross_rules();
