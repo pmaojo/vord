@@ -38,9 +38,9 @@ export const AppRoot: React.FC = () => {
               <span>Enterprise Edition</span>
             </div>
             <div className="flex items-center gap-4">
-              <a href="https://docs.sonarsource.com/sonarqube/latest/" target="_blank" rel="noreferrer" className="hover:text-[#4b9fd5] transition-colors">Documentation</a>
+              <a href="https://github.com/pmaojo/yunq#readme" target="_blank" rel="noreferrer" className="hover:text-[#4b9fd5] transition-colors">Documentation</a>
               <button onClick={() => setApiDocsOpen(true)} className="hover:text-[#4b9fd5] transition-colors cursor-pointer font-medium">Web API (OpenAPI)</button>
-              <a href="#" onClick={(e) => { e.preventDefault(); alert('SonarQube Enterprise Support: Active 24/7 SLA'); }} className="hover:text-[#4b9fd5] transition-colors">Get Support</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); alert('yunq Enterprise Support: Active 24/7 SLA'); }} className="hover:text-[#4b9fd5] transition-colors">Get Support</a>
             </div>
           </footer>
 

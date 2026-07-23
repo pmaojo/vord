@@ -34,10 +34,10 @@ export const TopNavbar: React.FC = () => {
         <div className="flex items-center gap-6 h-full">
           <Link to="/projects" className="flex items-center gap-2 group">
             <div className="w-6 h-6 bg-[#4b9fd5] flex items-center justify-center font-bold text-xs text-white rounded">
-              S
+              Y
             </div>
             <span className="font-semibold tracking-tight uppercase text-sm text-white">
-              SonarQube
+              yunq
             </span>
             <span className="text-[10px] text-[#4b9fd5] font-bold uppercase tracking-wider hidden sm:inline">
               Enterprise
@@ -78,11 +78,11 @@ export const TopNavbar: React.FC = () => {
 
           {/* Help & Documentation */}
           <a
-            href="https://docs.sonarsource.com/sonarqube/latest/"
+            href="https://github.com/pmaojo/yunq#readme"
             target="_blank"
             rel="noreferrer"
             className="p-1.5 text-gray-300 hover:text-white hover:bg-[#3b4b5b] rounded transition-colors"
-            title="SonarQube Documentation"
+            title="yunq Documentation"
           >
             <HelpCircle className="w-4 h-4" />
           </a>
@@ -150,7 +150,7 @@ export const TopNavbar: React.FC = () => {
                   <button
                     onClick={() => {
                       setUserDropdownOpen(false);
-                      alert('SonarQube Session: You are using local administrator privileges.');
+                      alert('yunq Session: You are using local administrator privileges.');
                     }}
                     className="w-full text-left flex items-center gap-2 px-4 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50"
                   >
