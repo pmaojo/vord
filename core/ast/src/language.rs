@@ -120,7 +120,8 @@ impl LanguageIdentifier {
 
     /// Maps a file extension to its language, if the extension is supported.
     pub fn from_extension(extension: &str) -> Option<Self> {
-        const EXTENSION_TABLE: &[(&str, fn() -> LanguageIdentifier)] = &[
+        type LanguageCtor = fn() -> LanguageIdentifier;
+        const EXTENSION_TABLE: &[(&str, LanguageCtor)] = &[
             ("rs", LanguageIdentifier::rust),
             ("ts", LanguageIdentifier::typescript),
             ("tsx", LanguageIdentifier::typescript),

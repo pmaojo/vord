@@ -21,7 +21,7 @@ pub fn is_suppressed(content: &str, line: u32, rule_id: &str) -> bool {
         return after.trim_start().is_empty() || !after.trim_start().starts_with(|c: char| c.is_alphanumeric());
     };
 
-    rest.split(',').any(|entry| entry.trim_start().split_whitespace().next() == Some(rule_id))
+    rest.split(',').any(|entry| entry.split_whitespace().next() == Some(rule_id))
 }
 
 #[cfg(test)]

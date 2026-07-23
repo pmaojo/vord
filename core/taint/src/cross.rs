@@ -144,6 +144,7 @@ impl CrossFileTaint {
 
     /// Direct sink: only parameters feed the summary; direct source→sink
     /// stays with the intra-file analysis.
+    #[allow(clippy::too_many_arguments)]
     fn record_direct_sink(
         &self,
         call: &AstNode,
