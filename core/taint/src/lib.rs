@@ -107,6 +107,39 @@ impl TaintAnalysis {
         flows
     }
 
+    /// Attempts to taint `node`'s declared/assigned identifier from either a
+    /// direct source marker or an already-tainted identifier in its value
+    /// expression(s). Returns whether it newly tainted anything — `false`
+    /// when the target isn't a plain identifier, is already tainted, or
+    /// none of its values are tainted (yet).
+    fn try_taint_declaration(&self, node: &AstNode, tainted: &mut HashMap<String, TaintedVar>) -> bool {
+        let Some(target) = node.first_child() else { return false };
+        if *target.kind() != NodeKind::Identifier {
+            return false;
+        }
+        let name = target.text().to_string();
+        if tainted.contains_key(&name) {
+            return false;
+        }
+        for value in &node.children()[1..] {
+            if let Some(marker) = self.direct_source(value) {
+                tainted.insert(
+                    name.clone(),
+                    TaintedVar { source: marker.clone(), trace: vec![format!("`{name}` tainted by `{marker}`")] },
+                );
+                return true;
+            }
+            if let Some(origin) = self.tainted_identifier(value, tainted) {
+                let parent = tainted[&origin].clone();
+                let mut trace = parent.trace;
+                trace.push(format!("`{name}` tainted via `{origin}`"));
+                tainted.insert(name.clone(), TaintedVar { source: parent.source, trace });
+                return true;
+            }
+        }
+        false
+    }
+
     /// Fixpoint propagation of taint through declarations and assignments.
     fn propagate(&self, ast: &AstNode) -> HashMap<String, TaintedVar> {
         let mut tainted: HashMap<String, TaintedVar> = HashMap::new();
@@ -116,35 +149,7 @@ impl TaintAnalysis {
                 .descendants()
                 .filter(|n| matches!(n.kind(), NodeKind::VariableDecl | NodeKind::Assignment))
             {
-                let Some(target) = node.first_child() else { continue };
-                if *target.kind() != NodeKind::Identifier {
-                    continue;
-                }
-                let name = target.text().to_string();
-                if tainted.contains_key(&name) {
-                    continue;
-                }
-                for value in &node.children()[1..] {
-                    if let Some(marker) = self.direct_source(value) {
-                        tainted.insert(
-                            name.clone(),
-                            TaintedVar {
-                                source: marker.clone(),
-                                trace: vec![format!("`{name}` tainted by `{marker}`")],
-                            },
-                        );
-                        changed = true;
-                        break;
-                    }
-                    if let Some(origin) = self.tainted_identifier(value, &tainted) {
-                        let parent = tainted[&origin].clone();
-                        let mut trace = parent.trace;
-                        trace.push(format!("`{name}` tainted via `{origin}`"));
-                        tainted.insert(name.clone(), TaintedVar { source: parent.source, trace });
-                        changed = true;
-                        break;
-                    }
-                }
+                changed |= self.try_taint_declaration(node, &mut tainted);
             }
             if !changed {
                 return tainted;

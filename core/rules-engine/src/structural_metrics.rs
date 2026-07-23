@@ -132,7 +132,9 @@ pub fn compute(ast: &AstNode) -> StructuralCounts {
     counts
 }
 
-fn walk(node: &AstNode, depth: usize, counts: &mut StructuralCounts) {
+/// Tallies `node`'s own contribution (function/class/statement/comment
+/// counts) into `counts`, without touching nesting depth or recursing.
+fn tally_node_kind(node: &AstNode, counts: &mut StructuralCounts) {
     match node.kind() {
         NodeKind::FunctionDef => counts.functions += 1,
         NodeKind::Comment => counts.comment_lines += node.span().line_count() as usize,
@@ -148,6 +150,10 @@ fn walk(node: &AstNode, depth: usize, counts: &mut StructuralCounts) {
         }
         _ => {}
     }
+}
+
+fn walk(node: &AstNode, depth: usize, counts: &mut StructuralCounts) {
+    tally_node_kind(node, counts);
 
     let next_depth = match node.kind() {
         NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_str()) => depth + 1,

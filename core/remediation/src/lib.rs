@@ -72,6 +72,27 @@ pub enum RemediationVerdict {
     Rejected { reason: String },
 }
 
+/// Builds the LLM prompt for `issue`: the target snippet (its span, clamped
+/// to the file's actual line count) plus the full source for context.
+fn build_fix_prompt(issue: &Issue, file_path: &Path, source_code: &str) -> FixPrompt {
+    let lines: Vec<&str> = source_code.lines().collect();
+    let start_line_usize = issue.span().start_line as usize;
+    let end_line_usize = issue.span().end_line as usize;
+    let start_idx = start_line_usize.saturating_sub(1);
+    let end_idx = end_line_usize.min(lines.len());
+    let snippet = lines[start_idx..end_idx].join("\n");
+
+    FixPrompt {
+        rule_id: issue.rule().to_string(),
+        issue_message: issue.message().to_string(),
+        file_path: file_path.to_path_buf(),
+        start_line: start_line_usize,
+        end_line: end_line_usize,
+        source_snippet: snippet,
+        full_source: source_code.to_string(),
+    }
+}
+
 pub struct RemediationEngine<P, S> {
     provider: P,
     sandbox: S,
@@ -80,6 +101,42 @@ pub struct RemediationEngine<P, S> {
 impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
     pub fn new(provider: P, sandbox: S) -> Self {
         Self { provider, sandbox }
+    }
+
+    /// Reads the modified source back from the sandbox after applying a
+    /// proposal, rolling back on any read failure.
+    fn reread_modified_source(&self, file_path: &Path) -> Result<String, RemediationError> {
+        self.sandbox.read_source(file_path).map_err(|e| {
+            let _ = self.sandbox.rollback();
+            RemediationError::SandboxError(e.to_string())
+        })
+    }
+
+    /// Accepts the fix unless the target rule still fires or any other
+    /// issue was introduced, rolling back the sandbox on rejection.
+    fn decide_verdict(
+        &self,
+        issue: &Issue,
+        report: &yunq_rules_engine::AnalysisReport,
+        proposal: FixProposal,
+    ) -> RemediationVerdict {
+        let target_rule_still_fails = report.issues().iter().any(|i| i.rule() == issue.rule());
+        if target_rule_still_fails {
+            let _ = self.sandbox.rollback();
+            return RemediationVerdict::Rejected {
+                reason: format!("Target issue {} still detected after applying fix", issue.rule()),
+            };
+        }
+
+        let regressions = report.issues().len();
+        if regressions > 0 {
+            let _ = self.sandbox.rollback();
+            return RemediationVerdict::Rejected {
+                reason: format!("Fix introduced {regressions} new regression issues"),
+            };
+        }
+
+        RemediationVerdict::Accepted { proposal }
     }
 
     /// Evaluates a proposed fix: generates fix with LLM provider, applies to sandbox,
@@ -91,34 +148,12 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
         source_code: &str,
         analyzer: &AnalyzerService<IS, MT>,
     ) -> Result<RemediationVerdict, RemediationError> {
-        let lines: Vec<&str> = source_code.lines().collect();
-        let start_line_usize = issue.span().start_line as usize;
-        let end_line_usize = issue.span().end_line as usize;
-        let start_idx = start_line_usize.saturating_sub(1);
-        let end_idx = end_line_usize.min(lines.len());
-        let snippet = lines[start_idx..end_idx].join("\n");
-
-        let prompt = FixPrompt {
-            rule_id: issue.rule().to_string(),
-            issue_message: issue.message().to_string(),
-            file_path: file_path.to_path_buf(),
-            start_line: start_line_usize,
-            end_line: end_line_usize,
-            source_snippet: snippet,
-            full_source: source_code.to_string(),
-        };
-
+        let prompt = build_fix_prompt(issue, file_path, source_code);
         let proposal = self.provider.generate_fix(&prompt).await?;
         self.sandbox.apply_proposal(&proposal)?;
 
         // Read the modified source from the isolated worktree after applying the fix.
-        let modified_source = match self.sandbox.read_source(file_path) {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = self.sandbox.rollback();
-                return Err(RemediationError::SandboxError(e.to_string()));
-            }
-        };
+        let modified_source = self.reread_modified_source(file_path)?;
 
         let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
         let language = LanguageIdentifier::from_extension(ext)
@@ -138,25 +173,7 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
             .await
             .map_err(|e| RemediationError::AnalysisError(e.to_string()))?;
 
-        // Check if targeted rule still triggers on this file
-        let target_rule_still_fails = report.issues().iter().any(|i| i.rule() == issue.rule());
-        if target_rule_still_fails {
-            let _ = self.sandbox.rollback();
-            return Ok(RemediationVerdict::Rejected {
-                reason: format!("Target issue {} still detected after applying fix", issue.rule()),
-            });
-        }
-
-        // Check if any new blocker/critical issues were introduced
-        let regressions = report.issues().len();
-        if regressions > 0 {
-            let _ = self.sandbox.rollback();
-            return Ok(RemediationVerdict::Rejected {
-                reason: format!("Fix introduced {regressions} new regression issues"),
-            });
-        }
-
-        Ok(RemediationVerdict::Accepted { proposal })
+        Ok(self.decide_verdict(issue, &report, proposal))
     }
 }
 

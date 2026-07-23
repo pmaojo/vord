@@ -41,6 +41,41 @@ pub enum AnalyzeError {
     Storage(#[from] StorageError),
 }
 
+/// Folds per-file outcomes into the running metrics, returning the
+/// combined issues/hotspots — the reduction step behind `analyze_files`'s
+/// per-file phase.
+fn fold_outcomes(outcomes: Vec<FileOutcome>, metrics: &mut Metrics) -> (Vec<Issue>, Vec<Hotspot>) {
+    let mut issues: Vec<Issue> = Vec::new();
+    let mut hotspots: Vec<Hotspot> = Vec::new();
+    for outcome in outcomes {
+        match outcome {
+            FileOutcome::Skipped => metrics.add_skipped_file(),
+            FileOutcome::ParseFailed => metrics.add_parse_failure(),
+            FileOutcome::Analyzed {
+                lines,
+                debt_minutes,
+                issues: file_issues,
+                hotspots: file_hotspots,
+                structural,
+                from_cache,
+            } => {
+                metrics.add_file(lines);
+                metrics.add_debt(debt_minutes);
+                metrics.add_structural(structural);
+                if from_cache {
+                    metrics.add_cache_hit();
+                }
+                for issue in file_issues {
+                    metrics.count_issue(issue.severity());
+                    issues.push(issue);
+                }
+                hotspots.extend(file_hotspots);
+            }
+        }
+    }
+    (issues, hotspots)
+}
+
 impl<S, M> AnalyzerService<S, M>
 where
     S: IssueStorage + HotspotStorage,
@@ -95,41 +130,10 @@ where
         &self.rules
     }
 
-    pub async fn analyze_files(&self, files: &[SourceFile]) -> Result<AnalysisReport, AnalyzeError> {
-        let mut issues: Vec<Issue> = Vec::new();
-        let mut hotspots: Vec<Hotspot> = Vec::new();
-        let mut metrics = Metrics::new();
-
-        for outcome in self.analyze_all(files) {
-            match outcome {
-                FileOutcome::Skipped => metrics.add_skipped_file(),
-                FileOutcome::ParseFailed => metrics.add_parse_failure(),
-                FileOutcome::Analyzed {
-                    lines,
-                    debt_minutes,
-                    issues: file_issues,
-                    hotspots: file_hotspots,
-                    structural,
-                    from_cache,
-                } => {
-                    metrics.add_file(lines);
-                    metrics.add_debt(debt_minutes);
-                    metrics.add_structural(structural);
-                    if from_cache {
-                        metrics.add_cache_hit();
-                    }
-                    for issue in file_issues {
-                        metrics.count_issue(issue.severity());
-                        issues.push(issue);
-                    }
-                    hotspots.extend(file_hotspots);
-                }
-            }
-        }
-
-        // Cross-file phase: copy-paste detection over the whole file set.
-        // Each file's registered parser (if any) supplies real per-language
-        // tokens; files with no registered parser fall back to trimmed lines.
+    /// Copy-paste detection over the whole file set. Each file's registered
+    /// parser (if any) supplies real per-language tokens; files with no
+    /// registered parser fall back to trimmed lines.
+    fn detect_duplication(&self, files: &[SourceFile]) -> yunq_cpd::DuplicationReport {
         let tokenized: Vec<yunq_cpd::TokenizedFile> = files
             .iter()
             .map(|file| {
@@ -141,32 +145,38 @@ where
                 yunq_cpd::TokenizedFile { path: file.path().to_string(), lines }
             })
             .collect();
-        let duplication = yunq_cpd::find_duplicates(&tokenized, self.duplication);
-        metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
+        yunq_cpd::find_duplicates(&tokenized, self.duplication)
+    }
 
-        // Cross-file rules (e.g. inter-procedural taint) need every AST at
-        // once, so the file set is re-parsed in parallel for this phase.
+    /// Cross-file rules (e.g. inter-procedural taint) need every AST at
+    /// once, so the file set is re-parsed in parallel for this phase.
+    /// Appends their findings straight into `issues`/`metrics`.
+    fn run_cross_file_rules(&self, files: &[SourceFile], issues: &mut Vec<Issue>, metrics: &mut Metrics) {
         let active_cross: Vec<&Box<dyn CrossFileRule>> =
             self.cross_rules.iter().filter(|r| self.profile.is_active(r.id())).collect();
-        if !active_cross.is_empty() {
-            let parsed = self.parse_all(files);
-            for rule in active_cross {
-                let severity =
-                    self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
-                for (file_index, finding) in rule.check(&parsed) {
-                    let Some((file, _)) = parsed.get(file_index) else { continue };
-                    metrics.count_issue(severity);
-                    metrics.add_debt(rule.remediation_effort_minutes() as usize);
-                    issues.push(Issue::new(
-                        rule.id().clone(),
-                        severity,
-                        finding.message,
-                        file.path(),
-                        finding.span,
-                    ));
-                }
+        if active_cross.is_empty() {
+            return;
+        }
+        let parsed = self.parse_all(files);
+        for rule in active_cross {
+            let severity = self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
+            for (file_index, finding) in rule.check(&parsed) {
+                let Some((file, _)) = parsed.get(file_index) else { continue };
+                metrics.count_issue(severity);
+                metrics.add_debt(rule.remediation_effort_minutes() as usize);
+                issues.push(Issue::new(rule.id().clone(), severity, finding.message, file.path(), finding.span));
             }
         }
+    }
+
+    pub async fn analyze_files(&self, files: &[SourceFile]) -> Result<AnalysisReport, AnalyzeError> {
+        let mut metrics = Metrics::new();
+        let (mut issues, hotspots) = fold_outcomes(self.analyze_all(files), &mut metrics);
+
+        let duplication = self.detect_duplication(files);
+        metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
+
+        self.run_cross_file_rules(files, &mut issues, &mut metrics);
 
         self.storage.save_issues(&issues).await?;
         self.storage.save_hotspots(&hotspots).await?;
@@ -248,29 +258,9 @@ where
             .collect()
     }
 
-    fn analyze_one(&self, file: &SourceFile, config_hash: u64) -> FileOutcome {
-        let key = CacheKey { content_hash: Self::content_fingerprint(file), config_hash };
-        if let Some(cache) = &self.cache
-            && let Some(hit) = cache.get(&key)
-        {
-            return FileOutcome::Analyzed {
-                lines: hit.lines,
-                debt_minutes: hit.debt_minutes,
-                issues: hit.issues,
-                hotspots: hit.hotspots,
-                structural: hit.structural,
-                from_cache: true,
-            };
-        }
-
-        let Some(parser) = self.parsers.get(file.language()) else {
-            return FileOutcome::Skipped;
-        };
-        let Ok(ast) = parser.parse(file) else {
-            return FileOutcome::ParseFailed;
-        };
-        let structural = crate::structural_metrics::compute(&ast);
-
+    /// Runs every applicable active rule against `file`/`ast`, returning
+    /// its issues, hotspots, and total remediation-effort debt.
+    fn run_rules_on_file(&self, file: &SourceFile, ast: &AstNode) -> (Vec<Issue>, Vec<Hotspot>, usize) {
         let mut issues = Vec::new();
         let mut hotspots = Vec::new();
         let mut debt_minutes = 0usize;
@@ -280,7 +270,7 @@ where
             }
             let severity =
                 self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
-            for finding in rule.check(file, &ast) {
+            for finding in rule.check(file, ast) {
                 if crate::is_suppressed(file.content(), finding.span.start_line, rule.id().as_str()) {
                     continue;
                 }
@@ -304,6 +294,33 @@ where
                 }
             }
         }
+        (issues, hotspots, debt_minutes)
+    }
+
+    fn analyze_one(&self, file: &SourceFile, config_hash: u64) -> FileOutcome {
+        let key = CacheKey { content_hash: Self::content_fingerprint(file), config_hash };
+        if let Some(cache) = &self.cache
+            && let Some(hit) = cache.get(&key)
+        {
+            return FileOutcome::Analyzed {
+                lines: hit.lines,
+                debt_minutes: hit.debt_minutes,
+                issues: hit.issues,
+                hotspots: hit.hotspots,
+                structural: hit.structural,
+                from_cache: true,
+            };
+        }
+
+        let Some(parser) = self.parsers.get(file.language()) else {
+            return FileOutcome::Skipped;
+        };
+        let Ok(ast) = parser.parse(file) else {
+            return FileOutcome::ParseFailed;
+        };
+        let structural = crate::structural_metrics::compute(&ast);
+        let (issues, hotspots, debt_minutes) = self.run_rules_on_file(file, &ast);
+
         let lines = file.line_count();
         if let Some(cache) = &self.cache {
             cache.put(
@@ -498,34 +515,34 @@ mod tests {
         assert!(report.issues().is_empty());
     }
 
+    struct CountingParser {
+        calls: Arc<AtomicUsize>,
+    }
+    impl AstParser for CountingParser {
+        fn language(&self) -> LanguageIdentifier {
+            LanguageIdentifier::rust()
+        }
+        fn parse(&self, file: &SourceFile) -> Result<AstNode, ParseError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(AstNode::new(NodeKind::SourceUnit, Span::new(1, 1, 1, 1), file.content(), vec![]))
+        }
+    }
+
+    #[derive(Default)]
+    struct MapCache {
+        entries: Mutex<HashMap<CacheKey, CachedAnalysis>>,
+    }
+    impl AnalysisCache for MapCache {
+        fn get(&self, key: &CacheKey) -> Option<CachedAnalysis> {
+            self.entries.lock().unwrap().get(key).cloned()
+        }
+        fn put(&self, key: CacheKey, value: CachedAnalysis) {
+            self.entries.lock().unwrap().insert(key, value);
+        }
+    }
+
     #[test]
     fn cache_hit_skips_parsing_and_reuses_issues() {
-        struct CountingParser {
-            calls: Arc<AtomicUsize>,
-        }
-        impl AstParser for CountingParser {
-            fn language(&self) -> LanguageIdentifier {
-                LanguageIdentifier::rust()
-            }
-            fn parse(&self, file: &SourceFile) -> Result<AstNode, ParseError> {
-                self.calls.fetch_add(1, Ordering::Relaxed);
-                Ok(AstNode::new(NodeKind::SourceUnit, Span::new(1, 1, 1, 1), file.content(), vec![]))
-            }
-        }
-
-        #[derive(Default)]
-        struct MapCache {
-            entries: Mutex<HashMap<CacheKey, CachedAnalysis>>,
-        }
-        impl AnalysisCache for MapCache {
-            fn get(&self, key: &CacheKey) -> Option<CachedAnalysis> {
-                self.entries.lock().unwrap().get(key).cloned()
-            }
-            fn put(&self, key: CacheKey, value: CachedAnalysis) {
-                self.entries.lock().unwrap().insert(key, value);
-            }
-        }
-
         let rule_id = RuleId::new("test:always").unwrap();
         let mut profile = QualityProfile::new("test");
         profile.activate(rule_id.clone(), Severity::Major);
