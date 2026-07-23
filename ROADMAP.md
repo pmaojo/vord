@@ -94,8 +94,11 @@ re-analysis on typical PRs.
   MQR-style software-quality impacts (reliability, security,
   maintainability × severity) — support both classification modes like
   modern SonarQube.
-- **Secrets detection**: dedicated ruleset (entropy + provider patterns:
-  AWS, GCP, Azure, Stripe, private keys…), extending the Phase-1 rule.
+- **Secrets detection**: ✅ dedicated `rulesets/secrets` crate — entropy
+  detection (`entropy.rs`), provider patterns for AWS/GCP/Azure/Stripe/
+  private-key blocks (`provider_patterns.rs`), and custom-pattern support for
+  private/self-hosted services (`custom_pattern.rs`); wired into all three
+  composition roots (CLI, server, worker).
 - **Duplication detection (CPD)**: ✅ core algorithm ported from
   `sonar-duplications`' `BlockChunker`/`CloneIndex` — statement-repetition
   collapsing, incremental Rabin-Karp rolling hash (base 31, default block
@@ -134,10 +137,18 @@ re-analysis on typical PRs.
   `--coverage`/`--cobertura`/`--jacoco`/`--llvm-cov`/`--istanbul`/`--coverage-report`+`--coverage-format`
   and `--coverage-diff` (`bin/cli/src/main.rs`). Not yet wired: no server-side HTTP endpoint
   ingests or persists coverage reports — only the CLI computes it at scan time.
-- **Test report ingestion**: JUnit XML / test execution counts.
-- **Cross-file taint analysis**: module graph (imports/exports as edges),
-  inter-procedural summaries, sanitizer modeling — SonarQube sells this as
-  commercial; yunq ships it open.
+- **Test report ingestion**: ✅ JUnit XML parser (`infra/fs/src/junit.rs`)
+  wired into the CLI `--junit` flag and test-summary measures.
+- **Cross-file taint analysis**: ✅ inter-procedural summaries and
+  project-wide function resolution ported (`core/taint/src/cross.rs`) —
+  parameter→sink and parameter→return-value summaries iterated to a global
+  fixpoint, so `caller → helper → runner → sink` chains resolve across file
+  boundaries; name resolution is a project-wide-by-name heuristic rather
+  than a real import/export edge graph, a deliberate zero-config tradeoff.
+  ⚠️ Still open: **sanitizer modeling** — no concept yet of a function that
+  strips taint from a value, so any call reaching a summarized sink-bound
+  parameter is flagged regardless of intervening sanitization. SonarQube
+  sells the category commercially; yunq ships it open.
 
 ## Phase 3 — Project & quality model (Clean as You Code)
 
@@ -145,9 +156,11 @@ re-analysis on typical PRs.
   analyses attached to (project, branch|PR).
 - **New Code definition**: previous version / N days / reference branch /
   specific analysis — per project and per branch.
-- **Quality Gates**: condition sets on any metric (new/overall scope),
-  CaYC-recommended default gate, gate evaluation per analysis, per-project
-  gate assignment, gate status API + badges (SVG).
+- **Quality Gates**: ✅ condition sets on any metric, gate evaluation
+  persisted per analysis (`infra/postgres/src/gate.rs`, migrations
+  0006–0010), real gate status badge (`badge_svg` in `bin/server/src/main.rs`
+  renders the actual latest gate result — no longer a hardcoded "passed"
+  stub), new-code definition model landed alongside it.
 - **Quality Profiles**: per-language activation sets with severity
   overrides (core type exists), inheritance chains, built-in "Sonar way"
   equivalent, compare/copy/backup-restore.
@@ -182,7 +195,9 @@ re-analysis on typical PRs.
   import between instances.
 - **Background tasks**: task queue status API (SQS pipeline exists),
   per-project activity log, failure diagnostics.
-- **Ops**: system info/health endpoints, audit log, Prometheus metrics.
+- **Ops**: ✅ system info endpoint (`ops::system_info`) and audit log
+  persistence + endpoint (`ops::list_audit_log`, `infra/postgres/src/{audit,system}.rs`,
+  migrations 0011–0013), on top of the existing `/health` and Prometheus metrics.
 
 ## Phase 5 — SCM/ALM & CI integration
 
