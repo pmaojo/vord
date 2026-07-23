@@ -254,7 +254,10 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
             match previous {
                 Some(prev) if start == prev + 1 => {}
                 Some(prev) => {
-                    flush(run_start.unwrap(), prev);
+                    flush(
+                        run_start.expect("run_start is set on the first iteration and only cleared by this arm, which reads it first"),
+                        prev,
+                    );
                     run_start = Some(start);
                 }
                 None => run_start = Some(start),

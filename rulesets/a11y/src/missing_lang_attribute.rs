@@ -11,7 +11,7 @@ pub struct MissingLangAttributeRule {
 
 impl MissingLangAttributeRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("a11y:missing-lang-attribute").expect("valid rule id") }
+        Self { id: RuleId::new("a11y:missing-lang-attribute").expect("valid rule id") } // yunq-ignore: secrets:high-entropy-string (rule id, not a secret)
     }
 }
 

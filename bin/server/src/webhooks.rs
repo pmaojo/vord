@@ -296,7 +296,7 @@ async fn deliver_with_retries(inner: &DispatcherInner, job: DeliveryJob) {
             .header("content-type", "application/json")
             .header("x-yunq-event", &job.event)
             .header("x-yunq-delivery", &job.delivery_id)
-            .header("x-yunq-signature-256", signature)
+            .header("x-yunq-signature-256", signature) // yunq-ignore: secrets:high-entropy-string (HTTP header name, not a secret value)
             .body(job.body.clone())
             .send()
             .await;

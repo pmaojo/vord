@@ -31,7 +31,7 @@ impl ComplianceReportGenerator {
     /// Generates a valid PDF 1.4 binary document byte stream conforming to ISO 32000-1.
     pub fn generate_owasp_compliance_pdf_binary(report: &AnalysisReport) -> Result<Vec<u8>, ReportError> {
         let mut pdf = Vec::with_capacity(4096);
-        pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
+        pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"); // yunq-ignore: secrets:high-entropy-string (PDF spec magic bytes, not a secret)
 
         let mut offsets = Vec::new();
 

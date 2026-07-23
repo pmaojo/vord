@@ -23,62 +23,62 @@ const PROVIDER_SPECS: &[ProviderSpec] = &[
     ProviderSpec {
         id: "secrets:aws-access-key-id",
         description: "AWS access key id",
-        pattern: r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b",
+        pattern: r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:aws-secret-access-key",
         description: "AWS secret access key assigned to an `aws_secret_access_key`-named field",
-        pattern: r#"(?i)aws_secret_access_key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}['"]?"#,
+        pattern: r#"(?i)aws_secret_access_key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}['"]?"#, // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:gcp-api-key",
         description: "Google Cloud API key",
-        pattern: r"\bAIza[0-9A-Za-z_\-]{35}\b",
+        pattern: r"\bAIza[0-9A-Za-z_\-]{35}\b", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:gcp-service-account-key",
         description: "Google Cloud service account private key (JSON key file)",
-        pattern: r#""private_key"\s*:\s*"-----BEGIN (RSA )?PRIVATE KEY"#,
+        pattern: r#""private_key"\s*:\s*"-----BEGIN (RSA )?PRIVATE KEY"#, // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:azure-storage-connection-string",
         description: "Azure Storage account connection string account key",
-        pattern: r"AccountKey=[A-Za-z0-9+/]{40,}={0,2}",
+        pattern: r"AccountKey=[A-Za-z0-9+/]{40,}={0,2}", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:azure-sas-token",
         description: "Azure shared access signature (SAS) token",
-        pattern: r"[?&]sv=\d{4}-\d{2}-\d{2}[^\s\x22\x27]*[?&]sig=[A-Za-z0-9%]{20,}",
+        pattern: r"[?&]sv=\d{4}-\d{2}-\d{2}[^\s\x22\x27]*[?&]sig=[A-Za-z0-9%]{20,}", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:stripe-live-key",
         description: "Stripe live secret/publishable/restricted key",
-        pattern: r"\b(?:sk|pk|rk)_live_[0-9a-zA-Z]{24,}\b",
+        pattern: r"\b(?:sk|pk|rk)_live_[0-9a-zA-Z]{24,}\b", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:private-key-block",
         description: "PEM-encoded private key material",
-        pattern: r"-----BEGIN ((RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY-----",
+        pattern: r"-----BEGIN ((RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY-----", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:github-token",
         description: "GitHub personal access / OAuth / app / refresh token",
-        pattern: r"\bgh[oprsu]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b",
+        pattern: r"\bgh[oprsu]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:slack-token",
         description: "Slack API token",
-        pattern: r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b",
+        pattern: r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:npm-token",
         description: "npm registry access token",
-        pattern: r"\bnpm_[A-Za-z0-9]{36,}\b",
+        pattern: r"\bnpm_[A-Za-z0-9]{36,}\b", // yunq-ignore (detection regex itself, not a secret)
     },
     ProviderSpec {
         id: "secrets:jwt-like-token",
         description: "JWT-shaped token (base64url header.payload.signature)",
-        pattern: r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+        pattern: r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b", // yunq-ignore (detection regex itself, not a secret)
     },
 ];
 
@@ -129,13 +129,21 @@ impl Rule for RegexSecretRule {
         if *ast.kind() != NodeKind::SourceUnit {
             return Vec::new();
         }
+        if yunq_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
+        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if yunq_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             if self.pattern.is_match(line) {
                 findings.push(Finding::new(
                     format!("line looks like a hardcoded {}", self.description),
-                    Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    Span::new(line_no, 1, line_no, line.len().max(1) as u32),
                 ));
             }
         }

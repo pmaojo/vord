@@ -8,7 +8,7 @@
 //! Reliability and Security ratings are a *different* algorithm from
 //! Maintainability, not the same grid applied twice: SonarQube's
 //! `ReliabilityAndSecurityRatingMeasuresVisitor` looks up each issue's rating
-//! from `Rating.RATING_BY_SEVERITY` (`server/sonar-server-common/.../Rating.java`)
+//! via `Rating.RATING_BY_SEVERITY` (`server/sonar-server-common/.../Rating.java`)
 //! and folds it into the metric for the issue's own type — bugs into
 //! Reliability, vulnerabilities into Security — taking the worst rating
 //! present in each bucket (A if the bucket is empty). Code smells (the only

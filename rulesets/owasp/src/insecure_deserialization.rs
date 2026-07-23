@@ -34,8 +34,11 @@ impl Rule for InsecureDeserializationRule {
         &self.id
     }
 
-    fn applies_to(&self, _lang: &LanguageIdentifier) -> bool {
-        true
+    fn applies_to(&self, lang: &LanguageIdentifier) -> bool {
+        *lang == LanguageIdentifier::python()
+            || *lang == LanguageIdentifier::java()
+            || *lang == LanguageIdentifier::ruby()
+            || *lang == LanguageIdentifier::php()
     }
 
     fn default_severity(&self) -> Severity {

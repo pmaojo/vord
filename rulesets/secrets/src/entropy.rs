@@ -27,6 +27,37 @@ pub fn shannon_entropy(s: &str) -> f64 {
     })
 }
 
+/// Resolves the handful of common backslash escapes (`\n`, `\t`, `\r`,
+/// `\\`, `\"`, `\'`, `\0`) to their actual character, leaving anything else
+/// untouched. A literal like `"rule_id,severity,message\n"` reads as a
+/// comma-joined header row followed by a real newline once unescaped —
+/// exactly the shape the whitespace/charset checks below already know how
+/// to recognize as non-secret — rather than a string ending in a stray `\`
+/// symbol byte.
+fn unescape_common(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.peek() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('0') => out.push('\0'),
+            Some(&esc @ ('\\' | '"' | '\'')) => out.push(esc),
+            _ => {
+                out.push(c);
+                continue;
+            }
+        }
+        chars.next();
+    }
+    out
+}
+
 /// Strips one layer of matching quote characters (`"`, `'`, `` ` ``) so
 /// entropy is computed over the literal's value, not its syntax.
 fn strip_quotes(s: &str) -> &str {
@@ -72,17 +103,51 @@ fn looks_like_url_path_or_integrity_hash(s: &str) -> bool {
         || s.starts_with("./")
         || s.starts_with("../")
         || (s.contains('/') && s.contains('.'))
+        // Two or more path separators is a strong path/route signal on its
+        // own — `refs/heads/main`, `api/auth/oauth/github/callback` — even
+        // without a literal `.` anywhere in the string.
+        || s.matches('/').count() >= 2
+        || s.starts_with("urn:")
         || INTEGRITY_PREFIXES.iter().any(|p| s.starts_with(p))
+}
+
+/// A Rust `format!`-style interpolation template — `{candidate}`,
+/// `{public_url}/api/...`, `{}` — is source code building a string, not the
+/// secret value that ends up in it.
+fn looks_like_format_template(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'{'
+            && let Some(rel_close) = s[i + 1..].find('}')
+        {
+            let inner = &s[i + 1..i + 1 + rel_close];
+            let is_placeholder = inner
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | ':' | '.' | '?' | '#' | '<' | '>' | '^' | '+' | '-'));
+            if is_placeholder {
+                return true;
+            }
+            i += 1 + rel_close + 1;
+            continue;
+        }
+        i += 1;
+    }
+    false
 }
 
 /// Real secrets/tokens are essentially always alphanumeric-plus-symbols
 /// (base64, hex-with-mixed-context, or `prefix_base62...`); plain English
-/// words and identifiers (camelCase, snake_case prose) contain only
-/// letters. Requiring a digit or a non-alphanumeric symbol filters most of
-/// that prose out while keeping token shapes.
+/// words and identifiers (camelCase, snake_case prose, kebab-case rule ids,
+/// `namespace:name` pairs, dotted config keys) contain only letters plus
+/// `_-:.,` structural punctuation. Requiring a digit or a symbol outside
+/// that structural set filters most of that prose out while keeping actual
+/// token shapes (base64 uses `+/=`, hex/base62 tokens carry digits, etc).
 fn has_secret_like_charset(s: &str) -> bool {
+    const STRUCTURAL: &[u8] = b"_-:.,";
     let has_digit = s.bytes().any(|b| b.is_ascii_digit());
-    let has_symbol = s.bytes().any(|b| !b.is_ascii_alphanumeric());
+    let has_symbol =
+        s.bytes().any(|b| !b.is_ascii_alphanumeric() && !STRUCTURAL.contains(&b));
     has_digit || has_symbol
 }
 
@@ -138,11 +203,20 @@ impl Rule for HighEntropyStringRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        if yunq_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
+        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+
         let mut findings = Vec::new();
 
         for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
-            let value = strip_quotes(literal.text());
+            if yunq_rules_engine::in_ranges(&test_ranges, literal.span().start_line) {
+                continue;
+            }
+            let value = unescape_common(strip_quotes(literal.text()));
+            let value = value.as_str();
 
             if value.len() < self.min_length || value.contains(char::is_whitespace) {
                 continue;
@@ -150,6 +224,7 @@ impl Rule for HighEntropyStringRule {
             if looks_like_hex_digest(value)
                 || looks_like_uuid(value)
                 || looks_like_url_path_or_integrity_hash(value)
+                || looks_like_format_template(value)
             {
                 continue;
             }
@@ -244,6 +319,45 @@ mod tests {
     fn ignores_subresource_integrity_hash() {
         let code = "const sri = \"sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8wC\";\n";
         assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_snake_case_identifier_style_text() {
+        assert!(check_ts("const m = \"yunq_process_uptime_seconds\";\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_namespaced_kebab_case_rule_ids() {
+        assert!(check_ts("const rule = \"owasp:hardcoded-secret\";\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_dotted_config_keys_and_comma_joined_lists() {
+        assert!(check_ts("const key = \"analysis.exclusions.default\";\n").is_empty());
+        assert!(check_ts("const list = \"read:user,user:email,repo:status\";\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_format_string_placeholders() {
+        assert!(check_ts("const url = \"{public_url}/api/auth/oauth/github/callback\";\n").is_empty());
+        assert!(check_ts("const metric = \"yunq_http_requests_total{{method=\\\"{}\\\",route=\\\"{}\\\"}}\";\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_comma_joined_header_row_with_trailing_newline_escape() {
+        let code = "const h = \"rule_id,severity,file_path,start_line,message\\n\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_urn_identifiers() {
+        assert!(check_ts("const s = \"urn:ietf:params:scim:api:messages:2.0:ListResponse\";\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_extensionless_multi_segment_paths() {
+        assert!(check_ts("const p = \"refs/remotes/origin/HEAD\";\n").is_empty());
+        assert!(check_ts("const p2 = \"api/auth/oauth/github/callback\";\n").is_empty());
     }
 
     #[test]

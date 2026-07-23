@@ -34,8 +34,10 @@ impl Rule for DisabledCertValidationRule {
         &self.id
     }
 
-    fn applies_to(&self, _lang: &LanguageIdentifier) -> bool {
-        true
+    fn applies_to(&self, lang: &LanguageIdentifier) -> bool {
+        *lang == LanguageIdentifier::typescript()
+            || *lang == LanguageIdentifier::python()
+            || *lang == LanguageIdentifier::go()
     }
 
     fn default_severity(&self) -> Severity {

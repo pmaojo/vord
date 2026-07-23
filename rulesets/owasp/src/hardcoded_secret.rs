@@ -78,7 +78,13 @@ impl Rule for HardcodedSecretRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        if yunq_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
+        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+        let in_test = |line: u32| yunq_rules_engine::in_ranges(&test_ranges, line);
+
         let mut findings = Vec::new();
 
         for node in ast
@@ -95,6 +101,9 @@ impl Rule for HardcodedSecretRule {
             }
             for value in &node.children()[1..] {
                 if let Some(literal) = own_literal(value) {
+                    if in_test(literal.span().start_line) {
+                        continue;
+                    }
                     findings.push(Finding::new(
                         format!("credential-looking variable `{}` holds a hardcoded string literal", target.text()),
                         literal.span(),
@@ -104,6 +113,9 @@ impl Rule for HardcodedSecretRule {
         }
 
         for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+            if in_test(literal.span().start_line) {
+                continue;
+            }
             let text = literal.text();
             if let Some((_, _, provider)) = PROVIDER_SIGNATURES
                 .iter()

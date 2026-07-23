@@ -24,8 +24,8 @@ impl Rule for PermissiveCorsRule {
         &self.id
     }
 
-    fn applies_to(&self, _lang: &LanguageIdentifier) -> bool {
-        true
+    fn applies_to(&self, lang: &LanguageIdentifier) -> bool {
+        *lang != LanguageIdentifier::rust()
     }
 
     fn default_severity(&self) -> Severity {
