@@ -9,8 +9,8 @@ use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_profiles::{GateStatus, RuleId, Severity};
 
 use crate::domain::{
-    BulkOutcome, ChangelogEntry, Hotspot, HotspotStatus, InvalidTransitionError, Issue,
-    IssueFacets, IssueStatus, IssueTransition, Metrics, ScanJob, StoredHotspot, StoredIssue,
+    BulkOutcome, ChangelogEntry, CoverageSummary, Hotspot, HotspotStatus, InvalidTransitionError,
+    Issue, IssueFacets, IssueStatus, IssueTransition, Metrics, ScanJob, StoredHotspot, StoredIssue,
 };
 use crate::structural_metrics::StructuralCounts;
 
@@ -205,6 +205,33 @@ pub trait GateResultReader: Send + Sync {
         &self,
         project_key: &str,
     ) -> impl Future<Output = Result<Option<GateResultSummary>, StorageError>> + Send;
+}
+
+/// Outbound port: persists an ingested coverage report's summary against one
+/// analysis — the server-side counterpart to the CLI's `--coverage`/
+/// `--cobertura`/etc. flags, which only ever computed coverage locally.
+pub trait CoverageStorage: Send + Sync {
+    fn save_coverage(
+        &self,
+        analysis_id: i64,
+        summary: CoverageSummary,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send;
+}
+
+/// One project's most recently persisted coverage summary — the source of
+/// truth for a coverage measure/badge, mirroring [`GateResultSummary`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CoverageResultSummary {
+    pub summary: CoverageSummary,
+}
+
+/// Outbound port: reads the latest persisted coverage summary for a
+/// project, if any analysis has had a coverage report ingested yet.
+pub trait CoverageResultReader: Send + Sync {
+    fn latest_coverage(
+        &self,
+        project_key: &str,
+    ) -> impl Future<Output = Result<Option<CoverageResultSummary>, StorageError>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]

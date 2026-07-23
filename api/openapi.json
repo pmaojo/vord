@@ -7,9 +7,79 @@
       "name": "MIT",
       "identifier": "MIT"
     },
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "paths": {
+    "/api/audit-log": {
+      "get": {
+        "summary": "Read the audit trail of gate/profile/permission changes, newest first.",
+        "operationId": "list_audit_log",
+        "parameters": [
+          {
+            "name": "entity_type",
+            "in": "query",
+            "description": "Filter: exact entity_type (quality_gate|quality_profile|project_permission).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive lower bound, RFC3339.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Inclusive upper bound, RFC3339.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "1-based page number (default 1).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "Page size (default 50, capped at 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of audit log entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogPageDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
     "/api/auth/me": {
       "get": {
         "summary": "Return the user attached to the current yunq bearer session.",
@@ -144,9 +214,258 @@
         }
       }
     },
+    "/api/compliance/owasp.pdf": {
+      "get": {
+        "summary": "Export ISO 32000-1 Binary PDF Compliance Report (Enterprise Subscription Required).",
+        "operationId": "export_compliance_pdf",
+        "responses": {
+          "200": {
+            "description": "ISO 32000-1 Binary PDF Report",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Enterprise plan required"
+          }
+        }
+      }
+    },
+    "/api/hotspots": {
+      "get": {
+        "summary": "List the most recently detected security hotspots.",
+        "operationId": "list_hotspots",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of hotspots to return (default 50, capped at 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent hotspots",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HotspotDto"
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/hotspots/{id}/status": {
+      "put": {
+        "summary": "Record a reviewer's verdict on a hotspot.",
+        "operationId": "review_hotspot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Hotspot id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HotspotReviewRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Hotspot after the review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HotspotDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown status"
+          },
+          "404": {
+            "description": "Hotspot not found"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/issues": {
+      "get": {
+        "summary": "Search issues with filters and pagination (newest first).",
+        "operationId": "list_issues",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "1-based page number (default 1).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "Page size (default 50, capped at 500).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "description": "Filter: info|minor|major|critical|blocker.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter: open|confirmed|resolved|closed.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rule",
+            "in": "query",
+            "description": "Filter: exact rule id, e.g. owasp:eval-usage.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file",
+            "in": "query",
+            "description": "Filter: substring of the file path.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assignee",
+            "in": "query",
+            "description": "Filter: exact assignee.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "facets",
+            "in": "query",
+            "description": "Comma-separated facets to compute alongside the page:\nseverity, status, rule (e.g. `facets=severity,rule`).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of matching issues",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuePageDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filter value"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/issues/bulk-transition": {
+      "post": {
+        "summary": "Apply the same transition to many issues at once. Each issue succeeds or\nfails independently — one illegal transition does not abort the batch.",
+        "operationId": "bulk_transition_issues",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkTransitionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Per-issue outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BulkOutcomeDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown transition or resolution"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
     "/api/issues/{id}/assign-to-agent": {
       "post": {
         "summary": "Assign an issue to the AI Remediation Agent to automatically generate a verified fix.",
+        "description": "Runs the full verify-before-suggest loop: fetches the issue's real source\nfrom GitHub, asks the LLM provider for a fix, applies it in an isolated\nin-memory sandbox, and re-runs the analyzer. The proposal is only\nreturned if the original issue is gone and no new issue was introduced.",
         "operationId": "assign_to_agent",
         "parameters": [
           {
@@ -162,7 +481,7 @@
         ],
         "responses": {
           "200": {
-            "description": "AI Remediation Agent proposal generated",
+            "description": "Verified AI Remediation Agent proposal generated",
             "content": {
               "application/json": {
                 "schema": {
@@ -171,15 +490,176 @@
               }
             }
           },
+          "402": {
+            "description": "Pro or Enterprise plan required"
+          },
           "404": {
             "description": "Issue not found"
+          },
+          "422": {
+            "description": "No verified fix could be produced (source unavailable, or the fix didn't pass re-scan)"
+          },
+          "502": {
+            "description": "GitHub or LLM provider request failed"
+          }
+        }
+      }
+    },
+    "/api/issues/{id}/assignee": {
+      "put": {
+        "summary": "Assign or unassign an issue.",
+        "operationId": "assign_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssigneeRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Issue after the assignment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Issue not found"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/issues/{id}/changelog": {
+      "get": {
+        "summary": "The recorded workflow history of an issue (audit trail).",
+        "operationId": "issue_changelog",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changelog entries, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChangelogEntryDto"
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/issues/{id}/transitions": {
+      "post": {
+        "summary": "Apply a workflow transition to an issue.",
+        "operationId": "transition_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Issue after the transition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown transition or resolution"
+          },
+          "404": {
+            "description": "Issue not found"
+          },
+          "409": {
+            "description": "Transition not allowed from the current status"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "summary": "List analyzed projects.",
+        "operationId": "list_projects",
+        "responses": {
+          "200": {
+            "description": "List of analyzed projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectListDto"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/projects/{key}/badge.svg": {
       "get": {
-        "summary": "Generate SVG status badge for a project.",
+        "summary": "Generate SVG status badge for a project, reflecting the real outcome of\nthe last persisted quality gate evaluation (green \"passed\", red \"failed\",\ngrey \"no analysis\" for a project that hasn't been scanned yet).",
         "operationId": "badge_svg",
         "parameters": [
           {
@@ -199,6 +679,380 @@
               "image/svg+xml": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{key}/coverage": {
+      "get": {
+        "summary": "The most recently persisted coverage summary for a project, if any\nreport has been ingested yet.",
+        "operationId": "latest_coverage",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest coverage summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageSummaryDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No coverage report ingested yet for this project"
+          },
+          "502": {
+            "description": "Storage backend failure"
+          }
+        }
+      },
+      "post": {
+        "summary": "Ingest a coverage report (raw file content as the request body) against\na project's most recent analysis.",
+        "operationId": "ingest_coverage",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "Report format: lcov, cobertura, jacoco, llvm-cov, istanbul. Auto-detected from content when omitted.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "description": "Branch of the analysis the coverage report attaches to (default \"main\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Raw coverage report content (LCOV, Cobertura, JaCoCo, llvm-cov or Istanbul)",
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Coverage ingested and persisted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Report could not be parsed"
+          },
+          "404": {
+            "description": "No analysis exists yet for this project/branch — run a scan first"
+          },
+          "502": {
+            "description": "Storage backend failure"
+          }
+        }
+      }
+    },
+    "/api/projects/{key}/permissions/{user}": {
+      "put": {
+        "summary": "Grant (or change) a user's fixed role on a project; audit-logged as\n`permission.granted`. No groups, no templates, no SSO — a single role\nper (project, user).",
+        "operationId": "grant_permission",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "description": "User login",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermissionGrantRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Permission after the grant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid role"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke a user's role on a project; audit-logged as `permission.revoked`.",
+        "operationId": "revoke_permission",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "description": "User login",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission after the revoke",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/quality-gates/{name}": {
+      "put": {
+        "summary": "Create or update a named quality gate's condition set; audit-logged as\n`gate.updated`.",
+        "operationId": "upsert_quality_gate",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Gate name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GateUpsertRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Gate after the update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GateDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid metric key or operator"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/quality-profiles/{name}": {
+      "put": {
+        "summary": "Create or update a named quality profile's rule activations;\naudit-logged as `profile.updated`.",
+        "operationId": "upsert_quality_profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Profile name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpsertRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Profile after the update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid rule id or severity"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/rules": {
+      "get": {
+        "summary": "The catalog of every rule this server's analyzers ship with.",
+        "operationId": "list_rules",
+        "responses": {
+          "200": {
+            "description": "Rule catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuleDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans": {
+      "post": {
+        "summary": "Enqueue a scan job for asynchronous analysis.",
+        "operationId": "enqueue_scan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Scan job queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanQueuedDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid scan request"
+          },
+          "502": {
+            "description": "Queue backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/stripe/webhook": {
+      "post": {
+        "summary": "Stripe Billing Webhook Handler.",
+        "operationId": "stripe_webhook",
+        "responses": {
+          "200": {
+            "description": "Webhook received",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StripeWebhookResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/info": {
+      "get": {
+        "summary": "Operational snapshot: build version, uptime, DB reachability and a few\ncheap counters — everything already available from server state or one\nindexed count query each, nothing that scans a table.",
+        "operationId": "system_info",
+        "responses": {
+          "200": {
+            "description": "System info snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfoDto"
                 }
               }
             }
@@ -416,417 +1270,6 @@
         ]
       }
     },
-    "/hotspots": {
-      "get": {
-        "summary": "List the most recently detected security hotspots.",
-        "operationId": "list_hotspots",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Maximum number of hotspots to return (default 50, capped at 500).",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Recent hotspots",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/HotspotDto"
-                  }
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Storage backend unavailable"
-          }
-        }
-      }
-    },
-    "/hotspots/{id}/status": {
-      "put": {
-        "summary": "Record a reviewer's verdict on a hotspot.",
-        "operationId": "review_hotspot",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Hotspot id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HotspotReviewRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Hotspot after the review",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HotspotDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unknown status"
-          },
-          "404": {
-            "description": "Hotspot not found"
-          },
-          "502": {
-            "description": "Storage backend unavailable"
-          }
-        }
-      }
-    },
-    "/issues": {
-      "get": {
-        "summary": "Search issues with filters and pagination (newest first).",
-        "operationId": "list_issues",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "description": "1-based page number (default 1).",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "page_size",
-            "in": "query",
-            "description": "Page size (default 50, capped at 500).",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "severity",
-            "in": "query",
-            "description": "Filter: info|minor|major|critical|blocker.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "description": "Filter: open|confirmed|resolved|closed.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "rule",
-            "in": "query",
-            "description": "Filter: exact rule id, e.g. owasp:eval-usage.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "file",
-            "in": "query",
-            "description": "Filter: substring of the file path.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "assignee",
-            "in": "query",
-            "description": "Filter: exact assignee.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "facets",
-            "in": "query",
-            "description": "Comma-separated facets to compute alongside the page:\nseverity, status, rule (e.g. `facets=severity,rule`).",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "One page of matching issues",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IssuePageDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid filter value"
-          },
-          "502": {
-            "description": "Storage backend unavailable"
-          }
-        }
-      }
-    },
-    "/issues/bulk-transition": {
-      "post": {
-        "summary": "Apply the same transition to many issues at once. Each issue succeeds or\nfails independently — one illegal transition does not abort the batch.",
-        "operationId": "bulk_transition_issues",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkTransitionRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Per-issue outcomes",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/BulkOutcomeDto"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unknown transition or resolution"
-          },
-          "502": {
-            "description": "Storage backend unavailable"
-          }
-        }
-      }
-    },
-    "/issues/{id}/assignee": {
-      "put": {
-        "summary": "Assign or unassign an issue.",
-        "operationId": "assign_issue",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Issue id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssigneeRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Issue after the assignment",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IssueDto"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Issue not found"
-          },
-          "502": {
-            "description": "Storage backend unavailable"
-          }
-        }
-      }
-    },
-    "/issues/{id}/changelog": {
-      "get": {
-        "summary": "The recorded workflow history of an issue (audit trail).",
-        "operationId": "issue_changelog",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Issue id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changelog entries, oldest first",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ChangelogEntryDto"
-                  }
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Storage backend unavailable"
-          }
-        }
-      }
-    },
-    "/issues/{id}/transitions": {
-      "post": {
-        "summary": "Apply a workflow transition to an issue.",
-        "operationId": "transition_issue",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Issue id",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TransitionRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Issue after the transition",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IssueDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unknown transition or resolution"
-          },
-          "404": {
-            "description": "Issue not found"
-          },
-          "409": {
-            "description": "Transition not allowed from the current status"
-          },
-          "502": {
-            "description": "Storage backend unavailable"
-          }
-        }
-      }
-    },
-    "/rules": {
-      "get": {
-        "summary": "The catalog of every rule this server's analyzers ship with.",
-        "operationId": "list_rules",
-        "responses": {
-          "200": {
-            "description": "Rule catalog",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/RuleDto"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/scans": {
-      "post": {
-        "summary": "Enqueue a scan job for asynchronous analysis.",
-        "operationId": "enqueue_scan",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScanRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Scan job queued",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScanQueuedDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid scan request"
-          },
-          "502": {
-            "description": "Queue backend unavailable"
-          }
-        }
-      }
-    },
     "/scim/v2/Users": {
       "get": {
         "summary": "SCIM 2.0 User Provisioning Endpoint.",
@@ -853,7 +1296,8 @@
         "required": [
           "issue_id",
           "modified_code",
-          "explanation"
+          "explanation",
+          "verified"
         ],
         "properties": {
           "explanation": {
@@ -865,6 +1309,10 @@
           },
           "modified_code": {
             "type": "string"
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Always true: only fixes that survive the generate→sandbox→re-scan→\nverdict loop (the target issue is gone and no new issue appeared)\nare ever returned by this endpoint."
           }
         }
       },
@@ -877,6 +1325,71 @@
               "null"
             ],
             "description": "User to assign; null/omitted to unassign."
+          }
+        }
+      },
+      "AuditLogEntryDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "entity_type",
+          "entity_id",
+          "at"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "after": {},
+          "at": {
+            "type": "string"
+          },
+          "before": {},
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AuditLogPageDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditLogEntryDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -989,6 +1502,47 @@
           }
         }
       },
+      "CoverageSummaryDto": {
+        "type": "object",
+        "required": [
+          "covered_lines",
+          "coverable_lines",
+          "covered_branches",
+          "coverable_branches"
+        ],
+        "properties": {
+          "branch_coverage_percent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "coverable_branches": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverable_lines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverage_percent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "covered_branches": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "covered_lines": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "CreateWebhookDto": {
         "type": "object",
         "required": [
@@ -1028,6 +1582,23 @@
           },
           "user": {
             "$ref": "#/components/schemas/OAuthUserDto"
+          }
+        }
+      },
+      "DatabaseInfoDto": {
+        "type": "object",
+        "required": [
+          "connected"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "postgres_version": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -1094,6 +1665,60 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/FacetCountDto"
+            }
+          }
+        }
+      },
+      "GateConditionDto": {
+        "type": "object",
+        "required": [
+          "metric",
+          "operator",
+          "threshold"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string",
+            "description": "Lowercase snake_case metric key, e.g. blocker_issues."
+          },
+          "operator": {
+            "type": "string",
+            "description": "One of: gt, lt."
+          },
+          "threshold": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "GateDto": {
+        "type": "object",
+        "required": [
+          "name",
+          "conditions"
+        ],
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GateConditionDto"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "GateUpsertRequestDto": {
+        "type": "object",
+        "required": [
+          "conditions"
+        ],
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GateConditionDto"
             }
           }
         }
@@ -1308,6 +1933,141 @@
           }
         }
       },
+      "PermissionDto": {
+        "type": "object",
+        "required": [
+          "project_key",
+          "user_login"
+        ],
+        "properties": {
+          "project_key": {
+            "type": "string"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_login": {
+            "type": "string"
+          }
+        }
+      },
+      "PermissionGrantRequestDto": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "One of: admin, editor, viewer."
+          }
+        }
+      },
+      "ProfileActivationDto": {
+        "type": "object",
+        "required": [
+          "rule",
+          "severity"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string",
+            "description": "e.g. owasp:eval-usage."
+          },
+          "severity": {
+            "type": "string",
+            "description": "One of: info, minor, major, critical, blocker."
+          }
+        }
+      },
+      "ProfileDto": {
+        "type": "object",
+        "required": [
+          "name",
+          "activations"
+        ],
+        "properties": {
+          "activations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileActivationDto"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileUpsertRequestDto": {
+        "type": "object",
+        "required": [
+          "activations"
+        ],
+        "properties": {
+          "activations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileActivationDto"
+            }
+          }
+        }
+      },
+      "ProjectItemDto": {
+        "type": "object",
+        "required": [
+          "key",
+          "name",
+          "quality_gate_status",
+          "health_score",
+          "lines_of_code",
+          "issues_count",
+          "last_analysis_date"
+        ],
+        "properties": {
+          "health_score": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "issues_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "key": {
+            "type": "string"
+          },
+          "last_analysis_date": {
+            "type": "string"
+          },
+          "lines_of_code": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "quality_gate_status": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectListDto": {
+        "type": "object",
+        "required": [
+          "projects"
+        ],
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectItemDto"
+            }
+          }
+        }
+      },
       "QueuedDeliveryDto": {
         "type": "object",
         "required": [
@@ -1445,6 +2205,59 @@
           "total_results": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "StripeWebhookResponseDto": {
+        "type": "object",
+        "required": [
+          "received"
+        ],
+        "properties": {
+          "received": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SystemInfoDto": {
+        "type": "object",
+        "required": [
+          "version",
+          "git_sha",
+          "uptime_seconds",
+          "database",
+          "issues_total",
+          "hotspots_total",
+          "pending_scan_jobs"
+        ],
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/DatabaseInfoDto"
+          },
+          "git_sha": {
+            "type": "string",
+            "description": "`YUNQ_GIT_SHA` if the deploy set it, else \"unknown\"."
+          },
+          "hotspots_total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "issues_total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_scan_jobs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Scan jobs still waiting for a worker to claim them."
+          },
+          "uptime_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "version": {
+            "type": "string",
+            "description": "Cargo package version (`CARGO_PKG_VERSION`)."
           }
         }
       },

@@ -34,16 +34,19 @@ use yunq_rules_engine::{
 };
 
 mod auth;
+mod coverage;
 mod metrics;
 mod ops;
 mod webhooks;
 
+use coverage::CoveragePort;
 use ops::OpsStore;
 
 struct AppState {
     queue: Arc<dyn ScanQueuePort>,
     reader: Arc<dyn IssueApiStore>,
     gate: Arc<dyn GateBadgePort>,
+    coverage: Arc<dyn CoveragePort>,
     ops: Arc<dyn OpsStore>,
     metrics: metrics::Metrics,
     webhooks: webhooks::WebhookDispatcher,
@@ -228,6 +231,7 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(webhooks::dispatch_webhook))
         .routes(routes!(webhooks::webhook_delivery_log))
         .routes(routes!(badge_svg))
+        .routes(routes!(coverage::ingest_coverage, coverage::latest_coverage))
         .routes(routes!(scim_users))
         .routes(routes!(stripe_webhook))
         .routes(routes!(export_compliance_pdf))
@@ -257,10 +261,19 @@ async fn main() -> anyhow::Result<()> {
     let storage = PgIssueStorage::connect_lazy(&database_url)?;
     let reader: Arc<dyn IssueApiStore> = Arc::new(storage.clone());
     let gate: Arc<dyn GateBadgePort> = Arc::new(storage.clone());
+    let coverage: Arc<dyn CoveragePort> = Arc::new(storage.clone());
     let ops: Arc<dyn OpsStore> = Arc::new(storage.clone());
     let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
-    let state =
-        Arc::new(AppState { queue, reader, gate, ops, metrics: metrics.clone(), webhooks, auth });
+    let state = Arc::new(AppState {
+        queue,
+        reader,
+        gate,
+        coverage,
+        ops,
+        metrics: metrics.clone(),
+        webhooks,
+        auth,
+    });
 
     let app = router
         .route("/health", get(|| async { "ok" }))
