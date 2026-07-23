@@ -25,7 +25,8 @@ yunq/
 │   └── treesitter-go/
 ├── rulesets/                   # PLUGINS implementing the Rule trait
 │   ├── owasp/                  # secrets, eval/exec, command-exec hotspots, taint injection (incl. cross-file)
-│   └── code-smells/            # TODO/FIXME, long functions, unwrap/expect, complexity (cyclomatic + cognitive)
+│   ├── code-smells/            # TODO/FIXME, long functions, unwrap/expect, complexity (cyclomatic + cognitive)
+│   └── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
     ├── cli/                    # yunq scan — local end-to-end analysis
     ├── server/                 # axum API: scans, issues, hotspots, rules catalog

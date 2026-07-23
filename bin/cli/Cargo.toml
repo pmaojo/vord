@@ -38,6 +38,7 @@ yunq-rules-smells = { workspace = true }
 yunq-rules-iac = { workspace = true }
 yunq-rules-a11y = { workspace = true }
 yunq-rules-secrets = { workspace = true }
+yunq-rules-rust = { workspace = true }
 yunq-infra-memory = { workspace = true }
 yunq-infra-fs = { workspace = true }
 yunq-infra-github = { workspace = true }

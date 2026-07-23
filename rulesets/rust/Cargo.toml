@@ -1,0 +1,13 @@
+[package]
+name = "yunq-rules-rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-ast = { workspace = true }
+yunq-rules-engine = { workspace = true }
+
+[dev-dependencies]
+yunq-parser-rust = { workspace = true }
