@@ -6,7 +6,11 @@ import { TypeIcon } from '../../../components/common/TypeIcon';
 import { Filter, RotateCcw, Check } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 
-export const IssueFilters: React.FC = () => {
+interface IssueFiltersProps {
+  availableAssignees?: string[];
+}
+
+export const IssueFilters: React.FC<IssueFiltersProps> = ({ availableAssignees = [] }) => {
   const {
     selectedTypes,
     toggleType,
@@ -21,7 +25,7 @@ export const IssueFilters: React.FC = () => {
 
   const types: IssueType[] = ['BUG', 'VULNERABILITY', 'CODE_SMELL', 'SECURITY_HOTSPOT'];
   const severities: IssueSeverity[] = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
-  const statuses: IssueStatus[] = ['OPEN', 'CONFIRMED', 'RESOLVED', 'FALSE_POSITIVE', 'WONT_FIX'];
+  const statuses: IssueStatus[] = ['OPEN', 'CONFIRMED', 'RESOLVED', 'CLOSED'];
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-6">
@@ -132,9 +136,11 @@ export const IssueFilters: React.FC = () => {
         >
           <option value="ALL">All Assignees</option>
           <option value="UNASSIGNED">Unassigned</option>
-          <option value="Alex Mercer">Alex Mercer</option>
-          <option value="Sarah Connor">Sarah Connor</option>
-          <option value="David Miller">David Miller</option>
+          {availableAssignees.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
         </select>
       </div>
     </div>

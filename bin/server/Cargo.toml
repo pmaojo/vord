@@ -13,6 +13,7 @@ yunq-rules-iac = { workspace = true }
 yunq-rules-a11y = { workspace = true }
 yunq-rules-react = { workspace = true }
 yunq-rules-secrets = { workspace = true }
+yunq-rules-rust = { workspace = true }
 yunq-infra-postgres = { workspace = true }
 yunq-remediation = { workspace = true }
 yunq-infra-llm = { workspace = true }

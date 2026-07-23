@@ -3415,6 +3415,7 @@ dependencies = [
  "yunq-rules-iac",
  "yunq-rules-owasp",
  "yunq-rules-react",
+ "yunq-rules-rust",
  "yunq-rules-secrets",
  "yunq-rules-smells",
  "yunq-taint",
@@ -3883,6 +3884,11 @@ version = "0.1.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-typescript",
+name = "yunq-rules-rust"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-rust",
  "yunq-rules-engine",
 ]
 
@@ -3938,6 +3944,7 @@ dependencies = [
  "yunq-rules-iac",
  "yunq-rules-owasp",
  "yunq-rules-react",
+ "yunq-rules-rust",
  "yunq-rules-secrets",
  "yunq-rules-smells",
 ]
@@ -3976,6 +3983,7 @@ dependencies = [
  "yunq-rules-iac",
  "yunq-rules-owasp",
  "yunq-rules-react",
+ "yunq-rules-rust",
  "yunq-rules-secrets",
  "yunq-rules-smells",
 ]

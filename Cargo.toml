@@ -46,6 +46,7 @@ yunq-rules-iac = { path = "rulesets/iac" }
 yunq-rules-a11y = { path = "rulesets/a11y" }
 yunq-rules-react = { path = "rulesets/react" }
 yunq-rules-secrets = { path = "rulesets/secrets" }
+yunq-rules-rust = { path = "rulesets/rust" }
 yunq-infra-memory = { path = "infra/memory" }
 yunq-cli = { path = "bin/cli" }
 yunq-infra-fs = { path = "infra/fs" }

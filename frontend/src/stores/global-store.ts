@@ -20,7 +20,7 @@ export const useGlobalStore = create<GlobalState>((set) => ({
   setActiveProjectKey: (key) => set({ activeProjectKey: key }),
   user: {
     name: 'Administrator',
-    email: 'admin@sonarqube.enterprise',
+    email: 'admin@yunq.enterprise',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
     role: 'System Administrator',
   },
