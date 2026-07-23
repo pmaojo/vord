@@ -14,7 +14,7 @@ use crate::common::{attribute_value, find_attribute, is_jsx_kind, map_callback_f
 /// destructure-free parameter) or an `Other` wrapper (`required_parameter`,
 /// `optional_parameter`) around one.
 fn index_param_name(arrow: &AstNode) -> Option<&str> {
-    let params = arrow.first_child().filter(|c| matches!(c.kind(), NodeKind::Other(k) if k == "formal_parameters"))?;
+    let params = arrow.first_child().filter(|c| matches!(c.kind(), NodeKind::Other(k) if k.as_ref() == "formal_parameters"))?;
     let index = params.children().get(1)?;
     let name_node = if *index.kind() == NodeKind::Identifier { index } else { index.first_child()? };
     (*name_node.kind() == NodeKind::Identifier).then(|| name_node.text())

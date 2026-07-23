@@ -6,7 +6,7 @@
 use yunq_ast::{AstNode, NodeKind};
 
 pub(crate) fn is_other(node: &AstNode, kind: &str) -> bool {
-    matches!(node.kind(), NodeKind::Other(k) if k == kind)
+    matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
 }
 
 /// True for any of the JSX element shapes a `.map()` callback or a plain
@@ -14,7 +14,7 @@ pub(crate) fn is_other(node: &AstNode, kind: &str) -> bool {
 pub(crate) fn is_jsx_kind(node: &AstNode) -> bool {
     matches!(
         node.kind(),
-        NodeKind::Other(k) if matches!(k.as_str(), "jsx_element" | "jsx_self_closing_element" | "jsx_fragment")
+        NodeKind::Other(k) if matches!(k.as_ref(), "jsx_element" | "jsx_self_closing_element" | "jsx_fragment")
     )
 }
 

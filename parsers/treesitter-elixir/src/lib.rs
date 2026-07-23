@@ -117,7 +117,7 @@ fn special_case_kind(node: tree_sitter::Node<'_>, source: &str) -> Option<NodeKi
             return Some(NodeKind::FunctionDef);
         }
         if MODULE_MACROS.contains(&target) {
-            return Some(NodeKind::Other("defmodule".to_string()));
+            return Some(NodeKind::Other("defmodule".into()));
         }
     }
     if is_match_operator(node, source) {

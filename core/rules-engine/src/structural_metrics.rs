@@ -140,7 +140,7 @@ fn tally_node_kind(node: &AstNode, counts: &mut StructuralCounts) {
         NodeKind::Comment => counts.comment_lines += node.span().line_count() as usize,
         NodeKind::Assignment | NodeKind::VariableDecl => counts.statements += 1,
         NodeKind::Other(kind) => {
-            let kind = kind.as_str();
+            let kind = kind.as_ref();
             if CLASS_KINDS.contains(&kind) {
                 counts.classes += 1;
             }
@@ -156,7 +156,7 @@ fn walk(node: &AstNode, depth: usize, counts: &mut StructuralCounts) {
     tally_node_kind(node, counts);
 
     let next_depth = match node.kind() {
-        NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_str()) => depth + 1,
+        NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_ref()) => depth + 1,
         _ => depth,
     };
     counts.max_nesting_depth = counts.max_nesting_depth.max(next_depth);
@@ -177,7 +177,7 @@ mod tests {
 
     fn other(kind: &str, children: Vec<AstNode>) -> AstNode {
         AstNode::new(
-            NodeKind::Other(kind.to_string()),
+            NodeKind::Other(kind.into()),
             Span::new(1, 1, 1, 1),
             kind,
             children,

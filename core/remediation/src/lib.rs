@@ -238,7 +238,7 @@ mod tests {
         }
 
         fn parse(&self, file: &yunq_ast::SourceFile) -> Result<AstNode, ParseError> {
-            Ok(AstNode::new(NodeKind::Other("root".to_string()), Span::new(1, 1, 1, 1), file.content().to_string(), vec![]))
+            Ok(AstNode::new(NodeKind::Other("root".into()), Span::new(1, 1, 1, 1), file.content().to_string(), vec![]))
         }
     }
 

@@ -22,7 +22,7 @@ const CONDITIONAL_KINDS: &[&str] = &[
 ];
 
 fn is_conditional_kind(node: &AstNode) -> bool {
-    matches!(node.kind(), NodeKind::Other(k) if CONDITIONAL_KINDS.contains(&k.as_str()))
+    matches!(node.kind(), NodeKind::Other(k) if CONDITIONAL_KINDS.contains(&k.as_ref()))
 }
 
 /// True for a statement that unconditionally exits its enclosing function

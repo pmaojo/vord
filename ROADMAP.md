@@ -22,16 +22,37 @@ pipeline, OpenAPI contract) is **done**.
 Target: **≥ 100k LOC/s per core** on rule execution, sub-second incremental
 re-analysis on typical PRs.
 
-- **Parallel by default**: per-file analysis fan-out with `rayon` in the CLI
-  and worker (files are independent until cross-file phases; those get a
-  staged parallel pipeline: parse ∥ → link → analyze ∥).
-- **Incremental analysis**: content-hash cache keyed by
-  (file digest, rule-set digest, parser version) — unchanged files are never
-  re-parsed or re-analyzed; dependency-aware invalidation once cross-file
-  taint lands. Cache lives beside the repo (CLI) and in Postgres (server).
-- **Memory discipline**: replace per-node owned `String` text in `yunq-ast`
-  with spans into a shared source buffer + string interning for identifiers
-  (known inefficiency, flagged in Phase 1); arena allocation for AST nodes.
+- **Parallel by default**: ✅ per-file analysis fan-out (`AnalyzerService::analyze_all`)
+  and the cross-file parse phase (`parse_all`) both use scoped `std::thread`
+  work-stealing over an atomic index (`core/rules-engine/src/service.rs`) —
+  not `rayon`: a deliberate choice so the core crate takes no scheduler
+  dependency, files being independent-until-cross-file makes a hand-rolled
+  work queue just as effective. Results stay input-ordered regardless of
+  scheduling (tested).
+- **Incremental analysis**: ✅ content-hash cache keyed by
+  (file digest, rule-set + profile + engine-version digest) skips re-parsing
+  and re-running rules on unchanged files (`AnalyzerService`'s `AnalysisCache`
+  port, `infra/fs::FileAnalysisCache` persists it beside the repo for the
+  CLI). Still open: the cross-file phase always re-parses every file with no
+  cache at all (dependency-aware invalidation for it never landed), and the
+  server/worker path has no persistent cache (Postgres or otherwise) — every
+  server-triggered scan is a cold run.
+- **Memory discipline**: ✅ zero-copy AST text — every node holds only a
+  byte-range `Span` into one `Arc<str>` source buffer per file
+  (`AstNode::from_source`), not an owned `String`; building a tree allocates
+  no per-node text. ✅ **(this session)** the one remaining per-node
+  allocation — `NodeKind::Other`'s raw grammar-kind label (`"if_statement"`,
+  `"binary_expression"`, …), previously a fresh `String` on every unmapped
+  node via `.to_string()` — is now interned (`yunq_ast::intern`, a
+  process-wide `HashSet<Arc<str>>` behind a `Mutex`): the same handful of
+  kind strings per grammar recur on a huge share of a file's nodes, so this
+  turns N allocations into 1 allocation + N atomic refcount bumps. Verified
+  end-to-end across all 23 tree-sitter-backed parser crates plus every rule
+  matching on `NodeKind::Other` (`cargo test --workspace --exclude
+  yunq-server` green, 0 new clippy warnings). Still open: AST nodes
+  themselves are individually heap-allocated (`Vec<AstNode>` children, no
+  arena) — a bump-allocator rewrite is a much larger structural change, not
+  attempted here.
 - **I/O**: mmap large files, batched Postgres writes (`COPY`/multi-row
   inserts), SQS batch send/receive.
 - **Benchmarks as tests**: `criterion` suite over a large corpus vendored in

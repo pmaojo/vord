@@ -77,7 +77,7 @@ fn map_kind(kind: &str) -> NodeKind {
         "identifier" | "variable_expr" => NodeKind::Identifier,
         "attribute" => NodeKind::Assignment,
         "comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
+        other => NodeKind::Other(yunq_ast::intern(other)),
     }
 }
 

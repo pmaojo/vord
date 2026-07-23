@@ -59,11 +59,11 @@ const LABEL_KINDS: &[&str] = &["label", "statement_identifier"];
 /// SonarSource charges this a flat +1 (no nesting weighting: jumping to an
 /// enclosing label doesn't itself nest anything new).
 fn is_labeled_jump(node: &AstNode) -> bool {
-    matches!(node.kind(), NodeKind::Other(kind) if JUMP_KINDS.contains(&kind.as_str()))
+    matches!(node.kind(), NodeKind::Other(kind) if JUMP_KINDS.contains(&kind.as_ref()))
         && node
             .children()
             .iter()
-            .any(|c| matches!(c.kind(), NodeKind::Other(kind) if LABEL_KINDS.contains(&kind.as_str())))
+            .any(|c| matches!(c.kind(), NodeKind::Other(kind) if LABEL_KINDS.contains(&kind.as_ref())))
 }
 
 /// Cognitive Complexity (SonarSource's metric): unlike cyclomatic
@@ -119,7 +119,7 @@ enum LogicalOp {
 /// inspecting an operand's shape needs to see through them first.
 fn unwrap_parens(node: &AstNode) -> &AstNode {
     let mut current = node;
-    while matches!(current.kind(), NodeKind::Other(kind) if kind == "parenthesized_expression") {
+    while matches!(current.kind(), NodeKind::Other(kind) if kind.as_ref() == "parenthesized_expression") {
         match current.children() {
             [inner] => current = inner,
             _ => break,
@@ -137,7 +137,7 @@ fn unwrap_parens(node: &AstNode) -> &AstNode {
 fn logical_op(node: &AstNode) -> Option<LogicalOp> {
     let node = unwrap_parens(node);
     match node.kind() {
-        NodeKind::Other(kind) if BOOLEAN_OPS.contains(&kind.as_str()) => {}
+        NodeKind::Other(kind) if BOOLEAN_OPS.contains(&kind.as_ref()) => {}
         _ => return None,
     }
     let [left, right] = node.children() else { return None };
@@ -263,9 +263,9 @@ fn score_child(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 {
         return cost;
     }
     match child.kind() {
-        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => 1 + score_branch_body(child, nesting, fn_name),
-        NodeKind::Other(kind) if IF_KINDS.contains(&kind.as_str()) => score_if_chain(child, nesting, false, fn_name),
-        NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_str()) => {
+        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_ref()) => 1 + score_branch_body(child, nesting, fn_name),
+        NodeKind::Other(kind) if IF_KINDS.contains(&kind.as_ref()) => score_if_chain(child, nesting, false, fn_name),
+        NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_ref()) => {
             (1 + nesting) + score(child, nesting + 1, fn_name)
         }
         _ => score(child, nesting, fn_name),
@@ -304,7 +304,7 @@ fn score_if_member(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 
         return cost;
     }
     match child.kind() {
-        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => 1 + score_branch_body(child, nesting, fn_name),
+        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_ref()) => 1 + score_branch_body(child, nesting, fn_name),
         _ => score(child, nesting + 1, fn_name),
     }
 }
@@ -325,7 +325,7 @@ fn chained_if(clause: &AstNode) -> Option<&AstNode> {
 }
 
 fn is_if_kind(kind: &NodeKind) -> bool {
-    matches!(kind, NodeKind::Other(k) if IF_KINDS.contains(&k.as_str()))
+    matches!(kind, NodeKind::Other(k) if IF_KINDS.contains(&k.as_ref()))
 }
 
 impl Rule for CognitiveComplexityRule {

@@ -15,7 +15,7 @@ use crate::common::{attribute_name, attributes, jsx_expression_inner, tag_name};
 const EXCLUDED_ATTRS: &[&str] = &["style", "key", "ref"];
 
 fn is_object_or_array_literal(node: &AstNode) -> bool {
-    matches!(node.kind(), NodeKind::Other(k) if k == "object" || k == "array")
+    matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "object" || k.as_ref() == "array")
 }
 
 pub struct InlinePropFunctionInComponentRule {

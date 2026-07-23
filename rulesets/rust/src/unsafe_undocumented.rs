@@ -76,7 +76,7 @@ impl Rule for UnsafeUndocumentedRule {
         let lines: Vec<&str> = file.content().lines().collect();
 
         ast.descendants()
-            .filter(|n| *n.kind() == NodeKind::Other("unsafe_block".to_string()))
+            .filter(|n| *n.kind() == NodeKind::Other("unsafe_block".into()))
             .filter(|block| !has_safety_comment_directly_above(&lines, block.span().start_line))
             .map(|block| {
                 Finding::hotspot(

@@ -56,7 +56,7 @@ fn decision_points(node: &AstNode) -> u32 {
                 return 0;
             }
             let own = match child.kind() {
-                NodeKind::Other(kind) if BRANCH_KINDS.contains(&kind.as_str()) => 1,
+                NodeKind::Other(kind) if BRANCH_KINDS.contains(&kind.as_ref()) => 1,
                 _ => 0,
             };
             own + decision_points(child)

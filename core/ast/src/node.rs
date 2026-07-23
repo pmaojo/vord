@@ -41,7 +41,11 @@ pub enum NodeKind {
     VariableDecl,
     MemberAccess,
     Comment,
-    Other(String),
+    /// A grammar node kind with no neutral meaning, preserved verbatim as
+    /// the raw tree-sitter kind name (e.g. `"if_statement"`). Interned
+    /// (`crate::intern`) rather than freshly allocated: the same handful of
+    /// kind strings per grammar recur on a huge share of a file's nodes.
+    Other(Arc<str>),
 }
 
 /// Shared table-lookup helper for parser `map_kind` functions: an
@@ -54,7 +58,7 @@ pub fn lookup_kind(table: &[(&str, NodeKind)], kind: &str) -> NodeKind {
         .iter()
         .find(|(ts_kind, _)| *ts_kind == kind)
         .map(|(_, node_kind)| node_kind.clone())
-        .unwrap_or_else(|| NodeKind::Other(kind.to_string()))
+        .unwrap_or_else(|| NodeKind::Other(crate::intern(kind)))
 }
 
 /// A node of the language-neutral AST.

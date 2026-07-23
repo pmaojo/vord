@@ -73,7 +73,7 @@ fn map_kind(kind: &str) -> NodeKind {
         "CharData" | "AttValue" => NodeKind::StringLiteral,
         "Name" => NodeKind::Identifier,
         "Comment" => NodeKind::Comment,
-        other => NodeKind::Other(other.to_string()),
+        other => NodeKind::Other(yunq_ast::intern(other)),
     }
 }
 
