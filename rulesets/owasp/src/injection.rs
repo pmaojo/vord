@@ -22,7 +22,9 @@ impl InjectionRule {
             .with_sink("Function")
             .with_sink("exec")
             .with_sink("execSync")
-            .with_sink("query");
+            .with_sink("query")
+            .with_sanitizer("escape")
+            .with_sanitizer("escapeShellArg");
         Self {
             id: RuleId::new("owasp:injection").expect("valid rule id"),
             analysis: TaintAnalysis::new(config),
@@ -92,5 +94,13 @@ mod tests {
     #[test]
     fn clean_flow_is_silent() {
         assert!(check("const safe = \"literal\";\neval(safe);\n").is_empty());
+    }
+
+    #[test]
+    fn sanitized_flow_is_silent() {
+        let findings = check(
+            "const input = process.argv[2];\nconst safe = escapeShellArg(input);\nexecSync(safe);\n",
+        );
+        assert!(findings.is_empty());
     }
 }

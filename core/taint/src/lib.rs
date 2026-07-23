@@ -17,11 +17,13 @@ use std::collections::HashMap;
 
 use yunq_ast::{AstNode, NodeKind, Span};
 
-/// What taints (sources) and what must not receive taint (sinks).
+/// What taints (sources), what must not receive taint (sinks), and what
+/// strips taint from a value (sanitizers).
 #[derive(Clone, Debug, Default)]
 pub struct TaintConfig {
     source_markers: Vec<String>,
     sink_callees: Vec<String>,
+    sanitizer_callees: Vec<String>,
 }
 
 impl TaintConfig {
@@ -41,12 +43,24 @@ impl TaintConfig {
         self
     }
 
+    /// Calls to this callee name are trusted to strip taint from their
+    /// result: a call `sanitize(tainted)` is treated as clean, regardless of
+    /// what flows into its arguments.
+    pub fn with_sanitizer(mut self, callee: impl Into<String>) -> Self {
+        self.sanitizer_callees.push(callee.into());
+        self
+    }
+
     pub fn source_markers(&self) -> &[String] {
         &self.source_markers
     }
 
     pub fn sink_callees(&self) -> &[String] {
         &self.sink_callees
+    }
+
+    pub fn sanitizer_callees(&self) -> &[String] {
+        &self.sanitizer_callees
     }
 }
 
@@ -157,21 +171,42 @@ impl TaintAnalysis {
         }
     }
 
-    /// Marker contained anywhere in this expression subtree, if any.
+    /// Marker contained anywhere in this expression subtree, if any. A call
+    /// to a configured sanitizer cleanses its whole subtree.
     fn direct_source(&self, expr: &AstNode) -> Option<&String> {
+        if self.is_sanitized(expr) {
+            return None;
+        }
         self.config.source_markers.iter().find(|m| expr.subtree_contains_text(m))
     }
 
-    /// A tainted identifier referenced anywhere in this expression subtree.
+    /// A tainted identifier referenced anywhere in this expression subtree,
+    /// not counting identifiers that only appear inside a sanitizer call's
+    /// arguments.
     fn tainted_identifier(
         &self,
         expr: &AstNode,
         tainted: &HashMap<String, TaintedVar>,
     ) -> Option<String> {
-        expr.descendants()
-            .filter(|n| *n.kind() == NodeKind::Identifier)
-            .map(|n| n.text().to_string())
-            .find(|name| tainted.contains_key(name))
+        if self.is_sanitized(expr) {
+            return None;
+        }
+        if *expr.kind() == NodeKind::Identifier && tainted.contains_key(expr.text()) {
+            return Some(expr.text().to_string());
+        }
+        expr.children().iter().find_map(|child| self.tainted_identifier(child, tainted))
+    }
+
+    /// Whether `node` is a call to a configured sanitizer — trusted to
+    /// return a clean value regardless of what flows into its arguments.
+    fn is_sanitized(&self, node: &AstNode) -> bool {
+        *node.kind() == NodeKind::Call
+            && node.first_child().is_some_and(|callee| self.is_sanitizer(callee))
+    }
+
+    fn is_sanitizer(&self, callee: &AstNode) -> bool {
+        let name = Self::callee_name(callee);
+        self.config.sanitizer_callees.iter().any(|s| *s == name || callee.text().ends_with(s.as_str()))
     }
 
     /// For `MemberAccess` callees like `child_process.execSync`, sinks match
@@ -280,5 +315,37 @@ mod tests {
         let flows = TaintAnalysis::new(cfg).find_flows(&ast);
         assert_eq!(flows.len(), 1);
         assert_eq!(flows[0].sink, "execSync");
+    }
+
+    fn config_with_sanitizer() -> TaintConfig {
+        config().with_sanitizer("sanitize")
+    }
+
+    #[test]
+    fn sanitized_value_assigned_to_a_variable_does_not_flow() {
+        let source_expr = AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
+        let ast = unit(vec![
+            decl("input", call("sanitize", source_expr)),
+            call("eval", ident("input")),
+        ]);
+
+        assert!(TaintAnalysis::new(config_with_sanitizer()).find_flows(&ast).is_empty());
+    }
+
+    #[test]
+    fn sanitized_value_passed_directly_to_a_sink_does_not_flow() {
+        let source_expr = AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
+        let ast = unit(vec![call("eval", call("sanitize", source_expr))]);
+
+        assert!(TaintAnalysis::new(config_with_sanitizer()).find_flows(&ast).is_empty());
+    }
+
+    #[test]
+    fn unsanitized_flow_is_still_detected_alongside_a_sanitizer() {
+        let source_expr = AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
+        let ast = unit(vec![decl("input", source_expr), call("eval", ident("input"))]);
+
+        let flows = TaintAnalysis::new(config_with_sanitizer()).find_flows(&ast);
+        assert_eq!(flows.len(), 1);
     }
 }

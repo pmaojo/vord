@@ -289,7 +289,9 @@ impl CrossFileTaint {
         origins
     }
 
-    /// All taint origins reaching an expression subtree.
+    /// All taint origins reaching an expression subtree. A call to a
+    /// configured sanitizer cleanses its whole subtree: neither a source
+    /// marker inside it nor taint carried by its arguments propagates out.
     fn origins_of(
         &self,
         expr: &AstNode,
@@ -297,28 +299,59 @@ impl CrossFileTaint {
         summaries: &HashMap<String, Summary>,
     ) -> Origins {
         let mut origins = Origins::new();
+        if self.is_sanitized(expr) {
+            return origins;
+        }
         for marker in self.config.source_markers() {
             if expr.subtree_contains_text(marker) {
                 origins.insert(Origin::Source(marker.clone()));
             }
         }
-        for node in expr.descendants() {
-            match node.kind() {
-                NodeKind::Identifier => {
-                    if let Some(known) = tainted.get(node.text()) {
-                        origins.extend(known.iter().cloned());
-                    }
-                }
-                NodeKind::Call => origins.extend(self.call_origins(node, tainted, summaries)),
-                _ => {}
-            }
-        }
+        self.collect_unsanitized_origins(expr, tainted, summaries, &mut origins);
         origins
+    }
+
+    /// Visits `node` and its descendants for identifier/call origins,
+    /// skipping any subtree rooted at a sanitizer call.
+    fn collect_unsanitized_origins(
+        &self,
+        node: &AstNode,
+        tainted: &HashMap<String, Origins>,
+        summaries: &HashMap<String, Summary>,
+        origins: &mut Origins,
+    ) {
+        match node.kind() {
+            NodeKind::Identifier => {
+                if let Some(known) = tainted.get(node.text()) {
+                    origins.extend(known.iter().cloned());
+                }
+            }
+            NodeKind::Call => origins.extend(self.call_origins(node, tainted, summaries)),
+            _ => {}
+        }
+        for child in node.children() {
+            if self.is_sanitized(child) {
+                continue;
+            }
+            self.collect_unsanitized_origins(child, tainted, summaries, origins);
+        }
     }
 
     fn is_sink(&self, callee: &AstNode) -> bool {
         let name = callee_name(callee);
         self.config.sink_callees().iter().any(|s| *s == name || callee.text().ends_with(s.as_str()))
+    }
+
+    fn is_sanitizer(&self, callee: &AstNode) -> bool {
+        let name = callee_name(callee);
+        self.config.sanitizer_callees().iter().any(|s| *s == name || callee.text().ends_with(s.as_str()))
+    }
+
+    /// Whether `node` is a call to a configured sanitizer — trusted to
+    /// return a clean value regardless of what flows into its arguments.
+    fn is_sanitized(&self, node: &AstNode) -> bool {
+        *node.kind() == NodeKind::Call
+            && node.first_child().is_some_and(|callee| self.is_sanitizer(callee))
     }
 }
 
@@ -506,5 +539,58 @@ mod tests {
         let flows =
             CrossFileTaint::new(config()).find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
         assert!(flows.is_empty());
+    }
+
+    fn config_with_sanitizer() -> TaintConfig {
+        config().with_sanitizer("sanitize")
+    }
+
+    #[test]
+    fn sanitized_argument_to_a_summarized_call_does_not_flow() {
+        // lib.ts: function run(cmd) { execSync(cmd) }
+        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        // main.ts: input = process.argv[2]; run(sanitize(input))
+        let main = unit(vec![
+            AstNode::new(
+                NodeKind::VariableDecl,
+                span(),
+                "input = process.argv[2]",
+                vec![ident("input"), AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+            ),
+            call("run", vec![call("sanitize", vec![ident("input")])]),
+        ]);
+
+        let flows = CrossFileTaint::new(config_with_sanitizer())
+            .find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
+        assert!(flows.is_empty());
+    }
+
+    #[test]
+    fn sanitized_source_directly_at_a_summarized_call_does_not_flow() {
+        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        let main = unit(vec![call(
+            "run",
+            vec![call(
+                "sanitize",
+                vec![AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+            )],
+        )]);
+
+        let flows = CrossFileTaint::new(config_with_sanitizer())
+            .find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
+        assert!(flows.is_empty());
+    }
+
+    #[test]
+    fn unsanitized_cross_file_flow_is_still_detected() {
+        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        let main = unit(vec![call(
+            "run",
+            vec![AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+        )]);
+
+        let flows = CrossFileTaint::new(config_with_sanitizer())
+            .find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
+        assert_eq!(flows.len(), 1);
     }
 }
