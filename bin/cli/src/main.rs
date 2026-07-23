@@ -162,16 +162,19 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 })
                 .transpose()?;
 
-            if let Some(config) = yunq_infra_fs::YunqConfig::load_from_dir(&path) {
-                if let Some(key) = &config.project.key {
-                    eprintln!("📋 Loaded project config ({key})");
-                }
-            }
+            let exclusions = yunq_infra_fs::YunqConfig::load_from_dir(&path)
+                .map(|config| {
+                    if let Some(key) = &config.project.key {
+                        eprintln!("📋 Loaded project config ({key})");
+                    }
+                    config.analysis.exclusions.unwrap_or_default()
+                })
+                .unwrap_or_default();
 
             let cache = (!no_cache && path.is_dir())
                 .then(|| std::sync::Arc::new(FileAnalysisCache::open(path.join(".yunq-cache.json"))));
             let mut report =
-                yunq_cli::scan_with_cache(&path, cache.clone()).await?;
+                yunq_cli::scan_with_exclusions(&path, cache.clone(), &exclusions).await?;
             // `_report` variants carry per-file/per-line detail (needed for
             // coverage-on-new-code below) alongside the flat totals; the
             // detail is merged into `coverage_detail` while the totals feed

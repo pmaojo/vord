@@ -68,6 +68,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net
 futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
+globset = "0.4"
 quick-xml = "0.36"
 axum = "0.8"
 tree-sitter = "0.26.11"

@@ -31,6 +31,7 @@ pub use worktree::WorktreeSandbox;
 use std::io::ErrorKind;
 use std::path::Path;
 
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use yunq_ast::{LanguageIdentifier, SourceFile};
 
@@ -38,11 +39,24 @@ use yunq_ast::{LanguageIdentifier, SourceFile};
 pub enum SourceLoadError {
     #[error("failed to walk {0}")]
     Walk(String),
+    #[error("invalid exclusion pattern {0:?}: {1}")]
+    InvalidExclusion(String, globset::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 
 pub fn collect_sources(root: &Path) -> Result<Vec<SourceFile>, SourceLoadError> {
+    collect_sources_excluding(root, &[])
+}
+
+/// Same as [`collect_sources`], but skips any file whose path relative to
+/// `root` matches one of the given glob patterns — `yunq.toml`'s
+/// `[analysis] exclusions`.
+pub fn collect_sources_excluding(
+    root: &Path,
+    exclusions: &[String],
+) -> Result<Vec<SourceFile>, SourceLoadError> {
+    let excludes = build_globset(exclusions)?;
     let mut sources = Vec::new();
     for entry in WalkBuilder::new(root).build() {
         let entry = entry.map_err(|e| SourceLoadError::Walk(e.to_string()))?;
@@ -57,12 +71,15 @@ pub fn collect_sources(root: &Path) -> Result<Vec<SourceFile>, SourceLoadError> 
         else {
             continue;
         };
+        let relative = path.strip_prefix(root).unwrap_or(path);
+        if excludes.is_match(relative) {
+            continue;
+        }
         let content = match std::fs::read_to_string(path) {
             Ok(content) => content,
             Err(e) if e.kind() == ErrorKind::InvalidData => continue,
             Err(e) => return Err(e.into()),
         };
-        let relative = path.strip_prefix(root).unwrap_or(path);
         let display = if relative.as_os_str().is_empty() {
             // `root` itself is a single file (not a directory): there's no
             // meaningful subpath to strip it to, so fall back to the full
@@ -80,6 +97,16 @@ pub fn collect_sources(root: &Path) -> Result<Vec<SourceFile>, SourceLoadError> 
     }
     sources.sort_by(|a, b| a.path().cmp(b.path()));
     Ok(sources)
+}
+
+fn build_globset(patterns: &[String]) -> Result<GlobSet, SourceLoadError> {
+    let mut builder = GlobSetBuilder::new();
+    for pattern in patterns {
+        let glob = Glob::new(pattern)
+            .map_err(|e| SourceLoadError::InvalidExclusion(pattern.clone(), e))?;
+        builder.add(glob);
+    }
+    builder.build().map_err(|e| SourceLoadError::InvalidExclusion(String::new(), e))
 }
 
 #[cfg(test)]
@@ -105,6 +132,48 @@ mod tests {
         assert_eq!(sources.len(), 1, "expected the single file to be scanned");
         assert!(!sources[0].path().starts_with('/'), "path must not be absolute: {}", sources[0].path());
         assert_eq!(sources[0].content(), "eval(x);\n");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn exclusions_skip_matching_files_but_keep_the_rest() {
+        let dir = std::env::temp_dir().join(format!(
+            "yunq-collect-sources-excl-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("fixtures")).unwrap();
+        std::fs::write(dir.join("fixtures/vulnerable.ts"), "eval(x);\n").unwrap();
+        std::fs::write(dir.join("app.ts"), "const x = 1;\n").unwrap();
+
+        let excluded = vec!["**/fixtures/**".to_string()];
+        let sources = collect_sources_excluding(&dir, &excluded).unwrap();
+
+        assert_eq!(sources.len(), 1, "expected only the non-excluded file");
+        assert_eq!(sources[0].path(), "app.ts");
+
+        // With no exclusions, both files are collected.
+        assert_eq!(collect_sources(&dir).unwrap().len(), 2);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_exclusion_glob_is_reported_as_an_error() {
+        let dir = std::env::temp_dir().join(format!(
+            "yunq-collect-sources-bad-glob-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let bad = vec!["[".to_string()];
+        assert!(collect_sources_excluding(&dir, &bad).is_err());
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

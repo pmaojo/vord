@@ -152,11 +152,24 @@ pub async fn scan(path: &Path) -> anyhow::Result<AnalysisReport> {
 }
 
 /// Scans with an optional incremental cache; the caller decides persistence.
+/// Does not apply any `yunq.toml` exclusions — see [`scan_with_exclusions`]
+/// for callers that have already loaded the project config.
 pub async fn scan_with_cache(
     path: &Path,
     cache: Option<Arc<FileAnalysisCache>>,
 ) -> anyhow::Result<AnalysisReport> {
-    let sources = yunq_infra_fs::collect_sources(path)?;
+    scan_with_exclusions(path, cache, &[]).await
+}
+
+/// Scans with an optional incremental cache and `yunq.toml`'s
+/// `[analysis] exclusions` globs (matched against each file's path relative
+/// to `path`).
+pub async fn scan_with_exclusions(
+    path: &Path,
+    cache: Option<Arc<FileAnalysisCache>>,
+    exclusions: &[String],
+) -> anyhow::Result<AnalysisReport> {
+    let sources = yunq_infra_fs::collect_sources_excluding(path, exclusions)?;
     let mut service =
         default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
     if let Some(cache) = cache {
