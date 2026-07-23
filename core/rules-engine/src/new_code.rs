@@ -11,9 +11,10 @@ use crate::domain::{AnalysisReport, Issue};
 /// Clean as You Code period definition: specifies how pre-existing code is demarcated
 /// from new/changed code across analyses.
 #[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum NewCodePeriod {
     /// Compare against the previous analysis version / commit
+    #[default]
     PreviousVersion,
     /// Compare against analysis from N days ago
     NDays(u32),
@@ -21,12 +22,6 @@ pub enum NewCodePeriod {
     ReferenceBranch(String),
     /// Compare against a specific historical analysis ID / commit SHA
     SpecificAnalysis(String),
-}
-
-impl Default for NewCodePeriod {
-    fn default() -> Self {
-        Self::PreviousVersion
-    }
 }
 
 /// Location-tolerant identity of an issue: rule + file + message. Moving

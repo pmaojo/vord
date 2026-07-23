@@ -160,13 +160,11 @@ fn chunk_blocks(statements: &[Statement], block_size: usize) -> Vec<Block> {
     }
 
     let mut blocks = Vec::with_capacity(statements.len() - block_size + 1);
-    let mut first = 0;
-    for last in (block_size - 1)..statements.len() {
+    for (first, last) in ((block_size - 1)..statements.len()).enumerate() {
         hash = hash.wrapping_mul(PRIME_BASE).wrapping_add(statements[last].hash);
         blocks.push(Block { stmt_start: first, stmt_end: last, hash });
         // Remove the outgoing statement from the rolling hash.
         hash = hash.wrapping_sub(power.wrapping_mul(statements[first].hash));
-        first += 1;
     }
     blocks
 }
