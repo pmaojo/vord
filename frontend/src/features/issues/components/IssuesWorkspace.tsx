@@ -1,59 +1,66 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { MOCK_ISSUES, MOCK_PROJECTS } from '../../../testing/mock-data';
-import { fetchIssuesFromApi } from '../../../lib/api';
+import { fetchIssuesFromApi, assignIssue, bulkTransitionIssues } from '../../../lib/api';
 import { useIssuesStore } from '../stores/useIssuesStore';
+import { useRules, useProjects } from '../../../lib/queries';
+import { useQuery } from '@tanstack/react-query';
+import { mapApiIssueToIssue } from '../mapIssue';
 import { IssueItem } from './IssueItem';
 import { IssueFilters } from './IssueFilters';
 import { ProjectHeader } from '../../../components/layout/ProjectHeader';
-import { Issue, IssueStatus, IssueSeverity } from '../../../types';
-import { Search, UserCheck, Shield, CheckCircle, Tag, CheckSquare, Square } from 'lucide-react';
+import { Issue, Project } from '../../../types';
+import { Search, UserCheck, CheckCircle, CheckSquare, Square, Loader2 } from 'lucide-react';
+import { formatDuration } from '../../../lib/utils';
 
 export const IssuesWorkspace: React.FC = () => {
   const { projectKey } = useParams<{ projectKey: string }>();
   const decodedProjectKey = projectKey ? decodeURIComponent(projectKey) : null;
 
-  const project = decodedProjectKey
-    ? MOCK_PROJECTS.find((p) => p.key === decodedProjectKey)
+  const { data: apiProjects } = useProjects();
+  const apiProject = decodedProjectKey ? apiProjects?.find((p) => p.key === decodedProjectKey) : null;
+
+  // ProjectHeader only reads name/key/visibility/description/lastAnalysisDate/
+  // branches/qualityGateStatus — everything else the real /api/projects
+  // response doesn't carry yet, so it's defaulted rather than fabricated.
+  const project: Project | null = apiProject
+    ? {
+        key: apiProject.key,
+        name: apiProject.name,
+        description: '',
+        qualityGateStatus: apiProject.quality_gate_status as Project['qualityGateStatus'],
+        metrics: {} as Project['metrics'],
+        lastAnalysisDate: apiProject.last_analysis_date,
+        tags: [],
+        language: '',
+        branches: [{ name: 'main', isMain: true, status: apiProject.quality_gate_status as Project['qualityGateStatus'], lastAnalysis: apiProject.last_analysis_date }],
+        sparkline: [],
+        visibility: 'private',
+      }
     : null;
 
-  const [currentBranch, setCurrentBranch] = useState(
-    project ? project.branches.find((b) => b.isMain)?.name || 'main' : 'main'
-  );
+  const [currentBranch, setCurrentBranch] = useState('main');
 
-  const [issuesList, setIssuesList] = useState<Issue[]>([]);
+  const { data: rules } = useRules();
+  const ruleIndex = useMemo(() => new Map((rules ?? []).map((r) => [r.id, r])), [rules]);
 
-  useEffect(() => {
-    fetchIssuesFromApi()
-      .then((data) => {
-        if (data && data.items) {
-          const apiMapped: Issue[] = data.items.map((item) => ({
-            id: item.id.toString(),
-            key: `ISSUE-${item.id}`,
-            ruleKey: item.rule,
-            ruleName: item.rule,
-            severity: (item.severity.toUpperCase() as IssueSeverity) || 'MAJOR',
-            type: 'CODE_SMELL',
-            status: (item.status.toUpperCase() as IssueStatus) || 'OPEN',
-            message: item.message,
-            component: item.file,
-            projectKey: decodedProjectKey || 'yunq-core-platform',
-            projectName: 'yunq-core-platform',
-            line: item.line,
-            creationDate: new Date().toISOString(),
-            updateDate: new Date().toISOString(),
-            effortMinutes: 10,
-            assignee: item.assignee,
-            author: 'yunq-analyzer',
-            tags: ['sast'],
-          }));
-          setIssuesList(apiMapped);
-        }
-      })
-      .catch(() => {
-        setIssuesList([]);
-      });
-  }, [decodedProjectKey]);
+  const { data: issuePage, isLoading, refetch } = useQuery({
+    queryKey: ['issues', 'workspace'],
+    queryFn: () => fetchIssuesFromApi({ pageSize: 200 }),
+  });
+
+  const [localOverrides, setLocalOverrides] = useState<Record<string, Issue>>({});
+
+  const issuesList: Issue[] = useMemo(() => {
+    const key = decodedProjectKey || 'yunq-core-platform';
+    return (issuePage?.items ?? []).map((item) => {
+      const mapped = mapApiIssueToIssue(item, key, ruleIndex);
+      return localOverrides[mapped.id] ?? mapped;
+    });
+  }, [issuePage, ruleIndex, decodedProjectKey, localOverrides]);
+
+  const handleIssueUpdated = (updated: Issue) => {
+    setLocalOverrides((prev) => ({ ...prev, [updated.id]: updated }));
+  };
 
   const {
     searchQuery,
@@ -68,11 +75,12 @@ export const IssuesWorkspace: React.FC = () => {
     clearIssueSelections,
   } = useIssuesStore();
 
-  // Filter Issues
+  const availableAssignees = useMemo(
+    () => Array.from(new Set(issuesList.map((i) => i.assignee).filter((a): a is string => !!a))).sort(),
+    [issuesList]
+  );
+
   const filteredIssues = issuesList.filter((issue) => {
-    if (decodedProjectKey && issue.projectKey !== decodedProjectKey) {
-      return false;
-    }
     if (
       searchQuery &&
       !issue.message.toLowerCase().includes(searchQuery.toLowerCase()) &&
@@ -81,48 +89,38 @@ export const IssuesWorkspace: React.FC = () => {
     ) {
       return false;
     }
-    if (selectedTypes.length > 0 && !selectedTypes.includes(issue.type)) {
-      return false;
-    }
-    if (selectedSeverities.length > 0 && !selectedSeverities.includes(issue.severity)) {
-      return false;
-    }
-    if (selectedStatuses.length > 0 && !selectedStatuses.includes(issue.status)) {
-      return false;
-    }
-    if (assigneeFilter === 'UNASSIGNED' && issue.assignee) {
-      return false;
-    }
-    if (assigneeFilter !== 'ALL' && assigneeFilter !== 'UNASSIGNED' && issue.assignee !== assigneeFilter) {
-      return false;
-    }
+    if (selectedTypes.length > 0 && !selectedTypes.includes(issue.type)) return false;
+    if (selectedSeverities.length > 0 && !selectedSeverities.includes(issue.severity)) return false;
+    if (selectedStatuses.length > 0 && !selectedStatuses.includes(issue.status)) return false;
+    if (assigneeFilter === 'UNASSIGNED' && issue.assignee) return false;
+    if (assigneeFilter !== 'ALL' && assigneeFilter !== 'UNASSIGNED' && issue.assignee !== assigneeFilter) return false;
     return true;
   });
 
-  const handleUpdateStatus = (issueId: string, newStatus: IssueStatus) => {
-    setIssuesList((prev) =>
-      prev.map((item) => (item.id === issueId ? { ...item, status: newStatus } : item))
-    );
+  const totalDebtMinutes = filteredIssues.reduce((sum, i) => sum + i.effortMinutes, 0);
+
+  const [bulkPending, setBulkPending] = useState(false);
+
+  const handleBulkAssignToMe = async () => {
+    setBulkPending(true);
+    try {
+      await Promise.all(selectedIssueIds.map((id) => assignIssue(Number(id), 'Administrator')));
+      await refetch();
+      clearIssueSelections();
+    } finally {
+      setBulkPending(false);
+    }
   };
 
-  const handleUpdateSeverity = (issueId: string, newSeverity: IssueSeverity) => {
-    setIssuesList((prev) =>
-      prev.map((item) => (item.id === issueId ? { ...item, severity: newSeverity } : item))
-    );
-  };
-
-  const handleBulkAssignToMe = () => {
-    setIssuesList((prev) =>
-      prev.map((item) => (selectedIssueIds.includes(item.id) ? { ...item, assignee: 'Administrator' } : item))
-    );
-    clearIssueSelections();
-  };
-
-  const handleBulkSetStatus = (status: IssueStatus) => {
-    setIssuesList((prev) =>
-      prev.map((item) => (selectedIssueIds.includes(item.id) ? { ...item, status } : item))
-    );
-    clearIssueSelections();
+  const handleBulkResolve = async (resolution: 'fixed' | 'wont-fix' | 'false-positive') => {
+    setBulkPending(true);
+    try {
+      await bulkTransitionIssues(selectedIssueIds.map(Number), 'resolve', resolution);
+      await refetch();
+      clearIssueSelections();
+    } finally {
+      setBulkPending(false);
+    }
   };
 
   const allFilteredIds = filteredIssues.map((i) => i.id);
@@ -130,17 +128,11 @@ export const IssuesWorkspace: React.FC = () => {
 
   return (
     <div>
-      {/* If in project context, render ProjectHeader */}
       {project && (
-        <ProjectHeader
-          project={project}
-          currentBranch={currentBranch}
-          onBranchChange={setCurrentBranch}
-        />
+        <ProjectHeader project={project} currentBranch={currentBranch} onBranchChange={setCurrentBranch} />
       )}
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Workspace Title & Search Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">
@@ -163,7 +155,6 @@ export const IssuesWorkspace: React.FC = () => {
           </div>
         </div>
 
-        {/* Bulk Actions Floating Bar */}
         {selectedIssueIds.length > 0 && (
           <div className="mb-6 bg-slate-900 text-white rounded-xl p-3 px-5 flex flex-wrap items-center justify-between gap-4 shadow-xl animate-in fade-in zoom-in-95 duration-100">
             <div className="flex items-center gap-2 text-xs font-bold text-sky-400">
@@ -172,25 +163,29 @@ export const IssuesWorkspace: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              {bulkPending && <Loader2 className="w-4 h-4 animate-spin" />}
               <button
                 onClick={handleBulkAssignToMe}
-                className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+                disabled={bulkPending}
+                className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
               >
                 <UserCheck className="w-3.5 h-3.5" />
                 Assign to Me
               </button>
 
               <button
-                onClick={() => handleBulkSetStatus('RESOLVED')}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+                onClick={() => handleBulkResolve('fixed')}
+                disabled={bulkPending}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
               >
                 <CheckCircle className="w-3.5 h-3.5" />
-                Mark Resolved
+                Mark Fixed
               </button>
 
               <button
-                onClick={() => handleBulkSetStatus('FALSE_POSITIVE')}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg transition-colors border border-slate-700"
+                onClick={() => handleBulkResolve('false-positive')}
+                disabled={bulkPending}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-60 text-slate-200 text-xs font-bold rounded-lg transition-colors border border-slate-700"
               >
                 False Positive
               </button>
@@ -205,16 +200,12 @@ export const IssuesWorkspace: React.FC = () => {
           </div>
         )}
 
-        {/* Main Grid: Filters + List */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Sidebar Filters */}
           <div className="lg:col-span-1">
-            <IssueFilters />
+            <IssueFilters availableAssignees={availableAssignees} />
           </div>
 
-          {/* Issues List */}
           <div className="lg:col-span-3 space-y-4">
-            {/* Select All Bar */}
             <div className="bg-slate-100 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs font-bold text-slate-700 border border-slate-200">
               <button
                 onClick={() => {
@@ -227,10 +218,15 @@ export const IssuesWorkspace: React.FC = () => {
                 <span>Select All ({filteredIssues.length})</span>
               </button>
 
-              <span>Total Technical Debt: <b>14h 20m</b></span>
+              <span>Total Technical Debt: <b>{formatDuration(totalDebtMinutes)}</b></span>
             </div>
 
-            {filteredIssues.length === 0 ? (
+            {isLoading ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500 shadow-xs flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading issues...
+              </div>
+            ) : filteredIssues.length === 0 ? (
               <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500 shadow-xs">
                 <p className="text-base font-semibold text-slate-800">No issues match the selected filters.</p>
                 <p className="text-xs text-slate-500 mt-1">Try resetting severity/type filters or search terms.</p>
@@ -243,8 +239,7 @@ export const IssuesWorkspace: React.FC = () => {
                     issue={issue}
                     isSelected={selectedIssueIds.includes(issue.id)}
                     onToggleSelect={toggleIssueSelection}
-                    onUpdateStatus={handleUpdateStatus}
-                    onUpdateSeverity={handleUpdateSeverity}
+                    onIssueUpdated={handleIssueUpdated}
                   />
                 ))}
               </div>

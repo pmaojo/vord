@@ -290,7 +290,7 @@ struct ScanQueuedDto {
 /// Enqueue a scan job for asynchronous analysis.
 #[utoipa::path(
     post,
-    path = "/scans",
+    path = "/api/scans",
     request_body = ScanRequestDto,
     responses(
         (status = 202, description = "Scan job queued", body = ScanQueuedDto),
@@ -427,7 +427,7 @@ impl From<&StoredIssue> for IssueDto {
 /// Search issues with filters and pagination (newest first).
 #[utoipa::path(
     get,
-    path = "/issues",
+    path = "/api/issues",
     params(IssuesQuery),
     responses(
         (status = 200, description = "One page of matching issues", body = IssuePageDto),
@@ -571,7 +571,7 @@ impl From<&StoredHotspot> for HotspotDto {
 /// List the most recently detected security hotspots.
 #[utoipa::path(
     get,
-    path = "/hotspots",
+    path = "/api/hotspots",
     params(HotspotsQuery),
     responses(
         (status = 200, description = "Recent hotspots", body = [HotspotDto]),
@@ -604,7 +604,7 @@ struct RuleDto {
 /// The catalog of every rule this server's analyzers ship with.
 #[utoipa::path(
     get,
-    path = "/rules",
+    path = "/api/rules",
     responses((status = 200, description = "Rule catalog", body = [RuleDto]))
 )]
 async fn list_rules() -> Json<Vec<RuleDto>> {
@@ -650,7 +650,7 @@ struct HotspotReviewRequestDto {
 /// Record a reviewer's verdict on a hotspot.
 #[utoipa::path(
     put,
-    path = "/hotspots/{id}/status",
+    path = "/api/hotspots/{id}/status",
     params(("id" = i64, Path, description = "Hotspot id")),
     request_body = HotspotReviewRequestDto,
     responses(
@@ -907,7 +907,7 @@ fn workflow_error_response(error: WorkflowError) -> (StatusCode, String) {
 /// Apply a workflow transition to an issue.
 #[utoipa::path(
     post,
-    path = "/issues/{id}/transitions",
+    path = "/api/issues/{id}/transitions",
     params(("id" = i64, Path, description = "Issue id")),
     request_body = TransitionRequestDto,
     responses(
@@ -942,7 +942,7 @@ struct AssigneeRequestDto {
 /// Assign or unassign an issue.
 #[utoipa::path(
     put,
-    path = "/issues/{id}/assignee",
+    path = "/api/issues/{id}/assignee",
     params(("id" = i64, Path, description = "Issue id")),
     request_body = AssigneeRequestDto,
     responses(
@@ -1101,7 +1101,7 @@ impl From<&BulkOutcome> for BulkOutcomeDto {
 /// fails independently — one illegal transition does not abort the batch.
 #[utoipa::path(
     post,
-    path = "/issues/bulk-transition",
+    path = "/api/issues/bulk-transition",
     request_body = BulkTransitionRequestDto,
     responses(
         (status = 200, description = "Per-issue outcomes", body = [BulkOutcomeDto]),
@@ -1170,7 +1170,7 @@ impl From<&ChangelogEntry> for ChangelogEntryDto {
 /// The recorded workflow history of an issue (audit trail).
 #[utoipa::path(
     get,
-    path = "/issues/{id}/changelog",
+    path = "/api/issues/{id}/changelog",
     params(("id" = i64, Path, description = "Issue id")),
     responses(
         (status = 200, description = "Changelog entries, oldest first", body = [ChangelogEntryDto]),

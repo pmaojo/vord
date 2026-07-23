@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGlobalStore } from '../../stores/global-store';
-import { MOCK_PROJECTS, MOCK_ISSUES, MOCK_RULES } from '../../testing/mock-data';
-import { Search, FolderGit2, AlertCircle, BookOpen, X, ChevronRight } from 'lucide-react';
+import { useProjects, useIssuesForSearch, useRules } from '../../lib/queries';
+import { Search, FolderGit2, AlertCircle, BookOpen, X, ChevronRight, Loader2 } from 'lucide-react';
 
 export const GlobalSearchModal: React.FC = () => {
   const { isSearchOpen, setSearchOpen } = useGlobalStore();
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
+
+  const { data: projects, isLoading: projectsLoading } = useProjects();
+  const { data: issuePage, isLoading: issuesLoading } = useIssuesForSearch(isSearchOpen);
+  const { data: rules, isLoading: rulesLoading } = useRules();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -25,19 +29,19 @@ export const GlobalSearchModal: React.FC = () => {
 
   if (!isSearchOpen) return null;
 
-  const filteredProjects = MOCK_PROJECTS.filter(
-    (p) => p.name.toLowerCase().includes(query.toLowerCase()) || p.key.toLowerCase().includes(query.toLowerCase())
+  const q = query.toLowerCase();
+  const isLoading = projectsLoading || issuesLoading || rulesLoading;
+
+  const filteredProjects = (projects ?? []).filter(
+    (p) => !q || p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q)
   );
 
-  const filteredIssues = MOCK_ISSUES.filter(
-    (i) =>
-      i.message.toLowerCase().includes(query.toLowerCase()) ||
-      i.component.toLowerCase().includes(query.toLowerCase()) ||
-      i.ruleKey.toLowerCase().includes(query.toLowerCase())
+  const filteredIssues = (issuePage?.items ?? []).filter(
+    (i) => !q || i.message.toLowerCase().includes(q) || i.file.toLowerCase().includes(q) || i.rule.toLowerCase().includes(q)
   );
 
-  const filteredRules = MOCK_RULES.filter(
-    (r) => r.name.toLowerCase().includes(query.toLowerCase()) || r.key.toLowerCase().includes(query.toLowerCase())
+  const filteredRules = (rules ?? []).filter(
+    (r) => !q || r.id.toLowerCase().includes(q) || r.description.toLowerCase().includes(q)
   );
 
   const handleSelectProject = (projectKey: string) => {
@@ -45,9 +49,9 @@ export const GlobalSearchModal: React.FC = () => {
     navigate(`/projects/${encodeURIComponent(projectKey)}/overview`);
   };
 
-  const handleSelectIssue = (projectKey: string) => {
+  const handleSelectIssue = () => {
     setSearchOpen(false);
-    navigate(`/projects/${encodeURIComponent(projectKey)}/issues`);
+    navigate('/issues');
   };
 
   const handleSelectRule = () => {
@@ -66,7 +70,7 @@ export const GlobalSearchModal: React.FC = () => {
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search projects, issues, files, rules... (e.g. 'auth', 'SQL')"
+            placeholder="Search projects, issues, rules... (e.g. 'auth', 'sql')"
             className="w-full text-base outline-none text-slate-800 placeholder:text-slate-400 bg-transparent"
           />
           <button
@@ -79,8 +83,14 @@ export const GlobalSearchModal: React.FC = () => {
 
         {/* Results Area */}
         <div className="max-h-96 overflow-y-auto p-2 divide-y divide-slate-100">
-          {/* Projects */}
-          {filteredProjects.length > 0 && (
+          {isLoading && (
+            <div className="py-12 flex items-center justify-center gap-2 text-slate-500 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Searching...
+            </div>
+          )}
+
+          {!isLoading && filteredProjects.length > 0 && (
             <div className="p-2">
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-2 mb-1 flex items-center gap-1.5">
                 <FolderGit2 className="w-3.5 h-3.5" />
@@ -104,21 +114,20 @@ export const GlobalSearchModal: React.FC = () => {
             </div>
           )}
 
-          {/* Issues */}
-          {filteredIssues.length > 0 && (
+          {!isLoading && filteredIssues.length > 0 && (
             <div className="p-2">
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-2 mb-1 flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Issues ({filteredIssues.length})
               </div>
-              {filteredIssues.map((issue) => (
+              {filteredIssues.slice(0, 20).map((issue) => (
                 <button
                   key={issue.id}
-                  onClick={() => handleSelectIssue(issue.projectKey)}
+                  onClick={handleSelectIssue}
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-sky-50 transition-colors flex items-center justify-between group"
                 >
                   <div className="max-w-md">
-                    <div className="text-xs font-mono text-slate-500">{issue.ruleKey} • {issue.component}</div>
+                    <div className="text-xs font-mono text-slate-500">{issue.rule} • {issue.file}</div>
                     <div className="text-sm text-slate-800 truncate group-hover:text-sky-700 font-medium">
                       {issue.message}
                     </div>
@@ -129,24 +138,23 @@ export const GlobalSearchModal: React.FC = () => {
             </div>
           )}
 
-          {/* Rules */}
-          {filteredRules.length > 0 && (
+          {!isLoading && filteredRules.length > 0 && (
             <div className="p-2">
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-2 mb-1 flex items-center gap-1.5">
                 <BookOpen className="w-3.5 h-3.5" />
                 Rules ({filteredRules.length})
               </div>
-              {filteredRules.map((rule) => (
+              {filteredRules.slice(0, 20).map((rule) => (
                 <button
-                  key={rule.key}
+                  key={rule.id}
                   onClick={handleSelectRule}
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-sky-50 transition-colors flex items-center justify-between group"
                 >
                   <div>
-                    <div className="text-sm font-medium text-slate-800 group-hover:text-sky-700">
-                      {rule.name}
+                    <div className="text-sm font-medium text-slate-800 group-hover:text-sky-700 font-mono">
+                      {rule.id}
                     </div>
-                    <div className="text-xs text-slate-500 font-mono">{rule.key} ({rule.lang})</div>
+                    <div className="text-xs text-slate-500 truncate max-w-md">{rule.description}</div>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-sky-600" />
                 </button>
@@ -154,7 +162,7 @@ export const GlobalSearchModal: React.FC = () => {
             </div>
           )}
 
-          {filteredProjects.length === 0 && filteredIssues.length === 0 && filteredRules.length === 0 && (
+          {!isLoading && filteredProjects.length === 0 && filteredIssues.length === 0 && filteredRules.length === 0 && (
             <div className="py-12 text-center text-slate-500 text-sm">
               No matching projects, issues, or rules found for "{query}".
             </div>

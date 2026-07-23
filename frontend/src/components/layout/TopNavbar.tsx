@@ -4,12 +4,8 @@ import { useGlobalStore } from '../../stores/global-store';
 import {
   Search,
   HelpCircle,
-  Bell,
-  ShieldCheck,
   User,
-  LogOut,
   ChevronDown,
-  Sparkles
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -34,10 +30,10 @@ export const TopNavbar: React.FC = () => {
         <div className="flex items-center gap-6 h-full">
           <Link to="/projects" className="flex items-center gap-2 group">
             <div className="w-6 h-6 bg-[#4b9fd5] flex items-center justify-center font-bold text-xs text-white rounded">
-              S
+              Y
             </div>
             <span className="font-semibold tracking-tight uppercase text-sm text-white">
-              SonarQube
+              yunq
             </span>
             <span className="text-[10px] text-[#4b9fd5] font-bold uppercase tracking-wider hidden sm:inline">
               Enterprise
@@ -78,23 +74,14 @@ export const TopNavbar: React.FC = () => {
 
           {/* Help & Documentation */}
           <a
-            href="https://docs.sonarsource.com/sonarqube/latest/"
+            href="https://github.com/pmaojo/yunq#readme"
             target="_blank"
             rel="noreferrer"
             className="p-1.5 text-gray-300 hover:text-white hover:bg-[#3b4b5b] rounded transition-colors"
-            title="SonarQube Documentation"
+            title="yunq Documentation"
           >
             <HelpCircle className="w-4 h-4" />
           </a>
-
-          {/* Notifications */}
-          <button
-            className="p-1.5 text-gray-300 hover:text-white hover:bg-[#3b4b5b] rounded transition-colors relative"
-            title="Notifications"
-          >
-            <Bell className="w-4 h-4" />
-            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#4b9fd5] ring-2 ring-[#233445]"></span>
-          </button>
 
           {/* User Profile */}
           <div className="relative">
@@ -133,30 +120,6 @@ export const TopNavbar: React.FC = () => {
                     <User className="w-3.5 h-3.5 text-slate-400" />
                     My Account & Security
                   </Link>
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setUserDropdownOpen(false);
-                      alert('You are logged in as System Administrator.');
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-[#4b9fd5]" />
-                    License & Features
-                  </a>
-                </div>
-                <div className="border-t border-gray-100 pt-1">
-                  <button
-                    onClick={() => {
-                      setUserDropdownOpen(false);
-                      alert('SonarQube Session: You are using local administrator privileges.');
-                    }}
-                    className="w-full text-left flex items-center gap-2 px-4 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Log out
-                  </button>
                 </div>
               </div>
             )}

@@ -6,7 +6,9 @@ export type IssueSeverity = 'BLOCKER' | 'CRITICAL' | 'MAJOR' | 'MINOR' | 'INFO';
 
 export type IssueType = 'BUG' | 'VULNERABILITY' | 'CODE_SMELL' | 'SECURITY_HOTSPOT';
 
-export type IssueStatus = 'OPEN' | 'CONFIRMED' | 'REOPENED' | 'RESOLVED' | 'FALSE_POSITIVE' | 'WONT_FIX';
+export type IssueStatus = 'OPEN' | 'CONFIRMED' | 'RESOLVED' | 'CLOSED';
+
+export type IssueResolution = 'FIXED' | 'WONT_FIX' | 'FALSE_POSITIVE';
 
 export interface ProjectMetrics {
   bugs: number;
@@ -86,6 +88,7 @@ export interface Issue {
   severity: IssueSeverity;
   type: IssueType;
   status: IssueStatus;
+  resolution?: IssueResolution;
   message: string;
   projectKey: string;
   projectName: string;
@@ -108,31 +111,28 @@ export interface Issue {
   };
 }
 
+/// Mirrors the server's flat GateConditionDto — no per-project assignment,
+/// no inheritance, no NEW_CODE/OVERALL period (Fase 4 is deliberately minimal).
 export interface QualityGateCondition {
-  id: string;
   metric: string;
-  metricName: string;
-  op: 'LT' | 'GT' | 'EQ'; // Less than, Greater than, Equal
-  errorThreshold: string;
-  period?: 'NEW_CODE' | 'OVERALL';
+  operator: 'gt' | 'lt';
+  threshold: number;
 }
 
 export interface QualityGate {
-  id: string;
   name: string;
-  isDefault: boolean;
   conditions: QualityGateCondition[];
 }
 
+/// Mirrors the server's ProfileActivationDto/ProfileDto.
+export interface QualityProfileActivation {
+  rule: string;
+  severity: 'info' | 'minor' | 'major' | 'critical' | 'blocker';
+}
+
 export interface QualityProfile {
-  key: string;
   name: string;
-  language: string;
-  languageName: string;
-  isDefault: boolean;
-  activeRuleCount: number;
-  deprecatedRuleCount: number;
-  updatedAt: string;
+  activations: QualityProfileActivation[];
 }
 
 export interface MetricDefinition {
@@ -143,16 +143,15 @@ export interface MetricDefinition {
   description: string;
 }
 
+/// Mirrors the server's RuleDto (GET /rules) — the real analyzer catalog.
 export interface RuleDefinition {
-  key: string;
-  name: string;
-  lang: string;
-  type: IssueType;
-  severity: IssueSeverity;
-  status: 'READY' | 'DEPRECATED' | 'BETA';
-  sysTags: string[];
-  htmlDesc: string;
-  remediationEffort: string;
+  id: string;
+  description: string;
+  tags: string[];
+  cwe?: number;
+  defaultSeverity: string;
+  remediationEffortMinutes: number;
+  producesHotspots: boolean;
 }
 
 export interface FileNode {
@@ -169,13 +168,16 @@ export interface FileNode {
   content?: CodeLine[];
 }
 
+/// Mirrors the server's SystemInfoDto (GET /api/system/info).
 export interface SystemInfo {
   version: string;
-  serverUptime: string;
-  dbStatus: 'CONNECTED' | 'DISCONNECTED';
-  searchEngineStatus: 'GREEN' | 'YELLOW' | 'RED';
-  diskSpaceFreeGb: number;
-  activeBackgroundTasks: number;
-  totalProjectsCount: number;
-  totalIssuesCount: number;
+  gitSha: string;
+  uptimeSeconds: number;
+  database: {
+    connected: boolean;
+    postgresVersion?: string;
+  };
+  issuesTotal: number;
+  hotspotsTotal: number;
+  pendingScanJobs: number;
 }

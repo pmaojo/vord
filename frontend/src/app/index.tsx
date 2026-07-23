@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TopNavbar } from '../components/layout/TopNavbar';
 import { GlobalSearchModal } from '../components/layout/GlobalSearchModal';
-import { ApiDocsModal } from '../components/layout/ApiDocsModal';
+import { useSystemInfo } from '../lib/queries';
 import { AppRoutes } from './routes';
 
 const queryClient = new QueryClient({
@@ -15,9 +15,26 @@ const queryClient = new QueryClient({
   },
 });
 
-export const AppRoot: React.FC = () => {
-  const [apiDocsOpen, setApiDocsOpen] = useState(false);
+const AppFooter: React.FC = () => {
+  const { data: systemInfo } = useSystemInfo();
 
+  return (
+    <footer className="bg-white border-t border-gray-200 px-6 py-2.5 h-10 flex items-center justify-between text-[11px] text-gray-500 select-none">
+      <div className="flex items-center gap-4">
+        <span className="font-semibold text-[#233445]">yunq™ v{systemInfo?.version ?? '...'}</span>
+        <span className="text-gray-300">•</span>
+        <span>Enterprise Edition</span>
+      </div>
+      <div className="flex items-center gap-4">
+        <a href="https://github.com/pmaojo/yunq#readme" target="_blank" rel="noreferrer" className="hover:text-[#4b9fd5] transition-colors">Documentation</a>
+        <a href="/api-docs" target="_blank" rel="noreferrer" className="hover:text-[#4b9fd5] transition-colors font-medium">Web API (OpenAPI)</a>
+        <a href="https://github.com/pmaojo/yunq/issues" target="_blank" rel="noreferrer" className="hover:text-[#4b9fd5] transition-colors">Get Support</a>
+      </div>
+    </footer>
+  );
+};
+
+export const AppRoot: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
@@ -30,25 +47,10 @@ export const AppRoot: React.FC = () => {
             <AppRoutes />
           </main>
 
-          {/* Technical Footer */}
-          <footer className="bg-white border-t border-gray-200 px-6 py-2.5 h-10 flex items-center justify-between text-[11px] text-gray-500 select-none">
-            <div className="flex items-center gap-4">
-              <span className="font-semibold text-[#233445]">yunq™ v0.1.1</span>
-              <span className="text-gray-300">•</span>
-              <span>Enterprise Edition</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <a href="https://docs.sonarsource.com/sonarqube/latest/" target="_blank" rel="noreferrer" className="hover:text-[#4b9fd5] transition-colors">Documentation</a>
-              <button onClick={() => setApiDocsOpen(true)} className="hover:text-[#4b9fd5] transition-colors cursor-pointer font-medium">Web API (OpenAPI)</button>
-              <a href="#" onClick={(e) => { e.preventDefault(); alert('SonarQube Enterprise Support: Active 24/7 SLA'); }} className="hover:text-[#4b9fd5] transition-colors">Get Support</a>
-            </div>
-          </footer>
+          <AppFooter />
 
           {/* Global Search Modal (Cmd+K) */}
           <GlobalSearchModal />
-
-          {/* OpenAPI Web API Docs Inspector */}
-          <ApiDocsModal isOpen={apiDocsOpen} onClose={() => setApiDocsOpen(false)} />
         </div>
       </BrowserRouter>
     </QueryClientProvider>
