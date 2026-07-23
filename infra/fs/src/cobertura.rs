@@ -22,88 +22,110 @@ pub fn parse_cobertura(content: &str) -> Result<CoverageSummary, CoberturaError>
     parse_cobertura_report(content)?.summary().map_err(|e| CoberturaError::Malformed(e.to_string()))
 }
 
+/// State accumulated while scanning the XML line-by-line: the finished
+/// per-file records, the current `<class>`'s in-progress line map, the
+/// recounted totals (used when the root `<coverage>` tag omits its own),
+/// and the root totals when present (preferred over the recount).
+#[derive(Default)]
+struct Accumulator {
+    files: Vec<FileCoverage>,
+    current_file: Option<String>,
+    current_lines: BTreeMap<u32, usize>,
+    counted_lines_covered: usize,
+    counted_lines_total: usize,
+    counted_branches_covered: usize,
+    counted_branches_total: usize,
+    root_lines: Option<(usize, usize)>,
+    root_branches: Option<(usize, usize)>,
+}
+
+impl Accumulator {
+    fn flush_file(&mut self) {
+        if let Some(name) = self.current_file.take() {
+            let mut file = FileCoverage::new(name);
+            for (&line, &hits) in self.current_lines.iter() {
+                file.record_line(line, hits);
+            }
+            self.files.push(file);
+        }
+        self.current_lines.clear();
+    }
+
+    fn handle_class_tag(&mut self, trimmed: &str) {
+        self.flush_file();
+        self.current_file = extract_attr(trimmed, "filename").map(|s| s.to_string());
+    }
+
+    fn handle_line_tag(&mut self, trimmed: &str) {
+        let (Some(hits_str), Some(num_str)) =
+            (extract_attr(trimmed, "hits"), extract_attr(trimmed, "number"))
+        else {
+            return;
+        };
+        let hits: usize = hits_str.parse().unwrap_or(0);
+        let number: u32 = num_str.parse().unwrap_or(0);
+        self.counted_lines_total += 1;
+        if hits > 0 {
+            self.counted_lines_covered += 1;
+        }
+        self.current_lines.insert(number, hits);
+
+        if extract_attr(trimmed, "branch") == Some("true")
+            && let Some(coverage) = extract_attr(trimmed, "condition-coverage")
+            && let Some((covered, total)) = parse_condition_coverage(coverage)
+        {
+            self.counted_branches_covered += covered;
+            self.counted_branches_total += total;
+        }
+    }
+
+    fn handle_coverage_tag(&mut self, trimmed: &str) {
+        if let (Some(c_str), Some(v_str)) =
+            (extract_attr(trimmed, "lines-covered"), extract_attr(trimmed, "lines-valid"))
+            && let (Ok(c), Ok(v)) = (c_str.parse::<usize>(), v_str.parse::<usize>())
+        {
+            self.root_lines = Some((c, v));
+        }
+        if let (Some(c_str), Some(v_str)) =
+            (extract_attr(trimmed, "branches-covered"), extract_attr(trimmed, "branches-valid"))
+            && let (Ok(c), Ok(v)) = (c_str.parse::<usize>(), v_str.parse::<usize>())
+        {
+            self.root_branches = Some((c, v));
+        }
+    }
+
+    /// Dispatches one trimmed source line by its tag.
+    fn handle_line(&mut self, trimmed: &str) {
+        if trimmed.starts_with("<class ") || trimmed.starts_with("<class>") {
+            self.handle_class_tag(trimmed);
+        } else if trimmed.contains("<line ") || trimmed.starts_with("<line") {
+            self.handle_line_tag(trimmed);
+        } else if trimmed.contains("<coverage ") {
+            self.handle_coverage_tag(trimmed);
+        }
+    }
+
+    fn into_report(mut self) -> Result<CoverageReport, CoberturaError> {
+        self.flush_file();
+        if self.files.is_empty() && self.counted_lines_total == 0 && self.root_lines.is_none() {
+            return Err(CoberturaError::Empty);
+        }
+        let (lines_covered, lines_total) =
+            self.root_lines.unwrap_or((self.counted_lines_covered, self.counted_lines_total));
+        let (branches_covered, branches_total) =
+            self.root_branches.unwrap_or((self.counted_branches_covered, self.counted_branches_total));
+        Ok(CoverageReport::new(self.files, lines_covered, lines_total, branches_covered, branches_total))
+    }
+}
+
 /// Like [`parse_cobertura`], but also returns per-file line-hit detail for
 /// coverage-on-new-code.
 pub fn parse_cobertura_report(content: &str) -> Result<CoverageReport, CoberturaError> {
-    let mut files: Vec<FileCoverage> = Vec::new();
-    let mut current_file: Option<String> = None;
-    let mut current_lines: BTreeMap<u32, usize> = BTreeMap::new();
-
-    let mut counted_lines_covered = 0usize;
-    let mut counted_lines_total = 0usize;
-    let mut counted_branches_covered = 0usize;
-    let mut counted_branches_total = 0usize;
-
-    let mut root_lines: Option<(usize, usize)> = None;
-    let mut root_branches: Option<(usize, usize)> = None;
-
-    let flush_file = |current_file: &mut Option<String>,
-                      current_lines: &mut BTreeMap<u32, usize>,
-                      files: &mut Vec<FileCoverage>| {
-        if let Some(name) = current_file.take() {
-            let mut file = FileCoverage::new(name);
-            for (&line, &hits) in current_lines.iter() {
-                file.record_line(line, hits);
-            }
-            files.push(file);
-        }
-        current_lines.clear();
-    };
-
+    let mut acc = Accumulator::default();
     for raw in content.lines() {
-        let trimmed = raw.trim();
-        if trimmed.starts_with("<class ") || trimmed.starts_with("<class>") {
-            flush_file(&mut current_file, &mut current_lines, &mut files);
-            current_file = extract_attr(trimmed, "filename").map(|s| s.to_string());
-        } else if trimmed.contains("<line ") || trimmed.starts_with("<line") {
-            if let (Some(hits_str), Some(num_str)) =
-                (extract_attr(trimmed, "hits"), extract_attr(trimmed, "number"))
-            {
-                let hits: usize = hits_str.parse().unwrap_or(0);
-                let number: u32 = num_str.parse().unwrap_or(0);
-                counted_lines_total += 1;
-                if hits > 0 {
-                    counted_lines_covered += 1;
-                }
-                current_lines.insert(number, hits);
-
-                if extract_attr(trimmed, "branch") == Some("true") {
-                    if let Some(coverage) = extract_attr(trimmed, "condition-coverage") {
-                        if let Some((covered, total)) = parse_condition_coverage(coverage) {
-                            counted_branches_covered += covered;
-                            counted_branches_total += total;
-                        }
-                    }
-                }
-            }
-        } else if trimmed.contains("<coverage ") {
-            if let (Some(c_str), Some(v_str)) =
-                (extract_attr(trimmed, "lines-covered"), extract_attr(trimmed, "lines-valid"))
-            {
-                if let (Ok(c), Ok(v)) = (c_str.parse::<usize>(), v_str.parse::<usize>()) {
-                    root_lines = Some((c, v));
-                }
-            }
-            if let (Some(c_str), Some(v_str)) =
-                (extract_attr(trimmed, "branches-covered"), extract_attr(trimmed, "branches-valid"))
-            {
-                if let (Ok(c), Ok(v)) = (c_str.parse::<usize>(), v_str.parse::<usize>()) {
-                    root_branches = Some((c, v));
-                }
-            }
-        }
+        acc.handle_line(raw.trim());
     }
-    flush_file(&mut current_file, &mut current_lines, &mut files);
-
-    if files.is_empty() && counted_lines_total == 0 && root_lines.is_none() {
-        return Err(CoberturaError::Empty);
-    }
-
-    let (lines_covered, lines_total) = root_lines.unwrap_or((counted_lines_covered, counted_lines_total));
-    let (branches_covered, branches_total) =
-        root_branches.unwrap_or((counted_branches_covered, counted_branches_total));
-
-    Ok(CoverageReport::new(files, lines_covered, lines_total, branches_covered, branches_total))
+    acc.into_report()
 }
 
 /// Parses Cobertura's `condition-coverage="50% (1/2)"` attribute into

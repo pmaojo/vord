@@ -26,70 +26,107 @@ pub fn parse_jacoco(content: &str) -> Result<CoverageSummary, JacocoError> {
     parse_jacoco_report(content)?.summary().map_err(|e| JacocoError::Malformed(e.to_string()))
 }
 
+fn missed_and_covered(trimmed: &str) -> (usize, usize) {
+    let missed = extract_attr(trimmed, "missed").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+    let covered = extract_attr(trimmed, "covered").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+    (missed, covered)
+}
+
+/// State accumulated while scanning the XML line-by-line: the finished
+/// per-file records, the current `<sourcefile>`'s in-progress line map,
+/// the running LINE/BRANCH counter totals, and whether any LINE counter
+/// has been seen at all (an empty report is an error).
+#[derive(Default)]
+struct Accumulator {
+    files: Vec<FileCoverage>,
+    current_file: Option<String>,
+    current_lines: BTreeMap<u32, usize>,
+    total_covered_lines: usize,
+    total_missed_lines: usize,
+    total_covered_branches: usize,
+    total_missed_branches: usize,
+    found: bool,
+}
+
+impl Accumulator {
+    fn flush_file(&mut self) {
+        if let Some(name) = self.current_file.take() {
+            let mut file = FileCoverage::new(name);
+            for (&line, &hits) in self.current_lines.iter() {
+                file.record_line(line, hits);
+            }
+            self.files.push(file);
+        }
+        self.current_lines.clear();
+    }
+
+    fn open_sourcefile(&mut self, trimmed: &str) {
+        self.flush_file();
+        self.current_file = extract_attr(trimmed, "name").map(|s| s.to_string());
+    }
+
+    fn line_counter(&mut self, trimmed: &str) {
+        let (missed, covered) = missed_and_covered(trimmed);
+        self.total_missed_lines += missed;
+        self.total_covered_lines += covered;
+        self.found = true;
+    }
+
+    fn branch_counter(&mut self, trimmed: &str) {
+        let (missed, covered) = missed_and_covered(trimmed);
+        self.total_missed_branches += missed;
+        self.total_covered_branches += covered;
+    }
+
+    fn line_detail(&mut self, trimmed: &str) {
+        if self.current_file.is_none() {
+            return;
+        }
+        let Some(nr) = extract_attr(trimmed, "nr").and_then(|s| s.parse::<u32>().ok()) else { return };
+        let ci = extract_attr(trimmed, "ci").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+        self.current_lines.insert(nr, ci);
+    }
+
+    /// Dispatches one trimmed source line by its tag/attribute shape.
+    fn handle_line(&mut self, trimmed: &str) {
+        if trimmed.contains("<sourcefile ") || trimmed.starts_with("<sourcefile") {
+            self.open_sourcefile(trimmed);
+        } else if trimmed.starts_with("</sourcefile>") {
+            self.flush_file();
+        } else if trimmed.contains("type=\"LINE\"") || trimmed.contains("type='LINE'") {
+            self.line_counter(trimmed);
+        } else if trimmed.contains("type=\"BRANCH\"") || trimmed.contains("type='BRANCH'") {
+            self.branch_counter(trimmed);
+        } else if trimmed.contains("<line ") || trimmed.starts_with("<line") {
+            self.line_detail(trimmed);
+        }
+    }
+
+    fn into_report(mut self) -> Result<CoverageReport, JacocoError> {
+        self.flush_file();
+        if !self.found {
+            return Err(JacocoError::Empty);
+        }
+        let total_lines = self.total_covered_lines + self.total_missed_lines;
+        let total_branches = self.total_covered_branches + self.total_missed_branches;
+        Ok(CoverageReport::new(
+            self.files,
+            self.total_covered_lines,
+            total_lines,
+            self.total_covered_branches,
+            total_branches,
+        ))
+    }
+}
+
 /// Like [`parse_jacoco`], but also returns per-file line-hit detail for
 /// coverage-on-new-code.
 pub fn parse_jacoco_report(content: &str) -> Result<CoverageReport, JacocoError> {
-    let mut total_covered_lines = 0usize;
-    let mut total_missed_lines = 0usize;
-    let mut total_covered_branches = 0usize;
-    let mut total_missed_branches = 0usize;
-    let mut found = false;
-
-    let mut files: Vec<FileCoverage> = Vec::new();
-    let mut current_file: Option<String> = None;
-    let mut current_lines: BTreeMap<u32, usize> = BTreeMap::new();
-
+    let mut acc = Accumulator::default();
     for raw in content.lines() {
-        let trimmed = raw.trim();
-        if trimmed.contains("<sourcefile ") || trimmed.starts_with("<sourcefile") {
-            flush_file(&mut current_file, &mut current_lines, &mut files);
-            current_file = extract_attr(trimmed, "name").map(|s| s.to_string());
-        } else if trimmed.starts_with("</sourcefile>") {
-            flush_file(&mut current_file, &mut current_lines, &mut files);
-        } else if trimmed.contains("type=\"LINE\"") || trimmed.contains("type='LINE'") {
-            let missed = extract_attr(trimmed, "missed").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-            let covered = extract_attr(trimmed, "covered").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-            total_missed_lines += missed;
-            total_covered_lines += covered;
-            found = true;
-        } else if trimmed.contains("type=\"BRANCH\"") || trimmed.contains("type='BRANCH'") {
-            let missed = extract_attr(trimmed, "missed").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-            let covered = extract_attr(trimmed, "covered").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-            total_missed_branches += missed;
-            total_covered_branches += covered;
-        } else if (trimmed.contains("<line ") || trimmed.starts_with("<line")) && current_file.is_some() {
-            if let Some(nr_str) = extract_attr(trimmed, "nr") {
-                if let Ok(nr) = nr_str.parse::<u32>() {
-                    let ci = extract_attr(trimmed, "ci").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-                    current_lines.insert(nr, ci);
-                }
-            }
-        }
+        acc.handle_line(raw.trim());
     }
-    flush_file(&mut current_file, &mut current_lines, &mut files);
-
-    if !found {
-        return Err(JacocoError::Empty);
-    }
-
-    let total_lines = total_covered_lines + total_missed_lines;
-    let total_branches = total_covered_branches + total_missed_branches;
-    Ok(CoverageReport::new(files, total_covered_lines, total_lines, total_covered_branches, total_branches))
-}
-
-fn flush_file(
-    current_file: &mut Option<String>,
-    current_lines: &mut BTreeMap<u32, usize>,
-    files: &mut Vec<FileCoverage>,
-) {
-    if let Some(name) = current_file.take() {
-        let mut file = FileCoverage::new(name);
-        for (&line, &hits) in current_lines.iter() {
-            file.record_line(line, hits);
-        }
-        files.push(file);
-    }
-    current_lines.clear();
+    acc.into_report()
 }
 
 fn extract_attr<'a>(line: &'a str, attr: &str) -> Option<&'a str> {

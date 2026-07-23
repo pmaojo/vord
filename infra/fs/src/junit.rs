@@ -12,7 +12,7 @@
 //! `<failure>`/`<error>`/`<skipped>` outcome elements instead.
 
 use quick_xml::Reader;
-use quick_xml::events::{BytesStart, Event};
+use quick_xml::events::{BytesEnd, BytesStart, Event};
 use yunq_rules_engine::{TestReportSummary, TestSuiteSummary};
 
 #[derive(Debug, thiserror::Error)]
@@ -29,6 +29,12 @@ enum Outcome {
     Failed,
     Errored,
     Skipped,
+}
+
+impl Default for Outcome {
+    fn default() -> Self {
+        Outcome::Passed
+    }
 }
 
 /// Running totals for the `<testsuite>` currently being parsed.
@@ -90,6 +96,110 @@ fn fold_suite(summary: &mut TestReportSummary, acc: SuiteAccumulator) {
     summary.suites.push(suite);
 }
 
+/// Cross-event parse state: the running summary, the `<testsuite>`
+/// currently being accumulated (if any), and whether we're inside a
+/// `<testcase>` and what outcome it's seen so far — split out so
+/// `parse_junit`'s event loop can dispatch to one method per event kind
+/// instead of three parallel match statements.
+#[derive(Default)]
+struct ParseState {
+    summary: TestReportSummary,
+    current: Option<SuiteAccumulator>,
+    in_testcase: bool,
+    testcase_outcome: Outcome,
+}
+
+impl ParseState {
+    fn open_testsuite(&mut self, tag: &BytesStart) -> Result<(), JunitError> {
+        self.current = Some(SuiteAccumulator::from_attrs(tag)?);
+        Ok(())
+    }
+
+    /// A self-closed `<testsuite/>` — folds its declared attributes
+    /// straight in without becoming the "current" suite, since it has no
+    /// `<testcase>` children to accumulate.
+    fn self_closed_testsuite(&mut self, tag: &BytesStart) -> Result<(), JunitError> {
+        fold_suite(&mut self.summary, SuiteAccumulator::from_attrs(tag)?);
+        Ok(())
+    }
+
+    fn count_testcase(&mut self, tag: &BytesStart) -> Result<(), JunitError> {
+        let time = attr_f64(tag, "time")?.unwrap_or(0.0);
+        if let Some(acc) = self.current.as_mut() {
+            acc.seen_tests += 1;
+            acc.seen_time += time;
+        }
+        Ok(())
+    }
+
+    fn open_testcase(&mut self, tag: &BytesStart) -> Result<(), JunitError> {
+        self.in_testcase = true;
+        self.testcase_outcome = Outcome::Passed;
+        self.count_testcase(tag)
+    }
+
+    fn mark_outcome(&mut self, local_name: &[u8]) {
+        if !self.in_testcase {
+            return;
+        }
+        match local_name {
+            b"failure" => self.testcase_outcome = Outcome::Failed,
+            b"error" => self.testcase_outcome = Outcome::Errored,
+            b"skipped" => self.testcase_outcome = Outcome::Skipped,
+            _ => {}
+        }
+    }
+
+    fn close_testsuite(&mut self) {
+        if let Some(acc) = self.current.take() {
+            fold_suite(&mut self.summary, acc);
+        }
+    }
+
+    fn close_testcase(&mut self) {
+        if let Some(acc) = self.current.as_mut() {
+            match self.testcase_outcome {
+                Outcome::Passed => {}
+                Outcome::Failed => acc.seen_failures += 1,
+                Outcome::Errored => acc.seen_errors += 1,
+                Outcome::Skipped => acc.seen_skipped += 1,
+            }
+        }
+        self.in_testcase = false;
+    }
+
+    fn handle_start(&mut self, tag: &BytesStart) -> Result<(), JunitError> {
+        match tag.local_name().as_ref() {
+            b"testsuite" => self.open_testsuite(tag),
+            b"testcase" => self.open_testcase(tag),
+            other => {
+                self.mark_outcome(other);
+                Ok(())
+            }
+        }
+    }
+
+    fn handle_empty(&mut self, tag: &BytesStart) -> Result<(), JunitError> {
+        match tag.local_name().as_ref() {
+            b"testsuite" => self.self_closed_testsuite(tag),
+            // Self-closed testcase: no failure/error/skipped child, so it passed.
+            b"testcase" => self.count_testcase(tag),
+            other => {
+                self.mark_outcome(other);
+                Ok(())
+            }
+        }
+    }
+
+    fn handle_end(&mut self, tag: &BytesEnd) {
+        match tag.local_name().as_ref() {
+            b"testsuite" => self.close_testsuite(),
+            b"testcase" => self.close_testcase(),
+            _ => {}
+        }
+    }
+}
+
 /// Parses a JUnit XML test report into aggregate totals plus a per-suite
 /// breakdown. Accepts both a `<testsuites>` wrapper with multiple children
 /// and a single root `<testsuite>`.
@@ -101,72 +211,21 @@ pub fn parse_junit(content: &str) -> Result<TestReportSummary, JunitError> {
     let mut reader = Reader::from_str(content);
     reader.config_mut().trim_text(true);
 
-    let mut summary = TestReportSummary::default();
-    let mut current: Option<SuiteAccumulator> = None;
-    let mut in_testcase = false;
-    let mut testcase_outcome = Outcome::Passed;
-
+    let mut state = ParseState::default();
     let mut buf = Vec::new();
     loop {
         let event = reader.read_event_into(&mut buf).map_err(|e| JunitError::Malformed(e.to_string()))?;
         match event {
             Event::Eof => break,
-            Event::Start(tag) => match tag.local_name().as_ref() {
-                b"testsuite" => current = Some(SuiteAccumulator::from_attrs(&tag)?),
-                b"testcase" => {
-                    in_testcase = true;
-                    testcase_outcome = Outcome::Passed;
-                    let time = attr_f64(&tag, "time")?.unwrap_or(0.0);
-                    if let Some(acc) = current.as_mut() {
-                        acc.seen_tests += 1;
-                        acc.seen_time += time;
-                    }
-                }
-                b"failure" if in_testcase => testcase_outcome = Outcome::Failed,
-                b"error" if in_testcase => testcase_outcome = Outcome::Errored,
-                b"skipped" if in_testcase => testcase_outcome = Outcome::Skipped,
-                _ => {}
-            },
-            Event::Empty(tag) => match tag.local_name().as_ref() {
-                b"testsuite" => fold_suite(&mut summary, SuiteAccumulator::from_attrs(&tag)?),
-                b"testcase" => {
-                    // Self-closed testcase: no failure/error/skipped child, so it passed.
-                    let time = attr_f64(&tag, "time")?.unwrap_or(0.0);
-                    if let Some(acc) = current.as_mut() {
-                        acc.seen_tests += 1;
-                        acc.seen_time += time;
-                    }
-                }
-                b"failure" if in_testcase => testcase_outcome = Outcome::Failed,
-                b"error" if in_testcase => testcase_outcome = Outcome::Errored,
-                b"skipped" if in_testcase => testcase_outcome = Outcome::Skipped,
-                _ => {}
-            },
-            Event::End(tag) => match tag.local_name().as_ref() {
-                b"testsuite" => {
-                    if let Some(acc) = current.take() {
-                        fold_suite(&mut summary, acc);
-                    }
-                }
-                b"testcase" => {
-                    if let Some(acc) = current.as_mut() {
-                        match testcase_outcome {
-                            Outcome::Passed => {}
-                            Outcome::Failed => acc.seen_failures += 1,
-                            Outcome::Errored => acc.seen_errors += 1,
-                            Outcome::Skipped => acc.seen_skipped += 1,
-                        }
-                    }
-                    in_testcase = false;
-                }
-                _ => {}
-            },
+            Event::Start(tag) => state.handle_start(&tag)?,
+            Event::Empty(tag) => state.handle_empty(&tag)?,
+            Event::End(tag) => state.handle_end(&tag),
             _ => {}
         }
         buf.clear();
     }
 
-    if summary.suites.is_empty() { Err(JunitError::Empty) } else { Ok(summary) }
+    if state.summary.suites.is_empty() { Err(JunitError::Empty) } else { Ok(state.summary) }
 }
 
 fn attr_value(tag: &BytesStart, key: &str) -> Result<Option<String>, JunitError> {

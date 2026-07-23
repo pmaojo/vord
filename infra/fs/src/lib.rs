@@ -79,34 +79,44 @@ pub fn collect_sources_scoped(
     for walk_root in &roots {
         for entry in WalkBuilder::new(walk_root).build() {
             let entry = entry.map_err(|e| SourceLoadError::Walk(e.to_string()))?;
-            if !entry.file_type().is_some_and(|t| t.is_file()) {
-                continue;
-            }
-            let path = entry.path();
-            let Some(language) = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .and_then(LanguageIdentifier::from_extension)
-            else {
-                continue;
-            };
-            let relative = path.strip_prefix(root).unwrap_or(path);
-            if is_excluded(relative, &excludes) {
-                continue;
-            }
-            let content = match std::fs::read_to_string(path) {
-                Ok(content) => content,
-                Err(e) if e.kind() == ErrorKind::InvalidData => continue,
-                Err(e) => return Err(e.into()),
-            };
-            let display = display_path(path, relative);
-            if let Ok(source) = SourceFile::new(display, content, language) {
+            if let Some(source) = load_source_entry(&entry, root, &excludes)? {
                 sources.push(source);
             }
         }
     }
     sources.sort_by(|a, b| a.path().cmp(b.path()));
     Ok(sources)
+}
+
+/// Loads one walk entry into a [`SourceFile`], or `None` if it's not a
+/// regular file, has an unsupported extension, matches an exclusion glob,
+/// or isn't valid UTF-8 — every case `collect_sources_scoped`'s loop body
+/// used to skip inline via `continue`.
+fn load_source_entry(
+    entry: &ignore::DirEntry,
+    root: &Path,
+    excludes: &GlobSet,
+) -> Result<Option<SourceFile>, SourceLoadError> {
+    if !entry.file_type().is_some_and(|t| t.is_file()) {
+        return Ok(None);
+    }
+    let path = entry.path();
+    let Some(language) =
+        path.extension().and_then(|e| e.to_str()).and_then(LanguageIdentifier::from_extension)
+    else {
+        return Ok(None);
+    };
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    if is_excluded(relative, excludes) {
+        return Ok(None);
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == ErrorKind::InvalidData => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let display = display_path(path, relative);
+    Ok(SourceFile::new(display, content, language).ok())
 }
 
 fn is_excluded(relative: &Path, excludes: &GlobSet) -> bool {

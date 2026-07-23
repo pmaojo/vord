@@ -87,26 +87,28 @@ impl YunqConfig {
                 continue;
             }
             if let Some((key, val)) = line.split_once('=') {
-                let key = key.trim();
-                let val = val.trim().to_string();
-                match key {
-                    "sonar.projectKey" => config.project.key = Some(val),
-                    "sonar.projectName" => config.project.name = Some(val),
-                    "sonar.projectVersion" => config.project.version = Some(val),
-                    "sonar.sources" => {
-                        config.analysis.sources = Some(val.split(',').map(|s| s.trim().to_string()).collect());
-                    }
-                    "sonar.exclusions" => {
-                        config.analysis.exclusions = Some(val.split(',').map(|s| s.trim().to_string()).collect());
-                    }
-                    "sonar.inclusions" => {
-                        config.analysis.inclusions = Some(val.split(',').map(|s| s.trim().to_string()).collect());
-                    }
-                    _ => {}
-                }
+                apply_sonar_property(&mut config, key.trim(), val.trim());
             }
         }
         config
+    }
+}
+
+/// Splits a comma-joined `sonar.*` property value (`"src,lib"`) into its
+/// trimmed parts.
+fn split_csv(val: &str) -> Vec<String> {
+    val.split(',').map(|s| s.trim().to_string()).collect()
+}
+
+fn apply_sonar_property(config: &mut YunqConfig, key: &str, val: &str) {
+    match key {
+        "sonar.projectKey" => config.project.key = Some(val.to_string()),
+        "sonar.projectName" => config.project.name = Some(val.to_string()),
+        "sonar.projectVersion" => config.project.version = Some(val.to_string()),
+        "sonar.sources" => config.analysis.sources = Some(split_csv(val)),
+        "sonar.exclusions" => config.analysis.exclusions = Some(split_csv(val)),
+        "sonar.inclusions" => config.analysis.inclusions = Some(split_csv(val)),
+        _ => {}
     }
 }
 
