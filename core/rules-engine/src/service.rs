@@ -281,6 +281,9 @@ where
             let severity =
                 self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
             for finding in rule.check(file, &ast) {
+                if crate::is_suppressed(file.content(), finding.span.start_line, rule.id().as_str()) {
+                    continue;
+                }
                 match finding.kind {
                     FindingKind::Issue => {
                         debt_minutes += rule.remediation_effort_minutes() as usize;

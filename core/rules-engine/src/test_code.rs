@@ -1,0 +1,216 @@
+//! Helpers for rules that want to exempt test code from detection: an
+//! integration-test file (`tests/*.rs`, by Rust convention) is exempted
+//! entirely, while a `#[cfg(test)] mod tests { ... }` block inside an
+//! ordinary source file is exempted only for the lines inside it — the
+//! surrounding production code in the same file still gets checked.
+
+/// True when `path` has a `tests` path segment — the Rust convention for a
+/// standalone integration-test crate, where a long/complex/secret-looking
+/// line is far more likely to be an assertion-heavy test fixture than real
+/// production code.
+pub fn is_test_only_path(path: &str) -> bool {
+    std::path::Path::new(path).components().any(|c| c.as_os_str() == "tests")
+}
+
+/// A half-open `[start, end)` line range (1-based, matching `Span`).
+pub type LineRange = (u32, u32);
+
+/// True when `line` falls inside any of `ranges`.
+pub fn in_ranges(ranges: &[LineRange], line: u32) -> bool {
+    ranges.iter().any(|&(start, end)| line >= start && line < end)
+}
+
+/// Finds every `#[cfg(test)] mod ... { ... }` block in `content` and returns
+/// each one's line range, brace-matched from the `mod`'s opening `{` to its
+/// closing `{`. Brace-counting skips over the contents of string literals
+/// (plain and raw) so a test fixture containing an intentionally unbalanced
+/// brace inside a string doesn't truncate the range early.
+pub fn rust_test_module_ranges(content: &str) -> Vec<LineRange> {
+    let mut ranges = Vec::new();
+    let bytes = content.as_bytes();
+    let mut search_from = 0;
+
+    while let Some(rel_idx) = content[search_from..].find("#[cfg(test)]") {
+        let marker_idx = search_from + rel_idx;
+        let Some(open_brace) = content[marker_idx..].find('{').map(|i| marker_idx + i) else {
+            break;
+        };
+        let Some(close_brace) = match_brace(bytes, open_brace) else {
+            break;
+        };
+        let start_line = 1 + content[..open_brace].matches('\n').count() as u32;
+        let end_line = 1 + content[..close_brace].matches('\n').count() as u32 + 1;
+        ranges.push((start_line, end_line));
+        search_from = close_brace + 1;
+    }
+
+    ranges
+}
+
+/// Given the byte index of an opening `{`, finds the index of its matching
+/// closing `}`, treating the contents of string literals as opaque (never
+/// counting braces inside them).
+fn match_brace(bytes: &[u8], open_idx: usize) -> Option<usize> {
+    let mut depth: i32 = 0;
+    let mut i = open_idx;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            b'"' => {
+                i = skip_string(bytes, i);
+                continue;
+            }
+            b'r' if matches!(bytes.get(i + 1), Some(b'"') | Some(b'#')) => {
+                if let Some(next) = skip_raw_string(bytes, i) {
+                    i = next;
+                    continue;
+                }
+            }
+            // A char literal (`'{'`, `'\n'`, `'\u{7b}'`) can smuggle in a
+            // stray brace byte; a lifetime apostrophe (`'a`) never closes
+            // and falls through to be counted as an ordinary byte.
+            b'\'' => {
+                if let Some(next) = skip_char_literal(bytes, i) {
+                    i = next;
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Skips over a plain `"..."` string literal (with `\`-escape awareness)
+/// starting at the opening quote; returns the index just past the closing
+/// quote.
+fn skip_string(bytes: &[u8], quote_idx: usize) -> usize {
+    let mut i = quote_idx + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'"' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    i
+}
+
+/// If `quote_idx` is the start of a char literal (`'x'`, `'\n'`,
+/// `'\u{7b}'`), returns the index just past its closing `'`. Returns `None`
+/// for a lifetime apostrophe (`'a`), which never closes.
+fn skip_char_literal(bytes: &[u8], quote_idx: usize) -> Option<usize> {
+    let mut i = quote_idx + 1;
+    if bytes.get(i) == Some(&b'\\') {
+        i += 1;
+        if bytes.get(i) == Some(&b'u') && bytes.get(i + 1) == Some(&b'{') {
+            i += 2;
+            while bytes.get(i).is_some_and(|&b| b != b'}') {
+                i += 1;
+            }
+            i += 1;
+        } else {
+            i += 1;
+        }
+    } else {
+        i += 1;
+    }
+    (bytes.get(i) == Some(&b'\'')).then_some(i + 1)
+}
+
+/// Skips over a raw string literal (`r"..."`, `r#"..."#`, ...) starting at
+/// the `r`; returns the index just past the closing delimiter, or `None` if
+/// `i` isn't actually the start of a raw string.
+fn skip_raw_string(bytes: &[u8], r_idx: usize) -> Option<usize> {
+    let mut i = r_idx + 1;
+    let mut hashes = 0;
+    while bytes.get(i) == Some(&b'#') {
+        hashes += 1;
+        i += 1;
+    }
+    if bytes.get(i) != Some(&b'"') {
+        return None;
+    }
+    i += 1;
+    loop {
+        let quote = bytes[i..].iter().position(|&b| b == b'"')?;
+        let candidate = i + quote;
+        let closes = bytes[candidate + 1..].iter().take(hashes).all(|&b| b == b'#');
+        if closes {
+            return Some(candidate + 1 + hashes);
+        }
+        i = candidate + 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flags_paths_under_a_tests_directory() {
+        assert!(is_test_only_path("tests/e2e.rs"));
+        assert!(is_test_only_path("core/rules-engine/tests/fixtures.rs"));
+        assert!(!is_test_only_path("core/rules-engine/src/lib.rs"));
+    }
+
+    #[test]
+    fn finds_a_simple_cfg_test_module_range() {
+        let content = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    fn one() {}\n}\n";
+        let ranges = rust_test_module_ranges(content);
+        assert_eq!(ranges.len(), 1);
+        let (start, end) = ranges[0];
+        assert!(in_ranges(&ranges, start));
+        assert!(!in_ranges(&ranges, end));
+        assert!(!in_ranges(&ranges, 1));
+    }
+
+    #[test]
+    fn unbalanced_brace_inside_a_string_literal_does_not_truncate_the_range() {
+        let content = "\
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn handler_fixture() {
+        let code = \"fn handler() {\";
+        assert!(code.contains('{'));
+    }
+
+    #[test]
+    fn second_test_still_inside_the_module() {
+        assert!(true);
+    }
+}
+";
+        let ranges = rust_test_module_ranges(content);
+        assert_eq!(ranges.len(), 1);
+        let last_line = content.lines().count() as u32;
+        assert!(in_ranges(&ranges, last_line - 1));
+    }
+
+    #[test]
+    fn raw_string_with_a_brace_does_not_confuse_the_counter() {
+        let content = "\
+#[cfg(test)]
+mod tests {
+    const FIXTURE: &str = r#\"{ \"unterminated\": true \"#;
+
+    #[test]
+    fn still_inside() {
+        assert!(true);
+    }
+}
+";
+        let ranges = rust_test_module_ranges(content);
+        assert_eq!(ranges.len(), 1);
+        let last_line = content.lines().count() as u32;
+        assert!(in_ranges(&ranges, last_line - 1));
+    }
+}

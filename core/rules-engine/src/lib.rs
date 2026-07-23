@@ -11,6 +11,8 @@ mod project;
 mod rule;
 mod service;
 mod structural_metrics;
+mod suppression;
+mod test_code;
 
 pub use alm::{
     AlmError, AlmPullRequestReporter, AlmStatusReporter, CommitSha, CommitStatus,
@@ -38,6 +40,8 @@ pub use ports::{
 };
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 pub use structural_metrics::StructuralCounts;
+pub use suppression::is_suppressed;
+pub use test_code::{LineRange, in_ranges, is_test_only_path, rust_test_module_ranges};
 
 // Re-export duplication vocabulary so consumers depend on one facade.
 pub use yunq_cpd::{BlockRef, DuplicateBlock, DuplicationConfig};
