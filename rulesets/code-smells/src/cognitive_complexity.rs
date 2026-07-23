@@ -70,11 +70,13 @@ fn is_labeled_jump(node: &AstNode) -> bool {
 /// complexity, nested control flow costs more than sequential control flow,
 /// which tracks how hard a human finds a function to read.
 ///
-/// Covers both dominant terms of the SonarSource formula: structural nesting
-/// weighting, and the boolean-operator-sequence increment (a chain of
-/// binary logical operators costs +1 per contiguous run of the same
+/// Covers both dominant terms of the SonarSource formula — structural
+/// nesting weighting, and the boolean-operator-sequence increment (a chain
+/// of binary logical operators costs +1 per contiguous run of the same
 /// operator, plus +1 each time the operator changes — `a && b && c` costs 1,
-/// `a && b || c` costs 2).
+/// `a && b || c` costs 2) — plus the flat +1 for direct self-recursion
+/// (indirect/mutual recursion across functions is out of scope: it needs a
+/// whole-file call graph this rule doesn't build).
 pub struct CognitiveComplexityRule {
     id: RuleId,
     max: u32,
@@ -190,43 +192,83 @@ fn logical_leaves<'a>(node: &'a AstNode, out: &mut Vec<&'a AstNode>) {
     }
 }
 
+/// The declared name of a `FunctionDef`, if it has one — the first
+/// `Identifier` among its direct children (parser adapters place a
+/// function's own name there; parameters/generics/body are never bare
+/// `Identifier` nodes at that level). Closures/lambdas have no such child,
+/// so they're never treated as recursive by name — correct, since an
+/// anonymous function can't call itself by its own name.
+fn function_name(function: &AstNode) -> Option<&str> {
+    function
+        .children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::Identifier)
+        .map(|c| c.text())
+}
+
+/// Whether `call`'s callee refers to `fn_name` — a plain `foo()` call, or a
+/// method-style `self.foo()`/`this.foo()` call ending in that name. This is
+/// a same-file, name-based heuristic (matching [`crate::cognitive_complexity`]'s
+/// only source of a call graph): it can't tell a genuine recursive call from
+/// an unrelated function that happens to share a name, which is why it's
+/// scoped to *direct* recursion only — no cross-function call graph, no
+/// indirect/mutual recursion.
+fn is_recursive_call(call: &AstNode, fn_name: &str) -> bool {
+    let Some(callee) = call.first_child() else { return false };
+    match callee.kind() {
+        NodeKind::Identifier => callee.text() == fn_name,
+        NodeKind::MemberAccess => callee
+            .children()
+            .iter()
+            .rev()
+            .find(|c| *c.kind() == NodeKind::Identifier)
+            .is_some_and(|c| c.text() == fn_name),
+        _ => false,
+    }
+}
+
 /// Shared prefix for every dispatcher below: nested function defs are rated
 /// independently (contribute 0 here), labeled `break`/`continue` are a flat
-/// +1, and boolean-operator chains follow their own flat, non-nesting-
-/// weighted rule. Returns `None` for anything else, so the caller applies
-/// its own nesting-aware fallback.
-fn score_common(child: &AstNode, nesting: u32) -> Option<u32> {
+/// +1, boolean-operator chains follow their own flat, non-nesting-weighted
+/// rule, and a direct self-recursive call is a flat +1 (recursion is a
+/// "meta-loop" in SonarSource's model, so it's charged like a jump, not
+/// nesting-weighted like a real loop). Returns `None` for anything else, so
+/// the caller applies its own nesting-aware fallback.
+fn score_common(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> Option<u32> {
     if *child.kind() == NodeKind::FunctionDef {
         return Some(0);
     }
     if is_labeled_jump(child) {
-        return Some(1 + score(child, nesting));
+        return Some(1 + score(child, nesting, fn_name));
+    }
+    if *child.kind() == NodeKind::Call && fn_name.is_some_and(|name| is_recursive_call(child, name)) {
+        return Some(1 + score(child, nesting, fn_name));
     }
     if logical_op(child).is_some() {
         let sequence = logical_sequence(child);
         let bool_cost = logical_chain_cost(&sequence);
         let mut leaves = Vec::new();
         logical_leaves(child, &mut leaves);
-        return Some(bool_cost + leaves.iter().map(|leaf| score(leaf, nesting)).sum::<u32>());
+        return Some(bool_cost + leaves.iter().map(|leaf| score(leaf, nesting, fn_name)).sum::<u32>());
     }
     None
 }
 
-fn score(node: &AstNode, nesting: u32) -> u32 {
-    node.children().iter().map(|child| score_child(child, nesting)).sum()
+fn score(node: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 {
+    node.children().iter().map(|child| score_child(child, nesting, fn_name)).sum()
 }
 
-fn score_child(child: &AstNode, nesting: u32) -> u32 {
-    if let Some(cost) = score_common(child, nesting) {
+fn score_child(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 {
+    if let Some(cost) = score_common(child, nesting, fn_name) {
         return cost;
     }
     match child.kind() {
-        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => 1 + score_branch_body(child, nesting),
-        NodeKind::Other(kind) if IF_KINDS.contains(&kind.as_str()) => score_if_chain(child, nesting, false),
+        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => 1 + score_branch_body(child, nesting, fn_name),
+        NodeKind::Other(kind) if IF_KINDS.contains(&kind.as_str()) => score_if_chain(child, nesting, false, fn_name),
         NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_str()) => {
-            (1 + nesting) + score(child, nesting + 1)
+            (1 + nesting) + score(child, nesting + 1, fn_name)
         }
-        _ => score(child, nesting),
+        _ => score(child, nesting, fn_name),
     }
 }
 
@@ -235,10 +277,10 @@ fn score_child(child: &AstNode, nesting: u32) -> u32 {
 /// continuation, not fresh nesting: delegate to [`score_if_chain`] with
 /// `is_link: true` so it's charged the flat +1 already added by the
 /// caller instead of paying `1 + nesting` again.
-fn score_branch_body(clause: &AstNode, nesting: u32) -> u32 {
+fn score_branch_body(clause: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 {
     match chained_if(clause) {
-        Some(inner_if) => score_if_chain(inner_if, nesting, true),
-        None => score(clause, nesting + 1),
+        Some(inner_if) => score_if_chain(inner_if, nesting, true, fn_name),
+        None => score(clause, nesting + 1, fn_name),
     }
 }
 
@@ -248,22 +290,22 @@ fn score_branch_body(clause: &AstNode, nesting: u32) -> u32 {
 /// flat +1 with no extra nesting, and the chain's own nesting level does not
 /// compound per link — only the *body* of each link (its `then` branch, or
 /// a terminal plain `else` block) sits one level deeper, at `nesting + 1`.
-fn score_if_chain(if_node: &AstNode, nesting: u32, is_link: bool) -> u32 {
+fn score_if_chain(if_node: &AstNode, nesting: u32, is_link: bool, fn_name: Option<&str>) -> u32 {
     let header = if is_link { 0 } else { 1 + nesting };
-    header + if_node.children().iter().map(|child| score_if_member(child, nesting)).sum::<u32>()
+    header + if_node.children().iter().map(|child| score_if_member(child, nesting, fn_name)).sum::<u32>()
 }
 
 /// Scores one direct child of an `if`/`else if` node (its condition or
 /// `then` branch) at `nesting + 1`, except a further `else`/`elif` clause,
 /// which [`score_branch_body`] anchors back at `nesting` to keep the chain
 /// from compounding.
-fn score_if_member(child: &AstNode, nesting: u32) -> u32 {
-    if let Some(cost) = score_common(child, nesting) {
+fn score_if_member(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 {
+    if let Some(cost) = score_common(child, nesting, fn_name) {
         return cost;
     }
     match child.kind() {
-        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => 1 + score_branch_body(child, nesting),
-        _ => score(child, nesting + 1),
+        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_str()) => 1 + score_branch_body(child, nesting, fn_name),
+        _ => score(child, nesting + 1, fn_name),
     }
 }
 
@@ -316,7 +358,7 @@ impl Rule for CognitiveComplexityRule {
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::FunctionDef)
             .filter_map(|function| {
-                let complexity = score(function, 0);
+                let complexity = score(function, 0, function_name(function));
                 (complexity > self.max).then(|| {
                     Finding::new(
                         format!(
@@ -450,6 +492,47 @@ mod tests {
     }
 
     #[test]
+    fn direct_recursion_is_a_flat_increment_not_nesting_weighted() {
+        // SonarSource's own whitepaper worked example (`Sum`): the `if`
+        // costs `1+0`, and the recursive call costs a flat `+1` — recursion
+        // is charged like a jump, not weighted by how deep the call site
+        // sits.
+        let code = "fn sum(n: i32) -> i32 {\n    if n <= 1 {\n        return n;\n    }\n    n + sum(n - 1)\n}\n";
+        let findings = check_rust(code, 1);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+        assert!(check_rust(code, 2).is_empty());
+    }
+
+    #[test]
+    fn recursion_via_self_method_call_is_detected() {
+        // Method-style recursion (`self.fact(...)`) is still a direct
+        // self-call — the callee is a `MemberAccess` ending in the
+        // function's own name, not a bare `Identifier`.
+        let code = "impl S {\n    fn fact(&self, n: i32) -> i32 {\n        if n <= 1 {\n            1\n        } else {\n            n * self.fact(n - 1)\n        }\n    }\n}\n";
+        // if (1+0) + else (flat +1) + recursive call (flat +1) = 3.
+        let findings = check_rust(code, 2);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("complexity 3"), "{}", findings[0].message);
+        assert!(check_rust(code, 3).is_empty());
+    }
+
+    #[test]
+    fn calling_a_different_function_by_name_is_not_recursion() {
+        let code = "fn f(n: i32) -> i32 {\n    g(n)\n}\n";
+        assert!(check_rust(code, 0).is_empty());
+    }
+
+    #[test]
+    fn python_direct_recursion_is_a_flat_increment() {
+        let code = "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n";
+        let findings = check_python(code, 1);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+        assert!(check_python(code, 2).is_empty());
+    }
+
+    #[test]
     fn nested_functions_are_scored_independently() {
         let code = "fn outer() {\n    let inner = |x: i32| { if x > 0 { if x > 1 { () } } };\n    inner(1);\n}\n";
         // outer: 0 (its only structure is the nested closure, skipped).
@@ -540,13 +623,13 @@ mod tests {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
         let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
         let function = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
-        score(function, 0)
+        score(function, 0, function_name(function))
     }
 
     fn complexity_python(code: &str) -> u32 {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
         let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
         let function = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
-        score(function, 0)
+        score(function, 0, function_name(function))
     }
 }
