@@ -169,7 +169,20 @@ pub async fn scan_with_exclusions(
     cache: Option<Arc<FileAnalysisCache>>,
     exclusions: &[String],
 ) -> anyhow::Result<AnalysisReport> {
-    let sources = yunq_infra_fs::collect_sources_excluding(path, exclusions)?;
+    scan_with_project_config(path, cache, &[], exclusions).await
+}
+
+/// Scans with an optional incremental cache, `yunq.toml`'s
+/// `[analysis] sources` (directories to scan — the whole tree when empty),
+/// and its `[analysis] exclusions` globs (matched against each file's path
+/// relative to `path`).
+pub async fn scan_with_project_config(
+    path: &Path,
+    cache: Option<Arc<FileAnalysisCache>>,
+    source_dirs: &[String],
+    exclusions: &[String],
+) -> anyhow::Result<AnalysisReport> {
+    let sources = yunq_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
     let mut service =
         default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
     if let Some(cache) = cache {
