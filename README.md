@@ -110,6 +110,9 @@ No arrow ever points into `core/`. The core defines ports; everything else imple
 ## Quickstart
 
 ```sh
+cargo run -p yunq-cli                  # no args, in a terminal: interactive wizard
+                                        # (scope: whole repo / branch diff / path — then
+                                        # agent prompt, guided remediation, or CI install)
 cargo test --workspace                 # unit (fakes), fixtures, e2e — currently 80+ tests
 cargo run -p yunq-cli -- scan fixtures # real scan: 4 languages, rules + taint + CPD + complexity
 cargo run -p yunq-cli -- scan fixtures --format json
@@ -120,6 +123,7 @@ cargo run -p yunq-cli -- scan fixtures --cobertura report.xml # ingest Cobertura
 cargo run -p yunq-cli -- scan fixtures --jacoco report.xml    # ingest JaCoCo XML coverage
 cargo run -p yunq-cli -- scan fixtures --llvm-cov report.json # ingest llvm-cov JSON coverage
 cargo run -p yunq-cli -- scan fixtures --junit report.xml     # ingest JUnit test report
+cargo run -p yunq-cli -- init --yes                            # write .github/workflows/yunq.yml
 ```
 
 Example output:

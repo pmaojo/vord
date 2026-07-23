@@ -162,3 +162,68 @@ pub async fn scan_with_cache(
     }
     Ok(service.analyze_files(&sources).await?)
 }
+
+/// Walks up from `start` looking for a `.git` directory, so remediation can
+/// sandbox its verification in the real worktree the file lives in rather
+/// than mutating the caller's file directly with no rollback.
+pub fn find_git_root(start: &Path) -> Option<PathBuf> {
+    let mut dir = if start.is_dir() { start.to_path_buf() } else { start.parent()?.to_path_buf() };
+    loop {
+        if dir.join(".git").exists() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+/// Generates and verifies an AI fix for `issue_rule` in `path`, applying it
+/// to the real working tree on acceptance (rolled back automatically by the
+/// `WorktreeSandbox` if verification fails). Shared by `yunq fix` and the
+/// interactive wizard so there is exactly one place that applies fixes.
+/// Returns the canonicalized path alongside the verdict for the caller to
+/// report on.
+pub async fn remediate_issue(
+    path: &Path,
+    issue_rule: &str,
+    model: Option<String>,
+) -> anyhow::Result<(PathBuf, yunq_remediation::RemediationVerdict)> {
+    let path = path
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+    let git_root = find_git_root(&path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{} is not inside a Git worktree — the Remediation Agent needs one to sandbox and verify the fix",
+            path.display()
+        )
+    })?;
+
+    let source_code = std::fs::read_to_string(&path)?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let language = yunq_ast::LanguageIdentifier::from_extension(ext)
+        .ok_or_else(|| anyhow::anyhow!("unrecognized file extension for {}", path.display()))?;
+    let rel_path = path.strip_prefix(&git_root).unwrap_or(&path).to_string_lossy().to_string();
+    let source_file = yunq_ast::SourceFile::new(rel_path, source_code.clone(), language)
+        .map_err(|e| anyhow::anyhow!("invalid file path: {e}"))?;
+
+    let service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
+    let report = service.analyze_files(std::slice::from_ref(&source_file)).await?;
+    let target_issue = report
+        .issues()
+        .iter()
+        .find(|found| found.rule().as_str() == issue_rule)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("no issue for rule '{issue_rule}' found in {}", path.display()))?;
+    let base_url =
+        std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    let api_key = std::env::var("YUNQ_LLM_API_KEY").ok();
+    let model_name =
+        model.unwrap_or_else(|| std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string()));
+    let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key.unwrap_or_default());
+    let sandbox = yunq_infra_fs::WorktreeSandbox::new(&git_root)?;
+    let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
+
+    let verdict = engine.attempt_remediation(&target_issue, &path, &source_code, &service).await?;
+    Ok((path, verdict))
+}

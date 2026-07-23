@@ -1,20 +1,22 @@
 //! Composition root for local scans. `main` only parses arguments, invokes
 //! the scan use-case and renders the result — a testing dead-zone by design.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use yunq_cli::output;
 use yunq_infra_fs::{BaselineStore, FileAnalysisCache};
-use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
 use yunq_rules_engine::{Baseline, NewCodeAnalysis, Severity};
+
+mod wizard;
 
 #[derive(Parser)]
 #[command(name = "yunq", about = "yunq static analysis", version)]
 struct Cli {
+    /// No subcommand launches the interactive wizard in a TTY.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -92,6 +94,14 @@ enum Command {
         #[arg(long)]
         model: Option<String>,
     },
+    /// Launch the interactive wizard (same as running `yunq` with no subcommand).
+    Wizard,
+    /// Install the yunq GitHub Action workflow into this repository.
+    Init {
+        /// Write the workflow without asking for confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -114,7 +124,9 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Scan {
+        None | Some(Command::Wizard) => wizard::run().await,
+        Some(Command::Init { yes }) => wizard::install_ci(&std::env::current_dir()?, yes),
+        Some(Command::Scan {
             path,
             format,
             fail_on,
@@ -134,7 +146,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             github_token,
             github_repo,
             agent_prompt,
-        } => {
+        }) => {
             let threshold = fail_on
                 .map(|raw| {
                     Severity::parse(&raw).ok_or_else(|| {
@@ -365,45 +377,10 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 Ok(ExitCode::SUCCESS)
             }
         }
-        Command::Fix { path, issue, model } => {
+        Some(Command::Fix { path, issue, model }) => {
             println!("🤖 Requesting AI remediation for issue '{issue}' in {}...", path.display());
 
-            let path = path
-                .canonicalize()
-                .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-            let git_root = find_git_root(&path).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "{} is not inside a Git worktree — the Remediation Agent needs one to sandbox and verify the fix",
-                    path.display()
-                )
-            })?;
-
-            let source_code = std::fs::read_to_string(&path)?;
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let language = yunq_ast::LanguageIdentifier::from_extension(ext)
-                .ok_or_else(|| anyhow::anyhow!("unrecognized file extension for {}", path.display()))?;
-            let rel_path = path.strip_prefix(&git_root).unwrap_or(&path).to_string_lossy().to_string();
-            let source_file = yunq_ast::SourceFile::new(rel_path, source_code.clone(), language)
-                .map_err(|e| anyhow::anyhow!("invalid file path: {e}"))?;
-
-            let service = yunq_cli::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
-            let report = service.analyze_files(std::slice::from_ref(&source_file)).await?;
-            let target_issue = report
-                .issues()
-                .iter()
-                .find(|found| found.rule().as_str() == issue)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("no issue for rule '{issue}' found in {}", path.display()))?;
-            let base_url = std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-            let api_key = std::env::var("YUNQ_LLM_API_KEY").ok();
-            let model_name = model.unwrap_or_else(|| std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string()));
-            let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key.unwrap_or_default());
-            let sandbox = yunq_infra_fs::WorktreeSandbox::new(&git_root)?;
-            let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
-
-            let verdict = engine
-                .attempt_remediation(&target_issue, &path, &source_code, &service)
-                .await?;
+            let (path, verdict) = yunq_cli::remediate_issue(&path, &issue, model).await?;
 
             match verdict {
                 yunq_remediation::RemediationVerdict::Accepted { proposal } => {
@@ -417,21 +394,6 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     Ok(ExitCode::FAILURE)
                 }
             }
-        }
-    }
-}
-
-/// Walks up from `start` looking for a `.git` directory, so the Remediation
-/// Agent can sandbox its verification in the real worktree the file lives
-/// in rather than mutating the caller's file directly with no rollback.
-fn find_git_root(start: &Path) -> Option<PathBuf> {
-    let mut dir = if start.is_dir() { start.to_path_buf() } else { start.parent()?.to_path_buf() };
-    loop {
-        if dir.join(".git").exists() {
-            return Some(dir);
-        }
-        if !dir.pop() {
-            return None;
         }
     }
 }
