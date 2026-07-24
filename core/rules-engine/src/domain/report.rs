@@ -18,11 +18,7 @@ pub struct Metrics {
     duplicated_lines: usize,
     duplicated_blocks: usize,
     by_severity: BTreeMap<Severity, usize>,
-    functions: usize,
-    classes: usize,
-    statements: usize,
-    comment_lines: usize,
-    max_nesting_depth: usize,
+    structural: StructuralCounts,
     reliability_rating: Rating,
     security_rating: Rating,
     remediation_effort: RemediationEffortSummary,
@@ -63,11 +59,11 @@ impl Metrics {
     /// `max_nesting_depth` aggregates as a max, not a sum — it is a depth,
     /// not a count.
     pub fn add_structural(&mut self, structural: StructuralCounts) {
-        self.functions += structural.functions;
-        self.classes += structural.classes;
-        self.statements += structural.statements;
-        self.comment_lines += structural.comment_lines;
-        self.max_nesting_depth = self.max_nesting_depth.max(structural.max_nesting_depth);
+        self.structural.functions += structural.functions;
+        self.structural.classes += structural.classes;
+        self.structural.statements += structural.statements;
+        self.structural.comment_lines += structural.comment_lines;
+        self.structural.max_nesting_depth = self.structural.max_nesting_depth.max(structural.max_nesting_depth);
     }
 
     pub fn count_issue(&mut self, severity: Severity) {
@@ -147,23 +143,23 @@ impl Metrics {
     }
 
     pub fn functions(&self) -> usize {
-        self.functions
+        self.structural.functions
     }
 
     pub fn classes(&self) -> usize {
-        self.classes
+        self.structural.classes
     }
 
     pub fn statements(&self) -> usize {
-        self.statements
+        self.structural.statements
     }
 
     pub fn comment_lines(&self) -> usize {
-        self.comment_lines
+        self.structural.comment_lines
     }
 
     pub fn max_nesting_depth(&self) -> usize {
-        self.max_nesting_depth
+        self.structural.max_nesting_depth
     }
 
     /// Worst [`Rating::from_severity`] among open `Bug` issues (`A` if
@@ -187,11 +183,11 @@ impl Metrics {
 
     /// SonarQube's formula: comments as a share of comments + code lines.
     pub fn comment_lines_density(&self) -> f64 {
-        let denominator = self.lines_of_code + self.comment_lines;
+        let denominator = self.lines_of_code + self.structural.comment_lines;
         if denominator == 0 {
             0.0
         } else {
-            self.comment_lines as f64 * 100.0 / denominator as f64
+            self.structural.comment_lines as f64 * 100.0 / denominator as f64
         }
     }
 }

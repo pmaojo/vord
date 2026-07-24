@@ -54,6 +54,7 @@ impl Rule for CommandExecHotspotRule {
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let python = *file.language() == LanguageIdentifier::python();
+        let ts = *file.language() == LanguageIdentifier::typescript();
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter_map(|call| {
@@ -67,7 +68,7 @@ impl Rule for CommandExecHotspotRule {
                     // Python: os.system/os.popen and the subprocess module.
                     || (python && (text.starts_with("os.system") || text.starts_with("os.popen") || text.starts_with("subprocess.")))
                     // TS: exec/execSync/spawn/spawnSync, bare or as method.
-                    || match callee.kind() {
+                    || (ts && match callee.kind() {
                         NodeKind::Identifier => TS_SINKS.contains(&text),
                         NodeKind::MemberAccess => callee
                             .children()
@@ -76,7 +77,7 @@ impl Rule for CommandExecHotspotRule {
                             .find(|c| *c.kind() == NodeKind::Identifier)
                             .is_some_and(|ident| TS_SINKS.contains(&ident.text())),
                         _ => false,
-                    };
+                    });
                 sensitive.then(|| {
                     Finding::hotspot(
                         "make sure this OS command and its arguments are safe here",

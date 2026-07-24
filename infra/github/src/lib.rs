@@ -532,6 +532,7 @@ mod tests {
         let reporter = GitHubStatusReporter::from_env().unwrap();
         assert_eq!(reporter.owner, "acme");
         assert_eq!(reporter.repo, "widgets");
+        // SAFETY: single-threaded test, no concurrent env access.
         unsafe {
             std::env::remove_var("GITHUB_TOKEN");
             std::env::remove_var("GITHUB_REPOSITORY");

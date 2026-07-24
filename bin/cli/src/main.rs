@@ -51,22 +51,7 @@ enum Command {
 }
 
 #[derive(clap::Args)]
-struct ScanArgs {
-    path: PathBuf,
-    #[arg(long, value_enum, default_value_t = Format::Text)]
-    format: Format,
-    /// Exit with a non-zero status if any issue at or above this severity is found.
-    #[arg(long)]
-    fail_on: Option<String>,
-    /// Disable the incremental analysis cache (.yunq-cache.json).
-    #[arg(long)]
-    no_cache: bool,
-    /// Exit with status 3 when the quality gate fails.
-    #[arg(long)]
-    enforce_gate: bool,
-    /// Do not read or update the New Code baseline (.yunq-baseline.json).
-    #[arg(long)]
-    no_baseline: bool,
+struct CoverageArgs {
     /// LCOV coverage report to ingest (enables the coverage gate condition).
     #[arg(long)]
     coverage: Option<PathBuf>,
@@ -96,9 +81,10 @@ struct ScanArgs {
     /// measure. Only takes effect when a coverage report is also given.
     #[arg(long)]
     coverage_diff: Option<PathBuf>,
-    /// JUnit XML test report to ingest (printed as a test summary).
-    #[arg(long)]
-    junit: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct GithubArgs {
     /// Git commit SHA for reporting ALM commit status (auto-detected from
     /// CI env vars — GitHub Actions/GitLab CI — when omitted).
     #[arg(long)]
@@ -110,6 +96,38 @@ struct ScanArgs {
     /// env var, or CI auto-detection).
     #[arg(long)]
     github_repo: Option<String>,
+    /// Pull/merge request number this analysis is for — marks this as a PR
+    /// analysis for ALM status reporting (auto-detected from CI env vars,
+    /// e.g. GitHub Actions' `GITHUB_REF`/event payload or GitLab CI's
+    /// `CI_MERGE_REQUEST_IID`, when omitted).
+    #[arg(long)]
+    pr: Option<u32>,
+}
+
+#[derive(clap::Args)]
+struct ScanArgs {
+    path: PathBuf,
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    format: Format,
+    /// Exit with a non-zero status if any issue at or above this severity is found.
+    #[arg(long)]
+    fail_on: Option<String>,
+    /// Disable the incremental analysis cache (.yunq-cache.json).
+    #[arg(long)]
+    no_cache: bool,
+    /// Exit with status 3 when the quality gate fails.
+    #[arg(long)]
+    enforce_gate: bool,
+    /// Do not read or update the New Code baseline (.yunq-baseline.json).
+    #[arg(long)]
+    no_baseline: bool,
+    #[command(flatten)]
+    coverage: CoverageArgs,
+    /// JUnit XML test report to ingest (printed as a test summary).
+    #[arg(long)]
+    junit: Option<PathBuf>,
+    #[command(flatten)]
+    github: GithubArgs,
     /// Print a ready-to-paste prompt handing the findings to an AI coding agent.
     #[arg(long)]
     agent_prompt: bool,
@@ -121,12 +139,6 @@ struct ScanArgs {
     /// when omitted).
     #[arg(long)]
     branch: Option<String>,
-    /// Pull/merge request number this analysis is for — marks this as a PR
-    /// analysis for ALM status reporting (auto-detected from CI env vars,
-    /// e.g. GitHub Actions' `GITHUB_REF`/event payload or GitLab CI's
-    /// `CI_MERGE_REQUEST_IID`, when omitted).
-    #[arg(long)]
-    pr: Option<u32>,
     /// Capture per-line SCM blame (author/commit) for files with issues and
     /// write it as JSON to this path — consumable by anything that wants to
     /// show "who introduced this" alongside an issue.
@@ -264,9 +276,9 @@ fn resolve_context(args: &ScanArgs, config_project_key: Option<String>, ci: &ci_
     ResolvedContext {
         project,
         branch: args.branch.clone().or_else(|| ci.branch.clone()),
-        pr: args.pr.or(ci.pr),
-        commit_sha: args.commit_sha.clone().or_else(|| ci.commit_sha.clone()),
-        github_repo: args.github_repo.clone().or_else(|| ci.github_repo.clone()),
+        pr: args.github.pr.or(ci.pr),
+        commit_sha: args.github.commit_sha.clone().or_else(|| ci.commit_sha.clone()),
+        github_repo: args.github.github_repo.clone().or_else(|| ci.github_repo.clone()),
     }
 }
 
@@ -279,7 +291,7 @@ fn github_reporter(
     args: &ScanArgs,
     context: &ResolvedContext,
 ) -> Option<yunq_infra_github::GitHubStatusReporter> {
-    match (&args.github_token, &context.github_repo) {
+    match (&args.github.github_token, &context.github_repo) {
         (Some(token), Some(repo)) => {
             let (owner, name) = repo.split_once('/').unwrap_or(("local", repo));
             Some(yunq_infra_github::GitHubStatusReporter::new(token.clone(), owner, name))
@@ -348,24 +360,24 @@ impl CoverageAccumulator {
 
 fn ingest_coverage(args: &ScanArgs) -> anyhow::Result<CoverageAccumulator> {
     let mut acc = CoverageAccumulator::default();
-    if let Some(path) = &args.coverage {
+    if let Some(path) = &args.coverage.coverage {
         acc.merge(yunq_infra_fs::parse_lcov_report(&read_report_file(path)?)?)?;
     }
-    if let Some(path) = &args.cobertura {
+    if let Some(path) = &args.coverage.cobertura {
         acc.merge(yunq_infra_fs::parse_cobertura_report(&read_report_file(path)?)?)?;
     }
-    if let Some(path) = &args.jacoco {
+    if let Some(path) = &args.coverage.jacoco {
         acc.merge(yunq_infra_fs::parse_jacoco_report(&read_report_file(path)?)?)?;
     }
-    if let Some(path) = &args.llvm_cov {
+    if let Some(path) = &args.coverage.llvm_cov {
         acc.merge(yunq_infra_fs::parse_llvm_cov_report(&read_report_file(path)?)?)?;
     }
-    if let Some(path) = &args.istanbul {
+    if let Some(path) = &args.coverage.istanbul {
         acc.merge(yunq_infra_fs::parse_istanbul_report(&read_report_file(path)?)?)?;
     }
-    if let Some(path) = &args.coverage_report {
+    if let Some(path) = &args.coverage.coverage_report {
         let raw = read_report_file(path)?;
-        let format = parse_coverage_format(args.coverage_format.clone())?;
+        let format = parse_coverage_format(args.coverage.coverage_format.clone())?;
         acc.merge(yunq_infra_fs::parse_coverage_report(&raw, format)?)?;
     }
     Ok(acc)
@@ -582,7 +594,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         yunq_cli::scan_with_project_config(&args.path, cache.clone(), &source_dirs, &exclusions).await?;
 
     ingest_coverage(&args)?.apply_to(&mut report);
-    let coverage_new_code = coverage_new_code_measure(args.coverage_diff.clone(), &report)?;
+    let coverage_new_code = coverage_new_code_measure(args.coverage.coverage_diff.clone(), &report)?;
 
     let test_report = load_test_report(args.junit.clone())?;
     if let Some(summary) = &test_report {
