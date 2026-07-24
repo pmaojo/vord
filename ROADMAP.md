@@ -342,9 +342,18 @@ re-analysis on typical PRs.
 - **GitHub**: app installation, check runs, PR decoration (gate summary +
   inline comments on changed lines), status checks blocking merge.
 - **GitLab / Bitbucket / Azure DevOps** behind the same `AlmGateway` port.
-- **Scanner ergonomics**: `--project/--branch/--pr`, SCM blame capture,
-  auto-detected CI context (GitHub Actions, GitLab CI); first-party CI
-  actions/templates; monorepo support (multiple projects per repo).
+- **Scanner ergonomics**: ✅ `--project`/`--branch`/`--pr` flags on `bin/cli`,
+  resolved against auto-detected CI context (`ci_detect.rs`, pure detection
+  over an injected env lookup — GitHub Actions' `GITHUB_ACTIONS`/`GITHUB_SHA`/
+  `GITHUB_REF`/`GITHUB_REPOSITORY` plus PR number from `GITHUB_EVENT_PATH`,
+  and GitLab CI's `GITLAB_CI`/`CI_COMMIT_SHA`/`CI_MERGE_REQUEST_IID`);
+  explicit flags always win over auto-detection. SCM blame capture
+  (`blame.rs`, `git blame --porcelain` output parsed by a pure, fixture-
+  tested function). First-party CI templates (`ci-templates/{github-actions,
+  gitlab-ci}.yml`). Monorepo support (`infra/fs/src/monorepo.rs` +
+  `bin/cli/src/monorepo_scan.rs`): discovers every `yunq.toml` under the
+  scan root, treats each as an independent project boundary, and aggregates
+  per-project results instead of flattening them into one report.
 - **IDE integration (SonarLint equivalent)**: `yunq-lsp` — an LSP server
   over the same core, with connected mode syncing the server's profile and
   issue suppressions. In-editor analysis in any LSP-capable editor beats
