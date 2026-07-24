@@ -269,9 +269,21 @@ re-analysis on typical PRs.
   0006–0010), real gate status badge (`badge_svg` in `bin/server/src/main.rs`
   renders the actual latest gate result — no longer a hardcoded "passed"
   stub), new-code definition model landed alongside it.
-- **Quality Profiles**: per-language activation sets with severity
-  overrides (core type exists), inheritance chains, built-in "Sonar way"
-  equivalent, compare/copy/backup-restore.
+- **Quality Profiles**: ✅ per-language activation sets with severity
+  overrides, inheritance chains (`QualityProfile::with_parent`), and now
+  persisted as such (migration `0018` adds a self-referencing `parent_id` —
+  inheritance previously existed only in the pure core, never durable). A
+  built-in "Sonar way" equivalent (`core/profiles/src/builtin.rs`) — curated
+  per-language activation baselines hand-verified against every rule's real
+  `RuleId`/`default_severity()`, wired as the actual default `AnalyzerService`
+  profile in both the CLI and worker (no per-project profile assignment
+  exists yet, so this is the one profile every scan uses). Compare
+  (`core/profiles/src/compare.rs`, pure `ProfileDiff` over inheritance-
+  resolved activations), copy (`copy.rs`, flattens effective activations
+  into a standalone snapshot), and backup/restore (`backup.rs`, a
+  serde-free portable `ProfileBackup` value with a reject/overwrite
+  collision policy — never silently clobbers) — all exposed via
+  `bin/server/src/profiles_admin.rs`.
 - **Ratings & debt**: ✅ maintainability rating ported from SonarQube's SQALE
   model (`DebtRatingGrid` + `MaintainabilityMeasuresVisitor`) —
   `Rating::from_debt_ratio` in `core/profiles` uses the real
