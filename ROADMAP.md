@@ -163,14 +163,35 @@ re-analysis on typical PRs.
   `target="_blank"`, JSX `<img>` missing `alt`, and inline
   function/object props on custom components. Reference tool for the
   category: `react-doctor` (`npx react-doctor`, ~100 Oxlint-based checks +
-  a dead-code pass); this covers its syntactic subset; the same-scope
-  tracking used here (`own_scope_descendants` in
-  `rulesets/react/src/common.rs`) is still not full symbol resolution, so
-  `exhaustive-deps`-style checks (does the effect body reference
-  something outside its dependency array?) and unused-state/dead-code
-  detection remain out of reach and open. Still open otherwise: OOP
-  smells, architecture/dependency cycles, and reactive-stream smells all
-  need the same symbol/type resolution the AST doesn't do yet.
+  a dead-code pass); this covers its syntactic subset. ✅ **(this session)**
+  the symbol/type resolution layer that subset was blocked on now exists:
+  a new pure crate, `core/symbols` (`yunq-symbols`) — same-file lexical
+  scope resolution (`scope.rs`), declared-type extraction across TS/Rust/
+  Python's differing annotation shapes (`types.rs`), and a `ClassRegistry`
+  extracting fields/methods/superclass for TS/Python/Rust classes and
+  structs, same-file or cross-file (`classes.rs`). Built on it:
+  `react:exhaustive-deps` and `react:unused-state` (closing the two checks
+  called out as blocked above); three OOP smells — `smells:god-class`,
+  `smells:feature-envy` (needs real type resolution: a parameter's type
+  must resolve to a different known class before its accesses count as
+  "foreign"), `smells:refused-bequest` (TS/Python; Rust has no inheritance
+  model to refuse/envy, so it's god-class only there); architecture/
+  dependency-cycle detection — a new `core/import-graph` crate (module
+  resolution + Tarjan's-SCC cycle detection for TS/JS and Python) and
+  `rulesets/architecture`'s `architecture:dependency-cycle` cross-file
+  rule; and two RxJS reactive-stream smells —
+  `rulesets/reactive`'s `reactive:missing-unsubscribe` and
+  `reactive:subject-never-completed`. All 8 new rules carry both classic
+  `IssueType` and MQR impacts and are active by default in the built-in
+  Sonar way profile (`core/profiles/src/builtin.rs`). Known limitations,
+  not attempted here: the OOP-smell rules are same-file only even though
+  `ClassRegistry::build_cross_file` exists and is tested (a superclass or
+  foreign-typed parameter defined in another file won't resolve — natural
+  follow-up, same wiring pattern as `owasp:cross-file-injection`);
+  dependency-cycle detection skips Rust (module system doesn't map 1:1 to
+  files) and TS path aliases (only relative specifiers resolve); 
+  `exhaustive-deps` only recognizes the four literal hook names, not custom
+  wrapper hooks.
 - **Issue types & classification**: ✅ every rule declares a classic
   `IssueType` (bug / vulnerability / code smell, `Rule::issue_type`,
   `core/rules-engine/src/rule.rs`) alongside MQR-style software-quality
