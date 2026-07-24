@@ -53,6 +53,7 @@ yunq-infra-fs = { path = "infra/fs" }
 yunq-infra-postgres = { path = "infra/postgres" }
 yunq-infra-github = { path = "infra/github" }
 yunq-infra-gitlab = { path = "infra/gitlab" }
+yunq-infra-bitbucket = { path = "infra/bitbucket" }
 yunq-infra-azure = { path = "infra/azure" }
 yunq-infra-pdf = { path = "infra/pdf" }
 yunq-remediation = { path = "core/remediation" }

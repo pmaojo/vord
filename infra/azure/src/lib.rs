@@ -15,14 +15,19 @@ pub struct AzureDevOpsAdapter {
 }
 
 impl AzureDevOpsAdapter {
-    pub fn new(org: impl Into<String>, project: impl Into<String>, repository: impl Into<String>, pat: impl Into<String>) -> Self {
+    pub fn new(org: impl Into<String>, project: impl Into<String>, pat: impl Into<String>) -> Self {
         Self {
             client: Client::new(),
             organization: org.into(),
             project: project.into(),
-            repository: repository.into(),
+            repository: "repo".into(),
             pat: pat.into(),
         }
+    }
+
+    pub fn with_repository(mut self, repository: impl Into<String>) -> Self {
+        self.repository = repository.into();
+        self
     }
 }
 
@@ -147,7 +152,7 @@ mod tests {
 
     #[test]
     fn instantiates_adapter() {
-        let adapter = AzureDevOpsAdapter::new("my-org", "my-project", "my-repo", "pat123");
+        let adapter = AzureDevOpsAdapter::new("my-org", "my-project", "pat123");
         assert_eq!(adapter.organization, "my-org");
     }
 }
