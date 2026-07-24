@@ -327,7 +327,7 @@
     },
     "/api/housekeeping/purge": {
       "post": {
-        "summary": "Runs housekeeping immediately: deletes analyses past each project's\neffective retention (its own override, else the instance-wide\n`YUNQ_DEFAULT_RETENTION_DAYS` default, if set). The worker also runs\nthis on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`); this endpoint is\nfor an on-demand run or an external scheduler. Audit-logged as\n`housekeeping.purged`.",
+        "summary": "Runs housekeeping immediately: deletes analyses, issues and hotspots\npast each project's effective retention (its own override, else the\ninstance-wide `YUNQ_DEFAULT_RETENTION_DAYS` default, if set). Issues/\nhotspots saved before a project/analysis could be resolved (or saved\nbefore `0016_issue_hotspot_scoping.sql` existed) carry no `project_id`\nand are never matched by this purge, no matter their age. The worker\nalso runs this on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`); this\nendpoint is for an on-demand run or an external scheduler. Audit-logged\nas `housekeeping.purged`.",
         "operationId": "run_housekeeping",
         "responses": {
           "200": {
@@ -2460,10 +2460,20 @@
       "PurgeReportDto": {
         "type": "object",
         "required": [
-          "analyses_deleted"
+          "analyses_deleted",
+          "issues_deleted",
+          "hotspots_deleted"
         ],
         "properties": {
           "analyses_deleted": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hotspots_deleted": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "issues_deleted": {
             "type": "integer",
             "format": "int64"
           }
