@@ -12,11 +12,11 @@
 //!    known to hit a sink. Direct source→sink flows inside one file are the
 //!    intra-file analysis's job and are not duplicated here.
 //!
-//! Name resolution: a call site's callee is resolved through a real
-//! import/export module edge graph ([`collect_imports`]) built from ES
-//! module `import` statements — a call to a name explicitly imported from
-//! `'./lib'` resolves to that specific file's function, never to a
-//! same-named function in an unrelated module. Functions are keyed by
+//! Name resolution: a call site's callee is resolved through
+//! [`crate::module_graph`], a real import/export module edge graph built
+//! from ES module `import` statements — a call to a name explicitly
+//! imported from `'./lib'` resolves to that specific file's function, never
+//! to a same-named function in an unrelated module. Functions are keyed by
 //! `(file, name)`, not by name alone, so two unrelated files that happen to
 //! define a same-named function no longer get conflated. A same-file call to
 //! a locally declared function resolves directly, with no import needed.
@@ -30,6 +30,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use yunq_ast::{AstNode, NodeKind, Span};
 
+use crate::module_graph::{self, FunctionKey, ModuleImports};
 use crate::TaintConfig;
 
 /// A reported cross-file flow, ready to become a finding.
@@ -49,11 +50,6 @@ enum Origin {
 
 type Origins = BTreeSet<Origin>;
 
-/// A function's fully-qualified identity: its own file plus its declared
-/// name. Replaces plain-name keys everywhere a function summary is stored or
-/// looked up, so same-named functions in different files never collide.
-type FunctionKey = (String, String);
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Summary {
     /// Parameter index → human description of the sink it reaches,
@@ -70,18 +66,6 @@ struct FunctionInfo<'a> {
     name: String,
     params: Vec<String>,
     body: &'a AstNode,
-}
-
-/// One file's resolved ES-module import edges.
-struct ModuleImports {
-    /// Local binding name → (target file, name exported/declared there).
-    /// Only imports whose source specifier resolves to another file in this
-    /// analysis run are kept — bare/package specifiers (`'child_process'`,
-    /// `'react'`) have nothing local to point at and are dropped.
-    bindings: HashMap<String, FunctionKey>,
-    /// Whether this file has any recognized `import_statement` node at all —
-    /// gates the legacy by-name fallback (see module docs).
-    has_import_statements: bool,
 }
 
 /// Read-only context threaded through resolution: which file a node belongs
@@ -107,7 +91,7 @@ impl CrossFileTaint {
         let all_paths: Vec<&str> = files.iter().map(|(path, _)| *path).collect();
         let imports: HashMap<String, ModuleImports> = files
             .iter()
-            .map(|(path, ast)| (path.to_string(), collect_imports(path, ast, &all_paths)))
+            .map(|(path, ast)| (path.to_string(), module_graph::collect_imports(path, ast, &all_paths)))
             .collect();
 
         let functions = collect_functions(files);
@@ -520,117 +504,6 @@ fn build_global_fallback(functions: &[FunctionInfo]) -> HashMap<String, Function
     map
 }
 
-/// Builds `file`'s import edges from its `import_statement` nodes. Only
-/// relative specifiers (`'./lib'`, `'../utils/foo'`) that resolve to another
-/// file in `all_paths` produce a binding; bare/package specifiers
-/// (`'child_process'`, `'react'`) are external and dropped, though the
-/// statement still counts toward `has_import_statements`.
-fn collect_imports(file: &str, ast: &AstNode, all_paths: &[&str]) -> ModuleImports {
-    let mut bindings = HashMap::new();
-    let mut has_import_statements = false;
-    for import in ast
-        .descendants()
-        .filter(|n| matches!(n.kind(), NodeKind::Other(kind) if kind.as_ref() == "import_statement"))
-    {
-        has_import_statements = true;
-        let Some(source) = import.children().iter().find(|c| *c.kind() == NodeKind::StringLiteral) else {
-            continue;
-        };
-        let specifier = strip_quotes(source.text());
-        let Some(target) = resolve_module_specifier(file, specifier, all_paths) else { continue };
-        let Some(clause) = import
-            .children()
-            .iter()
-            .find(|c| matches!(c.kind(), NodeKind::Other(kind) if kind.as_ref() == "import_clause"))
-        else {
-            continue;
-        };
-        collect_clause_bindings(clause, &target, &mut bindings);
-    }
-    ModuleImports { bindings, has_import_statements }
-}
-
-/// Reads one `import_clause`'s children — a bare default-import identifier,
-/// and/or a `named_imports` block — into local-binding → target edges.
-/// `namespace_import` (`* as ns`) is intentionally not covered: calls through
-/// a namespace binding (`ns.helper()`) are member-access call sites, out of
-/// scope for this same-name resolution (unchanged from before this graph
-/// existed).
-fn collect_clause_bindings(clause: &AstNode, target: &str, bindings: &mut HashMap<String, FunctionKey>) {
-    for child in clause.children() {
-        match child.kind() {
-            NodeKind::Identifier => {
-                // Default import: no way to know the target's actual
-                // exported name without deeper module analysis, so this
-                // assumes (as is overwhelmingly the convention) the local
-                // binding name mirrors the target function's own declared
-                // name.
-                let name = child.text().to_string();
-                bindings.insert(name.clone(), (target.to_string(), name));
-            }
-            NodeKind::Other(kind) if kind.as_ref() == "named_imports" => {
-                for spec in child.children().iter().filter(
-                    |c| matches!(c.kind(), NodeKind::Other(k) if k.as_ref() == "import_specifier"),
-                ) {
-                    let idents: Vec<&AstNode> =
-                        spec.children().iter().filter(|c| *c.kind() == NodeKind::Identifier).collect();
-                    let Some(exported) = idents.first() else { continue };
-                    // `{ name as alias }`: two identifier children, exported
-                    // name first, local alias second. `{ name }` alone: the
-                    // single identifier is both.
-                    let local = idents.last().unwrap_or(exported);
-                    bindings.insert(local.text().to_string(), (target.to_string(), exported.text().to_string()));
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn strip_quotes(text: &str) -> &str {
-    text.trim_matches(|c| c == '\'' || c == '"' || c == '`')
-}
-
-/// Resolves a relative import `specifier` seen in `importer` to whichever of
-/// `all_paths` it names, trying the specifier as-is, with common ES-module
-/// extensions appended, and as a directory `index` file. Bare specifiers
-/// (not starting with `.`) are always external and return `None`.
-fn resolve_module_specifier(importer: &str, specifier: &str, all_paths: &[&str]) -> Option<String> {
-    if !specifier.starts_with('.') {
-        return None;
-    }
-    let importer_dir = std::path::Path::new(importer).parent().unwrap_or_else(|| std::path::Path::new(""));
-    let joined = normalize_path(&importer_dir.join(specifier));
-    let joined_str = joined.to_string_lossy().replace('\\', "/");
-
-    const EXTENSIONS: &[&str] = &["", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
-    const INDEX_SUFFIXES: &[&str] =
-        &["/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
-
-    EXTENSIONS
-        .iter()
-        .map(|ext| format!("{joined_str}{ext}"))
-        .chain(INDEX_SUFFIXES.iter().map(|suffix| format!("{joined_str}{suffix}")))
-        .find_map(|candidate| all_paths.iter().find(|p| **p == candidate).map(|p| p.to_string()))
-}
-
-/// Collapses `.`/`..` components purely lexically (no filesystem access —
-/// these are logical analysis-run paths, not necessarily real files on
-/// disk).
-fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
-    let mut out = std::path::PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -918,17 +791,5 @@ mod tests {
         let flows = CrossFileTaint::new(config()).find_flows(&files);
         assert_eq!(flows.len(), 1);
         assert!(flows[0].message.contains("through call to `launch`"));
-    }
-
-    #[test]
-    fn bare_package_specifier_is_external_and_never_resolves_locally() {
-        // A same-named local function must not be picked up just because a
-        // package import shares its name — `resolve_module_specifier`
-        // rejects non-relative specifiers outright.
-        assert_eq!(resolve_module_specifier("main.ts", "child_process", &["child_process.ts"]), None);
-        assert_eq!(
-            resolve_module_specifier("main.ts", "./lib", &["lib.ts", "other.ts"]),
-            Some("lib.ts".to_string())
-        );
     }
 }

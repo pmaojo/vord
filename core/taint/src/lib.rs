@@ -10,6 +10,7 @@
 //! target identifier, `Call` starts with its callee.
 
 mod cross;
+pub mod module_graph;
 
 pub use cross::{CrossFileFlow, CrossFileTaint};
 
