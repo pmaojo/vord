@@ -1,0 +1,74 @@
+# yunq static analysis — GitHub Actions
+#
+# Copy this file to `.github/workflows/yunq.yml` in the repository you want
+# scanned (or run `yunq init` from a checkout of that repo — it writes a
+# minimal version of this file for you and refuses to overwrite one that's
+# already there).
+#
+# yunq auto-detects `--commit-sha`/`--branch`/`--pr`/`--github-repo` from
+# GitHub Actions' own environment variables (GITHUB_SHA/GITHUB_REF/
+# GITHUB_HEAD_REF/GITHUB_REPOSITORY, plus the PR number from the
+# `pull_request` event payload when `GITHUB_REF` alone doesn't carry one),
+# so none of those flags are required here — they're only worth passing
+# explicitly if you want to override what CI would infer.
+
+name: yunq
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `--blame-output` needs real commit history to attribute lines —
+          # the default shallow (depth-1) checkout only has the tip commit.
+          fetch-depth: 0
+
+      - name: Install yunq
+        run: |
+          curl -fsSL \
+            "https://github.com/pmaojo/yunq/releases/latest/download/yunq-x86_64-unknown-linux-musl" \
+            -o /usr/local/bin/yunq
+          chmod +x /usr/local/bin/yunq
+
+      - name: Run yunq scan
+        env:
+          # GITHUB_TOKEN is injected by Actions for every run; yunq uses it
+          # to post the commit status (and, on a PR, a review) shown below.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          yunq scan . \
+            --format json \
+            --enforce-gate \
+            --blame-output yunq-blame.json
+
+      - name: Upload SCM blame data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yunq-blame
+          path: yunq-blame.json
+          if-no-files-found: ignore
+
+# ---------------------------------------------------------------------------
+# Monorepo variant: replace the "Run yunq scan" step above with this one to
+# scan every yunq.toml-configured project under the repo root independently
+# (per-project issues/gate in the output, instead of one merged report):
+#
+#   - name: Run yunq scan (monorepo)
+#     run: yunq scan . --monorepo --format json --enforce-gate
+#
+# Explicit identity, if you'd rather not rely on auto-detection:
+#
+#   - name: Run yunq scan
+#     run: |
+#       yunq scan . \
+#         --project my-service \
+#         --branch "${{ github.head_ref || github.ref_name }}" \
+#         --enforce-gate
+# ---------------------------------------------------------------------------
