@@ -12,6 +12,8 @@ yunq-cli = { workspace = true }
 yunq-rules-engine = { workspace = true }
 yunq-parser-rust = { workspace = true }
 futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }

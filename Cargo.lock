@@ -3507,6 +3507,8 @@ version = "0.1.1"
 dependencies = [
  "criterion",
  "futures",
+ "serde",
+ "serde_json",
  "yunq-ast",
  "yunq-cli",
  "yunq-parser-rust",
@@ -4105,6 +4107,8 @@ version = "0.1.1"
 dependencies = [
  "thiserror",
  "yunq-ast",
+ "yunq-parser-typescript",
+ "yunq-rules-engine",
 ]
 
 [[package]]

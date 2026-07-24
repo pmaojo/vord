@@ -42,11 +42,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Benchmark PR head
+        run: cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/pr-perf.json
         run: cargo bench --release -p yunq-benchmarks -- --output /tmp/pr-perf.json
 
       - name: Benchmark merge base
         run: |
           git checkout ${{ github.event.pull_request.base.sha }}
+          cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/base-perf.json
           cargo bench --release -p yunq-benchmarks -- --output /tmp/base-perf.json
           git checkout ${{ github.event.pull_request.head.sha }}
 
@@ -57,4 +59,5 @@ jobs:
       # p99 file-scan latency are printed for visibility but not yet gated
       # on — no established target for either.
       - name: Compare and gate on >10% throughput regression
+        run: cargo run --release -p yunq-benchmarks --bin perf_report -- --compare /tmp/base-perf.json /tmp/pr-perf.json
         run: cargo bench --release -p yunq-benchmarks -- --compare /tmp/base-perf.json /tmp/pr-perf.json

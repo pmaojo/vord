@@ -104,10 +104,20 @@ re-analysis on typical PRs.
   because the harness measuring it didn't exist. Below the >=100k LOC/s
   target; the interning landed this session and the still-open items above
   (arena allocation, cross-file/server-side caching) are exactly what would
-  close the gap. Still open: CI regression gating (`cargo bench` in CI
-  comparing against a stored baseline, failing on >10% regression) and
-  peak-RSS/p99-latency tracking — this session only builds the harness and
-  a first real measurement, not the CI wiring around it.
+  close the gap. ✅ **(this session)** CI regression gating: `.github/workflows/ci.yml`
+  is this repo's first CI test/clippy workflow at all (previously only
+  `release.yml`, for tagged builds). Its `benchmark-gate` job runs a new
+  criterion-independent binary (`benches/src/bin/perf_report.rs`) twice on
+  the same runner — once at the PR head, once at its merge base — and diffs
+  them (`--compare`) rather than checking against a number committed to the
+  repo, so the gate isn't skewed by comparing against different CI hardware
+  generations over time; fails the job (non-zero exit) on a throughput drop
+  of more than 10%. The same binary reports peak RSS (`/proc/self/status`'s
+  `VmHWM`) and p50/p99 per-file scan latency (each corpus file scanned
+  independently, 3 reps) — printed for visibility every run, not yet gated
+  on since neither has an established target. `percentile`/`is_regression`
+  live in `benches/src/lib.rs`, unit-tested independently of the actual
+  benchmark run.
 - **Scale-out**: stateless workers already horizontal on SQS; shard analysis
   of monorepos by directory subtree.
 
@@ -221,12 +231,24 @@ re-analysis on typical PRs.
   shelling out to the CLI.
 - **Test report ingestion**: ✅ JUnit XML parser (`infra/fs/src/junit.rs`)
   wired into the CLI `--junit` flag and test-summary measures.
-- **Cross-file taint analysis**: ✅ inter-procedural summaries and
-  project-wide function resolution ported (`core/taint/src/cross.rs`) —
-  parameter→sink and parameter→return-value summaries iterated to a global
-  fixpoint, so `caller → helper → runner → sink` chains resolve across file
-  boundaries; name resolution is a project-wide-by-name heuristic rather
-  than a real import/export edge graph, a deliberate zero-config tradeoff.
+- **Cross-file taint analysis**: ✅ inter-procedural summaries ported
+  (`core/taint/src/cross.rs`) — parameter→sink and parameter→return-value
+  summaries iterated to a global fixpoint, so `caller → helper → runner →
+  sink` chains resolve across file boundaries. ✅ **(this session)** name
+  resolution now goes through a real import/export module edge graph
+  (`collect_imports`/`resolve_module_specifier`) instead of a project-wide
+  by-name heuristic: functions are keyed by `(file, name)`, and a call site
+  resolves to the specific file it was imported from — a same-named
+  function in an unrelated file is never conflated with the one actually in
+  scope (regression-tested: `same_named_function_in_an_unimported_file_is_not_conflated`,
+  `imported_function_resolves_to_the_correct_file_even_with_a_same_named_decoy`).
+  Handles default/named/aliased ES imports and relative-path resolution
+  across subdirectories (`./lib`, `../utils/foo`, extension and `/index`
+  inference). Bare/package specifiers (`'child_process'`, `'react'`) stay
+  external, as before. Files with no recognized `import` syntax at all
+  (non-ES-module languages, synthetic ASTs) fall back to the previous
+  project-wide by-name lookup — a deliberate, narrower fallback rather than
+  a silent behavior change outside the ES-module family.
   ✅ **Sanitizer modeling** ported: `TaintConfig::with_sanitizer` names a
   function whose call cleanses taint — a sanitizer call is treated as a
   boundary the analysis does not recurse past, so neither a source marker

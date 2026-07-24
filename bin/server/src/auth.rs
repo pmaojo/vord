@@ -207,10 +207,8 @@ impl OAuthService {
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
         let public_url = public_url.trim_end_matches('/');
         let mut providers = HashMap::new();
-        for provider in [github_provider(public_url)?, gitlab_provider(public_url)?] {
-            if let Some((key, config)) = provider {
-                providers.insert(key, config);
-            }
+        for (key, config) in [github_provider(public_url)?, gitlab_provider(public_url)?].into_iter().flatten() {
+            providers.insert(key, config);
         }
 
         let client = Client::builder()

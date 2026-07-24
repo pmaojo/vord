@@ -8,3 +8,7 @@ rust-version.workspace = true
 [dependencies]
 yunq-ast = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+yunq-rules-engine = { workspace = true }
+yunq-parser-typescript = { workspace = true }
