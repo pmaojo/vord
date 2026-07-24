@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }
+yunq-symbols = { workspace = true }
 
 [dev-dependencies]
 yunq-parser-typescript = { workspace = true }
