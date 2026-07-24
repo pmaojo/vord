@@ -17,6 +17,7 @@ use yunq_rules_engine::{
 mod audit;
 mod coverage;
 mod gate;
+mod measures;
 mod permission;
 mod profile;
 mod queue;

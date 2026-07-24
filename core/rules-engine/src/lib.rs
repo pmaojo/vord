@@ -32,11 +32,13 @@ pub use project::{
     InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,
 };
 pub use ports::{
-    AnalysisCache, AstParser, CacheKey, CachedAnalysis, CoverageResultReader,
-    CoverageResultSummary, CoverageStorage, GateResultReader, GateResultSummary, HotspotReader,
-    HotspotReview, HotspotStorage, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader,
-    IssueQuery, IssueFetcher, IssueReader, IssueScope, IssueStorage, IssueWorkflow, JobQueue,
-    MetricsTracker, Page, ParseError, QueueError, StorageError, WorkflowError,
+    AnalysisCache, AstParser, CacheKey, CachedAnalysis, ComponentMeasures, ComponentTree,
+    ComponentTreeReader, CoverageResultReader, CoverageResultSummary, CoverageStorage,
+    FileCoverageLineReader, FileCoverageLineStorage, FileCoverageLines, GateResultReader,
+    GateResultSummary, HotspotReader, HotspotReview, HotspotStorage, IssueBulkWorkflow,
+    IssueChangelogReader, IssueFacetReader, IssueQuery, IssueFetcher, IssueReader, IssueScope,
+    IssueStorage, IssueWorkflow, JobQueue, MeasureHistoryPoint, MeasureHistoryReader,
+    MeasureStorage, MetricsTracker, Page, ParseError, QueueError, StorageError, WorkflowError,
 };
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 pub use structural_metrics::StructuralCounts;
