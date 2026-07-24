@@ -2,7 +2,8 @@
 
 use reqwest::Client;
 use serde::Serialize;
-use yunq_rules_engine::{AlmError, AlmStatusReporter, AnalysisReport, CommitSha, CommitStatus, CommitStatusState};
+use yunq_rules_engine::{AlmError, AlmPullRequestReporter, AlmStatusReporter, AnalysisReport, CommitSha, CommitStatus, CommitStatusState, Issue, PullRequestNumber};
+
 
 #[derive(Clone)]
 pub struct GitLabAlmAdapter {
@@ -80,6 +81,33 @@ impl AlmStatusReporter for GitLabAlmAdapter {
             let body = resp.text().await.unwrap_or_default();
             Err(AlmError(format!("GitLab returned status {status_code}: {body}")))
         }
+    }
+}
+
+
+impl AlmPullRequestReporter for GitLabAlmAdapter {
+    async fn report_pull_request_review(
+        &self,
+        pr_number: PullRequestNumber,
+        new_issues: &[Issue],
+        gate_summary: &str,
+    ) -> Result<(), AlmError> {
+        let mut comment = String::from("## 🛡️ yunq MR Analysis Summary
+
+");
+        comment.push_str(&format!("**Quality Gate**: {}
+
+", gate_summary));
+
+        if !new_issues.is_empty() {
+            comment.push_str(&format!("### New Issues ({})
+", new_issues.len()));
+            for issue in new_issues {
+                comment.push_str(&format!("- [{:?}] `{}`: {} ({}:{})
+", issue.severity(), issue.rule().as_str(), issue.message(), issue.file(), issue.span().start_line));
+            }
+        }
+        self.post_mr_comment(pr_number.get() as u64, &comment).await
     }
 }
 
