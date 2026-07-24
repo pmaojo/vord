@@ -9,20 +9,22 @@ use yunq_ast::Span;
 use yunq_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, Hotspot, HotspotReader, HotspotReview,
     HotspotStatus, HotspotStorage, Issue, IssueBulkWorkflow, IssueChangelogReader,
-    IssueFacetReader, IssueFacets, IssueFetcher, IssueQuery, IssueReader, IssueStatus, IssueStorage,
-    IssueTransition, IssueWorkflow, Metrics, MetricsTracker, Page, Resolution, RuleId, Severity,
-    StorageError, StoredHotspot, StoredIssue, WorkflowError,
+    IssueFacetReader, IssueFacets, IssueFetcher, IssueQuery, IssueReader, IssueScope, IssueStatus,
+    IssueStorage, IssueTransition, IssueWorkflow, Metrics, MetricsTracker, Page, Resolution,
+    RuleId, Severity, StorageError, StoredHotspot, StoredIssue, WorkflowError,
 };
 
 mod audit;
 mod coverage;
 mod gate;
+mod measures;
 mod permission;
 mod profile;
 mod queue;
 mod retention;
 mod system;
 pub use audit::{AuditLogEntry, AuditLogQuery};
+pub use profile::{CompareProfileError, CopyProfileError, ProfileNotFoundError, RestoreProfileError};
 pub use queue::PgJobConsumer;
 pub use retention::PurgeReport;
 pub use system::SystemSnapshot;
@@ -72,14 +74,14 @@ fn storage_err(e: impl std::fmt::Display) -> StorageError {
 const ISSUE_BATCH_ROWS: usize = 1000;
 
 impl IssueStorage for PgIssueStorage {
-    async fn save_issues(&self, issues: &[Issue]) -> Result<(), StorageError> {
+    async fn save_issues(&self, issues: &[Issue], scope: IssueScope) -> Result<(), StorageError> {
         if issues.is_empty() {
             return Ok(());
         }
         let mut tx = self.pool.begin().await.map_err(storage_err)?;
         for chunk in issues.chunks(ISSUE_BATCH_ROWS) {
             let mut builder = QueryBuilder::<Postgres>::new(
-                "INSERT INTO issues (rule, severity, file, start_line, start_col, end_line, end_col, message, status, resolution, assignee) ",
+                "INSERT INTO issues (rule, severity, file, start_line, start_col, end_line, end_col, message, status, resolution, assignee, project_id, analysis_id) ",
             );
             builder.push_values(chunk, |mut row, issue| {
                 row.push_bind(issue.rule().as_str())
@@ -92,7 +94,9 @@ impl IssueStorage for PgIssueStorage {
                     .push_bind(issue.message())
                     .push_bind(issue.status().to_string())
                     .push_bind(issue.resolution().map(|r| r.to_string()))
-                    .push_bind(issue.assignee());
+                    .push_bind(issue.assignee())
+                    .push_bind(scope.project_id)
+                    .push_bind(scope.analysis_id);
             });
             builder.build().execute(&mut *tx).await.map_err(storage_err)?;
         }
@@ -291,14 +295,14 @@ fn hotspot_from_row(row: &PgRow) -> Result<StoredHotspot, StorageError> {
 const HOTSPOT_BATCH_ROWS: usize = 1000;
 
 impl HotspotStorage for PgIssueStorage {
-    async fn save_hotspots(&self, hotspots: &[Hotspot]) -> Result<(), StorageError> {
+    async fn save_hotspots(&self, hotspots: &[Hotspot], scope: IssueScope) -> Result<(), StorageError> {
         if hotspots.is_empty() {
             return Ok(());
         }
         let mut tx = self.pool.begin().await.map_err(storage_err)?;
         for chunk in hotspots.chunks(HOTSPOT_BATCH_ROWS) {
             let mut builder = QueryBuilder::<Postgres>::new(
-                "INSERT INTO hotspots (rule, message, file, start_line, start_col, end_line, end_col, status) ",
+                "INSERT INTO hotspots (rule, message, file, start_line, start_col, end_line, end_col, status, project_id, analysis_id) ",
             );
             builder.push_values(chunk, |mut row, hotspot| {
                 row.push_bind(hotspot.rule().as_str())
@@ -308,7 +312,9 @@ impl HotspotStorage for PgIssueStorage {
                     .push_bind(hotspot.span().start_col as i32)
                     .push_bind(hotspot.span().end_line as i32)
                     .push_bind(hotspot.span().end_col as i32)
-                    .push_bind(hotspot.status().to_string());
+                    .push_bind(hotspot.status().to_string())
+                    .push_bind(scope.project_id)
+                    .push_bind(scope.analysis_id);
             });
             builder.build().execute(&mut *tx).await.map_err(storage_err)?;
         }
@@ -572,7 +578,9 @@ mod live_db_tests {
                 )
             })
             .collect();
-        storage.save_issues(&issues).await.unwrap();
+        let project_id = storage.ensure_project("batch-insert-issue-cols").await.unwrap();
+        let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
+        storage.save_issues(&issues, scope).await.unwrap();
 
         let rows = sqlx::query(&format!("SELECT {ISSUE_COLUMNS} FROM issues ORDER BY id"))
             .fetch_all(storage.pool())
@@ -588,13 +596,29 @@ mod live_db_tests {
             assert_eq!(stored.issue.status(), IssueStatus::Open);
         }
 
+        // The scope columns aren't part of the domain `Issue`/`StoredIssue`
+        // (persistence detail only), so check them with a raw query.
+        let scoped_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM issues WHERE project_id = $1 AND analysis_id IS NULL")
+                .bind(project_id)
+                .fetch_one(storage.pool())
+                .await
+                .unwrap();
+        assert_eq!(scoped_count, 5);
+
         // Documented no-op: must not open a transaction or error.
-        storage.save_issues(&[]).await.unwrap();
+        storage.save_issues(&[], scope).await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM issues")
             .fetch_one(storage.pool())
             .await
             .unwrap();
         assert_eq!(count, 5);
+
+        sqlx::query("DELETE FROM projects WHERE id = $1")
+            .bind(project_id)
+            .execute(storage.pool())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -612,7 +636,9 @@ mod live_db_tests {
                 )
             })
             .collect();
-        storage.save_hotspots(&hotspots).await.unwrap();
+        let project_id = storage.ensure_project("batch-insert-hotspot-cols").await.unwrap();
+        let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
+        storage.save_hotspots(&hotspots, scope).await.unwrap();
 
         let rows = sqlx::query(
             "SELECT id, rule, message, file, start_line, start_col, end_line, end_col, status
@@ -629,5 +655,20 @@ mod live_db_tests {
             assert_eq!(stored.hotspot.file(), format!("src/file{i}.rs"));
             assert_eq!(stored.hotspot.status(), HotspotStatus::ToReview);
         }
+
+        let scoped_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM hotspots WHERE project_id = $1 AND analysis_id IS NULL",
+        )
+        .bind(project_id)
+        .fetch_one(storage.pool())
+        .await
+        .unwrap();
+        assert_eq!(scoped_count, 5);
+
+        sqlx::query("DELETE FROM projects WHERE id = $1")
+            .bind(project_id)
+            .execute(storage.pool())
+            .await
+            .unwrap();
     }
 }

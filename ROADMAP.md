@@ -163,14 +163,35 @@ re-analysis on typical PRs.
   `target="_blank"`, JSX `<img>` missing `alt`, and inline
   function/object props on custom components. Reference tool for the
   category: `react-doctor` (`npx react-doctor`, ~100 Oxlint-based checks +
-  a dead-code pass); this covers its syntactic subset; the same-scope
-  tracking used here (`own_scope_descendants` in
-  `rulesets/react/src/common.rs`) is still not full symbol resolution, so
-  `exhaustive-deps`-style checks (does the effect body reference
-  something outside its dependency array?) and unused-state/dead-code
-  detection remain out of reach and open. Still open otherwise: OOP
-  smells, architecture/dependency cycles, and reactive-stream smells all
-  need the same symbol/type resolution the AST doesn't do yet.
+  a dead-code pass); this covers its syntactic subset. ✅ **(this session)**
+  the symbol/type resolution layer that subset was blocked on now exists:
+  a new pure crate, `core/symbols` (`yunq-symbols`) — same-file lexical
+  scope resolution (`scope.rs`), declared-type extraction across TS/Rust/
+  Python's differing annotation shapes (`types.rs`), and a `ClassRegistry`
+  extracting fields/methods/superclass for TS/Python/Rust classes and
+  structs, same-file or cross-file (`classes.rs`). Built on it:
+  `react:exhaustive-deps` and `react:unused-state` (closing the two checks
+  called out as blocked above); three OOP smells — `smells:god-class`,
+  `smells:feature-envy` (needs real type resolution: a parameter's type
+  must resolve to a different known class before its accesses count as
+  "foreign"), `smells:refused-bequest` (TS/Python; Rust has no inheritance
+  model to refuse/envy, so it's god-class only there); architecture/
+  dependency-cycle detection — a new `core/import-graph` crate (module
+  resolution + Tarjan's-SCC cycle detection for TS/JS and Python) and
+  `rulesets/architecture`'s `architecture:dependency-cycle` cross-file
+  rule; and two RxJS reactive-stream smells —
+  `rulesets/reactive`'s `reactive:missing-unsubscribe` and
+  `reactive:subject-never-completed`. All 8 new rules carry both classic
+  `IssueType` and MQR impacts and are active by default in the built-in
+  Sonar way profile (`core/profiles/src/builtin.rs`). Known limitations,
+  not attempted here: the OOP-smell rules are same-file only even though
+  `ClassRegistry::build_cross_file` exists and is tested (a superclass or
+  foreign-typed parameter defined in another file won't resolve — natural
+  follow-up, same wiring pattern as `owasp:cross-file-injection`);
+  dependency-cycle detection skips Rust (module system doesn't map 1:1 to
+  files) and TS path aliases (only relative specifiers resolve); 
+  `exhaustive-deps` only recognizes the four literal hook names, not custom
+  wrapper hooks.
 - **Issue types & classification**: ✅ every rule declares a classic
   `IssueType` (bug / vulnerability / code smell, `Rule::issue_type`,
   `core/rules-engine/src/rule.rs`) alongside MQR-style software-quality
@@ -269,9 +290,21 @@ re-analysis on typical PRs.
   0006–0010), real gate status badge (`badge_svg` in `bin/server/src/main.rs`
   renders the actual latest gate result — no longer a hardcoded "passed"
   stub), new-code definition model landed alongside it.
-- **Quality Profiles**: per-language activation sets with severity
-  overrides (core type exists), inheritance chains, built-in "Sonar way"
-  equivalent, compare/copy/backup-restore.
+- **Quality Profiles**: ✅ per-language activation sets with severity
+  overrides, inheritance chains (`QualityProfile::with_parent`), and now
+  persisted as such (migration `0018` adds a self-referencing `parent_id` —
+  inheritance previously existed only in the pure core, never durable). A
+  built-in "Sonar way" equivalent (`core/profiles/src/builtin.rs`) — curated
+  per-language activation baselines hand-verified against every rule's real
+  `RuleId`/`default_severity()`, wired as the actual default `AnalyzerService`
+  profile in both the CLI and worker (no per-project profile assignment
+  exists yet, so this is the one profile every scan uses). Compare
+  (`core/profiles/src/compare.rs`, pure `ProfileDiff` over inheritance-
+  resolved activations), copy (`copy.rs`, flattens effective activations
+  into a standalone snapshot), and backup/restore (`backup.rs`, a
+  serde-free portable `ProfileBackup` value with a reject/overwrite
+  collision policy — never silently clobbers) — all exposed via
+  `bin/server/src/profiles_admin.rs`.
 - **Ratings & debt**: ✅ maintainability rating ported from SonarQube's SQALE
   model (`DebtRatingGrid` + `MaintainabilityMeasuresVisitor`) —
   `Rating::from_debt_ratio` in `core/profiles` uses the real
@@ -297,26 +330,41 @@ re-analysis on typical PRs.
   changes, changelog per issue.
 - **Security hotspots**: distinct finding type with to-review/acknowledged/
   fixed/safe workflow and review metrics.
-- **Housekeeping**: configurable retention of analyses history — done for
-  `analyses` (and its cascaded gate-result/coverage rows): per-project
-  `retention_days` override (`PUT /api/projects/{key}/retention`) falling
-  back to an instance-wide `YUNQ_DEFAULT_RETENTION_DAYS`; `yunq-worker`
-  purges on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`, default 24h) and
-  `POST /api/housekeeping/purge` runs it on demand, both audit-logged. A
-  project with neither set is left untouched (opt-in, not silent, since
-  deletion isn't reversible). `issues`/`hotspots` retention is explicitly out of
-  scope here: they're a flat table with no `project_id`/`analysis_id` in
-  the schema (`infra/postgres/migrations/0001_init.sql`), so "issue
-  history" isn't a thing this schema can express yet — pruning them needs
-  that scoping added first, which is a separate, larger change.
+- **Housekeeping**: ✅ configurable retention, now covering `analyses` (and
+  its cascaded gate-result/coverage rows) *and* `issues`/`hotspots`:
+  per-project `retention_days` override (`PUT /api/projects/{key}/retention`)
+  falling back to an instance-wide `YUNQ_DEFAULT_RETENTION_DAYS`;
+  `yunq-worker` purges on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`,
+  default 24h) and `POST /api/housekeeping/purge` runs it on demand, both
+  audit-logged. A project with neither set is left untouched (opt-in, not
+  silent, since deletion isn't reversible). **(this session)** `issues`/
+  `hotspots` previously had no `project_id`/`analysis_id` at all — a flat
+  table with no way to express "issue history" for a project
+  (`infra/postgres/migrations/0001_init.sql`). Migration `0016` adds both
+  columns (nullable, `ON DELETE CASCADE`), threaded through the save path
+  via a new `IssueScope` port type so newly-saved findings land pre-scoped;
+  pre-migration rows stay `NULL` rather than being guess-backfilled, which
+  the purge query's join against `projects` naturally treats as "keep
+  forever," same as a project with no retention configured. The purge query
+  now deletes scoped `issues`/`hotspots` past their project's effective
+  retention alongside `analyses`, same timer/on-demand/audit-log wiring.
 
 ## Phase 4 — API, web platform & collaboration
 
 - **REST API parity**: pagination envelopes, rich filtering/faceting
-  (severity, rule, file, assignee, tag, creation date…), measures +
-  measure history, component tree navigation, `sources` endpoints with
-  line-level annotations (coverage, duplication, issues, SCM blame) — the
-  full data source for the frontend clone. Contract stays generated:
+  (severity, rule, file, assignee, tag, creation date…) — done. ✅
+  **(this session)** Measures + measure history, component tree, and a
+  `sources` endpoint: `analysis_measures`/`analysis_file_coverage_lines`
+  (migration `0017`) persist a real per-analysis measure set (project- and
+  file-level) and per-line coverage hit counts — there was no historical
+  measure storage at all before this, only a couple of summary columns on
+  `analyses`. `GET /api/projects/{key}/measures/history` and
+  `GET /api/projects/{key}/components/tree` (a flat, measure-annotated file
+  list for v1 — not yet a nested directory tree, documented as a scoped-down
+  first cut) expose it; `GET /api/projects/{key}/sources` returns per-line
+  issue + coverage annotations. Duplication and SCM blame annotations,
+  and source text itself (never persisted anywhere), are explicitly
+  deferred rather than fabricated. Contract stays generated:
   `api/openapi.json`.
 - **Auth**: local users + user tokens (already-hashed at rest), OAuth
   (GitHub/GitLab), SAML later; groups; global + per-project permissions,
@@ -336,9 +384,18 @@ re-analysis on typical PRs.
 - **GitHub**: app installation, check runs, PR decoration (gate summary +
   inline comments on changed lines), status checks blocking merge.
 - **GitLab / Bitbucket / Azure DevOps** behind the same `AlmGateway` port.
-- **Scanner ergonomics**: `--project/--branch/--pr`, SCM blame capture,
-  auto-detected CI context (GitHub Actions, GitLab CI); first-party CI
-  actions/templates; monorepo support (multiple projects per repo).
+- **Scanner ergonomics**: ✅ `--project`/`--branch`/`--pr` flags on `bin/cli`,
+  resolved against auto-detected CI context (`ci_detect.rs`, pure detection
+  over an injected env lookup — GitHub Actions' `GITHUB_ACTIONS`/`GITHUB_SHA`/
+  `GITHUB_REF`/`GITHUB_REPOSITORY` plus PR number from `GITHUB_EVENT_PATH`,
+  and GitLab CI's `GITLAB_CI`/`CI_COMMIT_SHA`/`CI_MERGE_REQUEST_IID`);
+  explicit flags always win over auto-detection. SCM blame capture
+  (`blame.rs`, `git blame --porcelain` output parsed by a pure, fixture-
+  tested function). First-party CI templates (`ci-templates/{github-actions,
+  gitlab-ci}.yml`). Monorepo support (`infra/fs/src/monorepo.rs` +
+  `bin/cli/src/monorepo_scan.rs`): discovers every `yunq.toml` under the
+  scan root, treats each as an independent project boundary, and aggregates
+  per-project results instead of flattening them into one report.
 - **IDE integration (SonarLint equivalent)**: `yunq-lsp` — an LSP server
   over the same core, with connected mode syncing the server's profile and
   issue suppressions. In-editor analysis in any LSP-capable editor beats

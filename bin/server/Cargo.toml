@@ -37,3 +37,6 @@ hex = "0.4"
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
+
+[dev-dependencies]
+yunq-ast = { workspace = true }

@@ -13,6 +13,7 @@ mod jacoco;
 mod junit;
 mod lcov;
 mod llvm_cov;
+mod monorepo;
 mod worktree;
 
 pub use baseline::BaselineStore;
@@ -26,6 +27,7 @@ pub use jacoco::{JacocoError, parse_jacoco, parse_jacoco_report};
 pub use junit::{JunitError, parse_junit};
 pub use lcov::{LcovError, parse_lcov, parse_lcov_report};
 pub use llvm_cov::{LlvmCovError, parse_llvm_cov, parse_llvm_cov_report};
+pub use monorepo::discover_projects;
 pub use worktree::WorktreeSandbox;
 
 use std::io::ErrorKind;

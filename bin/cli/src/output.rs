@@ -27,6 +27,22 @@ pub struct ReportDto {
     /// added/modified (see `--coverage-diff`); `None` when no diff was
     /// supplied or it touched no instrumented line.
     pub coverage_new_code: Option<f64>,
+    /// Scan identity (`--project`/`--branch`/`--pr`, explicit or
+    /// CI-auto-detected) — always present so downstream consumers (e.g. the
+    /// sources endpoint) get a stable schema, with fields `None` when
+    /// nothing was known.
+    pub context: ScanContextDto,
+}
+
+/// Scan identity carried alongside the report: which project this is, and
+/// what it's attached to (a branch, and optionally a pull request on top of
+/// it). Populated from `--project`/`--branch`/`--pr` or CI auto-detection
+/// (`ci_detect::detect_ci_context`) — explicit flags win.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ScanContextDto {
+    pub project: Option<String>,
+    pub branch: Option<String>,
+    pub pull_request: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -295,6 +311,7 @@ impl ReportDto {
         new_code: Option<&NewCodeAnalysis>,
         test_report: Option<&TestReportSummary>,
         coverage_new_code: Option<f64>,
+        context: ScanContextDto,
     ) -> Self {
         Self {
             issues: report.issues().iter().map(IssueDto::from).collect(),
@@ -309,6 +326,7 @@ impl ReportDto {
             coverage_new_code,
             duplications: report.duplications().iter().map(DuplicationDto::from).collect(),
             metrics: MetricsDto::from(report.metrics()),
+            context,
         }
     }
 }
@@ -464,14 +482,35 @@ fn render_gate_text(out: &mut String, gate: &GateEvaluation) {
     }
 }
 
+/// "Project: x | Branch: y | PR: #z" header line, omitting whichever
+/// fields weren't known (nothing printed at all when none were).
+fn render_context_text(out: &mut String, context: &ScanContextDto) {
+    let mut parts = Vec::new();
+    if let Some(project) = &context.project {
+        parts.push(format!("Project: {project}"));
+    }
+    if let Some(branch) = &context.branch {
+        parts.push(format!("Branch: {branch}"));
+    }
+    if let Some(pr) = context.pull_request {
+        parts.push(format!("PR: #{pr}"));
+    }
+    if !parts.is_empty() {
+        out.push_str(&parts.join(" | "));
+        out.push('\n');
+    }
+}
+
 pub fn render_text(
     report: &AnalysisReport,
     gate: &GateEvaluation,
     new_code: Option<&NewCodeAnalysis>,
     test_report: Option<&TestReportSummary>,
     coverage_new_code: Option<f64>,
+    context: &ScanContextDto,
 ) -> String {
     let mut out = String::new();
+    render_context_text(&mut out, context);
     render_issues_text(&mut out, report);
     render_hotspots_text(&mut out, report);
     render_metrics_summary_text(&mut out, report);
@@ -578,6 +617,7 @@ pub fn render_json(
     new_code: Option<&NewCodeAnalysis>,
     test_report: Option<&TestReportSummary>,
     coverage_new_code: Option<f64>,
+    context: ScanContextDto,
 ) -> serde_json::Result<String> {
-    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code, test_report, coverage_new_code))
+    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code, test_report, coverage_new_code, context))
 }

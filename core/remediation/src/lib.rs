@@ -246,13 +246,21 @@ mod tests {
     struct NoopStorage;
 
     impl yunq_rules_engine::IssueStorage for NoopStorage {
-        async fn save_issues(&self, _issues: &[Issue]) -> Result<(), StorageError> {
+        async fn save_issues(
+            &self,
+            _issues: &[Issue],
+            _scope: yunq_rules_engine::IssueScope,
+        ) -> Result<(), StorageError> {
             Ok(())
         }
     }
 
     impl yunq_rules_engine::HotspotStorage for NoopStorage {
-        async fn save_hotspots(&self, _hotspots: &[yunq_rules_engine::Hotspot]) -> Result<(), StorageError> {
+        async fn save_hotspots(
+            &self,
+            _hotspots: &[yunq_rules_engine::Hotspot],
+            _scope: yunq_rules_engine::IssueScope,
+        ) -> Result<(), StorageError> {
             Ok(())
         }
     }

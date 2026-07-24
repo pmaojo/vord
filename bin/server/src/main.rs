@@ -36,8 +36,11 @@ use yunq_rules_engine::{
 
 mod auth;
 mod coverage;
+mod measures;
 mod metrics;
 mod ops;
+mod profiles_admin;
+mod sources;
 mod webhooks;
 
 use coverage::CoveragePort;
@@ -239,6 +242,9 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(webhooks::webhook_delivery_log))
         .routes(routes!(badge_svg))
         .routes(routes!(coverage::ingest_coverage, coverage::latest_coverage))
+        .routes(routes!(measures::measure_history))
+        .routes(routes!(measures::component_tree))
+        .routes(routes!(sources::sources))
         .routes(routes!(scim_users))
         .routes(routes!(stripe_webhook))
         .routes(routes!(export_compliance_pdf))
@@ -246,6 +252,10 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(ops::system_info))
         .routes(routes!(ops::upsert_quality_gate))
         .routes(routes!(ops::upsert_quality_profile))
+        .routes(routes!(profiles_admin::compare_quality_profiles))
+        .routes(routes!(profiles_admin::copy_quality_profile))
+        .routes(routes!(profiles_admin::backup_quality_profile))
+        .routes(routes!(profiles_admin::restore_quality_profile))
         .routes(routes!(ops::grant_permission, ops::revoke_permission))
         .routes(routes!(ops::list_audit_log))
         .routes(routes!(ops::set_project_retention))

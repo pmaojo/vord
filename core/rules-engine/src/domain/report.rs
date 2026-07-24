@@ -578,6 +578,34 @@ impl AnalysisReport {
     pub fn measure(&self, key: &MetricKey) -> Option<f64> {
         MEASURE_TABLE.iter().find(|(k, _)| *k == key.as_str()).and_then(|(_, f)| f(self))
     }
+
+    /// Every measure this report can currently produce, keyed by metric key
+    /// — the full project-level row persisted per analysis for measure
+    /// history / component tree queries (issue #26). A measure absent from
+    /// this report (e.g. `coverage` before any report is ingested) is
+    /// omitted rather than persisted as a fabricated zero.
+    pub fn all_measures(&self) -> Vec<(String, f64)> {
+        MEASURE_TABLE.iter().filter_map(|(key, f)| f(self).map(|v| (key.to_string(), v))).collect()
+    }
+
+    /// Per-file issue counts (total plus one count per severity), derived
+    /// from this report's issues by their `file` field — the only per-file
+    /// breakdown available today without persisting per-file structural
+    /// metrics (`Metrics` only tracks run-wide totals, not per file). Files
+    /// with zero issues are simply absent, not zeroed; keys match the
+    /// project-level names in [`MEASURE_TABLE`] (`issue_total`,
+    /// `blocker_issues`, ...) so callers can treat project- and file-level
+    /// measures uniformly.
+    pub fn file_issue_measures(&self) -> BTreeMap<String, BTreeMap<String, f64>> {
+        let mut per_file: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
+        for issue in &self.issues {
+            let entry = per_file.entry(issue.file().to_string()).or_default();
+            *entry.entry("issue_total".to_string()).or_insert(0.0) += 1.0;
+            let severity_key = format!("{}_issues", issue.severity().as_str());
+            *entry.entry(severity_key).or_insert(0.0) += 1.0;
+        }
+        per_file
+    }
 }
 
 fn severity_measure(report: &AnalysisReport, severity: Severity) -> Option<f64> {
@@ -810,6 +838,74 @@ mod tests {
         assert_eq!(effort.by_rule[&bug_rule], 40);
         assert_eq!(effort.by_component["a.rs"], 50);
         assert_eq!(effort.by_component["b.rs"], 20);
+    }
+
+    #[test]
+    fn all_measures_omits_measures_absent_from_the_report() {
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        let measures = report.all_measures();
+        let keys: Vec<&str> = measures.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(!keys.contains(&"coverage"));
+        assert!(!keys.contains(&"tests"));
+        // Always-present counters (defaulted to 0 by `Metrics::default`) are there.
+        assert!(keys.contains(&"lines_of_code"));
+        assert!(keys.contains(&"issue_total"));
+    }
+
+    #[test]
+    fn all_measures_includes_ingested_coverage() {
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        let mut summary = CoverageSummary::default();
+        summary.add(8, 10).unwrap();
+        report.set_coverage(summary);
+        let measures: BTreeMap<String, f64> = report.all_measures().into_iter().collect();
+        assert_eq!(measures.get("coverage"), Some(&80.0));
+    }
+
+    #[test]
+    fn file_issue_measures_groups_by_file_and_severity() {
+        let issues = vec![
+            Issue::new(
+                RuleId::new("owasp:sql-injection").unwrap(),
+                Severity::Blocker,
+                "boom",
+                "src/a.rs",
+                yunq_ast::Span::new(1, 0, 1, 1),
+            ),
+            Issue::new(
+                RuleId::new("owasp:sql-injection").unwrap(),
+                Severity::Blocker,
+                "boom again",
+                "src/a.rs",
+                yunq_ast::Span::new(2, 0, 2, 1),
+            ),
+            Issue::new(
+                RuleId::new("smells:x").unwrap(),
+                Severity::Minor,
+                "smell",
+                "src/b.rs",
+                yunq_ast::Span::new(1, 0, 1, 1),
+            ),
+        ];
+        let report = AnalysisReport::new(issues, Vec::new(), Metrics::new());
+        let per_file = report.file_issue_measures();
+
+        let a = &per_file["src/a.rs"];
+        assert_eq!(a["issue_total"], 2.0);
+        assert_eq!(a["blocker_issues"], 2.0);
+        assert!(!a.contains_key("minor_issues"));
+
+        let b = &per_file["src/b.rs"];
+        assert_eq!(b["issue_total"], 1.0);
+        assert_eq!(b["minor_issues"], 1.0);
+
+        assert_eq!(per_file.len(), 2);
+    }
+
+    #[test]
+    fn file_issue_measures_is_empty_without_issues() {
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        assert!(report.file_issue_measures().is_empty());
     }
 
     #[test]

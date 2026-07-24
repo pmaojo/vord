@@ -327,7 +327,7 @@
     },
     "/api/housekeeping/purge": {
       "post": {
-        "summary": "Runs housekeeping immediately: deletes analyses past each project's\neffective retention (its own override, else the instance-wide\n`YUNQ_DEFAULT_RETENTION_DAYS` default, if set). The worker also runs\nthis on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`); this endpoint is\nfor an on-demand run or an external scheduler. Audit-logged as\n`housekeeping.purged`.",
+        "summary": "Runs housekeeping immediately: deletes analyses, issues and hotspots\npast each project's effective retention (its own override, else the\ninstance-wide `YUNQ_DEFAULT_RETENTION_DAYS` default, if set). Issues/\nhotspots saved before a project/analysis could be resolved (or saved\nbefore `0016_issue_hotspot_scoping.sql` existed) carry no `project_id`\nand are never matched by this purge, no matter their age. The worker\nalso runs this on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`); this\nendpoint is for an on-demand run or an external scheduler. Audit-logged\nas `housekeeping.purged`.",
         "operationId": "run_housekeeping",
         "responses": {
           "200": {
@@ -707,6 +707,77 @@
         }
       }
     },
+    "/api/projects/{key}/components/tree": {
+      "get": {
+        "summary": "A project's components (currently: files only — see module docs) with\ntheir latest measures, as of the most recent analysis — mirrors\nSonarQube's `api/components/tree` navigation, minus directory nesting.",
+        "operationId": "component_tree",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "description": "Branch the tree is scoped to (default \"main\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sort field: `name` or a measure key present on the components, e.g.\n`issue_total` (default \"name\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "description": "Sort direction: `asc` or `desc` (default \"asc\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-sensitive substring filter on file path.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project's known files with their latest measures",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentTreeDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No analysis exists yet for this project/branch — run a scan first"
+          },
+          "502": {
+            "description": "Storage backend failure"
+          }
+        }
+      }
+    },
     "/api/projects/{key}/coverage": {
       "get": {
         "summary": "The most recently persisted coverage summary for a project, if any\nreport has been ingested yet.",
@@ -800,6 +871,83 @@
           },
           "404": {
             "description": "No analysis exists yet for this project/branch — run a scan first"
+          },
+          "502": {
+            "description": "Storage backend failure"
+          }
+        }
+      }
+    },
+    "/api/projects/{key}/measures/history": {
+      "get": {
+        "summary": "Time series of a project's (or one of its files') measures across its\nanalyses — mirrors SonarQube's `api/measures/search_history`.",
+        "operationId": "measure_history",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "description": "Branch the history is scoped to (default \"main\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "component",
+            "in": "query",
+            "description": "File path to scope the history to one file's measures instead of\nthe project as a whole.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "metrics",
+            "in": "query",
+            "description": "Comma-separated metric keys, e.g. `coverage,issue_total` (default:\nevery metric persisted for that analysis).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive lower bound, ISO-8601 (e.g. `2024-01-01T00:00:00Z`).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Inclusive upper bound, ISO-8601.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Measure time series, oldest analysis first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeasureHistoryDto"
+                }
+              }
+            }
           },
           "502": {
             "description": "Storage backend failure"
@@ -942,6 +1090,56 @@
         }
       }
     },
+    "/api/projects/{key}/sources": {
+      "get": {
+        "summary": "Per-line issue and coverage annotations for one file — mirrors\nSonarQube's `api/sources/lines`; see module docs for what's deliberately\nout of scope (source text, duplication, blame).",
+        "operationId": "sources",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file",
+            "in": "query",
+            "description": "Exact file path to annotate (as recorded on `issues.file` / ingested\ncoverage reports).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "description": "Branch coverage is scoped to (default \"main\"). Issues are not\nbranch-scoped in the current schema — see module docs.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-line issue/coverage annotations for the file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcesDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend failure"
+          }
+        }
+      }
+    },
     "/api/quality-gates/{name}": {
       "put": {
         "summary": "Create or update a named quality gate's condition set; audit-logged as\n`gate.updated`.",
@@ -987,6 +1185,98 @@
         }
       }
     },
+    "/api/quality-profiles/compare": {
+      "get": {
+        "summary": "Compares two profiles' effective (inheritance-resolved) rule\nactivations: which rules are active in one but not the other, and where\na shared rule's severity differs.",
+        "operationId": "compare_quality_profiles",
+        "parameters": [
+          {
+            "name": "a",
+            "in": "query",
+            "description": "First profile's name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "b",
+            "in": "query",
+            "description": "Second profile's name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The diff between the two profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDiffDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "One or both profile names don't exist"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/quality-profiles/restore": {
+      "post": {
+        "summary": "Restores a profile from a backup produced by\n`GET /api/quality-profiles/{name}/backup` (on this instance or another\none). If a profile already exists under the backup's name, the restore\nis rejected with `409 Conflict` unless `?force=true`; the backup's\n`parent_name`, if set, is resolved against this instance's profiles —\nif nothing here has that name, the restored profile ends up parentless\nrather than the whole restore failing (so a backup taken on one\ninstance still restores cleanly on another that never had the parent).\nAudit-logged as `profile.restored`.",
+        "operationId": "restore_quality_profile",
+        "parameters": [
+          {
+            "name": "force",
+            "in": "query",
+            "description": "Overwrite an existing same-named profile instead of rejecting the\nrestore. Defaults to `false` — restoring never silently clobbers.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileBackupDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The restored profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileSnapshotDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid rule id or severity in the backup"
+          },
+          "409": {
+            "description": "A profile with this name already exists; retry with force=true"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
     "/api/quality-profiles/{name}": {
       "put": {
         "summary": "Create or update a named quality profile's rule activations;\naudit-logged as `profile.updated`.",
@@ -1025,6 +1315,86 @@
           },
           "400": {
             "description": "Invalid rule id or severity"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/quality-profiles/{name}/backup": {
+      "get": {
+        "summary": "Downloads a profile as a portable JSON backup — own activations only\n(not inherited ones, same convention as the domain type this mirrors,\n`yunq_profiles::ProfileBackup`) plus its parent's name.",
+        "operationId": "backup_quality_profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Profile name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable backup of the profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileBackupDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No profile named `name`"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/quality-profiles/{name}/copy": {
+      "post": {
+        "summary": "Duplicates a profile's effective (inheritance-resolved) rule\nactivations into a brand-new, standalone profile — no parent link, so\nlater edits to the source never retroactively change the copy. If a\nprofile already exists under `new_name`, its activations are replaced\n(same \"create or update\" semantics as `PUT /api/quality-profiles/{name}`\n— copy is just that write path with its input read from another\nprofile instead of the request body); audit-logged as `profile.copied`.",
+        "operationId": "copy_quality_profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Source profile name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileCopyRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The new copy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileSnapshotDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No profile named `name`"
           },
           "502": {
             "description": "Storage backend unavailable"
@@ -1354,6 +1724,24 @@
   },
   "components": {
     "schemas": {
+      "ActivationDto": {
+        "type": "object",
+        "description": "One rule activation as `(rule id, severity)`, both stringified — the\nwire shape for a profile's activation list everywhere in this file.",
+        "required": [
+          "rule",
+          "severity"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string",
+            "description": "e.g. owasp:eval-usage."
+          },
+          "severity": {
+            "type": "string",
+            "description": "One of: info, minor, major, critical, blocker."
+          }
+        }
+      },
       "AgentFixProposalDto": {
         "type": "object",
         "required": [
@@ -1562,6 +1950,48 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ComponentDto": {
+        "type": "object",
+        "required": [
+          "path",
+          "measures"
+        ],
+        "properties": {
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasureValueDto"
+            }
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "ComponentTreeDto": {
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "total",
+          "components"
+        ],
+        "properties": {
+          "analysis_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComponentDto"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -1961,6 +2391,65 @@
           }
         }
       },
+      "MeasureHistoryDto": {
+        "type": "object",
+        "required": [
+          "component",
+          "history"
+        ],
+        "properties": {
+          "component": {
+            "type": "string",
+            "description": "The project key, or `{project key}:{file path}` when `component`\nwas given in the request."
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasureHistoryPointDto"
+            }
+          }
+        }
+      },
+      "MeasureHistoryPointDto": {
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "date",
+          "measures"
+        ],
+        "properties": {
+          "analysis_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "date": {
+            "type": "string",
+            "description": "ISO-8601 timestamp of the analysis this point belongs to."
+          },
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasureValueDto"
+            }
+          }
+        }
+      },
+      "MeasureValueDto": {
+        "type": "object",
+        "required": [
+          "metric",
+          "value"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "OAuthLoginDto": {
         "type": "object",
         "required": [
@@ -2073,6 +2562,74 @@
           }
         }
       },
+      "ProfileBackupDto": {
+        "type": "object",
+        "description": "Portable backup format: a profile's name, its own (non-inherited)\nactivations, and its parent's name if it has one. Restoring this same\nshape (via `POST /api/quality-profiles/restore`) reconstructs the\nprofile, resolving the parent by name on whichever instance it's\nrestored to — deliberately not a foreign-key/id reference, so a backup\ndownloaded from one yunq instance can be uploaded to another.",
+        "required": [
+          "name",
+          "activations"
+        ],
+        "properties": {
+          "activations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationDto"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ProfileCopyRequestDto": {
+        "type": "object",
+        "required": [
+          "new_name"
+        ],
+        "properties": {
+          "new_name": {
+            "type": "string",
+            "description": "Name for the new, standalone copy."
+          }
+        }
+      },
+      "ProfileDiffDto": {
+        "type": "object",
+        "required": [
+          "only_in_a",
+          "only_in_b",
+          "severity_differs"
+        ],
+        "properties": {
+          "only_in_a": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationDto"
+            },
+            "description": "Active in `a`, inactive in `b`."
+          },
+          "only_in_b": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationDto"
+            },
+            "description": "Active in `b`, inactive in `a`."
+          },
+          "severity_differs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeverityDifferenceDto"
+            },
+            "description": "Active in both, at different severities."
+          }
+        }
+      },
       "ProfileDto": {
         "type": "object",
         "required": [
@@ -2084,6 +2641,24 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ProfileActivationDto"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileSnapshotDto": {
+        "type": "object",
+        "required": [
+          "name",
+          "activations"
+        ],
+        "properties": {
+          "activations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationDto"
             }
           },
           "name": {
@@ -2161,10 +2736,20 @@
       "PurgeReportDto": {
         "type": "object",
         "required": [
-          "analyses_deleted"
+          "analyses_deleted",
+          "issues_deleted",
+          "hotspots_deleted"
         ],
         "properties": {
           "analyses_deleted": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hotspots_deleted": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "issues_deleted": {
             "type": "integer",
             "format": "int64"
           }
@@ -2349,6 +2934,102 @@
           "total_results": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "SeverityDifferenceDto": {
+        "type": "object",
+        "required": [
+          "rule",
+          "severity_in_a",
+          "severity_in_b"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string"
+          },
+          "severity_in_a": {
+            "type": "string"
+          },
+          "severity_in_b": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceIssueDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "rule",
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "message": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceLineDto": {
+        "type": "object",
+        "required": [
+          "line",
+          "issues"
+        ],
+        "properties": {
+          "coverage_hits": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Times this line executed in the most recently ingested coverage\nreport for this file/branch; absent when that line carries no\ncoverage instrumentation data (or no report has been ingested at\nall — see `coverage_available`).",
+            "minimum": 0
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceIssueDto"
+            }
+          },
+          "line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1-based line number.",
+            "minimum": 0
+          }
+        }
+      },
+      "SourcesDto": {
+        "type": "object",
+        "required": [
+          "file",
+          "coverage_available",
+          "lines"
+        ],
+        "properties": {
+          "coverage_available": {
+            "type": "boolean",
+            "description": "True once a coverage report has ever been ingested that instrumented\nthis file — distinguishes \"measured, zero hits anywhere\" (every\n`coverage_hits` is `Some(0)`) from \"never measured\" (every line's\n`coverage_hits` is absent because this is `false`)."
+          },
+          "file": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceLineDto"
+            },
+            "description": "Only lines with at least one issue or coverage data point are\npresent — this is an annotation overlay, not the full file (see\nmodule docs on why source text isn't returned)."
           }
         }
       },

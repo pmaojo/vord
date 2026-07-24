@@ -43,13 +43,22 @@ jobs:
 
       - name: Benchmark PR head
         run: cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/pr-perf.json
-        run: cargo bench --release -p yunq-benchmarks -- --output /tmp/pr-perf.json
 
+      # The merge base predates whatever PR first introduced the
+      # perf_report binary itself (a one-time bootstrap gap — every PR
+      # after that one has it on `main` already), so this can't assume the
+      # binary exists there. Skips the gate gracefully instead of failing
+      # the job when it doesn't.
       - name: Benchmark merge base
+        id: base_bench
         run: |
           git checkout ${{ github.event.pull_request.base.sha }}
-          cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/base-perf.json
-          cargo bench --release -p yunq-benchmarks -- --output /tmp/base-perf.json
+          if cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/base-perf.json; then
+            echo "has_base=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_base=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::perf_report binary not buildable at the merge base (predates its introduction) — skipping the regression gate for this PR."
+          fi
           git checkout ${{ github.event.pull_request.head.sha }}
 
       # Diffs PR head against its own merge base on the same runner, rather
@@ -59,5 +68,5 @@ jobs:
       # p99 file-scan latency are printed for visibility but not yet gated
       # on — no established target for either.
       - name: Compare and gate on >10% throughput regression
+        if: steps.base_bench.outputs.has_base == 'true'
         run: cargo run --release -p yunq-benchmarks --bin perf_report -- --compare /tmp/base-perf.json /tmp/pr-perf.json
-        run: cargo bench --release -p yunq-benchmarks -- --compare /tmp/base-perf.json /tmp/pr-perf.json

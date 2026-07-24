@@ -8,7 +8,7 @@ use yunq_profiles::{IssueType, QualityProfile, RuleId};
 
 use crate::domain::{AnalysisReport, Hotspot, Issue, Metrics};
 use crate::ports::{
-    AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotStorage, IssueStorage,
+    AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotStorage, IssueScope, IssueStorage,
     MetricsTracker, StorageError,
 };
 use crate::rule::{CrossFileRule, FindingKind, Rule};
@@ -204,7 +204,23 @@ where
             .collect()
     }
 
+    /// Runs one analysis and persists its issues/hotspots unscoped — the
+    /// path every local, one-off caller uses (CLI, LSP, remediation's
+    /// verify-before-suggest loop), none of which resolve a project at all.
+    /// Equivalent to `analyze_files_scoped` with `IssueScope::default()`.
     pub async fn analyze_files(&self, files: &[SourceFile]) -> Result<AnalysisReport, AnalyzeError> {
+        self.analyze_files_scoped(files, IssueScope::default()).await
+    }
+
+    /// Same as [`Self::analyze_files`], but scopes the newly-persisted
+    /// issues/hotspots to a project and (if already known) an analysis —
+    /// used by the `yunq-worker` composition root, the only caller that
+    /// resolves a project before/while running a scan.
+    pub async fn analyze_files_scoped(
+        &self,
+        files: &[SourceFile],
+        scope: IssueScope,
+    ) -> Result<AnalysisReport, AnalyzeError> {
         let mut metrics = Metrics::new();
         let classifications = self.rule_classifications();
         let (mut issues, hotspots) = fold_outcomes(self.analyze_all(files), &mut metrics, &classifications);
@@ -214,8 +230,8 @@ where
 
         self.run_cross_file_rules(files, &mut issues, &mut metrics);
 
-        self.storage.save_issues(&issues).await?;
-        self.storage.save_hotspots(&hotspots).await?;
+        self.storage.save_issues(&issues, scope).await?;
+        self.storage.save_hotspots(&hotspots, scope).await?;
         self.metrics.record(&metrics).await?;
         let mut report = AnalysisReport::new(issues, hotspots, metrics);
         report.set_duplications(duplication.blocks);
@@ -508,18 +524,25 @@ mod tests {
     struct CapturingStorage {
         saved: Mutex<Vec<Issue>>,
         saved_hotspots: Mutex<Vec<Hotspot>>,
+        saved_scope: Mutex<Vec<IssueScope>>,
     }
 
     impl IssueStorage for &CapturingStorage {
-        async fn save_issues(&self, issues: &[Issue]) -> Result<(), StorageError> {
+        async fn save_issues(&self, issues: &[Issue], scope: IssueScope) -> Result<(), StorageError> {
             self.saved.lock().unwrap().extend_from_slice(issues);
+            self.saved_scope.lock().unwrap().push(scope);
             Ok(())
         }
     }
 
     impl HotspotStorage for &CapturingStorage {
-        async fn save_hotspots(&self, hotspots: &[Hotspot]) -> Result<(), StorageError> {
+        async fn save_hotspots(
+            &self,
+            hotspots: &[Hotspot],
+            scope: IssueScope,
+        ) -> Result<(), StorageError> {
             self.saved_hotspots.lock().unwrap().extend_from_slice(hotspots);
+            self.saved_scope.lock().unwrap().push(scope);
             Ok(())
         }
     }
@@ -564,6 +587,35 @@ mod tests {
         assert_eq!(storage.saved.lock().unwrap().len(), 1);
         assert_eq!(metrics.recorded.lock().unwrap().len(), 1);
         assert_eq!(report.metrics().files_scanned(), 1);
+        // The unscoped entry point always saves with the default (empty)
+        // scope, both for the issues save and the hotspots save.
+        assert_eq!(
+            storage.saved_scope.lock().unwrap().as_slice(),
+            [IssueScope::default(), IssueScope::default()]
+        );
+    }
+
+    #[test]
+    fn analyze_files_scoped_threads_project_and_analysis_ids_to_storage() {
+        let rule_id = RuleId::new("test:always").unwrap();
+        let mut profile = QualityProfile::new("test");
+        profile.activate(rule_id.clone(), Severity::Blocker);
+
+        let storage = CapturingStorage::default();
+        let metrics = CapturingMetrics::default();
+        let service = AnalyzerService::new(profile, &storage, &metrics)
+            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: false }))
+            .register_rule(Box::new(AlwaysFindsRule {
+                id: rule_id,
+                language: LanguageIdentifier::rust(),
+            }));
+
+        let scope = IssueScope { project_id: Some(7), analysis_id: Some(42) };
+        futures::executor::block_on(service.analyze_files_scoped(&[rust_file("a.rs")], scope))
+            .unwrap();
+
+        // Both the issues save and the hotspots save saw the same scope.
+        assert_eq!(storage.saved_scope.lock().unwrap().as_slice(), [scope, scope]);
     }
 
     #[test]

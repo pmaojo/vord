@@ -3,7 +3,10 @@
 mod cognitive_complexity;
 mod commented_out_code;
 mod complexity;
+mod feature_envy;
+mod god_class;
 mod long_function;
+mod refused_bequest;
 mod select_star;
 mod todo_comment;
 mod unwrap_usage;
@@ -11,7 +14,10 @@ mod unwrap_usage;
 pub use cognitive_complexity::CognitiveComplexityRule;
 pub use commented_out_code::CommentedOutCodeRule;
 pub use complexity::ComplexityRule;
+pub use feature_envy::FeatureEnvyRule;
+pub use god_class::GodClassRule;
 pub use long_function::LongFunctionRule;
+pub use refused_bequest::RefusedBequestRule;
 pub use select_star::SelectStarRule;
 pub use todo_comment::TodoCommentRule;
 pub use unwrap_usage::UnwrapUsageRule;
@@ -28,5 +34,8 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(CognitiveComplexityRule::default()),
         Box::new(CommentedOutCodeRule::new()),
         Box::new(SelectStarRule::new()),
+        Box::new(GodClassRule::default()),
+        Box::new(FeatureEnvyRule::default()),
+        Box::new(RefusedBequestRule::new()),
     ]
 }

@@ -3,14 +3,16 @@
 //! never the other way around. Traits are segregated per consumer (ISP):
 //! a worker needs `IssueStorage`, the dashboard only `IssueReader`.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_profiles::{GateStatus, RuleId, Severity};
 
 use crate::domain::{
-    BulkOutcome, ChangelogEntry, CoverageSummary, Hotspot, HotspotStatus, InvalidTransitionError,
-    Issue, IssueFacets, IssueStatus, IssueTransition, Metrics, ScanJob, StoredHotspot, StoredIssue,
+    BulkOutcome, ChangelogEntry, CoverageSummary, FileCoverage, Hotspot, HotspotStatus,
+    InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition, Metrics, ScanJob,
+    StoredHotspot, StoredIssue,
 };
 use crate::structural_metrics::StructuralCounts;
 
@@ -41,9 +43,28 @@ pub enum ParseError {
     Backend(String),
 }
 
+/// Optional project/analysis scoping for a batch of persisted issues or
+/// hotspots. `None` in either field means "not yet known" — local, one-off
+/// callers (the CLI, the LSP, remediation's verify-before-suggest loop) run
+/// against `InMemoryIssueStorage` and never resolve a project at all, so
+/// they use `IssueScope::default()` (via the unscoped `analyze_files`).
+/// The composition root that actually persists to Postgres (`yunq-worker`)
+/// is the only layer that knows about projects/analyses, so it's the only
+/// one that ever constructs a non-default scope — the pure engine stays
+/// agnostic of what a "project" is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct IssueScope {
+    pub project_id: Option<i64>,
+    pub analysis_id: Option<i64>,
+}
+
 /// Outbound port: persists detected issues.
 pub trait IssueStorage: Send + Sync {
-    fn save_issues(&self, issues: &[Issue]) -> impl Future<Output = Result<(), StorageError>> + Send;
+    fn save_issues(
+        &self,
+        issues: &[Issue],
+        scope: IssueScope,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send;
 }
 
 /// Conjunctive filters plus pagination for issue search.
@@ -134,6 +155,7 @@ pub trait HotspotStorage: Send + Sync {
     fn save_hotspots(
         &self,
         hotspots: &[Hotspot],
+        scope: IssueScope,
     ) -> impl Future<Output = Result<(), StorageError>> + Send;
 }
 
@@ -274,3 +296,108 @@ pub trait JobQueue: Send + Sync {
 #[derive(Debug, thiserror::Error)]
 #[error("queue backend failure: {0}")]
 pub struct QueueError(pub String);
+
+/// Outbound port: persists one analysis' full set of scalar measures —
+/// project-level (`AnalysisReport::all_measures`) and, where derivable,
+/// per-file (`AnalysisReport::file_issue_measures`) — the write side behind
+/// measure history and the component tree (issue #26). Called once per
+/// completed analysis, right after the analysis row itself is recorded.
+pub trait MeasureStorage: Send + Sync {
+    fn save_measures(
+        &self,
+        analysis_id: i64,
+        project_measures: &[(String, f64)],
+        file_measures: &BTreeMap<String, BTreeMap<String, f64>>,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send;
+}
+
+/// One analysis' worth of measures in a metric time series — the unit
+/// `api/measures/search_history`-style endpoints return one of per
+/// analysis, oldest or newest first depending on the query.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureHistoryPoint {
+    pub analysis_id: i64,
+    /// ISO-8601 timestamp of the analysis.
+    pub date: String,
+    /// Requested metric key -> value, absent when that analysis has no
+    /// value for a requested metric (e.g. `coverage` before it was ever
+    /// ingested) rather than a fabricated zero.
+    pub values: BTreeMap<String, f64>,
+}
+
+/// Outbound port: reads a component's (project or file) measure history
+/// across a project's analyses, optionally restricted to a metric-key
+/// subset and/or a date range.
+pub trait MeasureHistoryReader: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
+    fn measure_history(
+        &self,
+        project_key: &str,
+        branch: &str,
+        component: Option<&str>,
+        metric_keys: &[String],
+        from: Option<&str>,
+        to: Option<&str>,
+    ) -> impl Future<Output = Result<Vec<MeasureHistoryPoint>, StorageError>> + Send;
+}
+
+/// One file's measures as of a project's most recent analysis — one row of
+/// a component tree listing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComponentMeasures {
+    pub path: String,
+    pub measures: BTreeMap<String, f64>,
+}
+
+/// A project's component tree as of its most recent analysis. Deliberately
+/// flat (files only, no directory nesting) for this first slice — see the
+/// `sources`/`measures` module docs in `bin/server` for why a full nested
+/// tree was scoped out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComponentTree {
+    pub analysis_id: i64,
+    pub components: Vec<ComponentMeasures>,
+}
+
+/// Outbound port: reads a project's component (file) list with their latest
+/// measures — the read side of `api/components/tree`-style navigation.
+/// `None` when the project has no analysis yet.
+pub trait ComponentTreeReader: Send + Sync {
+    fn component_tree(
+        &self,
+        project_key: &str,
+        branch: &str,
+    ) -> impl Future<Output = Result<Option<ComponentTree>, StorageError>> + Send;
+}
+
+/// One file's per-line coverage detail (1-based line number -> hit count) —
+/// the read side behind the `sources` endpoint's coverage annotation.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FileCoverageLines {
+    pub lines: BTreeMap<u32, usize>,
+}
+
+/// Outbound port: persists per-line coverage detail for every instrumented
+/// file in an ingested coverage report — the counterpart to `CoverageStorage`
+/// that keeps line-level detail instead of reducing straight to the report-
+/// wide summary, so the `sources` endpoint has real (not fabricated)
+/// per-line coverage to annotate with.
+pub trait FileCoverageLineStorage: Send + Sync {
+    fn save_file_coverage_lines(
+        &self,
+        analysis_id: i64,
+        files: &[FileCoverage],
+    ) -> impl Future<Output = Result<(), StorageError>> + Send;
+}
+
+/// Outbound port: reads one file's per-line coverage detail as of a
+/// project's most recently coverage-ingested analysis. `None` when no
+/// coverage report has ever been ingested for this file.
+pub trait FileCoverageLineReader: Send + Sync {
+    fn file_coverage_lines(
+        &self,
+        project_key: &str,
+        branch: &str,
+        file: &str,
+    ) -> impl Future<Output = Result<Option<FileCoverageLines>, StorageError>> + Send;
+}

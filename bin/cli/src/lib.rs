@@ -36,7 +36,7 @@ use yunq_parser_xml::XmlParser;
 use yunq_parser_yaml::YamlParser;
 use yunq_rules_engine::{
     AnalysisReport, AnalyzerService, ComparisonOperator, Condition, HotspotStorage, IssueStorage,
-    MetricKey, MetricsTracker, QualityGate, QualityProfile, Rule,
+    MetricKey, MetricsTracker, QualityGate, Rule,
 };
 
 pub mod output;
@@ -73,8 +73,15 @@ fn all_default_parsers() -> Vec<Box<dyn yunq_rules_engine::AstParser>> {
     ]
 }
 
-/// Builds the default analyzer: both parsers, every shipped rule, and a
-/// profile activating each rule at its default severity.
+/// Builds the default analyzer: both parsers, every shipped rule, and the
+/// built-in "Sonar way" profile (`yunq_profiles::sonar_way`) — a curated
+/// per-language activation baseline, not merely "every registered rule at
+/// its default severity". This is what a project with no explicit profile
+/// assignment gets (see issue #22): there is currently no per-project
+/// profile assignment mechanism in this codebase (mirroring the note in
+/// `bin/server/src/ops.rs` that per-project *gate* assignment exists but
+/// per-project *profile* assignment is still "Fase 3 territory"), so Sonar
+/// way is the sole default every scan uses today.
 pub fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
 where
     S: IssueStorage + HotspotStorage,
@@ -88,15 +95,13 @@ where
         .chain(yunq_rules_react::all_rules())
         .chain(yunq_rules_secrets::all_rules())
         .chain(yunq_rules_rust::all_rules())
+        .chain(yunq_rules_reactive::all_rules())
         .collect();
-    let cross_rules = yunq_rules_owasp::all_cross_rules();
-    let profile = QualityProfile::from_activations(
-        "yunq-default",
-        rules
-            .iter()
-            .map(|r| (r.id().clone(), r.default_severity()))
-            .chain(cross_rules.iter().map(|r| (r.id().clone(), r.default_severity()))),
-    );
+    let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> = yunq_rules_owasp::all_cross_rules()
+        .into_iter()
+        .chain(yunq_rules_architecture::all_cross_rules())
+        .collect();
+    let profile = yunq_rules_engine::sonar_way();
 
     let mut service = AnalyzerService::new(profile, storage, metrics);
     for parser in all_default_parsers() {

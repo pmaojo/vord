@@ -196,6 +196,39 @@ impl PgIssueStorage {
         row.try_get::<i64, _>("id").map_err(storage_err)
     }
 
+    /// Inserts a placeholder analysis row (`lines_of_code`/`issue_total`
+    /// both 0) *before* a scan runs, so the worker has a real `analysis_id`
+    /// to scope newly-saved issues/hotspots to as they're persisted, rather
+    /// than only being able to scope them to a project. Pair with
+    /// [`Self::finalize_analysis`] once the scan's `AnalysisReport` is
+    /// available, to backfill the real metrics onto the same row.
+    pub async fn record_analysis_pending(
+        &self,
+        project_id: i64,
+        branch: &str,
+    ) -> Result<i64, StorageError> {
+        self.record_analysis(project_id, branch, 0, 0).await
+    }
+
+    /// Backfills the real `lines_of_code`/`issue_total` onto an analysis row
+    /// created by [`Self::record_analysis_pending`], once the scan that
+    /// produced them has finished.
+    pub async fn finalize_analysis(
+        &self,
+        analysis_id: i64,
+        lines_of_code: i64,
+        issue_total: i32,
+    ) -> Result<(), StorageError> {
+        sqlx::query("UPDATE analyses SET lines_of_code = $1, issue_total = $2 WHERE id = $3")
+            .bind(lines_of_code)
+            .bind(issue_total)
+            .bind(analysis_id)
+            .execute(&self.pool)
+            .await
+            .map_err(storage_err)?;
+        Ok(())
+    }
+
     /// Persists the outcome of evaluating a project's gate against one
     /// analysis, including the per-condition detail (metric, operator,
     /// threshold, measured value, status) so the badge and any future UI can

@@ -9,6 +9,9 @@ use yunq_cli::output;
 use yunq_infra_fs::{BaselineStore, FileAnalysisCache};
 use yunq_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 
+mod blame;
+mod ci_detect;
+mod monorepo_scan;
 mod wizard;
 
 #[derive(Parser)]
@@ -96,18 +99,44 @@ struct ScanArgs {
     /// JUnit XML test report to ingest (printed as a test summary).
     #[arg(long)]
     junit: Option<PathBuf>,
-    /// Git commit SHA for reporting ALM commit status.
+    /// Git commit SHA for reporting ALM commit status (auto-detected from
+    /// CI env vars — GitHub Actions/GitLab CI — when omitted).
     #[arg(long)]
     commit_sha: Option<String>,
     /// GitHub API token (defaults to GITHUB_TOKEN env var).
     #[arg(long)]
     github_token: Option<String>,
-    /// GitHub repository in owner/repo format (defaults to GITHUB_REPOSITORY env var).
+    /// GitHub repository in owner/repo format (defaults to GITHUB_REPOSITORY
+    /// env var, or CI auto-detection).
     #[arg(long)]
     github_repo: Option<String>,
     /// Print a ready-to-paste prompt handing the findings to an AI coding agent.
     #[arg(long)]
     agent_prompt: bool,
+    /// Explicit project identifier (defaults to yunq.toml's `[project] key`,
+    /// then the scanned directory's name).
+    #[arg(long)]
+    project: Option<String>,
+    /// Branch this analysis is attached to (auto-detected from CI env vars
+    /// when omitted).
+    #[arg(long)]
+    branch: Option<String>,
+    /// Pull/merge request number this analysis is for — marks this as a PR
+    /// analysis for ALM status reporting (auto-detected from CI env vars,
+    /// e.g. GitHub Actions' `GITHUB_REF`/event payload or GitLab CI's
+    /// `CI_MERGE_REQUEST_IID`, when omitted).
+    #[arg(long)]
+    pr: Option<u32>,
+    /// Capture per-line SCM blame (author/commit) for files with issues and
+    /// write it as JSON to this path — consumable by anything that wants to
+    /// show "who introduced this" alongside an issue.
+    #[arg(long)]
+    blame_output: Option<PathBuf>,
+    /// Treat `path` as a monorepo root: discover every yunq.toml-configured
+    /// project under it and scan each independently, reporting results per
+    /// project instead of merging them into one report.
+    #[arg(long)]
+    monorepo: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -165,17 +194,98 @@ fn parse_fail_on_threshold(fail_on: Option<String>) -> anyhow::Result<Option<Sev
         .transpose()
 }
 
-/// `yunq.toml`'s `[analysis] sources`/`exclusions`, or empty when there's
-/// no project config (a bare directory/file scan).
-fn load_project_scope(path: &std::path::Path) -> (Vec<String>, Vec<String>) {
+/// `yunq.toml`'s `[analysis] sources`/`exclusions`/`[project] key`, or all
+/// empty when there's no project config (a bare directory/file scan).
+fn load_project_scope(path: &std::path::Path) -> (Vec<String>, Vec<String>, Option<String>) {
     yunq_infra_fs::YunqConfig::load_from_dir(path)
         .map(|config| {
             if let Some(key) = &config.project.key {
                 eprintln!("📋 Loaded project config ({key})");
             }
-            (config.analysis.sources.unwrap_or_default(), config.analysis.exclusions.unwrap_or_default())
+            (
+                config.analysis.sources.unwrap_or_default(),
+                config.analysis.exclusions.unwrap_or_default(),
+                config.project.key,
+            )
         })
         .unwrap_or_default()
+}
+
+/// Resolved scan identity/target: `--project`/`--branch`/`--pr`/
+/// `--commit-sha`/`--github-repo`, each an explicit flag if given, else the
+/// CI-auto-detected value, else (for `project` only) a directory-name
+/// fallback. Threaded through both ALM status reporting and the rendered
+/// output's `context` so a downstream consumer sees the same identity the
+/// scan itself used.
+struct ResolvedContext {
+    project: Option<String>,
+    branch: Option<String>,
+    pr: Option<u32>,
+    commit_sha: Option<String>,
+    github_repo: Option<String>,
+}
+
+impl ResolvedContext {
+    fn to_dto(&self) -> output::ScanContextDto {
+        output::ScanContextDto { project: self.project.clone(), branch: self.branch.clone(), pull_request: self.pr }
+    }
+}
+
+/// Reads real CI environment variables (`GITHUB_ACTIONS`/`GITLAB_CI`/...
+/// and friends) into a [`ci_detect::CiContext`] — the one place `main`
+/// touches `std::env` for CI detection; [`ci_detect::detect_ci_context`]
+/// itself is pure and injected with this closure so it stays unit-testable.
+/// Also covers the one CI signal that needs a file read rather than an env
+/// var: GitHub Actions' `GITHUB_EVENT_PATH` payload, consulted only when
+/// `GITHUB_REF` didn't already yield a PR number.
+fn resolve_ci_context() -> ci_detect::CiContext {
+    let env_lookup = |key: &str| std::env::var(key).ok();
+    let mut ctx = ci_detect::detect_ci_context(&env_lookup);
+    if ctx.pr.is_none()
+        && ctx.provider == Some(ci_detect::CiProvider::GithubActions)
+        && let Ok(event_path) = std::env::var("GITHUB_EVENT_PATH")
+        && let Ok(raw) = std::fs::read_to_string(event_path)
+    {
+        ctx.pr = ci_detect::parse_pr_number_from_github_event(&raw);
+    }
+    ctx
+}
+
+/// Combines explicit `--project`/`--branch`/`--pr`/`--commit-sha`/
+/// `--github-repo` flags with CI auto-detection (explicit always wins) and
+/// `yunq.toml`'s `[project] key` / the scan path's directory name as the
+/// last-resort project fallback.
+fn resolve_context(args: &ScanArgs, config_project_key: Option<String>, ci: &ci_detect::CiContext) -> ResolvedContext {
+    let project = args
+        .project
+        .clone()
+        .or(config_project_key)
+        .or_else(|| args.path.file_name().map(|n| n.to_string_lossy().to_string()));
+    ResolvedContext {
+        project,
+        branch: args.branch.clone().or_else(|| ci.branch.clone()),
+        pr: args.pr.or(ci.pr),
+        commit_sha: args.commit_sha.clone().or_else(|| ci.commit_sha.clone()),
+        github_repo: args.github_repo.clone().or_else(|| ci.github_repo.clone()),
+    }
+}
+
+/// Builds the GitHub status reporter from explicit `--github-token`/
+/// `--github-repo` (falling back to `context`'s CI-resolved repo) or the
+/// environment (`GitHubStatusReporter::from_env`) — shared by the
+/// single-project and `--monorepo` reporting paths so there's exactly one
+/// place that decides how a reporter gets built.
+fn github_reporter(
+    args: &ScanArgs,
+    context: &ResolvedContext,
+) -> Option<yunq_infra_github::GitHubStatusReporter> {
+    match (&args.github_token, &context.github_repo) {
+        (Some(token), Some(repo)) => {
+            let (owner, name) = repo.split_once('/').unwrap_or(("local", repo));
+            Some(yunq_infra_github::GitHubStatusReporter::new(token.clone(), owner, name))
+        }
+        _ => yunq_infra_github::GitHubStatusReporter::from_env(),
+    }
 }
 
 fn parse_coverage_format(raw: Option<String>) -> anyhow::Result<Option<yunq_infra_fs::CoverageFormat>> {
@@ -305,16 +415,19 @@ fn classify_new_code(
     new_code
 }
 
+/// Posts a PR review comment summarizing new issues, when `pr` (explicit
+/// `--pr`, or CI-auto-detected — see [`resolve_context`]) is known. Used to
+/// hand-derive the PR number from `GITHUB_REF`/`GITHUB_EVENT_PATH` inline
+/// here; that detection now lives in `ci_detect` so it's covered by unit
+/// tests instead of only exercised by a real GitHub Actions run.
 async fn report_pull_request_review(
     reporter: &yunq_infra_github::GitHubStatusReporter,
+    pr: Option<u32>,
     new_code: Option<&NewCodeAnalysis>,
     desc: &str,
 ) {
     use yunq_rules_engine::AlmPullRequestReporter;
-    let Ok(github_ref) = std::env::var("GITHUB_REF") else { return };
-    // GITHUB_REF format: refs/pull/42/merge
-    let Some(pr_str) = github_ref.strip_prefix("refs/pull/").and_then(|s| s.split('/').next()) else { return };
-    let Ok(pr_num) = pr_str.parse::<u32>() else { return };
+    let Some(pr_num) = pr else { return };
     let Ok(pr_number) = yunq_rules_engine::PullRequestNumber::new(pr_num) else { return };
 
     let new_issues = new_code.map(|nc| nc.new_issues()).unwrap_or(&[]);
@@ -323,27 +436,24 @@ async fn report_pull_request_review(
     }
 }
 
-/// Reports the scan's commit status (and, on a PR ref, a review) to GitHub
-/// when a commit SHA and GitHub credentials/env are available.
+/// Reports the scan's commit status (and, on a PR analysis, a review) to
+/// GitHub when a commit SHA and GitHub credentials/env are available. The
+/// commit SHA, PR number and repo slug all come from `context`
+/// ([`resolve_context`]) — explicit `--commit-sha`/`--pr`/`--github-repo`
+/// flags win, otherwise CI auto-detection fills them in.
 async fn report_to_github(
     args: &ScanArgs,
+    context: &ResolvedContext,
     report: &yunq_rules_engine::AnalysisReport,
     gate: &yunq_rules_engine::GateEvaluation,
     new_code: Option<&NewCodeAnalysis>,
 ) {
     use yunq_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
 
-    let Some(sha_str) = args.commit_sha.clone().or_else(|| std::env::var("GITHUB_SHA").ok()) else { return };
-    let Ok(sha) = yunq_rules_engine::CommitSha::new(&sha_str) else { return };
+    let Some(sha_str) = &context.commit_sha else { return };
+    let Ok(sha) = yunq_rules_engine::CommitSha::new(sha_str) else { return };
 
-    let reporter = match (&args.github_token, &args.github_repo) {
-        (Some(token), Some(repo)) => {
-            let (owner, name) = repo.split_once('/').unwrap_or(("local", repo));
-            Some(yunq_infra_github::GitHubStatusReporter::new(token.clone(), owner, name))
-        }
-        _ => yunq_infra_github::GitHubStatusReporter::from_env(),
-    };
-    let Some(reporter) = reporter else { return };
+    let Some(reporter) = github_reporter(args, context) else { return };
 
     let state = if gate.status() == yunq_rules_engine::GateStatus::Passed {
         CommitStatusState::Success
@@ -360,7 +470,7 @@ async fn report_to_github(
         eprintln!("warning: could not report commit status to GitHub: {e}");
     }
 
-    report_pull_request_review(&reporter, new_code, &desc).await;
+    report_pull_request_review(&reporter, context.pr, new_code, &desc).await;
 }
 
 fn render_output(
@@ -370,19 +480,79 @@ fn render_output(
     new_code: Option<&NewCodeAnalysis>,
     test_report: Option<&yunq_rules_engine::TestReportSummary>,
     coverage_new_code: Option<f64>,
+    context: &output::ScanContextDto,
 ) -> anyhow::Result<()> {
     match args.format {
         Format::Text => {
-            print!("{}", output::render_text(report, gate, new_code, test_report, coverage_new_code))
+            print!("{}", output::render_text(report, gate, new_code, test_report, coverage_new_code, context))
         }
         Format::Json => {
-            println!("{}", output::render_json(report, gate, new_code, test_report, coverage_new_code)?)
+            println!(
+                "{}",
+                output::render_json(report, gate, new_code, test_report, coverage_new_code, context.clone())?
+            )
         }
     }
     if args.agent_prompt {
         println!("\n{}", output::render_agent_prompt(report, gate, &args.path.display().to_string()));
     }
     Ok(())
+}
+
+/// `--blame-output`: captures per-line SCM blame for every file the scan
+/// found an issue in and writes it as JSON to the given path. Best-effort —
+/// a scan target that isn't inside a Git repository (or has no `git`
+/// binary available) warns and is otherwise a no-op rather than failing the
+/// whole scan, matching the cache/baseline persistence warnings above.
+///
+/// `Issue::file()` is relative to the *scan root* (`args.path`), but `git
+/// blame` needs a path relative to the *Git root* — which can be a parent
+/// directory of the scan root (e.g. `yunq scan services/api` inside a
+/// larger repo). This re-bases each issue's file onto the Git root before
+/// blaming it, then keys the output back by the scan-relative path so it
+/// still lines up with `Issue::file()` for any consumer cross-referencing
+/// the two.
+fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisReport) {
+    let Some(output_path) = &args.blame_output else { return };
+    let Some(git_root) = yunq_cli::find_git_root(&args.path) else {
+        eprintln!(
+            "warning: --blame-output given but {} is not inside a Git repository — skipping blame capture",
+            args.path.display()
+        );
+        return;
+    };
+
+    let scan_root = args.path.canonicalize().unwrap_or_else(|_| args.path.clone());
+    let prefix = scan_root.strip_prefix(&git_root).unwrap_or(std::path::Path::new(""));
+
+    let mut report_files: Vec<String> = report.issues().iter().map(|issue| issue.file().to_string()).collect();
+    report_files.sort();
+    report_files.dedup();
+
+    // `blame::blame_files` operates purely on paths relative to the Git
+    // root; re-key its result back to the scan-relative paths the report
+    // itself uses, via this git-relative -> scan-relative lookup.
+    let git_relative_to_scan_relative: std::collections::HashMap<String, String> = report_files
+        .iter()
+        .map(|file| (prefix.join(file).to_string_lossy().replace('\\', "/"), file.clone()))
+        .collect();
+    let git_relative_files: Vec<String> = git_relative_to_scan_relative.keys().cloned().collect();
+
+    let blame: std::collections::BTreeMap<String, Vec<blame::BlameLine>> =
+        blame::blame_files(&git_root, &git_relative_files)
+            .into_iter()
+            .filter_map(|(git_relative, lines)| {
+                git_relative_to_scan_relative.get(&git_relative).cloned().map(|scan_relative| (scan_relative, lines))
+            })
+            .collect();
+
+    match serde_json::to_string_pretty(&blame) {
+        Ok(json) => match std::fs::write(output_path, json) {
+            Ok(()) => println!("📝 Wrote SCM blame for {} file(s) to {}", blame.len(), output_path.display()),
+            Err(e) => eprintln!("warning: could not write blame output to {}: {e}", output_path.display()),
+        },
+        Err(e) => eprintln!("warning: could not serialize blame output: {e}"),
+    }
 }
 
 fn exit_code(
@@ -397,8 +567,14 @@ fn exit_code(
 }
 
 async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
+    if args.monorepo {
+        return monorepo_scan::run(&args).await;
+    }
+
     let threshold = parse_fail_on_threshold(args.fail_on.clone())?;
-    let (source_dirs, exclusions) = load_project_scope(&args.path);
+    let (source_dirs, exclusions, config_project_key) = load_project_scope(&args.path);
+    let ci = resolve_ci_context();
+    let context = resolve_context(&args, config_project_key, &ci);
 
     let cache = (!args.no_cache && args.path.is_dir())
         .then(|| std::sync::Arc::new(FileAnalysisCache::open(args.path.join(".yunq-cache.json"))));
@@ -430,8 +606,9 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         new_code.as_ref().and_then(|nc| nc.measure(key)).or_else(|| report.measure(key))
     });
 
-    report_to_github(&args, &report, &gate, new_code.as_ref()).await;
-    render_output(&args, &report, &gate, new_code.as_ref(), test_report.as_ref(), coverage_new_code)?;
+    report_to_github(&args, &context, &report, &gate, new_code.as_ref()).await;
+    write_blame_output(&args, &report);
+    render_output(&args, &report, &gate, new_code.as_ref(), test_report.as_ref(), coverage_new_code, &context.to_dto())?;
 
     Ok(exit_code(threshold, &report, args.enforce_gate, &gate))
 }
