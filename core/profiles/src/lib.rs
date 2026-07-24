@@ -2,10 +2,18 @@
 //! rules are active and at which severity), quality gates and ratings.
 //! Pure domain.
 
+mod backup;
+mod builtin;
+mod compare;
+mod copy;
 mod gate;
 mod impact;
 mod rating;
 
+pub use backup::{backup, restore, ProfileBackup, RestoreError, RestorePolicy};
+pub use builtin::{sonar_way, sonar_way_for_language, SONAR_WAY_NAME};
+pub use compare::{compare, ProfileDiff, SeverityDifference};
+pub use copy::copy_profile;
 pub use gate::{
     ComparisonOperator, Condition, ConditionResult, ConditionStatus, GateEvaluation, GateStatus,
     InvalidMetricKeyError, MetricKey, QualityGate,
@@ -155,6 +163,20 @@ impl QualityProfile {
     pub fn own_activations(&self) -> impl Iterator<Item = (&RuleId, Severity)> {
         self.activations.iter().map(|(rule, severity)| (rule, *severity))
     }
+
+    /// Every rule active in this profile, own or inherited, with the
+    /// severity that would actually apply — the flattened view `compare`
+    /// and `copy_profile` operate on, and what an analyzer run really uses
+    /// (mirrors `is_active`/`severity_of`'s fall-through, just materialized
+    /// as a map instead of walked per-rule).
+    pub fn effective_activations(&self) -> HashMap<RuleId, Severity> {
+        let mut merged = match &self.parent {
+            Some(parent) => parent.effective_activations(),
+            None => HashMap::new(),
+        };
+        merged.extend(self.activations.iter().map(|(rule, severity)| (rule.clone(), *severity)));
+        merged
+    }
 }
 
 #[cfg(test)]
@@ -195,6 +217,12 @@ mod tests {
         assert_eq!(child.severity_of(&tuned_rule), Some(Severity::Major));
         // Backup only serializes own activations.
         assert_eq!(child.own_activations().count(), 1);
+
+        // effective_activations flattens the whole chain, own wins.
+        let effective = child.effective_activations();
+        assert_eq!(effective.len(), 2);
+        assert_eq!(effective.get(&base_rule), Some(&Severity::Critical));
+        assert_eq!(effective.get(&tuned_rule), Some(&Severity::Major));
     }
 
     #[test]

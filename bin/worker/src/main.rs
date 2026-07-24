@@ -16,7 +16,7 @@ use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_rules_engine::{
     AnalysisReport, AnalyzerService, HotspotStorage, IssueScope, IssueStorage, MeasureStorage,
-    MetricsTracker, QualityProfile, QueueError, Rule, ScanJob,
+    MetricsTracker, QueueError, Rule, ScanJob,
 };
 
 /// Every scan is recorded against this branch; matches the rest of the
@@ -86,6 +86,12 @@ async fn run_housekeeping_loop(storage: PgIssueStorage) {
     }
 }
 
+/// Built-in "Sonar way" profile as the default rule-activation set (issue
+/// #22) — replaces the old ad-hoc "every registered rule at its default
+/// severity" profile. There's no per-project profile assignment mechanism
+/// in this codebase yet (see the note in `bin/server/src/ops.rs` — that's
+/// deferred, same as it is for per-project *gate* assignment's later
+/// phases), so this is the one profile every scan job uses.
 fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
 where
     S: IssueStorage + HotspotStorage,
@@ -101,13 +107,7 @@ where
         .chain(yunq_rules_rust::all_rules())
         .collect();
     let cross_rules = yunq_rules_owasp::all_cross_rules();
-    let profile = QualityProfile::from_activations(
-        "yunq-default",
-        rules
-            .iter()
-            .map(|r| (r.id().clone(), r.default_severity()))
-            .chain(cross_rules.iter().map(|r| (r.id().clone(), r.default_severity()))),
-    );
+    let profile = yunq_rules_engine::sonar_way();
     let mut service = AnalyzerService::new(profile, storage, metrics)
         .register_parser(Box::new(TypeScriptParser::new()))
         .register_parser(Box::new(RustParser::new()))
