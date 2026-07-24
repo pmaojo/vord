@@ -4063,6 +4063,7 @@ dependencies = [
  "yunq-parser-rust",
  "yunq-parser-typescript",
  "yunq-rules-engine",
+ "yunq-symbols",
 ]
 
 [[package]]
