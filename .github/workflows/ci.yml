@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Test & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo test --workspace
+        run: cargo test --workspace
+
+      - name: cargo clippy --all-targets --workspace
+        run: cargo clippy --all-targets --workspace -- -D warnings
+
+  benchmark-gate:
+    name: Benchmark regression gate
+    # Only meaningful with a merge base to diff against; a direct push to
+    # main has none.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Benchmark PR head
+        run: cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/pr-perf.json
+
+      - name: Benchmark merge base
+        run: |
+          git checkout ${{ github.event.pull_request.base.sha }}
+          cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/base-perf.json
+          git checkout ${{ github.event.pull_request.head.sha }}
+
+      # Diffs PR head against its own merge base on the same runner, rather
+      # than a committed baseline number — avoids false positives/negatives
+      # from comparing across different hardware generations over time.
+      # Reports (and, via the exit code, gates on) throughput; peak-RSS and
+      # p99 file-scan latency are printed for visibility but not yet gated
+      # on — no established target for either.
+      - name: Compare and gate on >10% throughput regression
+        run: cargo run --release -p yunq-benchmarks --bin perf_report -- --compare /tmp/base-perf.json /tmp/pr-perf.json

@@ -104,10 +104,20 @@ re-analysis on typical PRs.
   because the harness measuring it didn't exist. Below the >=100k LOC/s
   target; the interning landed this session and the still-open items above
   (arena allocation, cross-file/server-side caching) are exactly what would
-  close the gap. Still open: CI regression gating (`cargo bench` in CI
-  comparing against a stored baseline, failing on >10% regression) and
-  peak-RSS/p99-latency tracking — this session only builds the harness and
-  a first real measurement, not the CI wiring around it.
+  close the gap. ✅ **(this session)** CI regression gating: `.github/workflows/ci.yml`
+  is this repo's first CI test/clippy workflow at all (previously only
+  `release.yml`, for tagged builds). Its `benchmark-gate` job runs a new
+  criterion-independent binary (`benches/src/bin/perf_report.rs`) twice on
+  the same runner — once at the PR head, once at its merge base — and diffs
+  them (`--compare`) rather than checking against a number committed to the
+  repo, so the gate isn't skewed by comparing against different CI hardware
+  generations over time; fails the job (non-zero exit) on a throughput drop
+  of more than 10%. The same binary reports peak RSS (`/proc/self/status`'s
+  `VmHWM`) and p50/p99 per-file scan latency (each corpus file scanned
+  independently, 3 reps) — printed for visibility every run, not yet gated
+  on since neither has an established target. `percentile`/`is_regression`
+  live in `benches/src/lib.rs`, unit-tested independently of the actual
+  benchmark run.
 - **Scale-out**: stateless workers already horizontal on SQS; shard analysis
   of monorepos by directory subtree.
 
