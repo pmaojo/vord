@@ -22,13 +22,24 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use yunq_infra_fs::CoverageFormat;
 use yunq_infra_postgres::PgIssueStorage;
-use yunq_rules_engine::{CoverageResultReader, CoverageResultSummary, CoverageStorage, CoverageSummary, StorageError};
+use yunq_rules_engine::{
+    ComponentTree, ComponentTreeReader, CoverageResultReader, CoverageResultSummary,
+    CoverageStorage, CoverageSummary, FileCoverage, FileCoverageLineReader,
+    FileCoverageLineStorage, FileCoverageLines, MeasureHistoryPoint, MeasureHistoryReader,
+    StorageError,
+};
 
 use crate::AppState;
 
-/// Object-safe HTTP-facing adapter over the coverage persistence methods on
-/// `PgIssueStorage` — same "one trait per composition-root need" pattern as
-/// `OpsStore`/`GateBadgePort` in `main.rs`.
+/// Object-safe HTTP-facing adapter over the coverage, measure-history and
+/// component-tree read/write methods on `PgIssueStorage` — same "one trait
+/// per composition-root need" pattern as `OpsStore`/`GateBadgePort` in
+/// `main.rs`. Grown beyond pure coverage concerns (issue #26's measure
+/// history / component tree / sources endpoints) rather than adding a new
+/// `AppState` field, since `AppState`'s construction lives in `main.rs`
+/// and other in-flight work touches that file concurrently — reusing this
+/// already-wired field keeps `main.rs` changes to `mod` + route
+/// registrations only.
 pub(crate) trait CoveragePort: Send + Sync {
     fn ensure_project(&self, key: String) -> BoxFuture<'_, Result<i64, StorageError>>;
 
@@ -48,6 +59,36 @@ pub(crate) trait CoveragePort: Send + Sync {
         &self,
         project_key: String,
     ) -> BoxFuture<'_, Result<Option<CoverageResultSummary>, StorageError>>;
+
+    fn save_file_coverage_lines(
+        &self,
+        analysis_id: i64,
+        files: Vec<FileCoverage>,
+    ) -> BoxFuture<'_, Result<(), StorageError>>;
+
+    fn file_coverage_lines(
+        &self,
+        project_key: String,
+        branch: String,
+        file: String,
+    ) -> BoxFuture<'_, Result<Option<FileCoverageLines>, StorageError>>;
+
+    #[allow(clippy::too_many_arguments)]
+    fn measure_history(
+        &self,
+        project_key: String,
+        branch: String,
+        component: Option<String>,
+        metric_keys: Vec<String>,
+        from: Option<String>,
+        to: Option<String>,
+    ) -> BoxFuture<'_, Result<Vec<MeasureHistoryPoint>, StorageError>>;
+
+    fn component_tree(
+        &self,
+        project_key: String,
+        branch: String,
+    ) -> BoxFuture<'_, Result<Option<ComponentTree>, StorageError>>;
 }
 
 impl CoveragePort for PgIssueStorage {
@@ -76,6 +117,58 @@ impl CoveragePort for PgIssueStorage {
         project_key: String,
     ) -> BoxFuture<'_, Result<Option<CoverageResultSummary>, StorageError>> {
         Box::pin(async move { CoverageResultReader::latest_coverage(self, &project_key).await })
+    }
+
+    fn save_file_coverage_lines(
+        &self,
+        analysis_id: i64,
+        files: Vec<FileCoverage>,
+    ) -> BoxFuture<'_, Result<(), StorageError>> {
+        Box::pin(async move {
+            FileCoverageLineStorage::save_file_coverage_lines(self, analysis_id, &files).await
+        })
+    }
+
+    fn file_coverage_lines(
+        &self,
+        project_key: String,
+        branch: String,
+        file: String,
+    ) -> BoxFuture<'_, Result<Option<FileCoverageLines>, StorageError>> {
+        Box::pin(async move {
+            FileCoverageLineReader::file_coverage_lines(self, &project_key, &branch, &file).await
+        })
+    }
+
+    fn measure_history(
+        &self,
+        project_key: String,
+        branch: String,
+        component: Option<String>,
+        metric_keys: Vec<String>,
+        from: Option<String>,
+        to: Option<String>,
+    ) -> BoxFuture<'_, Result<Vec<MeasureHistoryPoint>, StorageError>> {
+        Box::pin(async move {
+            MeasureHistoryReader::measure_history(
+                self,
+                &project_key,
+                &branch,
+                component.as_deref(),
+                &metric_keys,
+                from.as_deref(),
+                to.as_deref(),
+            )
+            .await
+        })
+    }
+
+    fn component_tree(
+        &self,
+        project_key: String,
+        branch: String,
+    ) -> BoxFuture<'_, Result<Option<ComponentTree>, StorageError>> {
+        Box::pin(async move { ComponentTreeReader::component_tree(self, &project_key, &branch).await })
     }
 }
 
@@ -183,6 +276,16 @@ pub(crate) async fn ingest_coverage(
     state
         .coverage
         .save_coverage(analysis_id, summary)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    // Per-line detail alongside the summary above (issue #26): the sources
+    // endpoint's coverage annotation needs line-level hit data, which the
+    // summary alone can't provide. `report` already computed it — this
+    // just keeps it instead of discarding it.
+    state
+        .coverage
+        .save_file_coverage_lines(analysis_id, report.files().to_vec())
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 

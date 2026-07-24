@@ -36,8 +36,10 @@ use yunq_rules_engine::{
 
 mod auth;
 mod coverage;
+mod measures;
 mod metrics;
 mod ops;
+mod sources;
 mod webhooks;
 
 use coverage::CoveragePort;
@@ -239,6 +241,9 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(webhooks::webhook_delivery_log))
         .routes(routes!(badge_svg))
         .routes(routes!(coverage::ingest_coverage, coverage::latest_coverage))
+        .routes(routes!(measures::measure_history))
+        .routes(routes!(measures::component_tree))
+        .routes(routes!(sources::sources))
         .routes(routes!(scim_users))
         .routes(routes!(stripe_webhook))
         .routes(routes!(export_compliance_pdf))

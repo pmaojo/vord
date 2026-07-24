@@ -4083,6 +4083,7 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",
+ "yunq-ast",
  "yunq-cli",
  "yunq-infra-fs",
  "yunq-infra-github",

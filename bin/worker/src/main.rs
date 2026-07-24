@@ -15,8 +15,8 @@ use yunq_parser_python::PythonParser;
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_rules_engine::{
-    AnalysisReport, AnalyzerService, HotspotStorage, IssueScope, IssueStorage, MetricsTracker,
-    QualityProfile, QueueError, Rule, ScanJob,
+    AnalysisReport, AnalyzerService, HotspotStorage, IssueScope, IssueStorage, MeasureStorage,
+    MetricsTracker, QualityProfile, QueueError, Rule, ScanJob,
 };
 
 /// Every scan is recorded against this branch; matches the rest of the
@@ -198,6 +198,19 @@ async fn persist_gate_result(
         eprintln!("warning: could not persist gate result: {e}");
     } else {
         println!("quality gate for {}: {}", job.project(), evaluation.status());
+    }
+
+    // Measure history / component tree (issue #26): persist this analysis'
+    // full measure set — project-level and, where derivable from the
+    // issues already in `report`, per-file — so the server's measure
+    // history and component-tree endpoints have real data instead of
+    // nothing. Best-effort, same rationale as the gate result above: a
+    // failure here must not fail the scan job.
+    if let Err(e) = gate_storage
+        .save_measures(analysis_id, &report.all_measures(), &report.file_issue_measures())
+        .await
+    {
+        eprintln!("warning: could not persist measures: {e}");
     }
 }
 

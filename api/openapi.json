@@ -707,6 +707,77 @@
         }
       }
     },
+    "/api/projects/{key}/components/tree": {
+      "get": {
+        "summary": "A project's components (currently: files only — see module docs) with\ntheir latest measures, as of the most recent analysis — mirrors\nSonarQube's `api/components/tree` navigation, minus directory nesting.",
+        "operationId": "component_tree",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "description": "Branch the tree is scoped to (default \"main\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sort field: `name` or a measure key present on the components, e.g.\n`issue_total` (default \"name\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "description": "Sort direction: `asc` or `desc` (default \"asc\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Case-sensitive substring filter on file path.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project's known files with their latest measures",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentTreeDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No analysis exists yet for this project/branch — run a scan first"
+          },
+          "502": {
+            "description": "Storage backend failure"
+          }
+        }
+      }
+    },
     "/api/projects/{key}/coverage": {
       "get": {
         "summary": "The most recently persisted coverage summary for a project, if any\nreport has been ingested yet.",
@@ -800,6 +871,83 @@
           },
           "404": {
             "description": "No analysis exists yet for this project/branch — run a scan first"
+          },
+          "502": {
+            "description": "Storage backend failure"
+          }
+        }
+      }
+    },
+    "/api/projects/{key}/measures/history": {
+      "get": {
+        "summary": "Time series of a project's (or one of its files') measures across its\nanalyses — mirrors SonarQube's `api/measures/search_history`.",
+        "operationId": "measure_history",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "description": "Branch the history is scoped to (default \"main\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "component",
+            "in": "query",
+            "description": "File path to scope the history to one file's measures instead of\nthe project as a whole.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "metrics",
+            "in": "query",
+            "description": "Comma-separated metric keys, e.g. `coverage,issue_total` (default:\nevery metric persisted for that analysis).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive lower bound, ISO-8601 (e.g. `2024-01-01T00:00:00Z`).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Inclusive upper bound, ISO-8601.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Measure time series, oldest analysis first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeasureHistoryDto"
+                }
+              }
+            }
           },
           "502": {
             "description": "Storage backend failure"
@@ -938,6 +1086,56 @@
           },
           "502": {
             "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/projects/{key}/sources": {
+      "get": {
+        "summary": "Per-line issue and coverage annotations for one file — mirrors\nSonarQube's `api/sources/lines`; see module docs for what's deliberately\nout of scope (source text, duplication, blame).",
+        "operationId": "sources",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file",
+            "in": "query",
+            "description": "Exact file path to annotate (as recorded on `issues.file` / ingested\ncoverage reports).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "description": "Branch coverage is scoped to (default \"main\"). Issues are not\nbranch-scoped in the current schema — see module docs.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-line issue/coverage annotations for the file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcesDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend failure"
           }
         }
       }
@@ -1565,6 +1763,48 @@
           }
         }
       },
+      "ComponentDto": {
+        "type": "object",
+        "required": [
+          "path",
+          "measures"
+        ],
+        "properties": {
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasureValueDto"
+            }
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "ComponentTreeDto": {
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "total",
+          "components"
+        ],
+        "properties": {
+          "analysis_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComponentDto"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "CoverageSummaryDto": {
         "type": "object",
         "required": [
@@ -1961,6 +2201,65 @@
           }
         }
       },
+      "MeasureHistoryDto": {
+        "type": "object",
+        "required": [
+          "component",
+          "history"
+        ],
+        "properties": {
+          "component": {
+            "type": "string",
+            "description": "The project key, or `{project key}:{file path}` when `component`\nwas given in the request."
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasureHistoryPointDto"
+            }
+          }
+        }
+      },
+      "MeasureHistoryPointDto": {
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "date",
+          "measures"
+        ],
+        "properties": {
+          "analysis_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "date": {
+            "type": "string",
+            "description": "ISO-8601 timestamp of the analysis this point belongs to."
+          },
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasureValueDto"
+            }
+          }
+        }
+      },
+      "MeasureValueDto": {
+        "type": "object",
+        "required": [
+          "metric",
+          "value"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "OAuthLoginDto": {
         "type": "object",
         "required": [
@@ -2349,6 +2648,83 @@
           "total_results": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "SourceIssueDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "rule",
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "message": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceLineDto": {
+        "type": "object",
+        "required": [
+          "line",
+          "issues"
+        ],
+        "properties": {
+          "coverage_hits": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Times this line executed in the most recently ingested coverage\nreport for this file/branch; absent when that line carries no\ncoverage instrumentation data (or no report has been ingested at\nall — see `coverage_available`).",
+            "minimum": 0
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceIssueDto"
+            }
+          },
+          "line": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1-based line number.",
+            "minimum": 0
+          }
+        }
+      },
+      "SourcesDto": {
+        "type": "object",
+        "required": [
+          "file",
+          "coverage_available",
+          "lines"
+        ],
+        "properties": {
+          "coverage_available": {
+            "type": "boolean",
+            "description": "True once a coverage report has ever been ingested that instrumented\nthis file — distinguishes \"measured, zero hits anywhere\" (every\n`coverage_hits` is `Some(0)`) from \"never measured\" (every line's\n`coverage_hits` is absent because this is `false`)."
+          },
+          "file": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceLineDto"
+            },
+            "description": "Only lines with at least one issue or coverage data point are\npresent — this is an annotation overlay, not the full file (see\nmodule docs on why source text isn't returned)."
           }
         }
       },
