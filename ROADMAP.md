@@ -221,12 +221,24 @@ re-analysis on typical PRs.
   shelling out to the CLI.
 - **Test report ingestion**: ✅ JUnit XML parser (`infra/fs/src/junit.rs`)
   wired into the CLI `--junit` flag and test-summary measures.
-- **Cross-file taint analysis**: ✅ inter-procedural summaries and
-  project-wide function resolution ported (`core/taint/src/cross.rs`) —
-  parameter→sink and parameter→return-value summaries iterated to a global
-  fixpoint, so `caller → helper → runner → sink` chains resolve across file
-  boundaries; name resolution is a project-wide-by-name heuristic rather
-  than a real import/export edge graph, a deliberate zero-config tradeoff.
+- **Cross-file taint analysis**: ✅ inter-procedural summaries ported
+  (`core/taint/src/cross.rs`) — parameter→sink and parameter→return-value
+  summaries iterated to a global fixpoint, so `caller → helper → runner →
+  sink` chains resolve across file boundaries. ✅ **(this session)** name
+  resolution now goes through a real import/export module edge graph
+  (`collect_imports`/`resolve_module_specifier`) instead of a project-wide
+  by-name heuristic: functions are keyed by `(file, name)`, and a call site
+  resolves to the specific file it was imported from — a same-named
+  function in an unrelated file is never conflated with the one actually in
+  scope (regression-tested: `same_named_function_in_an_unimported_file_is_not_conflated`,
+  `imported_function_resolves_to_the_correct_file_even_with_a_same_named_decoy`).
+  Handles default/named/aliased ES imports and relative-path resolution
+  across subdirectories (`./lib`, `../utils/foo`, extension and `/index`
+  inference). Bare/package specifiers (`'child_process'`, `'react'`) stay
+  external, as before. Files with no recognized `import` syntax at all
+  (non-ES-module languages, synthetic ASTs) fall back to the previous
+  project-wide by-name lookup — a deliberate, narrower fallback rather than
+  a silent behavior change outside the ES-module family.
   ✅ **Sanitizer modeling** ported: `TaintConfig::with_sanitizer` names a
   function whose call cleanses taint — a sanitizer call is treated as a
   boundary the analysis does not recurse past, so neither a source marker
