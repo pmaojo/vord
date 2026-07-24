@@ -1185,6 +1185,98 @@
         }
       }
     },
+    "/api/quality-profiles/compare": {
+      "get": {
+        "summary": "Compares two profiles' effective (inheritance-resolved) rule\nactivations: which rules are active in one but not the other, and where\na shared rule's severity differs.",
+        "operationId": "compare_quality_profiles",
+        "parameters": [
+          {
+            "name": "a",
+            "in": "query",
+            "description": "First profile's name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "b",
+            "in": "query",
+            "description": "Second profile's name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The diff between the two profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDiffDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "One or both profile names don't exist"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/quality-profiles/restore": {
+      "post": {
+        "summary": "Restores a profile from a backup produced by\n`GET /api/quality-profiles/{name}/backup` (on this instance or another\none). If a profile already exists under the backup's name, the restore\nis rejected with `409 Conflict` unless `?force=true`; the backup's\n`parent_name`, if set, is resolved against this instance's profiles —\nif nothing here has that name, the restored profile ends up parentless\nrather than the whole restore failing (so a backup taken on one\ninstance still restores cleanly on another that never had the parent).\nAudit-logged as `profile.restored`.",
+        "operationId": "restore_quality_profile",
+        "parameters": [
+          {
+            "name": "force",
+            "in": "query",
+            "description": "Overwrite an existing same-named profile instead of rejecting the\nrestore. Defaults to `false` — restoring never silently clobbers.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileBackupDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The restored profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileSnapshotDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid rule id or severity in the backup"
+          },
+          "409": {
+            "description": "A profile with this name already exists; retry with force=true"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
     "/api/quality-profiles/{name}": {
       "put": {
         "summary": "Create or update a named quality profile's rule activations;\naudit-logged as `profile.updated`.",
@@ -1223,6 +1315,86 @@
           },
           "400": {
             "description": "Invalid rule id or severity"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/quality-profiles/{name}/backup": {
+      "get": {
+        "summary": "Downloads a profile as a portable JSON backup — own activations only\n(not inherited ones, same convention as the domain type this mirrors,\n`yunq_profiles::ProfileBackup`) plus its parent's name.",
+        "operationId": "backup_quality_profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Profile name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable backup of the profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileBackupDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No profile named `name`"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/quality-profiles/{name}/copy": {
+      "post": {
+        "summary": "Duplicates a profile's effective (inheritance-resolved) rule\nactivations into a brand-new, standalone profile — no parent link, so\nlater edits to the source never retroactively change the copy. If a\nprofile already exists under `new_name`, its activations are replaced\n(same \"create or update\" semantics as `PUT /api/quality-profiles/{name}`\n— copy is just that write path with its input read from another\nprofile instead of the request body); audit-logged as `profile.copied`.",
+        "operationId": "copy_quality_profile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Source profile name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileCopyRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The new copy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileSnapshotDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No profile named `name`"
           },
           "502": {
             "description": "Storage backend unavailable"
@@ -1552,6 +1724,24 @@
   },
   "components": {
     "schemas": {
+      "ActivationDto": {
+        "type": "object",
+        "description": "One rule activation as `(rule id, severity)`, both stringified — the\nwire shape for a profile's activation list everywhere in this file.",
+        "required": [
+          "rule",
+          "severity"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string",
+            "description": "e.g. owasp:eval-usage."
+          },
+          "severity": {
+            "type": "string",
+            "description": "One of: info, minor, major, critical, blocker."
+          }
+        }
+      },
       "AgentFixProposalDto": {
         "type": "object",
         "required": [
@@ -2372,6 +2562,74 @@
           }
         }
       },
+      "ProfileBackupDto": {
+        "type": "object",
+        "description": "Portable backup format: a profile's name, its own (non-inherited)\nactivations, and its parent's name if it has one. Restoring this same\nshape (via `POST /api/quality-profiles/restore`) reconstructs the\nprofile, resolving the parent by name on whichever instance it's\nrestored to — deliberately not a foreign-key/id reference, so a backup\ndownloaded from one yunq instance can be uploaded to another.",
+        "required": [
+          "name",
+          "activations"
+        ],
+        "properties": {
+          "activations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationDto"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ProfileCopyRequestDto": {
+        "type": "object",
+        "required": [
+          "new_name"
+        ],
+        "properties": {
+          "new_name": {
+            "type": "string",
+            "description": "Name for the new, standalone copy."
+          }
+        }
+      },
+      "ProfileDiffDto": {
+        "type": "object",
+        "required": [
+          "only_in_a",
+          "only_in_b",
+          "severity_differs"
+        ],
+        "properties": {
+          "only_in_a": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationDto"
+            },
+            "description": "Active in `a`, inactive in `b`."
+          },
+          "only_in_b": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationDto"
+            },
+            "description": "Active in `b`, inactive in `a`."
+          },
+          "severity_differs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeverityDifferenceDto"
+            },
+            "description": "Active in both, at different severities."
+          }
+        }
+      },
       "ProfileDto": {
         "type": "object",
         "required": [
@@ -2383,6 +2641,24 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ProfileActivationDto"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileSnapshotDto": {
+        "type": "object",
+        "required": [
+          "name",
+          "activations"
+        ],
+        "properties": {
+          "activations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationDto"
             }
           },
           "name": {
@@ -2658,6 +2934,25 @@
           "total_results": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "SeverityDifferenceDto": {
+        "type": "object",
+        "required": [
+          "rule",
+          "severity_in_a",
+          "severity_in_b"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string"
+          },
+          "severity_in_a": {
+            "type": "string"
+          },
+          "severity_in_b": {
+            "type": "string"
           }
         }
       },
