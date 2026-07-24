@@ -4103,6 +4103,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-symbols"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-python",
+ "yunq-parser-rust",
+ "yunq-parser-typescript",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-taint"
 version = "0.1.1"
 dependencies = [

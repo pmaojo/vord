@@ -14,6 +14,8 @@ yunq-ast = { path = "core/ast" }
 yunq-profiles = { path = "core/profiles" }
 yunq-rules-engine = { path = "core/rules-engine" }
 yunq-taint = { path = "core/taint" }
+yunq-symbols = { path = "core/symbols" }
+yunq-import-graph = { path = "core/import-graph" }
 yunq-parser-typescript = { path = "parsers/treesitter-typescript" }
 yunq-parser-rust = { path = "parsers/treesitter-rust" }
 yunq-parser-python = { path = "parsers/treesitter-python" }
@@ -47,6 +49,7 @@ yunq-rules-a11y = { path = "rulesets/a11y" }
 yunq-rules-react = { path = "rulesets/react" }
 yunq-rules-secrets = { path = "rulesets/secrets" }
 yunq-rules-rust = { path = "rulesets/rust" }
+yunq-rules-architecture = { path = "rulesets/architecture" }
 yunq-infra-memory = { path = "infra/memory" }
 yunq-cli = { path = "bin/cli" }
 yunq-infra-fs = { path = "infra/fs" }
