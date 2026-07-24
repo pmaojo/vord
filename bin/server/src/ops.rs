@@ -17,7 +17,7 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
-use yunq_infra_postgres::{AuditLogEntry, AuditLogQuery, PgIssueStorage, SystemSnapshot};
+use yunq_infra_postgres::{AuditLogEntry, AuditLogQuery, PgIssueStorage, PurgeReport, SystemSnapshot};
 use yunq_rules_engine::{ComparisonOperator, MetricKey, Page, RuleId, Severity, StorageError};
 
 use crate::AppState;
@@ -69,6 +69,18 @@ pub(crate) trait OpsStore: Send + Sync {
     ) -> BoxFuture<'_, Result<Page<AuditLogEntry>, StorageError>>;
 
     fn system_snapshot(&self) -> BoxFuture<'_, SystemSnapshot>;
+
+    /// Sets (or clears, with `None`) a project's analysis-history retention
+    /// override in days. Returns the prior value for the audit log.
+    fn set_retention(
+        &self,
+        project_key: String,
+        retention_days: Option<i32>,
+    ) -> BoxFuture<'_, Result<Option<i32>, StorageError>>;
+
+    /// Deletes analyses past each project's effective retention (its own
+    /// override, else `default_days`).
+    fn purge_expired(&self, default_days: Option<i32>) -> BoxFuture<'_, Result<PurgeReport, StorageError>>;
 }
 
 impl OpsStore for PgIssueStorage {
@@ -134,6 +146,20 @@ impl OpsStore for PgIssueStorage {
 
     fn system_snapshot(&self) -> BoxFuture<'_, SystemSnapshot> {
         Box::pin(PgIssueStorage::system_snapshot(self))
+    }
+
+    fn set_retention(
+        &self,
+        project_key: String,
+        retention_days: Option<i32>,
+    ) -> BoxFuture<'_, Result<Option<i32>, StorageError>> {
+        Box::pin(async move {
+            PgIssueStorage::set_project_retention_days(self, &project_key, retention_days).await
+        })
+    }
+
+    fn purge_expired(&self, default_days: Option<i32>) -> BoxFuture<'_, Result<PurgeReport, StorageError>> {
+        Box::pin(async move { PgIssueStorage::purge_expired(self, default_days).await })
     }
 }
 
@@ -495,6 +521,109 @@ pub(crate) async fn revoke_permission(
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     Ok(Json(PermissionDto { project_key: key, user_login: user, role: None }))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct RetentionUpdateRequestDto {
+    /// Days to keep this project's analysis history for, or `null` to fall
+    /// back to the instance-wide default (`YUNQ_DEFAULT_RETENTION_DAYS`, if
+    /// set — otherwise history is kept forever).
+    retention_days: Option<i32>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct RetentionDto {
+    project_key: String,
+    retention_days: Option<i32>,
+}
+
+/// Sets (or clears) a project's analysis-history retention override, in
+/// days; audit-logged as `project.retention_updated`.
+#[utoipa::path(
+    put,
+    path = "/api/projects/{key}/retention",
+    params(("key" = String, Path, description = "Project key")),
+    request_body = RetentionUpdateRequestDto,
+    responses(
+        (status = 200, description = "Retention override after the update", body = RetentionDto),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn set_project_retention(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<RetentionUpdateRequestDto>,
+) -> Result<Json<RetentionDto>, (StatusCode, String)> {
+    let actor = actor_from_headers(&state, &headers);
+
+    let before = state
+        .ops
+        .set_retention(key.clone(), request.retention_days)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    state
+        .ops
+        .record_audit(
+            actor,
+            "project.retention_updated".to_string(),
+            "project".to_string(),
+            key.clone(),
+            Some(serde_json::json!({ "retention_days": before })),
+            Some(serde_json::json!({ "retention_days": request.retention_days })),
+        )
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(RetentionDto { project_key: key, retention_days: request.retention_days }))
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct PurgeReportDto {
+    analyses_deleted: i64,
+}
+
+/// Runs housekeeping immediately: deletes analyses past each project's
+/// effective retention (its own override, else the instance-wide
+/// `YUNQ_DEFAULT_RETENTION_DAYS` default, if set). The worker also runs
+/// this on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`); this endpoint is
+/// for an on-demand run or an external scheduler. Audit-logged as
+/// `housekeeping.purged`.
+#[utoipa::path(
+    post,
+    path = "/api/housekeeping/purge",
+    responses(
+        (status = 200, description = "Rows removed by this run", body = PurgeReportDto),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn run_housekeeping(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<PurgeReportDto>, (StatusCode, String)> {
+    let actor = actor_from_headers(&state, &headers);
+
+    let report = state
+        .ops
+        .purge_expired(state.default_retention_days)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    state
+        .ops
+        .record_audit(
+            actor,
+            "housekeeping.purged".to_string(),
+            "housekeeping".to_string(),
+            "retention".to_string(),
+            None,
+            Some(serde_json::json!({ "analyses_deleted": report.analyses_deleted })),
+        )
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(PurgeReportDto { analyses_deleted: report.analyses_deleted as i64 }))
 }
 
 #[derive(Deserialize, IntoParams)]

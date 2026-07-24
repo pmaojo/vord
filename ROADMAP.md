@@ -275,7 +275,18 @@ re-analysis on typical PRs.
   changes, changelog per issue.
 - **Security hotspots**: distinct finding type with to-review/acknowledged/
   fixed/safe workflow and review metrics.
-- **Housekeeping**: configurable retention of analyses/issues history.
+- **Housekeeping**: configurable retention of analyses history — done for
+  `analyses` (and its cascaded gate-result/coverage rows): per-project
+  `retention_days` override (`PUT /api/projects/{key}/retention`) falling
+  back to an instance-wide `YUNQ_DEFAULT_RETENTION_DAYS`; `yunq-worker`
+  purges on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`, default 24h) and
+  `POST /api/housekeeping/purge` runs it on demand, both audit-logged. A
+  project with neither set is left untouched (opt-in, not silent, since
+  deletion isn't reversible). `issues`/`hotspots` retention is explicitly out of
+  scope here: they're a flat table with no `project_id`/`analysis_id` in
+  the schema (`infra/postgres/migrations/0001_init.sql`), so "issue
+  history" isn't a thing this schema can express yet — pruning them needs
+  that scoping added first, which is a separate, larger change.
 
 ## Phase 4 — API, web platform & collaboration
 

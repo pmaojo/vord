@@ -325,6 +325,27 @@
         }
       }
     },
+    "/api/housekeeping/purge": {
+      "post": {
+        "summary": "Runs housekeeping immediately: deletes analyses past each project's\neffective retention (its own override, else the instance-wide\n`YUNQ_DEFAULT_RETENTION_DAYS` default, if set). The worker also runs\nthis on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`); this endpoint is\nfor an on-demand run or an external scheduler. Audit-logged as\n`housekeeping.purged`.",
+        "operationId": "run_housekeeping",
+        "responses": {
+          "200": {
+            "description": "Rows removed by this run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeReportDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
     "/api/issues": {
       "get": {
         "summary": "Search issues with filters and pagination (newest first).",
@@ -869,6 +890,48 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PermissionDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/projects/{key}/retention": {
+      "put": {
+        "summary": "Sets (or clears) a project's analysis-history retention override, in\ndays; audit-logged as `project.retention_updated`.",
+        "operationId": "set_project_retention",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionUpdateRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Retention override after the update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionDto"
                 }
               }
             }
@@ -2095,6 +2158,18 @@
           }
         }
       },
+      "PurgeReportDto": {
+        "type": "object",
+        "required": [
+          "analyses_deleted"
+        ],
+        "properties": {
+          "analyses_deleted": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "QueuedDeliveryDto": {
         "type": "object",
         "required": [
@@ -2115,6 +2190,37 @@
           },
           "webhook_id": {
             "type": "string"
+          }
+        }
+      },
+      "RetentionDto": {
+        "type": "object",
+        "required": [
+          "project_key"
+        ],
+        "properties": {
+          "project_key": {
+            "type": "string"
+          },
+          "retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "RetentionUpdateRequestDto": {
+        "type": "object",
+        "properties": {
+          "retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Days to keep this project's analysis history for, or `null` to fall\nback to the instance-wide default (`YUNQ_DEFAULT_RETENTION_DAYS`, if\nset — otherwise history is kept forever)."
           }
         }
       },

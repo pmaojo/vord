@@ -52,6 +52,10 @@ struct AppState {
     metrics: metrics::Metrics,
     webhooks: webhooks::WebhookDispatcher,
     auth: auth::OAuthService,
+    /// Instance-wide analysis-history retention in days, from
+    /// `YUNQ_DEFAULT_RETENTION_DAYS`. `None` (unset) means "keep forever"
+    /// for any project without its own `retention_days` override.
+    default_retention_days: Option<i32>,
 }
 
 /// Object-safe HTTP-facing adapters over the segregated core ports. Their
@@ -244,6 +248,8 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(ops::upsert_quality_profile))
         .routes(routes!(ops::grant_permission, ops::revoke_permission))
         .routes(routes!(ops::list_audit_log))
+        .routes(routes!(ops::set_project_retention))
+        .routes(routes!(ops::run_housekeeping))
         .split_for_parts()
 }
 
@@ -262,8 +268,21 @@ fn build_app_state() -> anyhow::Result<Arc<AppState>> {
     let coverage: Arc<dyn CoveragePort> = Arc::new(storage.clone());
     let ops: Arc<dyn OpsStore> = Arc::new(storage.clone());
     let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
+    let default_retention_days = std::env::var("YUNQ_DEFAULT_RETENTION_DAYS")
+        .ok()
+        .and_then(|raw| raw.parse::<i32>().ok());
 
-    Ok(Arc::new(AppState { queue, reader, gate, coverage, ops, metrics, webhooks, auth }))
+    Ok(Arc::new(AppState {
+        queue,
+        reader,
+        gate,
+        coverage,
+        ops,
+        metrics,
+        webhooks,
+        auth,
+        default_retention_days,
+    }))
 }
 
 #[tokio::main]

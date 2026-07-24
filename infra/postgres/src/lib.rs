@@ -20,9 +20,11 @@ mod gate;
 mod permission;
 mod profile;
 mod queue;
+mod retention;
 mod system;
 pub use audit::{AuditLogEntry, AuditLogQuery};
 pub use queue::PgJobConsumer;
+pub use retention::PurgeReport;
 pub use system::SystemSnapshot;
 
 #[derive(Clone)]

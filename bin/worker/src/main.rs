@@ -2,9 +2,11 @@
 //! them into the pure `AnalyzerService`, and processes scan jobs claimed
 //! from the `scan_jobs` Postgres table.
 //!
-//! Env: `DATABASE_URL`.
+//! Env: `DATABASE_URL`, `YUNQ_DEFAULT_RETENTION_DAYS`,
+//! `YUNQ_HOUSEKEEPING_INTERVAL_HOURS`.
 
 use std::path::Path;
+use std::time::Duration;
 
 use yunq_infra_postgres::{PgIssueStorage, PgJobConsumer};
 use yunq_parser_go::GoParser;
@@ -34,10 +36,40 @@ async fn main() -> anyhow::Result<()> {
     let gate_storage = storage.clone();
     let service = default_service(storage.clone(), storage);
 
-    // 3. Boot.
+    // 3. Boot. Housekeeping runs on its own timer alongside the job-consume
+    // loop rather than blocking it — a purge is unrelated to, and much
+    // rarer than, scan-job throughput.
+    tokio::spawn(run_housekeeping_loop(gate_storage.clone()));
     println!("yunq-worker consuming scan jobs");
     consumer.listen(|job| handle_job(&service, &gate_storage, job)).await?;
     Ok(())
+}
+
+/// Periodically deletes analyses past each project's effective retention
+/// (its own override, else `YUNQ_DEFAULT_RETENTION_DAYS`). A project with
+/// neither set is left untouched — retention is opt-in, not a silent
+/// default, since deletion isn't reversible. Runs once at startup, then
+/// every `YUNQ_HOUSEKEEPING_INTERVAL_HOURS` (default 24).
+async fn run_housekeeping_loop(storage: PgIssueStorage) {
+    let default_days = std::env::var("YUNQ_DEFAULT_RETENTION_DAYS")
+        .ok()
+        .and_then(|raw| raw.parse::<i32>().ok());
+    let interval_hours: u64 = std::env::var("YUNQ_HOUSEKEEPING_INTERVAL_HOURS")
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or(24);
+    let mut ticker = tokio::time::interval(Duration::from_secs(interval_hours * 3600));
+
+    loop {
+        ticker.tick().await;
+        match storage.purge_expired(default_days).await {
+            Ok(report) if report.analyses_deleted > 0 => {
+                println!("housekeeping: purged {} expired analyses", report.analyses_deleted);
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("warning: housekeeping purge failed: {e}"),
+        }
+    }
 }
 
 fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
