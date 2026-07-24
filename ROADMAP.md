@@ -319,10 +319,19 @@ re-analysis on typical PRs.
 ## Phase 4 — API, web platform & collaboration
 
 - **REST API parity**: pagination envelopes, rich filtering/faceting
-  (severity, rule, file, assignee, tag, creation date…), measures +
-  measure history, component tree navigation, `sources` endpoints with
-  line-level annotations (coverage, duplication, issues, SCM blame) — the
-  full data source for the frontend clone. Contract stays generated:
+  (severity, rule, file, assignee, tag, creation date…) — done. ✅
+  **(this session)** Measures + measure history, component tree, and a
+  `sources` endpoint: `analysis_measures`/`analysis_file_coverage_lines`
+  (migration `0017`) persist a real per-analysis measure set (project- and
+  file-level) and per-line coverage hit counts — there was no historical
+  measure storage at all before this, only a couple of summary columns on
+  `analyses`. `GET /api/projects/{key}/measures/history` and
+  `GET /api/projects/{key}/components/tree` (a flat, measure-annotated file
+  list for v1 — not yet a nested directory tree, documented as a scoped-down
+  first cut) expose it; `GET /api/projects/{key}/sources` returns per-line
+  issue + coverage annotations. Duplication and SCM blame annotations,
+  and source text itself (never persisted anywhere), are explicitly
+  deferred rather than fabricated. Contract stays generated:
   `api/openapi.json`.
 - **Auth**: local users + user tokens (already-hashed at rest), OAuth
   (GitHub/GitLab), SAML later; groups; global + per-project permissions,
