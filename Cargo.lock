@@ -3557,6 +3557,7 @@ dependencies = [
  "yunq-parser-yaml",
  "yunq-remediation",
  "yunq-rules-a11y",
+ "yunq-rules-architecture",
  "yunq-rules-engine",
  "yunq-rules-iac",
  "yunq-rules-owasp",
@@ -3572,6 +3573,16 @@ name = "yunq-cpd"
 version = "0.1.1"
 dependencies = [
  "yunq-ast",
+]
+
+[[package]]
+name = "yunq-import-graph"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-python",
+ "yunq-parser-typescript",
+ "yunq-rules-engine",
 ]
 
 [[package]]
@@ -3992,6 +4003,17 @@ name = "yunq-rules-a11y"
 version = "0.1.1"
 dependencies = [
  "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-rules-architecture"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-import-graph",
+ "yunq-parser-python",
+ "yunq-parser-typescript",
  "yunq-rules-engine",
 ]
 
