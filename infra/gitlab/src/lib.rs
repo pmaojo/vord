@@ -92,19 +92,13 @@ impl AlmPullRequestReporter for GitLabAlmAdapter {
         new_issues: &[Issue],
         gate_summary: &str,
     ) -> Result<(), AlmError> {
-        let mut comment = String::from("## 🛡️ yunq MR Analysis Summary
-
-");
-        comment.push_str(&format!("**Quality Gate**: {}
-
-", gate_summary));
+        let mut comment = String::from("## 🛡️ yunq MR Analysis Summary\n\n");
+        comment.push_str(&format!("**Quality Gate**: {}\n\n", gate_summary));
 
         if !new_issues.is_empty() {
-            comment.push_str(&format!("### New Issues ({})
-", new_issues.len()));
+            comment.push_str(&format!("### New Issues ({})\n", new_issues.len()));
             for issue in new_issues {
-                comment.push_str(&format!("- [{:?}] `{}`: {} ({}:{})
-", issue.severity(), issue.rule().as_str(), issue.message(), issue.file(), issue.span().start_line));
+                comment.push_str(&format!("- [{:?}] `{}`: {} ({}:{})\n", issue.severity(), issue.rule().as_str(), issue.message(), issue.file(), issue.span().start_line));
             }
         }
         self.post_mr_comment(pr_number.get() as u64, &comment).await

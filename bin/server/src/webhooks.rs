@@ -202,7 +202,7 @@ impl WebhookDispatcher {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut hooks: Vec<_> = registrations.values().map(WebhookDto::from).collect();
-        hooks.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        hooks.sort_by_key(|left| left.created_at);
         hooks
     }
 
