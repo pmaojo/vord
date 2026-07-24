@@ -3562,6 +3562,7 @@ dependencies = [
  "yunq-rules-iac",
  "yunq-rules-owasp",
  "yunq-rules-react",
+ "yunq-rules-reactive",
  "yunq-rules-rust",
  "yunq-rules-secrets",
  "yunq-rules-smells",
@@ -4055,6 +4056,15 @@ dependencies = [
  "yunq-parser-typescript",
  "yunq-rules-engine",
  "yunq-symbols",
+]
+
+[[package]]
+name = "yunq-rules-reactive"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-typescript",
+ "yunq-rules-engine",
 ]
 
 [[package]]

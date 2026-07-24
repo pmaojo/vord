@@ -50,6 +50,7 @@ yunq-rules-react = { path = "rulesets/react" }
 yunq-rules-secrets = { path = "rulesets/secrets" }
 yunq-rules-rust = { path = "rulesets/rust" }
 yunq-rules-architecture = { path = "rulesets/architecture" }
+yunq-rules-reactive = { path = "rulesets/reactive" }
 yunq-infra-memory = { path = "infra/memory" }
 yunq-cli = { path = "bin/cli" }
 yunq-infra-fs = { path = "infra/fs" }
