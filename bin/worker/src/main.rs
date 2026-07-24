@@ -105,8 +105,12 @@ where
         .chain(yunq_rules_react::all_rules())
         .chain(yunq_rules_secrets::all_rules())
         .chain(yunq_rules_rust::all_rules())
+        .chain(yunq_rules_reactive::all_rules())
         .collect();
-    let cross_rules = yunq_rules_owasp::all_cross_rules();
+    let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> = yunq_rules_owasp::all_cross_rules()
+        .into_iter()
+        .chain(yunq_rules_architecture::all_cross_rules())
+        .collect();
     let profile = yunq_rules_engine::sonar_way();
     let mut service = AnalyzerService::new(profile, storage, metrics)
         .register_parser(Box::new(TypeScriptParser::new()))

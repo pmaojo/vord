@@ -66,6 +66,8 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("owasp:command-execution"), Severity::Major),
         // rulesets/owasp — cross-file rule, runs once per scan.
         (rule("owasp:cross-file-injection"), Severity::Blocker),
+        // rulesets/architecture — cross-file rule, runs once per scan.
+        (rule("architecture:dependency-cycle"), Severity::Major),
         // rulesets/code-smells — applies_to true for every language.
         (rule("smells:todo-comment"), Severity::Info),
         (rule("smells:long-function"), Severity::Minor),
@@ -94,6 +96,8 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("rust:unsafe-undocumented"), Severity::Major),
         // rulesets/code-smells — applies_to rust only.
         (rule("smells:unwrap-usage"), Severity::Major),
+        // rulesets/code-smells — applies_to typescript/python/rust.
+        (rule("smells:god-class"), Severity::Major),
     ]);
     activations
 }
@@ -120,6 +124,16 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("react:unsafe-target-blank"), Severity::Major),
         (rule("react:jsx-img-missing-alt"), Severity::Major),
         (rule("react:inline-prop-function-in-component"), Severity::Minor),
+        (rule("react:exhaustive-deps"), Severity::Major),
+        (rule("react:unused-state"), Severity::Minor),
+        // rulesets/code-smells — applies_to typescript/python/rust or
+        // typescript/python.
+        (rule("smells:god-class"), Severity::Major),
+        (rule("smells:feature-envy"), Severity::Minor),
+        (rule("smells:refused-bequest"), Severity::Minor),
+        // rulesets/reactive — applies_to typescript (RxJS).
+        (rule("reactive:missing-unsubscribe"), Severity::Major),
+        (rule("reactive:subject-never-completed"), Severity::Minor),
     ]);
     activations
 }
@@ -132,6 +146,11 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("owasp:eval-usage"), Severity::Critical),
         (rule("owasp:disabled-cert-validation"), Severity::Critical),
         (rule("owasp:insecure-deserialization"), Severity::Critical),
+        // rulesets/code-smells — applies_to typescript/python/rust or
+        // typescript/python.
+        (rule("smells:god-class"), Severity::Major),
+        (rule("smells:feature-envy"), Severity::Minor),
+        (rule("smells:refused-bequest"), Severity::Minor),
     ]);
     activations
 }
