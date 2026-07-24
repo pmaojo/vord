@@ -39,6 +39,7 @@ mod coverage;
 mod measures;
 mod metrics;
 mod ops;
+mod profiles_admin;
 mod sources;
 mod webhooks;
 
@@ -251,6 +252,10 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(ops::system_info))
         .routes(routes!(ops::upsert_quality_gate))
         .routes(routes!(ops::upsert_quality_profile))
+        .routes(routes!(profiles_admin::compare_quality_profiles))
+        .routes(routes!(profiles_admin::copy_quality_profile))
+        .routes(routes!(profiles_admin::backup_quality_profile))
+        .routes(routes!(profiles_admin::restore_quality_profile))
         .routes(routes!(ops::grant_permission, ops::revoke_permission))
         .routes(routes!(ops::list_audit_log))
         .routes(routes!(ops::set_project_retention))

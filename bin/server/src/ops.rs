@@ -3,10 +3,15 @@
 //! after it lands, and `GET /api/audit-log` to read the trail back.
 //!
 //! Deliberately minimal: gates/profiles are a flat name + condition/
-//! activation list (no inheritance, no per-project assignment endpoint —
-//! that's Fase 3 territory) and permissions are a single fixed role per
-//! (project, user) — no groups, no templates, no SSO. Just enough surface
-//! to have something real to audit.
+//! activation list (no per-project assignment endpoint — that's Fase 3
+//! territory) and permissions are a single fixed role per (project, user)
+//! — no groups, no templates, no SSO. Just enough surface to have
+//! something real to audit.
+//!
+//! Profile inheritance, compare/copy/backup-restore (issue #22) live in
+//! `profiles_admin` — this module only exposes the persistence ops they
+//! need (`compare_profiles`/`copy_profile`/`read_profile`/`restore_profile`
+//! below) through the same `OpsStore` port as everything else.
 
 use std::sync::Arc;
 
@@ -17,8 +22,14 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
-use yunq_infra_postgres::{AuditLogEntry, AuditLogQuery, PgIssueStorage, PurgeReport, SystemSnapshot};
-use yunq_rules_engine::{ComparisonOperator, MetricKey, Page, RuleId, Severity, StorageError};
+use yunq_infra_postgres::{
+    AuditLogEntry, AuditLogQuery, CompareProfileError, CopyProfileError, PgIssueStorage,
+    PurgeReport, RestoreProfileError, SystemSnapshot,
+};
+use yunq_rules_engine::{
+    ComparisonOperator, MetricKey, Page, ProfileBackup, ProfileDiff, QualityProfile, RuleId,
+    Severity, StorageError,
+};
 
 use crate::AppState;
 
@@ -81,6 +92,37 @@ pub(crate) trait OpsStore: Send + Sync {
     /// Deletes analyses past each project's effective retention (its own
     /// override, else `default_days`).
     fn purge_expired(&self, default_days: Option<i32>) -> BoxFuture<'_, Result<PurgeReport, StorageError>>;
+
+    /// Reads a stored profile (activations plus its resolved parent chain),
+    /// for `profiles_admin`'s backup endpoint. `Ok(None)` if no profile has
+    /// that name.
+    fn read_profile(&self, name: String) -> BoxFuture<'_, Result<Option<QualityProfile>, StorageError>>;
+
+    /// Compares two stored profiles' effective activations — issue #22's
+    /// "Compare profiles" operation.
+    fn compare_profiles(
+        &self,
+        name_a: String,
+        name_b: String,
+    ) -> BoxFuture<'_, Result<ProfileDiff, CompareProfileError>>;
+
+    /// Duplicates a stored profile's effective activations under a new
+    /// name — issue #22's "Copy profile" operation. Returns the copy's
+    /// activations for the audit log.
+    fn copy_profile(
+        &self,
+        source_name: String,
+        new_name: String,
+    ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, CopyProfileError>>;
+
+    /// Restores a profile from a backup — issue #22's "Restore profile"
+    /// operation. See `PgIssueStorage::restore_quality_profile` for the
+    /// name-collision policy `force` controls.
+    fn restore_profile(
+        &self,
+        backup: ProfileBackup,
+        force: bool,
+    ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, RestoreProfileError>>;
 }
 
 impl OpsStore for PgIssueStorage {
@@ -160,6 +202,34 @@ impl OpsStore for PgIssueStorage {
 
     fn purge_expired(&self, default_days: Option<i32>) -> BoxFuture<'_, Result<PurgeReport, StorageError>> {
         Box::pin(async move { PgIssueStorage::purge_expired(self, default_days).await })
+    }
+
+    fn read_profile(&self, name: String) -> BoxFuture<'_, Result<Option<QualityProfile>, StorageError>> {
+        Box::pin(async move { PgIssueStorage::read_quality_profile(self, &name).await })
+    }
+
+    fn compare_profiles(
+        &self,
+        name_a: String,
+        name_b: String,
+    ) -> BoxFuture<'_, Result<ProfileDiff, CompareProfileError>> {
+        Box::pin(async move { PgIssueStorage::compare_quality_profiles(self, &name_a, &name_b).await })
+    }
+
+    fn copy_profile(
+        &self,
+        source_name: String,
+        new_name: String,
+    ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, CopyProfileError>> {
+        Box::pin(async move { PgIssueStorage::copy_quality_profile(self, &source_name, &new_name).await })
+    }
+
+    fn restore_profile(
+        &self,
+        backup: ProfileBackup,
+        force: bool,
+    ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, RestoreProfileError>> {
+        Box::pin(async move { PgIssueStorage::restore_quality_profile(self, &backup, force).await })
     }
 }
 

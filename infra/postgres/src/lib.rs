@@ -24,6 +24,7 @@ mod queue;
 mod retention;
 mod system;
 pub use audit::{AuditLogEntry, AuditLogQuery};
+pub use profile::{CompareProfileError, CopyProfileError, ProfileNotFoundError, RestoreProfileError};
 pub use queue::PgJobConsumer;
 pub use retention::PurgeReport;
 pub use system::SystemSnapshot;
