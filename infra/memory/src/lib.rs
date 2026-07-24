@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use yunq_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, Hotspot, HotspotReader, HotspotReview,
     HotspotStatus, HotspotStorage, Issue, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader,
-    IssueFacets, IssueQuery, IssueReader, IssueStorage, IssueTransition, IssueWorkflow, Metrics,
-    MetricsTracker, Page, RuleId, Severity, StorageError, StoredHotspot, StoredIssue,
+    IssueFacets, IssueQuery, IssueReader, IssueScope, IssueStorage, IssueTransition, IssueWorkflow,
+    Metrics, MetricsTracker, Page, RuleId, Severity, StorageError, StoredHotspot, StoredIssue,
     WorkflowError,
 };
 
@@ -50,7 +50,10 @@ impl InMemoryIssueStorage {
 }
 
 impl IssueStorage for InMemoryIssueStorage {
-    async fn save_issues(&self, issues: &[Issue]) -> Result<(), StorageError> {
+    // This adapter is a single-process, ephemeral test double (CLI local
+    // scans, integration test fakes); it has no notion of a project, so the
+    // scope is accepted for port-compatibility but not stored.
+    async fn save_issues(&self, issues: &[Issue], _scope: IssueScope) -> Result<(), StorageError> {
         self.issues
             .lock()
             .map_err(|e| StorageError(e.to_string()))?
@@ -137,7 +140,7 @@ impl IssueChangelogReader for InMemoryIssueStorage {
 }
 
 impl HotspotStorage for InMemoryIssueStorage {
-    async fn save_hotspots(&self, hotspots: &[Hotspot]) -> Result<(), StorageError> {
+    async fn save_hotspots(&self, hotspots: &[Hotspot], _scope: IssueScope) -> Result<(), StorageError> {
         self.hotspots
             .lock()
             .map_err(|e| StorageError(e.to_string()))?
@@ -249,7 +252,7 @@ mod tests {
             "a.rs",
             Span::new(1, 1, 1, 2),
         );
-        futures::executor::block_on(storage.save_issues(&[issue])).unwrap();
+        futures::executor::block_on(storage.save_issues(&[issue], IssueScope::default())).unwrap();
 
         let stored = futures::executor::block_on(
             storage.apply_transition(1, IssueTransition::Resolve(Resolution::WontFix)),
@@ -289,7 +292,8 @@ mod tests {
         let issue = |file: &str| {
             Issue::new(RuleId::new("test:rule").unwrap(), Severity::Major, "m", file, Span::new(1, 1, 1, 2))
         };
-        futures::executor::block_on(storage.save_issues(&[issue("a.rs"), issue("b.rs")])).unwrap();
+        futures::executor::block_on(storage.save_issues(&[issue("a.rs"), issue("b.rs")], IssueScope::default()))
+            .unwrap();
 
         let outcomes = futures::executor::block_on(
             storage.bulk_transition(&[1, 2, 99], IssueTransition::Confirm),
@@ -307,11 +311,14 @@ mod tests {
         let issue = |rule: &str, severity: Severity| {
             Issue::new(RuleId::new(rule).unwrap(), severity, "m", "a.rs", Span::new(1, 1, 1, 2))
         };
-        futures::executor::block_on(storage.save_issues(&[
-            issue("owasp:a", Severity::Blocker),
-            issue("owasp:a", Severity::Minor),
-            issue("smells:b", Severity::Blocker),
-        ]))
+        futures::executor::block_on(storage.save_issues(
+            &[
+                issue("owasp:a", Severity::Blocker),
+                issue("owasp:a", Severity::Minor),
+                issue("smells:b", Severity::Blocker),
+            ],
+            IssueScope::default(),
+        ))
         .unwrap();
 
         // Filtering by severity=Blocker still shows the FULL severity facet
@@ -334,12 +341,15 @@ mod tests {
         let issue = |rule: &str, severity: Severity, file: &str| {
             Issue::new(RuleId::new(rule).unwrap(), severity, "m", file, Span::new(1, 1, 1, 2))
         };
-        futures::executor::block_on(storage.save_issues(&[
-            issue("owasp:a", Severity::Blocker, "src/auth.ts"),
-            issue("smells:b", Severity::Minor, "src/auth.ts"),
-            issue("owasp:a", Severity::Blocker, "lib/util.rs"),
-            issue("owasp:a", Severity::Critical, "lib/util.rs"),
-        ]))
+        futures::executor::block_on(storage.save_issues(
+            &[
+                issue("owasp:a", Severity::Blocker, "src/auth.ts"),
+                issue("smells:b", Severity::Minor, "src/auth.ts"),
+                issue("owasp:a", Severity::Blocker, "lib/util.rs"),
+                issue("owasp:a", Severity::Critical, "lib/util.rs"),
+            ],
+            IssueScope::default(),
+        ))
         .unwrap();
 
         let by_severity = IssueQuery { severity: Some(Severity::Blocker), ..Default::default() };
@@ -366,7 +376,7 @@ mod tests {
             "a.rs",
             Span::new(3, 1, 3, 10),
         );
-        futures::executor::block_on(storage.save_hotspots(&[hotspot])).unwrap();
+        futures::executor::block_on(storage.save_hotspots(&[hotspot], IssueScope::default())).unwrap();
 
         let listed = futures::executor::block_on(storage.recent_hotspots(10)).unwrap();
         assert_eq!(listed.len(), 1);

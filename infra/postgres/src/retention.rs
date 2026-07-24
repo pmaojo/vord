@@ -1,17 +1,18 @@
 //! Outbound adapter: housekeeping — configurable retention for analysis
-//! history. A project's `retention_days` overrides the instance-wide
-//! default passed into `purge_expired`; `NULL` on both means "keep
-//! forever" (retention is opt-in, not a silent default, since deletion
-//! isn't reversible).
+//! history, plus (since migration `0016_issue_hotspot_scoping.sql`) the
+//! issues/hotspots found by each analysis. A project's `retention_days`
+//! overrides the instance-wide default passed into `purge_expired`; `NULL`
+//! on both means "keep forever" (retention is opt-in, not a silent
+//! default, since deletion isn't reversible).
 //!
-//! Scoped to `analyses` (and, via `ON DELETE CASCADE`, its
-//! `analysis_gate_results`/`analysis_coverage` rows) because that's the
-//! table that actually grows unbounded with history. `issues`/`hotspots`
-//! aren't scoped to a project or analysis in this schema — they're a flat,
-//! current-findings table, not history — so pruning them isn't this
-//! feature's job. `scan_jobs` never accumulates finished rows either: a
-//! successfully handled job is deleted immediately and a failed one is
-//! released back to `pending` for retry (see `queue.rs`), so there's
+//! `analyses` (and, via `ON DELETE CASCADE`, its
+//! `analysis_gate_results`/`analysis_coverage` rows) purges on the same
+//! effective-retention rule as `issues`/`hotspots`, now that the latter two
+//! carry a `project_id`/`analysis_id` (nullable — pre-migration rows have
+//! neither and are never matched by the purge query below, so they're kept
+//! forever rather than guessed at). `scan_jobs` never accumulates finished
+//! rows: a successfully handled job is deleted immediately and a failed one
+//! is released back to `pending` for retry (see `queue.rs`), so there's
 //! nothing there to age out.
 
 use sqlx::Row;
@@ -23,11 +24,13 @@ fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
 }
 
-/// How many analyses a housekeeping run actually removed, for the audit
-/// log/API response.
+/// How many rows of each kind a housekeeping run actually removed, for the
+/// audit log/API response.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PurgeReport {
     pub analyses_deleted: u64,
+    pub issues_deleted: u64,
+    pub hotspots_deleted: u64,
 }
 
 impl PgIssueStorage {
@@ -61,9 +64,13 @@ impl PgIssueStorage {
         Ok(before)
     }
 
-    /// Deletes analyses older than each project's effective retention —
-    /// its own `retention_days` override if set, else `default_days`. A
-    /// project with neither set is left untouched.
+    /// Deletes analyses, issues and hotspots older than each project's
+    /// effective retention — its own `retention_days` override if set, else
+    /// `default_days`. A project with neither set is left untouched.
+    /// `issues`/`hotspots` rows with no `project_id` (saved before
+    /// `0016_issue_hotspot_scoping.sql`, or from a run that never resolved
+    /// a project) can never match the `project_id = c.id` join and so are
+    /// never touched by this query, no matter their age.
     pub async fn purge_expired(&self, default_days: Option<i32>) -> Result<PurgeReport, StorageError> {
         let analyses_deleted = sqlx::query(
             "WITH cutoffs AS (
@@ -81,7 +88,39 @@ impl PgIssueStorage {
         .map_err(storage_err)?
         .rows_affected();
 
-        Ok(PurgeReport { analyses_deleted })
+        let issues_deleted = sqlx::query(
+            "WITH cutoffs AS (
+                 SELECT id, COALESCE(retention_days, $1) AS days FROM projects
+             )
+             DELETE FROM issues i
+             USING cutoffs c
+             WHERE i.project_id = c.id
+               AND c.days IS NOT NULL
+               AND i.created_at < now() - (c.days || ' days')::interval",
+        )
+        .bind(default_days)
+        .execute(&self.pool)
+        .await
+        .map_err(storage_err)?
+        .rows_affected();
+
+        let hotspots_deleted = sqlx::query(
+            "WITH cutoffs AS (
+                 SELECT id, COALESCE(retention_days, $1) AS days FROM projects
+             )
+             DELETE FROM hotspots h
+             USING cutoffs c
+             WHERE h.project_id = c.id
+               AND c.days IS NOT NULL
+               AND h.created_at < now() - (c.days || ' days')::interval",
+        )
+        .bind(default_days)
+        .execute(&self.pool)
+        .await
+        .map_err(storage_err)?
+        .rows_affected();
+
+        Ok(PurgeReport { analyses_deleted, issues_deleted, hotspots_deleted })
     }
 }
 
@@ -91,7 +130,10 @@ mod tests {
 
     #[test]
     fn purge_report_defaults_to_zero() {
-        assert_eq!(PurgeReport::default(), PurgeReport { analyses_deleted: 0 });
+        assert_eq!(
+            PurgeReport::default(),
+            PurgeReport { analyses_deleted: 0, issues_deleted: 0, hotspots_deleted: 0 }
+        );
     }
 }
 
@@ -101,6 +143,8 @@ mod tests {
 #[cfg(test)]
 mod live_db_tests {
     use super::*;
+    use yunq_ast::Span;
+    use yunq_rules_engine::{Hotspot, HotspotStorage, Issue, IssueScope, IssueStorage, RuleId, Severity};
 
     async fn connected_storage() -> PgIssueStorage {
         let database_url = std::env::var("DATABASE_URL")
@@ -181,6 +225,158 @@ mod live_db_tests {
 
         sqlx::query("DELETE FROM projects WHERE id = $1")
             .bind(project_id)
+            .execute(storage.pool())
+            .await
+            .unwrap();
+    }
+
+    fn test_issue(marker: &str) -> Issue {
+        Issue::new(
+            RuleId::new("owasp:sql-injection").unwrap(),
+            Severity::Major,
+            format!("issue {marker}"),
+            format!("src/{marker}.rs"),
+            Span::new(1, 0, 1, 10),
+        )
+    }
+
+    fn test_hotspot(marker: &str) -> Hotspot {
+        Hotspot::new(
+            RuleId::new("owasp:hotspot").unwrap(),
+            format!("hotspot {marker}"),
+            format!("src/{marker}.rs"),
+            Span::new(2, 0, 2, 5),
+        )
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn purge_expired_removes_only_issues_and_hotspots_past_their_effective_retention() {
+        let storage = connected_storage().await;
+        let key = format!(
+            "retention-test-findings-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        );
+        let project_id = storage.ensure_project(&key).await.unwrap();
+        let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
+
+        // One recent issue/hotspot (kept) and one old issue/hotspot (purged).
+        storage.save_issues(&[test_issue("recent")], scope).await.unwrap();
+        storage.save_issues(&[test_issue("old")], scope).await.unwrap();
+        storage.save_hotspots(&[test_hotspot("recent")], scope).await.unwrap();
+        storage.save_hotspots(&[test_hotspot("old")], scope).await.unwrap();
+
+        sqlx::query(
+            "UPDATE issues SET created_at = now() - interval '30 days'
+             WHERE project_id = $1 AND file = 'src/old.rs'",
+        )
+        .bind(project_id)
+        .execute(storage.pool())
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE hotspots SET created_at = now() - interval '30 days'
+             WHERE project_id = $1 AND file = 'src/old.rs'",
+        )
+        .bind(project_id)
+        .execute(storage.pool())
+        .await
+        .unwrap();
+
+        let before = storage.set_project_retention_days(&key, Some(1)).await.unwrap();
+        assert_eq!(before, None);
+
+        let report = storage.purge_expired(None).await.unwrap();
+        assert_eq!(report.issues_deleted, 1);
+        assert_eq!(report.hotspots_deleted, 1);
+
+        let remaining_issues: i64 =
+            sqlx::query("SELECT COUNT(*) AS n FROM issues WHERE project_id = $1")
+                .bind(project_id)
+                .fetch_one(storage.pool())
+                .await
+                .unwrap()
+                .try_get("n")
+                .unwrap();
+        assert_eq!(remaining_issues, 1);
+
+        let remaining_hotspots: i64 =
+            sqlx::query("SELECT COUNT(*) AS n FROM hotspots WHERE project_id = $1")
+                .bind(project_id)
+                .fetch_one(storage.pool())
+                .await
+                .unwrap()
+                .try_get("n")
+                .unwrap();
+        assert_eq!(remaining_hotspots, 1);
+
+        sqlx::query("DELETE FROM projects WHERE id = $1")
+            .bind(project_id)
+            .execute(storage.pool())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn purge_expired_leaves_unscoped_issues_and_hotspots_untouched() {
+        let storage = connected_storage().await;
+        let key = format!(
+            "retention-test-unscoped-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        );
+        let marker = format!("unscoped-{}", key);
+
+        // Pre-migration-shaped rows: saved with no project/analysis at all
+        // (the default `IssueScope`), same as every row saved before
+        // 0016_issue_hotspot_scoping.sql existed.
+        storage.save_issues(&[test_issue(&marker)], IssueScope::default()).await.unwrap();
+        storage.save_hotspots(&[test_hotspot(&marker)], IssueScope::default()).await.unwrap();
+
+        let issue_file = format!("src/{marker}.rs");
+        sqlx::query("UPDATE issues SET created_at = now() - interval '3650 days' WHERE file = $1")
+            .bind(&issue_file)
+            .execute(storage.pool())
+            .await
+            .unwrap();
+        sqlx::query("UPDATE hotspots SET created_at = now() - interval '3650 days' WHERE file = $1")
+            .bind(&issue_file)
+            .execute(storage.pool())
+            .await
+            .unwrap();
+
+        // An aggressive instance-wide default: if these rows had a
+        // project_id, this would purge them instantly. They don't, so the
+        // purge query's join against `projects` can never match them.
+        storage.purge_expired(Some(1)).await.unwrap();
+
+        let remaining_issues: i64 =
+            sqlx::query("SELECT COUNT(*) AS n FROM issues WHERE file = $1")
+                .bind(&issue_file)
+                .fetch_one(storage.pool())
+                .await
+                .unwrap()
+                .try_get("n")
+                .unwrap();
+        assert_eq!(remaining_issues, 1);
+
+        let remaining_hotspots: i64 =
+            sqlx::query("SELECT COUNT(*) AS n FROM hotspots WHERE file = $1")
+                .bind(&issue_file)
+                .fetch_one(storage.pool())
+                .await
+                .unwrap()
+                .try_get("n")
+                .unwrap();
+        assert_eq!(remaining_hotspots, 1);
+
+        sqlx::query("DELETE FROM issues WHERE file = $1")
+            .bind(&issue_file)
+            .execute(storage.pool())
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM hotspots WHERE file = $1")
+            .bind(&issue_file)
             .execute(storage.pool())
             .await
             .unwrap();

@@ -582,14 +582,19 @@ pub(crate) async fn set_project_retention(
 #[derive(Serialize, ToSchema)]
 pub(crate) struct PurgeReportDto {
     analyses_deleted: i64,
+    issues_deleted: i64,
+    hotspots_deleted: i64,
 }
 
-/// Runs housekeeping immediately: deletes analyses past each project's
-/// effective retention (its own override, else the instance-wide
-/// `YUNQ_DEFAULT_RETENTION_DAYS` default, if set). The worker also runs
-/// this on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`); this endpoint is
-/// for an on-demand run or an external scheduler. Audit-logged as
-/// `housekeeping.purged`.
+/// Runs housekeeping immediately: deletes analyses, issues and hotspots
+/// past each project's effective retention (its own override, else the
+/// instance-wide `YUNQ_DEFAULT_RETENTION_DAYS` default, if set). Issues/
+/// hotspots saved before a project/analysis could be resolved (or saved
+/// before `0016_issue_hotspot_scoping.sql` existed) carry no `project_id`
+/// and are never matched by this purge, no matter their age. The worker
+/// also runs this on a timer (`YUNQ_HOUSEKEEPING_INTERVAL_HOURS`); this
+/// endpoint is for an on-demand run or an external scheduler. Audit-logged
+/// as `housekeeping.purged`.
 #[utoipa::path(
     post,
     path = "/api/housekeeping/purge",
@@ -618,12 +623,20 @@ pub(crate) async fn run_housekeeping(
             "housekeeping".to_string(),
             "retention".to_string(),
             None,
-            Some(serde_json::json!({ "analyses_deleted": report.analyses_deleted })),
+            Some(serde_json::json!({
+                "analyses_deleted": report.analyses_deleted,
+                "issues_deleted": report.issues_deleted,
+                "hotspots_deleted": report.hotspots_deleted,
+            })),
         )
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(PurgeReportDto { analyses_deleted: report.analyses_deleted as i64 }))
+    Ok(Json(PurgeReportDto {
+        analyses_deleted: report.analyses_deleted as i64,
+        issues_deleted: report.issues_deleted as i64,
+        hotspots_deleted: report.hotspots_deleted as i64,
+    }))
 }
 
 #[derive(Deserialize, IntoParams)]

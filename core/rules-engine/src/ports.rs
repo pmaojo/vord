@@ -41,9 +41,28 @@ pub enum ParseError {
     Backend(String),
 }
 
+/// Optional project/analysis scoping for a batch of persisted issues or
+/// hotspots. `None` in either field means "not yet known" — local, one-off
+/// callers (the CLI, the LSP, remediation's verify-before-suggest loop) run
+/// against `InMemoryIssueStorage` and never resolve a project at all, so
+/// they use `IssueScope::default()` (via the unscoped `analyze_files`).
+/// The composition root that actually persists to Postgres (`yunq-worker`)
+/// is the only layer that knows about projects/analyses, so it's the only
+/// one that ever constructs a non-default scope — the pure engine stays
+/// agnostic of what a "project" is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct IssueScope {
+    pub project_id: Option<i64>,
+    pub analysis_id: Option<i64>,
+}
+
 /// Outbound port: persists detected issues.
 pub trait IssueStorage: Send + Sync {
-    fn save_issues(&self, issues: &[Issue]) -> impl Future<Output = Result<(), StorageError>> + Send;
+    fn save_issues(
+        &self,
+        issues: &[Issue],
+        scope: IssueScope,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send;
 }
 
 /// Conjunctive filters plus pagination for issue search.
@@ -134,6 +153,7 @@ pub trait HotspotStorage: Send + Sync {
     fn save_hotspots(
         &self,
         hotspots: &[Hotspot],
+        scope: IssueScope,
     ) -> impl Future<Output = Result<(), StorageError>> + Send;
 }
 
