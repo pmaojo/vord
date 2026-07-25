@@ -191,10 +191,16 @@ impl CrossFileTaint {
                 if origins.is_empty() {
                     continue;
                 }
-                let entry = tainted.entry(target.text().to_string()).or_default();
-                let before = entry.len();
-                entry.extend(origins);
-                changed |= entry.len() != before;
+
+                let target_text = target.text();
+                if let Some(entry) = tainted.get_mut(target_text) {
+                    let before = entry.len();
+                    entry.extend(origins);
+                    changed |= entry.len() != before;
+                } else {
+                    tainted.insert(target_text.to_string(), origins);
+                    changed = true;
+                }
             }
             if !changed {
                 break;
