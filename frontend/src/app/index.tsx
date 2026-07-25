@@ -3,6 +3,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TopNavbar } from '../components/layout/TopNavbar';
 import { GlobalSearchModal } from '../components/layout/GlobalSearchModal';
+import { AuthProvider } from '../auth/AuthProvider';
 import { useSystemInfo } from '../lib/queries';
 import { AppRoutes } from './routes';
 
@@ -38,6 +39,7 @@ export const AppRoot: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <AuthProvider>
         <div className="min-h-screen bg-[#f3f6f9] text-[#233445] font-sans flex flex-col antialiased">
           {/* Top persistent navbar */}
           <TopNavbar />
@@ -52,7 +54,8 @@ export const AppRoot: React.FC = () => {
           {/* Global Search Modal (Cmd+K) */}
           <GlobalSearchModal />
         </div>
-      </BrowserRouter>
+      </AuthProvider>
+    </BrowserRouter>
     </QueryClientProvider>
   );
 };

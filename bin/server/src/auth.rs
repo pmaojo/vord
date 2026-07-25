@@ -16,6 +16,108 @@ use utoipa::ToSchema;
 const STATE_TTL: Duration = Duration::from_secs(10 * 60);
 const SESSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
+// ---------------------------------------------------------------------------
+// RBAC: Roles & Permissions
+// ---------------------------------------------------------------------------
+// This map MIRRORS `frontend/src/auth/roles.ts`. Any drift between the two is
+// an integration bug; keep them in lockstep.
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Role {
+    Admin,
+    Developer,
+    Viewer,
+    Scanner,
+}
+
+impl Role {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Admin => "admin",
+            Self::Developer => "developer",
+            Self::Viewer => "viewer",
+            Self::Scanner => "scanner",
+        }
+    }
+}
+
+/// Role assigned to a brand-new OAuth login so the UI is usable until an
+/// admin explicitly grants additional roles. Least privilege that keeps
+/// the product explorable.
+pub(crate) const DEFAULT_NEW_USER_ROLE: Role = Role::Developer;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Permission {
+    AdminAccess,
+    BrowseIssues,
+    ManageQualityGates,
+    ManageProfiles,
+    SubmitAnalyses,
+    TransitionIssues,
+}
+
+/// Map a role to its granted permissions. Admin is a superset (defense in depth).
+fn permissions_for(roles: &[Role]) -> Vec<Permission> {
+    let mut grant_admin = false;
+    let mut out: Vec<Permission> = Vec::new();
+    for role in roles {
+        match role {
+            Role::Admin => {
+                grant_admin = true;
+            }
+            Role::Developer => {
+                if !out.contains(&Permission::BrowseIssues) {
+                    out.push(Permission::BrowseIssues);
+                }
+                if !out.contains(&Permission::ManageQualityGates) {
+                    out.push(Permission::ManageQualityGates);
+                }
+                if !out.contains(&Permission::ManageProfiles) {
+                    out.push(Permission::ManageProfiles);
+                }
+                if !out.contains(&Permission::SubmitAnalyses) {
+                    out.push(Permission::SubmitAnalyses);
+                }
+                if !out.contains(&Permission::TransitionIssues) {
+                    out.push(Permission::TransitionIssues);
+                }
+            }
+            Role::Viewer => {
+                if !out.contains(&Permission::BrowseIssues) {
+                    out.push(Permission::BrowseIssues);
+                }
+            }
+            Role::Scanner => {
+                if !out.contains(&Permission::SubmitAnalyses) {
+                    out.push(Permission::SubmitAnalyses);
+                }
+            }
+        }
+    }
+    if grant_admin {
+        for p in [
+            Permission::AdminAccess,
+            Permission::BrowseIssues,
+            Permission::ManageQualityGates,
+            Permission::ManageProfiles,
+            Permission::SubmitAnalyses,
+            Permission::TransitionIssues,
+        ] {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// True when `roles` covers the named permission.
+pub(crate) fn role_has_permission(roles: &[Role], permission: Permission) -> bool {
+    permissions_for(roles).contains(&permission)
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 pub(crate) struct TenantContext {
@@ -44,6 +146,17 @@ struct OAuthInner {
     providers: HashMap<OAuthProvider, ProviderConfig>,
     pending_states: Mutex<HashMap<String, PendingState>>,
     sessions: RwLock<HashMap<String, SessionRecord>>,
+    /// Persistent (in-memory MVP) user store: a (provider, provider_user_id)
+    /// key maps to the roles an admin has granted that user. Survives
+    /// logout/login so role grants don't evaporate when sessions expire.
+    users: RwLock<HashMap<UserKey, Vec<Role>>>,
+}
+
+/// Key for the users store. Same OAuth subject == same user across logins.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct UserKey {
+    provider: String,
+    provider_user_id: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -84,6 +197,7 @@ struct ProviderConfig {
 struct PendingState {
     provider: OAuthProvider,
     expires_at: Instant,
+    return_to: Option<String>,
 }
 
 struct SessionRecord {
@@ -92,15 +206,22 @@ struct SessionRecord {
     expires_at_unix: u64,
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
-pub(crate) struct OAuthUserDto {
-    provider: String,
-    provider_user_id: String,
-    username: String,
-    name: Option<String>,
-    email: Option<String>,
-    avatar_url: Option<String>,
-}
+#[derive(Clone, Debug, Serialize, ToSchema)]    pub(crate) struct OAuthUserDto {
+        provider: String,
+        provider_user_id: String,
+        username: String,
+        name: Option<String>,
+        email: Option<String>,
+        avatar_url: Option<String>,
+        /// RBAC roles; see `Role`. Snapshot per session but persistent
+        /// across logins via the users store in `OAuthInner`.
+        #[serde(default = "default_roles")]
+        pub(crate) roles: Vec<Role>,
+    }
+
+    fn default_roles() -> Vec<Role> {
+        vec![DEFAULT_NEW_USER_ROLE]
+    }
 
 #[derive(Serialize, ToSchema)]
 pub(crate) struct OAuthLoginDto {
@@ -108,6 +229,11 @@ pub(crate) struct OAuthLoginDto {
     token_type: &'static str,
     expires_in: u64,
     user: OAuthUserDto,
+    /// Where the SPA should send the user after sign-in. Server-side
+    /// validated; consumers should still treat it as a hint, not a
+    /// trusted redirect target.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub(crate) return_to: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -136,6 +262,15 @@ pub(crate) struct OAuthCallbackQuery {
     state: Option<String>,
     error: Option<String>,
     error_description: Option<String>,
+}
+
+/// Query parameters accepted by `GET /api/auth/oauth/{provider}/login`.
+/// `return_to` is where the SPA should send the user after a successful
+/// login; it is sanitized server-side before being persisted in the
+/// pending OAuth state.
+#[derive(Deserialize, Default)]
+pub(crate) struct OAuthLoginQuery {
+    return_to: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -225,11 +360,43 @@ impl OAuthService {
                 providers,
                 pending_states: Mutex::new(HashMap::new()),
                 sessions: RwLock::new(HashMap::new()),
+                users: RwLock::new(HashMap::new()),
             }),
         }
     }
 
-    fn begin(&self, provider: OAuthProvider) -> Result<String, AuthError> {
+    /// Read the persisted roles for a user, or insert the default
+    /// (`[developer]`) on first sight. Returns a snapshot the caller can
+    /// embed into the session record / OAuthLoginDto without holding the lock.
+    fn resolve_roles(&self, provider: &str, provider_user_id: &str) -> Vec<Role> {
+        let key = UserKey {
+            provider: provider.to_string(),
+            provider_user_id: provider_user_id.to_string(),
+        };
+        {
+            let users = self.inner.users.read().unwrap_or_else(|p| p.into_inner());
+            if let Some(roles) = users.get(&key) {
+                return roles.clone();
+            }
+        }
+        // First login: seed with the safe default and persist a clone.
+        let mut users = self.inner.users.write().unwrap_or_else(|p| p.into_inner());
+        users.entry(key).or_insert_with(|| vec![DEFAULT_NEW_USER_ROLE]).clone()
+    }
+
+    /// Replace the roles for a user. Admin-only operation; not exposed via
+    /// HTTP yet — wired up in a follow-up TDD iteration.
+    #[allow(dead_code)]
+    pub(crate) fn set_roles(&self, provider: &str, provider_user_id: &str, roles: Vec<Role>) -> Option<Vec<Role>> {
+        let key = UserKey {
+            provider: provider.to_string(),
+            provider_user_id: provider_user_id.to_string(),
+        };
+        let mut users = self.inner.users.write().unwrap_or_else(|p| p.into_inner());
+        users.insert(key, roles)
+    }
+
+    fn begin(&self, provider: OAuthProvider, return_to: Option<&str>) -> Result<String, AuthError> {
         let config = self.inner.providers.get(&provider).ok_or_else(|| {
             auth_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -246,7 +413,11 @@ impl OAuthService {
             states.retain(|_, pending| pending.expires_at > Instant::now());
             states.insert(
                 state.clone(),
-                PendingState { provider, expires_at: Instant::now() + STATE_TTL },
+                PendingState {
+                    provider,
+                    expires_at: Instant::now() + STATE_TTL,
+                    return_to: return_to.map(String::from),
+                },
             );
         }
         authorization_url(config, &state).map_err(|error| {
@@ -260,7 +431,7 @@ impl OAuthService {
         code: &str,
         state: &str,
     ) -> Result<OAuthLoginDto, AuthError> {
-        self.consume_state(provider, state)?;
+        let pending = self.take_state(provider, state)?;
         let config = self.inner.providers.get(&provider).ok_or_else(|| {
             auth_error(StatusCode::SERVICE_UNAVAILABLE, "OAuth provider is not configured")
         })?;
@@ -285,10 +456,15 @@ impl OAuthService {
             token_type: "Bearer",
             expires_in: SESSION_TTL.as_secs(),
             user,
+            return_to: pending.return_to,
         })
     }
 
-    fn consume_state(&self, provider: OAuthProvider, state: &str) -> Result<(), AuthError> {
+    /// Take and validate a pending state, returning the full record so the
+    /// caller can read fields like `return_to`. The state is consumed
+    /// (single-use) regardless of whether the caller is `consume_state` or
+    /// `complete`.
+    fn take_state(&self, provider: OAuthProvider, state: &str) -> Result<PendingState, AuthError> {
         let pending = self
             .inner
             .pending_states
@@ -299,7 +475,11 @@ impl OAuthService {
         if pending.provider != provider || pending.expires_at <= Instant::now() {
             return Err(auth_error(StatusCode::UNAUTHORIZED, "expired or mismatched OAuth state"));
         }
-        Ok(())
+        Ok(pending)
+    }
+
+    fn consume_state(&self, provider: OAuthProvider, state: &str) -> Result<(), AuthError> {
+        self.take_state(provider, state).map(|_| ())
     }
 
     async fn exchange_code(
@@ -371,13 +551,18 @@ impl OAuthService {
         } else {
             profile.email
         };
+        let user_provider = provider.as_str().to_string();
+        // Resolve roles BEFORE we build the DTO so the response sent to
+        // the SPA on every successful login is always complete.
+        let roles = self.resolve_roles(&user_provider, &provider_user_id);
         Ok(OAuthUserDto {
-            provider: provider.as_str().to_string(),
+            provider: user_provider,
             provider_user_id,
             username,
             name: profile.name,
             email,
             avatar_url: profile.avatar_url,
+            roles,
         })
     }
 
@@ -472,11 +657,60 @@ fn auth_error(status: StatusCode, message: impl Into<String>) -> AuthError {
     (status, Json(AuthErrorDto { error: message.into() }))
 }
 
+/// Defense-in-depth open-redirect protection. The frontend also validates;
+/// the backend never trusts a client-supplied `return_to`.
+///
+/// Rejects:
+///  - empty / whitespace-only strings
+///  - anything that doesn't start with a single `/` (catches bare `https://...`,
+///    `javascript:`, etc.)
+///  - protocol-relative URLs (`//evil.example.com`)
+///  - paths that contain a scheme separator (`/redirect?u=https://...`)
+fn sanitize_return_to(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+    if trimmed.starts_with("//") {
+        return None;
+    }
+    if trimmed.contains("://") {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// Build the URL the browser should land on after a successful OAuth exchange.
+/// The token and return_to are URL-encoded so the fragment is safe even if
+/// the frontend URLSearchParams parser is strict.
+fn build_fragment_callback_url(token: &str, return_to: &str) -> String {
+    let token_enc = url::form_urlencoded::byte_serialize(token.as_bytes()).collect::<String>();
+    let return_to_enc = url::form_urlencoded::byte_serialize(return_to.as_bytes()).collect::<String>();
+    format!("/auth/callback#token={}&returnTo={}", token_enc, return_to_enc)
+}
+
+/// Content negotiation: API clients send `Accept: application/json` and
+/// want the bearer session in the JSON body. Browser navigations don't
+/// always send an Accept header (or send `text/html`); for them we return
+/// a 303 redirect with the token in the URL fragment so the SPA can pick
+/// it up and store it in localStorage without ever exposing it to the
+/// server-side session layer.
+fn prefers_json_response(headers: &HeaderMap) -> bool {
+    let accept = headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
+    accept.contains("application/json")
+}
+
 /// Start an OAuth 2.0 authorization-code flow with GitHub or GitLab.
 #[utoipa::path(
     get,
     path = "/api/auth/oauth/{provider}/login",
-    params(("provider" = String, Path, description = "github or gitlab")),
+    params(
+        ("provider" = String, Path, description = "github or gitlab"),
+        OAuthLoginQuery,
+    ),
     responses(
         (status = 307, description = "Redirect to the provider authorization page"),
         (status = 404, description = "Unknown provider", body = AuthErrorDto),
@@ -486,19 +720,34 @@ fn auth_error(status: StatusCode, message: impl Into<String>) -> AuthError {
 pub(crate) async fn oauth_login(
     State(state): State<Arc<crate::AppState>>,
     Path(provider): Path<String>,
+    Query(query): Query<OAuthLoginQuery>,
 ) -> Result<Redirect, AuthError> {
     let provider = OAuthProvider::parse(&provider)
         .ok_or_else(|| auth_error(StatusCode::NOT_FOUND, "unknown OAuth provider"))?;
-    state.auth.begin(provider).map(|url| Redirect::temporary(&url))
+    // Sanitize the requested return-to even before we hand it to the
+    // service: anything that isn't a same-origin absolute path gets
+    // dropped and the user lands on `/projects` after sign-in.
+    let return_to = query.return_to.as_deref().and_then(sanitize_return_to);
+    state
+        .auth
+        .begin(provider, return_to.as_deref())
+        .map(|url| Redirect::temporary(&url))
 }
 
 /// Finish OAuth login and exchange the provider code for a yunq bearer session.
+///
+/// Content negotiation:
+///  - `Accept: application/json` -> JSON body with the bearer session (API clients).
+///  - anything else (browser top-level navigation) -> 303 redirect to
+///    `/auth/callback#token=...&returnTo=...` so the SPA can pick up the
+///    token without it ever leaving the browser.
 #[utoipa::path(
     get,
     path = "/api/auth/oauth/{provider}/callback",
     params(("provider" = String, Path, description = "github or gitlab")),
     responses(
-        (status = 200, description = "OAuth login completed", body = OAuthLoginDto),
+        (status = 200, description = "OAuth login completed (JSON for API clients)", body = OAuthLoginDto),
+        (status = 303, description = "Browser redirect to /auth/callback with token in hash fragment"),
         (status = 400, description = "Provider denied the request or parameters are missing", body = AuthErrorDto),
         (status = 401, description = "Invalid OAuth state", body = AuthErrorDto),
         (status = 502, description = "Provider exchange failed", body = AuthErrorDto)
@@ -507,8 +756,9 @@ pub(crate) async fn oauth_login(
 pub(crate) async fn oauth_callback(
     State(state): State<Arc<crate::AppState>>,
     Path(provider): Path<String>,
+    headers: HeaderMap,
     Query(query): Query<OAuthCallbackQuery>,
-) -> Result<Json<OAuthLoginDto>, AuthError> {
+) -> Result<axum::response::Response, AuthError> {
     let provider = OAuthProvider::parse(&provider)
         .ok_or_else(|| auth_error(StatusCode::NOT_FOUND, "unknown OAuth provider"))?;
     if let Some(error) = query.error {
@@ -523,7 +773,20 @@ pub(crate) async fn oauth_callback(
     match state.auth.complete(provider, &code, &oauth_state).await {
         Ok(login) => {
             state.metrics.oauth_succeeded();
-            Ok(Json(login))
+            if prefers_json_response(&headers) {
+                Ok(Json(login).into_response())
+            } else {
+                // Always sanitize again at the redirect site — the state
+                // round-trip may have been tampered with despite our
+                // URL encoding.
+                let return_to = login
+                    .return_to
+                    .as_deref()
+                    .and_then(sanitize_return_to)
+                    .unwrap_or_else(|| "/projects".to_string());
+                let url = build_fragment_callback_url(&login.access_token, &return_to);
+                Ok(Redirect::to(&url).into_response())
+            }
         }
         Err(error) => {
             state.metrics.oauth_failed();
@@ -571,10 +834,15 @@ mod tests {
         OAuthService::new(Client::new(), providers)
     }
 
+    fn extract_state(url: &str) -> String {
+        let parsed = Url::parse(url).unwrap();
+        parsed.query_pairs().find(|(k, _)| k == "state").unwrap().1.into_owned()
+    }
+
     #[test]
     fn authorization_url_contains_encoded_redirect_scope_and_random_state() {
         let service = test_service();
-        let raw = service.begin(OAuthProvider::GitHub).expect("configured provider");
+        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
         let url = Url::parse(&raw).expect("valid authorization URL");
         let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
 
@@ -590,9 +858,8 @@ mod tests {
     #[test]
     fn state_is_provider_bound_and_single_use() {
         let service = test_service();
-        let raw = service.begin(OAuthProvider::GitHub).expect("configured provider");
-        let url = Url::parse(&raw).unwrap();
-        let state = url.query_pairs().find(|(key, _)| key == "state").unwrap().1.into_owned();
+        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
+        let state = extract_state(&raw);
 
         assert!(service.consume_state(OAuthProvider::GitLab, &state).is_err());
         assert!(service.consume_state(OAuthProvider::GitHub, &state).is_err());
@@ -603,5 +870,252 @@ mod tests {
         let service = test_service();
         let error = service.authenticate(&HeaderMap::new()).unwrap_err();
         assert_eq!(error.0, StatusCode::UNAUTHORIZED);
+    }
+
+    // -----------------------------------------------------------------------
+    // returnTo handling (open-redirect protection + Provider binding)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn begin_stores_return_to_in_pending_state() {
+        let service = test_service();
+        let raw = service
+            .begin(OAuthProvider::GitHub, Some("/admin"))
+            .expect("configured provider");
+        let state = extract_state(&raw);
+
+        let pending = service
+            .take_state(OAuthProvider::GitHub, &state)
+            .expect("state present");
+        assert_eq!(pending.return_to.as_deref(), Some("/admin"));
+    }
+
+    #[test]
+    fn begin_with_no_return_to_yields_none_in_state() {
+        let service = test_service();
+        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
+        let state = extract_state(&raw);
+
+        let pending = service
+            .take_state(OAuthProvider::GitHub, &state)
+            .expect("state present");
+        assert_eq!(pending.return_to, None);
+    }
+
+    #[test]
+    fn take_state_rejects_wrong_provider_even_with_return_to() {
+        let service = test_service();
+        let raw = service.begin(OAuthProvider::GitHub, Some("/admin")).expect("ok");
+        let state = extract_state(&raw);
+
+        assert!(service.take_state(OAuthProvider::GitLab, &state).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // sanitize_return_to (defense in depth vs. open-redirect attacks)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sanitize_accepts_simple_absolute_path() {
+        assert_eq!(sanitize_return_to("/admin"), Some("/admin".to_string()));
+    }
+
+    #[test]
+    fn sanitize_accepts_nested_path_with_query() {
+        assert_eq!(
+            sanitize_return_to("/projects/foo?tab=issues"),
+            Some("/projects/foo?tab=issues".to_string())
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_external_url() {
+        assert_eq!(sanitize_return_to("https://evil.example.com/steal"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_protocol_relative_url() {
+        assert_eq!(sanitize_return_to("//evil.example.com/steal"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_path_with_embedded_scheme() {
+        // No `/` prefix — should be treated as not a path.
+        assert_eq!(sanitize_return_to("javascript:alert(1)"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_empty_string() {
+        assert_eq!(sanitize_return_to(""), None);
+        assert_eq!(sanitize_return_to("   "), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_anchored_external_looking_path() {
+        // `/` prefix but contains `://` later — still suspicious.
+        assert_eq!(sanitize_return_to("/redirect?u=https://evil.com"), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // build_fragment_callback_url (URL fragment construction)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_fragment_url_includes_token_and_return_to() {
+        let url = build_fragment_callback_url("abc123", "/admin");
+        assert_eq!(url, "/auth/callback#token=abc123&returnTo=%2Fadmin");
+    }
+
+    #[test]
+    fn build_fragment_url_url_encodes_special_chars_in_return_to() {
+        let url = build_fragment_callback_url("tok", "/foo bar?x=1");
+        // The `/` and `?` and `=` and ` ` must all be percent-encoded inside the fragment.
+        assert_eq!(url, "/auth/callback#token=tok&returnTo=%2Ffoo%20bar%3Fx%3D1");
+    }
+
+    #[test]
+    fn build_fragment_url_url_encodes_token_too_for_safety() {
+        // Even though our hex tokens are URL-safe, encoding is defense in depth.
+        let url = build_fragment_callback_url("abc&def=x", "/admin");
+        assert_eq!(url, "/auth/callback#token=abc%26def%3Dx&returnTo=%2Fadmin");
+    }
+
+    // -----------------------------------------------------------------------
+    // prefers_json_response (content negotiation)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn prefers_json_when_accept_header_is_application_json() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "application/json".parse().unwrap());
+        assert!(prefers_json_response(&headers));
+    }
+
+    #[test]
+    fn prefers_json_when_accept_includes_json_with_other_types() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "text/html,application/json;q=0.9,*/*;q=0.5".parse().unwrap());
+        assert!(prefers_json_response(&headers));
+    }
+
+    #[test]
+    fn prefers_redirect_when_accept_is_text_html_only() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "text/html".parse().unwrap());
+        assert!(!prefers_json_response(&headers));
+    }
+
+    #[test]
+    fn prefers_redirect_when_accept_header_is_missing() {
+        // Browsers doing top-level navigation don't always send Accept.
+        let headers = HeaderMap::new();
+        assert!(!prefers_json_response(&headers));
+    }
+
+    // -----------------------------------------------------------------------
+    // RBAC: Role / Permission / permissions_for / role_has_permission
+    // These mirror `frontend/src/auth/roles.ts`; drift is an integration bug.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn default_role_for_new_user_is_developer() {
+        assert_eq!(DEFAULT_NEW_USER_ROLE, Role::Developer);
+        assert_eq!(DEFAULT_NEW_USER_ROLE.as_str(), "developer");
+    }
+
+    #[test]
+    fn admin_role_grants_every_permission() {
+        let perms = permissions_for(&[Role::Admin]);
+        assert!(perms.contains(&Permission::AdminAccess));
+        assert!(perms.contains(&Permission::BrowseIssues));
+        assert!(perms.contains(&Permission::ManageQualityGates));
+        assert!(perms.contains(&Permission::ManageProfiles));
+        assert!(perms.contains(&Permission::SubmitAnalyses));
+        assert!(perms.contains(&Permission::TransitionIssues));
+        assert_eq!(perms.len(), 6);
+    }
+
+    #[test]
+    fn developer_role_lacks_admin_access_but_grants_rest() {
+        let perms = permissions_for(&[Role::Developer]);
+        assert!(!perms.contains(&Permission::AdminAccess));
+        assert!(perms.contains(&Permission::BrowseIssues));
+        assert!(perms.contains(&Permission::ManageQualityGates));
+        assert!(perms.contains(&Permission::ManageProfiles));
+        assert!(perms.contains(&Permission::SubmitAnalyses));
+        assert!(perms.contains(&Permission::TransitionIssues));
+    }
+
+    #[test]
+    fn viewer_role_is_read_only() {
+        let perms = permissions_for(&[Role::Viewer]);
+        assert_eq!(perms, vec![Permission::BrowseIssues]);
+    }
+
+    #[test]
+    fn scanner_role_only_submits_analyses() {
+        let perms = permissions_for(&[Role::Scanner]);
+        assert_eq!(perms, vec![Permission::SubmitAnalyses]);
+    }
+
+    #[test]
+    fn multiple_roles_union_permissions_admin_is_a_superset() {
+        // developer + scanner should be able to submit AND browse.
+        let perms = permissions_for(&[Role::Developer, Role::Scanner]);
+        assert!(perms.contains(&Permission::SubmitAnalyses));
+        assert!(perms.contains(&Permission::BrowseIssues));
+        assert!(!perms.contains(&Permission::AdminAccess));
+    }
+
+    #[test]
+    fn empty_role_list_grants_no_permissions() {
+        assert!(permissions_for(&[]).is_empty());
+    }
+
+    #[test]
+    fn role_has_permission_shortcut_works() {
+        assert!(role_has_permission(&[Role::Admin], Permission::AdminAccess));
+        assert!(!role_has_permission(&[Role::Viewer], Permission::SubmitAnalyses));
+        assert!(role_has_permission(&[Role::Scanner], Permission::SubmitAnalyses));
+        assert!(!role_has_permission(&[Role::Scanner], Permission::BrowseIssues));
+    }
+
+    // -----------------------------------------------------------------------
+    // RBAC: resolve_roles / set_roles (persistent user store)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn first_login_defaults_to_developer_role() {
+        let service = test_service();
+        let roles = service.resolve_roles("github", "user-1");
+        assert_eq!(roles, vec![Role::Developer]);
+    }
+
+    #[test]
+    fn subsequent_login_keeps_admin_granted_roles() {
+        let service = test_service();
+        // First sight: seeded with default.
+        assert_eq!(service.resolve_roles("github", "user-2"), vec![Role::Developer]);
+        // Admin grants additional role; replace_full.
+        let previous = service.set_roles("github", "user-2", vec![Role::Admin, Role::Developer]);
+        assert_eq!(previous, Some(vec![Role::Developer]));
+        // Subsequent login: returns the granted set, not the default.
+        assert_eq!(
+            service.resolve_roles("github", "user-2"),
+            vec![Role::Admin, Role::Developer],
+        );
+    }
+
+    #[test]
+    fn roles_are_per_user_across_providers() {
+        let service = test_service();
+        service.resolve_roles("github", "user-3");
+        service.set_roles("github", "user-3", vec![Role::Admin]);
+        // Same gitlab subject stays unaffected by the github grant.
+        assert_eq!(service.resolve_roles("gitlab", "user-3"), vec![Role::Developer]);
+        assert_eq!(
+            service.resolve_roles("github", "user-3"),
+            vec![Role::Admin],
+        );
     }
 }

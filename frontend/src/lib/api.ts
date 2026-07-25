@@ -478,6 +478,8 @@ export interface CurrentUser {
     name?: string | null;
     email?: string | null;
     avatar_url?: string | null;
+    /** RBAC roles assigned by an admin (or defaulted on first login). */
+    roles: ('admin' | 'developer' | 'viewer' | 'scanner')[];
   };
   session_expires_at: number;
 }
