@@ -84,6 +84,7 @@ struct ProviderConfig {
 struct PendingState {
     provider: OAuthProvider,
     expires_at: Instant,
+    return_to: Option<String>,
 }
 
 struct SessionRecord {
@@ -108,6 +109,11 @@ pub(crate) struct OAuthLoginDto {
     token_type: &'static str,
     expires_in: u64,
     user: OAuthUserDto,
+    /// Where the SPA should send the user after sign-in. Server-side
+    /// validated; consumers should still treat it as a hint, not a
+    /// trusted redirect target.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub(crate) return_to: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -136,6 +142,15 @@ pub(crate) struct OAuthCallbackQuery {
     state: Option<String>,
     error: Option<String>,
     error_description: Option<String>,
+}
+
+/// Query parameters accepted by `GET /api/auth/oauth/{provider}/login`.
+/// `return_to` is where the SPA should send the user after a successful
+/// login; it is sanitized server-side before being persisted in the
+/// pending OAuth state.
+#[derive(Deserialize, Default)]
+pub(crate) struct OAuthLoginQuery {
+    return_to: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -229,7 +244,7 @@ impl OAuthService {
         }
     }
 
-    fn begin(&self, provider: OAuthProvider) -> Result<String, AuthError> {
+    fn begin(&self, provider: OAuthProvider, return_to: Option<&str>) -> Result<String, AuthError> {
         let config = self.inner.providers.get(&provider).ok_or_else(|| {
             auth_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -246,7 +261,11 @@ impl OAuthService {
             states.retain(|_, pending| pending.expires_at > Instant::now());
             states.insert(
                 state.clone(),
-                PendingState { provider, expires_at: Instant::now() + STATE_TTL },
+                PendingState {
+                    provider,
+                    expires_at: Instant::now() + STATE_TTL,
+                    return_to: return_to.map(String::from),
+                },
             );
         }
         authorization_url(config, &state).map_err(|error| {
@@ -260,7 +279,7 @@ impl OAuthService {
         code: &str,
         state: &str,
     ) -> Result<OAuthLoginDto, AuthError> {
-        self.consume_state(provider, state)?;
+        let pending = self.take_state(provider, state)?;
         let config = self.inner.providers.get(&provider).ok_or_else(|| {
             auth_error(StatusCode::SERVICE_UNAVAILABLE, "OAuth provider is not configured")
         })?;
@@ -285,10 +304,15 @@ impl OAuthService {
             token_type: "Bearer",
             expires_in: SESSION_TTL.as_secs(),
             user,
+            return_to: pending.return_to,
         })
     }
 
-    fn consume_state(&self, provider: OAuthProvider, state: &str) -> Result<(), AuthError> {
+    /// Take and validate a pending state, returning the full record so the
+    /// caller can read fields like `return_to`. The state is consumed
+    /// (single-use) regardless of whether the caller is `consume_state` or
+    /// `complete`.
+    fn take_state(&self, provider: OAuthProvider, state: &str) -> Result<PendingState, AuthError> {
         let pending = self
             .inner
             .pending_states
@@ -299,7 +323,11 @@ impl OAuthService {
         if pending.provider != provider || pending.expires_at <= Instant::now() {
             return Err(auth_error(StatusCode::UNAUTHORIZED, "expired or mismatched OAuth state"));
         }
-        Ok(())
+        Ok(pending)
+    }
+
+    fn consume_state(&self, provider: OAuthProvider, state: &str) -> Result<(), AuthError> {
+        self.take_state(provider, state).map(|_| ())
     }
 
     async fn exchange_code(
@@ -472,11 +500,60 @@ fn auth_error(status: StatusCode, message: impl Into<String>) -> AuthError {
     (status, Json(AuthErrorDto { error: message.into() }))
 }
 
+/// Defense-in-depth open-redirect protection. The frontend also validates;
+/// the backend never trusts a client-supplied `return_to`.
+///
+/// Rejects:
+///  - empty / whitespace-only strings
+///  - anything that doesn't start with a single `/` (catches bare `https://...`,
+///    `javascript:`, etc.)
+///  - protocol-relative URLs (`//evil.example.com`)
+///  - paths that contain a scheme separator (`/redirect?u=https://...`)
+fn sanitize_return_to(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+    if trimmed.starts_with("//") {
+        return None;
+    }
+    if trimmed.contains("://") {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// Build the URL the browser should land on after a successful OAuth exchange.
+/// The token and return_to are URL-encoded so the fragment is safe even if
+/// the frontend URLSearchParams parser is strict.
+fn build_fragment_callback_url(token: &str, return_to: &str) -> String {
+    let token_enc = url::form_urlencoded::byte_serialize(token.as_bytes()).collect::<String>();
+    let return_to_enc = url::form_urlencoded::byte_serialize(return_to.as_bytes()).collect::<String>();
+    format!("/auth/callback#token={}&returnTo={}", token_enc, return_to_enc)
+}
+
+/// Content negotiation: API clients send `Accept: application/json` and
+/// want the bearer session in the JSON body. Browser navigations don't
+/// always send an Accept header (or send `text/html`); for them we return
+/// a 303 redirect with the token in the URL fragment so the SPA can pick
+/// it up and store it in localStorage without ever exposing it to the
+/// server-side session layer.
+fn prefers_json_response(headers: &HeaderMap) -> bool {
+    let accept = headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
+    accept.contains("application/json")
+}
+
 /// Start an OAuth 2.0 authorization-code flow with GitHub or GitLab.
 #[utoipa::path(
     get,
     path = "/api/auth/oauth/{provider}/login",
-    params(("provider" = String, Path, description = "github or gitlab")),
+    params(
+        ("provider" = String, Path, description = "github or gitlab"),
+        OAuthLoginQuery,
+    ),
     responses(
         (status = 307, description = "Redirect to the provider authorization page"),
         (status = 404, description = "Unknown provider", body = AuthErrorDto),
@@ -486,19 +563,34 @@ fn auth_error(status: StatusCode, message: impl Into<String>) -> AuthError {
 pub(crate) async fn oauth_login(
     State(state): State<Arc<crate::AppState>>,
     Path(provider): Path<String>,
+    Query(query): Query<OAuthLoginQuery>,
 ) -> Result<Redirect, AuthError> {
     let provider = OAuthProvider::parse(&provider)
         .ok_or_else(|| auth_error(StatusCode::NOT_FOUND, "unknown OAuth provider"))?;
-    state.auth.begin(provider).map(|url| Redirect::temporary(&url))
+    // Sanitize the requested return-to even before we hand it to the
+    // service: anything that isn't a same-origin absolute path gets
+    // dropped and the user lands on `/projects` after sign-in.
+    let return_to = query.return_to.as_deref().and_then(sanitize_return_to);
+    state
+        .auth
+        .begin(provider, return_to.as_deref())
+        .map(|url| Redirect::temporary(&url))
 }
 
 /// Finish OAuth login and exchange the provider code for a yunq bearer session.
+///
+/// Content negotiation:
+///  - `Accept: application/json` -> JSON body with the bearer session (API clients).
+///  - anything else (browser top-level navigation) -> 303 redirect to
+///    `/auth/callback#token=...&returnTo=...` so the SPA can pick up the
+///    token without it ever leaving the browser.
 #[utoipa::path(
     get,
     path = "/api/auth/oauth/{provider}/callback",
     params(("provider" = String, Path, description = "github or gitlab")),
     responses(
-        (status = 200, description = "OAuth login completed", body = OAuthLoginDto),
+        (status = 200, description = "OAuth login completed (JSON for API clients)", body = OAuthLoginDto),
+        (status = 303, description = "Browser redirect to /auth/callback with token in hash fragment"),
         (status = 400, description = "Provider denied the request or parameters are missing", body = AuthErrorDto),
         (status = 401, description = "Invalid OAuth state", body = AuthErrorDto),
         (status = 502, description = "Provider exchange failed", body = AuthErrorDto)
@@ -507,8 +599,9 @@ pub(crate) async fn oauth_login(
 pub(crate) async fn oauth_callback(
     State(state): State<Arc<crate::AppState>>,
     Path(provider): Path<String>,
+    headers: HeaderMap,
     Query(query): Query<OAuthCallbackQuery>,
-) -> Result<Json<OAuthLoginDto>, AuthError> {
+) -> Result<axum::response::Response, AuthError> {
     let provider = OAuthProvider::parse(&provider)
         .ok_or_else(|| auth_error(StatusCode::NOT_FOUND, "unknown OAuth provider"))?;
     if let Some(error) = query.error {
@@ -523,7 +616,20 @@ pub(crate) async fn oauth_callback(
     match state.auth.complete(provider, &code, &oauth_state).await {
         Ok(login) => {
             state.metrics.oauth_succeeded();
-            Ok(Json(login))
+            if prefers_json_response(&headers) {
+                Ok(Json(login).into_response())
+            } else {
+                // Always sanitize again at the redirect site — the state
+                // round-trip may have been tampered with despite our
+                // URL encoding.
+                let return_to = login
+                    .return_to
+                    .as_deref()
+                    .and_then(sanitize_return_to)
+                    .unwrap_or_else(|| "/projects".to_string());
+                let url = build_fragment_callback_url(&login.access_token, &return_to);
+                Ok(Redirect::to(&url).into_response())
+            }
         }
         Err(error) => {
             state.metrics.oauth_failed();
@@ -571,10 +677,15 @@ mod tests {
         OAuthService::new(Client::new(), providers)
     }
 
+    fn extract_state(url: &str) -> String {
+        let parsed = Url::parse(url).unwrap();
+        parsed.query_pairs().find(|(k, _)| k == "state").unwrap().1.into_owned()
+    }
+
     #[test]
     fn authorization_url_contains_encoded_redirect_scope_and_random_state() {
         let service = test_service();
-        let raw = service.begin(OAuthProvider::GitHub).expect("configured provider");
+        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
         let url = Url::parse(&raw).expect("valid authorization URL");
         let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
 
@@ -590,9 +701,8 @@ mod tests {
     #[test]
     fn state_is_provider_bound_and_single_use() {
         let service = test_service();
-        let raw = service.begin(OAuthProvider::GitHub).expect("configured provider");
-        let url = Url::parse(&raw).unwrap();
-        let state = url.query_pairs().find(|(key, _)| key == "state").unwrap().1.into_owned();
+        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
+        let state = extract_state(&raw);
 
         assert!(service.consume_state(OAuthProvider::GitLab, &state).is_err());
         assert!(service.consume_state(OAuthProvider::GitHub, &state).is_err());
@@ -603,5 +713,145 @@ mod tests {
         let service = test_service();
         let error = service.authenticate(&HeaderMap::new()).unwrap_err();
         assert_eq!(error.0, StatusCode::UNAUTHORIZED);
+    }
+
+    // -----------------------------------------------------------------------
+    // returnTo handling (open-redirect protection + Provider binding)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn begin_stores_return_to_in_pending_state() {
+        let service = test_service();
+        let raw = service
+            .begin(OAuthProvider::GitHub, Some("/admin"))
+            .expect("configured provider");
+        let state = extract_state(&raw);
+
+        let pending = service
+            .take_state(OAuthProvider::GitHub, &state)
+            .expect("state present");
+        assert_eq!(pending.return_to.as_deref(), Some("/admin"));
+    }
+
+    #[test]
+    fn begin_with_no_return_to_yields_none_in_state() {
+        let service = test_service();
+        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
+        let state = extract_state(&raw);
+
+        let pending = service
+            .take_state(OAuthProvider::GitHub, &state)
+            .expect("state present");
+        assert_eq!(pending.return_to, None);
+    }
+
+    #[test]
+    fn take_state_rejects_wrong_provider_even_with_return_to() {
+        let service = test_service();
+        let raw = service.begin(OAuthProvider::GitHub, Some("/admin")).expect("ok");
+        let state = extract_state(&raw);
+
+        assert!(service.take_state(OAuthProvider::GitLab, &state).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // sanitize_return_to (defense in depth vs. open-redirect attacks)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sanitize_accepts_simple_absolute_path() {
+        assert_eq!(sanitize_return_to("/admin"), Some("/admin".to_string()));
+    }
+
+    #[test]
+    fn sanitize_accepts_nested_path_with_query() {
+        assert_eq!(
+            sanitize_return_to("/projects/foo?tab=issues"),
+            Some("/projects/foo?tab=issues".to_string())
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_external_url() {
+        assert_eq!(sanitize_return_to("https://evil.example.com/steal"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_protocol_relative_url() {
+        assert_eq!(sanitize_return_to("//evil.example.com/steal"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_path_with_embedded_scheme() {
+        // No `/` prefix — should be treated as not a path.
+        assert_eq!(sanitize_return_to("javascript:alert(1)"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_empty_string() {
+        assert_eq!(sanitize_return_to(""), None);
+        assert_eq!(sanitize_return_to("   "), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_anchored_external_looking_path() {
+        // `/` prefix but contains `://` later — still suspicious.
+        assert_eq!(sanitize_return_to("/redirect?u=https://evil.com"), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // build_fragment_callback_url (URL fragment construction)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_fragment_url_includes_token_and_return_to() {
+        let url = build_fragment_callback_url("abc123", "/admin");
+        assert_eq!(url, "/auth/callback#token=abc123&returnTo=%2Fadmin");
+    }
+
+    #[test]
+    fn build_fragment_url_url_encodes_special_chars_in_return_to() {
+        let url = build_fragment_callback_url("tok", "/foo bar?x=1");
+        // The `/` and `?` and `=` and ` ` must all be percent-encoded inside the fragment.
+        assert_eq!(url, "/auth/callback#token=tok&returnTo=%2Ffoo%20bar%3Fx%3D1");
+    }
+
+    #[test]
+    fn build_fragment_url_url_encodes_token_too_for_safety() {
+        // Even though our hex tokens are URL-safe, encoding is defense in depth.
+        let url = build_fragment_callback_url("abc&def=x", "/admin");
+        assert_eq!(url, "/auth/callback#token=abc%26def%3Dx&returnTo=%2Fadmin");
+    }
+
+    // -----------------------------------------------------------------------
+    // prefers_json_response (content negotiation)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn prefers_json_when_accept_header_is_application_json() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "application/json".parse().unwrap());
+        assert!(prefers_json_response(&headers));
+    }
+
+    #[test]
+    fn prefers_json_when_accept_includes_json_with_other_types() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "text/html,application/json;q=0.9,*/*;q=0.5".parse().unwrap());
+        assert!(prefers_json_response(&headers));
+    }
+
+    #[test]
+    fn prefers_redirect_when_accept_is_text_html_only() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "text/html".parse().unwrap());
+        assert!(!prefers_json_response(&headers));
+    }
+
+    #[test]
+    fn prefers_redirect_when_accept_header_is_missing() {
+        // Browsers doing top-level navigation don't always send Accept.
+        let headers = HeaderMap::new();
+        assert!(!prefers_json_response(&headers));
     }
 }

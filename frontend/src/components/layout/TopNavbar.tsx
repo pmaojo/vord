@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../auth/AuthProvider';
 import { useGlobalStore } from '../../stores/global-store';
 import {
   Search,
   HelpCircle,
   User,
   ChevronDown,
+  LogOut,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export const TopNavbar: React.FC = () => {
-  const { setSearchOpen, user } = useGlobalStore();
+  const { setSearchOpen } = useGlobalStore();
+  const { isAuthenticated, user, logout } = useAuth();
+  const navigate = useNavigate();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   const navItems = [
@@ -22,6 +26,12 @@ export const TopNavbar: React.FC = () => {
     { label: 'Quality Gates', path: '/quality_gates' },
     { label: 'Administration', path: '/admin' },
   ];
+
+  const handleLogout = () => {
+    setUserDropdownOpen(false);
+    logout();
+    navigate('/landing');
+  };
 
   return (
     <header className="bg-[#233445] text-white border-b border-[#1c2a38] sticky top-0 z-40 shadow-xs select-none h-12 flex items-center">
@@ -83,47 +93,64 @@ export const TopNavbar: React.FC = () => {
             <HelpCircle className="w-4 h-4" />
           </a>
 
-          {/* User Profile */}
-          <div className="relative">
-            <button
-              onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-              className="flex items-center gap-2 pl-2 pr-1 py-1 rounded hover:bg-[#3b4b5b] transition-colors"
+          {/* Auth section: sign-in button or user profile */}
+          {!isAuthenticated ? (
+            <Link
+              to="/login"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4b9fd5] hover:bg-[#3b8dc0] text-white rounded text-xs font-semibold transition-all"
             >
-              <img
-                src={user.avatar}
-                alt={user.name}
-                className="w-6 h-6 rounded-full object-cover border border-white/20"
-              />
-              <span className="hidden lg:inline text-xs font-semibold text-slate-200">{user.name}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-gray-300" />
-            </button>
-
-            {/* Profile Dropdown */}
-            {userDropdownOpen && (
-              <div
-                className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-xl border border-gray-200 text-slate-800 py-2 z-50 animate-in fade-in zoom-in-95 duration-100"
-                onMouseLeave={() => setUserDropdownOpen(false)}
+              <User className="w-3.5 h-3.5" />
+              <span>Sign in</span>
+            </Link>
+          ) : (
+            <div className="relative">
+              <button
+                onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                className="flex items-center gap-2 pl-2 pr-1 py-1 rounded hover:bg-[#3b4b5b] transition-colors"
               >
-                <div className="px-4 py-2 border-b border-gray-100">
-                  <p className="text-sm font-bold text-[#233445]">{user.name}</p>
-                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                  <span className="inline-block mt-1 text-[10px] font-semibold text-[#4b9fd5] bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
-                    {user.role}
-                  </span>
+                <img
+                  src={user?.avatar_url ?? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+                  alt={user?.name ?? 'User'}
+                  className="w-6 h-6 rounded-full object-cover border border-white/20"
+                />
+                <span className="hidden lg:inline text-xs font-semibold text-slate-200">{user?.name ?? user?.username}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-gray-300" />
+              </button>
+
+              {/* Profile Dropdown */}
+              {userDropdownOpen && (
+                <div
+                  className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-xl border border-gray-200 text-slate-800 py-2 z-50 animate-in fade-in zoom-in-95 duration-100"
+                  onMouseLeave={() => setUserDropdownOpen(false)}
+                >
+                  <div className="px-4 py-2 border-b border-gray-100">
+                    <p className="text-sm font-bold text-[#233445]">{user?.name ?? user?.username}</p>
+                    <p className="text-xs text-gray-500 truncate">{user?.email ?? user?.username}</p>
+                    <span className="inline-block mt-1 text-[10px] font-semibold text-[#4b9fd5] bg-sky-50 px-2 py-0.5 rounded border border-sky-200 capitalize">
+                      {user?.provider ?? 'admin'}
+                    </span>
+                  </div>
+                  <div className="py-1">
+                    <Link
+                      to="/admin"
+                      onClick={() => setUserDropdownOpen(false)}
+                      className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <User className="w-3.5 h-3.5 text-slate-400" />
+                      My Account & Security
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center gap-2 w-full text-left px-4 py-2 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      Sign out
+                    </button>
+                  </div>
                 </div>
-                <div className="py-1">
-                  <Link
-                    to="/admin"
-                    onClick={() => setUserDropdownOpen(false)}
-                    className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <User className="w-3.5 h-3.5 text-slate-400" />
-                    My Account & Security
-                  </Link>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </header>
