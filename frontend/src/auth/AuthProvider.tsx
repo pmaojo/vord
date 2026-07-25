@@ -18,6 +18,11 @@ export interface AuthState {
   logout: () => void;
 }
 
+// Default role assigned to a brand-new OAuth login so the UI is usable
+// before any admin grants anything. The backend is the source of truth
+// and applies the same default in `oauth_callback` on first login.
+const DEFAULT_NEW_USER_ROLES: CurrentUser['user']['roles'] = ['developer'];
+
 const AuthContext = createContext<AuthState | null>(null);
 
 // ---------------------------------------------------------------------------
@@ -47,7 +52,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (current) {
           setIsAuthenticated(true);
-          setUser(current.user);
+          // Backend always sends roles — the `??` covers rooms where the
+          // server hasn't shipped the field yet (pre-RBAC deployment).
+          setUser({
+            ...current.user,
+            roles: current.user.roles ?? DEFAULT_NEW_USER_ROLES,
+          });
           setSessionExpiresAt(current.session_expires_at);
         } else {
           // Token is invalid or expired — clean up
