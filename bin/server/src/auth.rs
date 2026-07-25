@@ -13,6 +13,11 @@ use serde_json::Value;
 use url::Url;
 use utoipa::ToSchema;
 
+pub mod groups;
+pub mod permissions;
+pub mod saml;
+pub mod users;
+
 const STATE_TTL: Duration = Duration::from_secs(10 * 60);
 const SESSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -255,6 +260,15 @@ pub(crate) struct AuthErrorDto {
 }
 
 pub(crate) type AuthError = (StatusCode, Json<AuthErrorDto>);
+
+// Re-export the public RBAC types from `auth.rs` so callers (axum
+// extractors, the permissions module, the SPA mirrors) read from one place.
+pub use self::Role as PublicRole;
+pub(crate) use self::Role as InternalRole;
+pub use self::Permission as PublicPermission;
+pub(crate) use self::Permission as InternalPermission;
+pub use self::permissions_for as public_permissions_for;
+pub(crate) use self::permissions_for as internal_permissions_for;
 
 #[derive(Deserialize)]
 pub(crate) struct OAuthCallbackQuery {

@@ -15,6 +15,8 @@ use yunq_rules_engine::{
 };
 
 mod audit;
+mod audit_chain;
+mod audit_export;
 mod coverage;
 mod gate;
 mod measures;
@@ -24,6 +26,11 @@ mod queue;
 mod retention;
 mod system;
 pub use audit::{AuditLogEntry, AuditLogQuery};
+pub use audit_chain::{AuditChain, AuditChainEntry, AuditChainError, Hash as AuditHash};
+pub use audit_export::{
+    AuditExporter, AuditExportError, ChainProof, ExportCheckpoint, ExportOptions, ExportReceipt,
+    ObjectStore, ObjectStoreError, S3Destination, S3ObjectRef, S3ObjectStore,
+};
 pub use profile::{CompareProfileError, CopyProfileError, ProfileNotFoundError, RestoreProfileError};
 pub use queue::PgJobConsumer;
 pub use retention::PurgeReport;
