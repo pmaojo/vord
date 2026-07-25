@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthProvider';
+import { usePermission } from '../../auth/usePermission';
+import { PermissionGate } from '../../auth/PermissionGate';
 import { useGlobalStore } from '../../stores/global-store';
 import {
   Search,
@@ -14,17 +16,19 @@ import { cn } from '../../lib/utils';
 export const TopNavbar: React.FC = () => {
   const { setSearchOpen } = useGlobalStore();
   const { isAuthenticated, user, logout } = useAuth();
+  const canManageQualityGates = usePermission('manageQualityGates');
+  const canManageProfiles = usePermission('manageProfiles');
   const navigate = useNavigate();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
+  // Role-gated navigation. Administration is admin-only; Quality Profiles +
+  // Quality Gates are admin + developer. Viewer/scanner see only read views.
   const navItems = [
     { label: 'Overview', path: '/landing' },
     { label: 'Projects', path: '/projects' },
     { label: 'Issues', path: '/issues' },
     { label: 'Rules', path: '/rules' },
-    { label: 'Quality Profiles', path: '/quality_profiles' },
-    { label: 'Quality Gates', path: '/quality_gates' },
-    { label: 'Administration', path: '/admin' },
+    { label: 'Administration', path: '/admin', permission: 'adminAccess' as const },
   ];
 
   const handleLogout = () => {
@@ -50,12 +54,39 @@ export const TopNavbar: React.FC = () => {
             </span>
           </Link>
 
-          {/* Navigation Links */}
+          {/* Navigation Links — role-gated */}
           <nav className="hidden md:flex items-center h-full gap-1 text-xs font-medium">
-            {navItems.map((item) => (
+            {navItems.map((item) => {
+              // Common: every authed user can see Overview/Projects/Issues/Rules.
+              const inner = (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={({ isActive }) =>
+                    cn(
+                      'h-full flex items-center px-3 transition-all relative font-medium',
+                      isActive
+                        ? 'border-b-2 border-[#4b9fd5] text-white font-bold opacity-100'
+                        : 'text-white/80 hover:text-white hover:opacity-100'
+                    )
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              );
+              return 'permission' in item ? (
+                <PermissionGate key={item.path} permission={item.permission}>
+                  {inner}
+                </PermissionGate>
+              ) : (
+                inner
+              );
+            })}
+            {/* Quality Profiles / Quality Gates — only for users with the manage permission. */}
+            {canManageProfiles && (
               <NavLink
-                key={item.path}
-                to={item.path}
+                key="/quality_profiles"
+                to="/quality_profiles"
                 className={({ isActive }) =>
                   cn(
                     'h-full flex items-center px-3 transition-all relative font-medium',
@@ -65,9 +96,25 @@ export const TopNavbar: React.FC = () => {
                   )
                 }
               >
-                {item.label}
+                Quality Profiles
               </NavLink>
-            ))}
+            )}
+            {canManageQualityGates && (
+              <NavLink
+                key="/quality_gates"
+                to="/quality_gates"
+                className={({ isActive }) =>
+                  cn(
+                    'h-full flex items-center px-3 transition-all relative font-medium',
+                    isActive
+                      ? 'border-b-2 border-[#4b9fd5] text-white font-bold opacity-100'
+                      : 'text-white/80 hover:text-white hover:opacity-100'
+                  )
+                }
+              >
+                Quality Gates
+              </NavLink>
+            )}
           </nav>
         </div>
 
@@ -126,9 +173,18 @@ export const TopNavbar: React.FC = () => {
                   <div className="px-4 py-2 border-b border-gray-100">
                     <p className="text-sm font-bold text-[#233445]">{user?.name ?? user?.username}</p>
                     <p className="text-xs text-gray-500 truncate">{user?.email ?? user?.username}</p>
-                    <span className="inline-block mt-1 text-[10px] font-semibold text-[#4b9fd5] bg-sky-50 px-2 py-0.5 rounded border border-sky-200 capitalize">
-                      {user?.provider ?? 'admin'}
-                    </span>
+                    {Array.isArray((user as any)?.roles) && (user as any).roles.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(user as any).roles.map((role: string) => (
+                          <span
+                            key={role}
+                            className="inline-block text-[10px] font-semibold text-[#4b9fd5] bg-sky-50 px-2 py-0.5 rounded border border-sky-200 capitalize"
+                          >
+                            {role}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="py-1">
                     <Link

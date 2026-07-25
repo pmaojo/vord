@@ -16,6 +16,108 @@ use utoipa::ToSchema;
 const STATE_TTL: Duration = Duration::from_secs(10 * 60);
 const SESSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
+// ---------------------------------------------------------------------------
+// RBAC: Roles & Permissions
+// ---------------------------------------------------------------------------
+// This map MIRRORS `frontend/src/auth/roles.ts`. Any drift between the two is
+// an integration bug; keep them in lockstep.
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Role {
+    Admin,
+    Developer,
+    Viewer,
+    Scanner,
+}
+
+impl Role {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Admin => "admin",
+            Self::Developer => "developer",
+            Self::Viewer => "viewer",
+            Self::Scanner => "scanner",
+        }
+    }
+}
+
+/// Role assigned to a brand-new OAuth login so the UI is usable until an
+/// admin explicitly grants additional roles. Least privilege that keeps
+/// the product explorable.
+pub(crate) const DEFAULT_NEW_USER_ROLE: Role = Role::Developer;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Permission {
+    AdminAccess,
+    BrowseIssues,
+    ManageQualityGates,
+    ManageProfiles,
+    SubmitAnalyses,
+    TransitionIssues,
+}
+
+/// Map a role to its granted permissions. Admin is a superset (defense in depth).
+fn permissions_for(roles: &[Role]) -> Vec<Permission> {
+    let mut grant_admin = false;
+    let mut out: Vec<Permission> = Vec::new();
+    for role in roles {
+        match role {
+            Role::Admin => {
+                grant_admin = true;
+            }
+            Role::Developer => {
+                if !out.contains(&Permission::BrowseIssues) {
+                    out.push(Permission::BrowseIssues);
+                }
+                if !out.contains(&Permission::ManageQualityGates) {
+                    out.push(Permission::ManageQualityGates);
+                }
+                if !out.contains(&Permission::ManageProfiles) {
+                    out.push(Permission::ManageProfiles);
+                }
+                if !out.contains(&Permission::SubmitAnalyses) {
+                    out.push(Permission::SubmitAnalyses);
+                }
+                if !out.contains(&Permission::TransitionIssues) {
+                    out.push(Permission::TransitionIssues);
+                }
+            }
+            Role::Viewer => {
+                if !out.contains(&Permission::BrowseIssues) {
+                    out.push(Permission::BrowseIssues);
+                }
+            }
+            Role::Scanner => {
+                if !out.contains(&Permission::SubmitAnalyses) {
+                    out.push(Permission::SubmitAnalyses);
+                }
+            }
+        }
+    }
+    if grant_admin {
+        for p in [
+            Permission::AdminAccess,
+            Permission::BrowseIssues,
+            Permission::ManageQualityGates,
+            Permission::ManageProfiles,
+            Permission::SubmitAnalyses,
+            Permission::TransitionIssues,
+        ] {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// True when `roles` covers the named permission.
+pub(crate) fn role_has_permission(roles: &[Role], permission: Permission) -> bool {
+    permissions_for(roles).contains(&permission)
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 pub(crate) struct TenantContext {
@@ -44,6 +146,17 @@ struct OAuthInner {
     providers: HashMap<OAuthProvider, ProviderConfig>,
     pending_states: Mutex<HashMap<String, PendingState>>,
     sessions: RwLock<HashMap<String, SessionRecord>>,
+    /// Persistent (in-memory MVP) user store: a (provider, provider_user_id)
+    /// key maps to the roles an admin has granted that user. Survives
+    /// logout/login so role grants don't evaporate when sessions expire.
+    users: RwLock<HashMap<UserKey, Vec<Role>>>,
+}
+
+/// Key for the users store. Same OAuth subject == same user across logins.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct UserKey {
+    provider: String,
+    provider_user_id: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -93,15 +206,22 @@ struct SessionRecord {
     expires_at_unix: u64,
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
-pub(crate) struct OAuthUserDto {
-    provider: String,
-    provider_user_id: String,
-    username: String,
-    name: Option<String>,
-    email: Option<String>,
-    avatar_url: Option<String>,
-}
+#[derive(Clone, Debug, Serialize, ToSchema)]    pub(crate) struct OAuthUserDto {
+        provider: String,
+        provider_user_id: String,
+        username: String,
+        name: Option<String>,
+        email: Option<String>,
+        avatar_url: Option<String>,
+        /// RBAC roles; see `Role`. Snapshot per session but persistent
+        /// across logins via the users store in `OAuthInner`.
+        #[serde(default = "default_roles")]
+        pub(crate) roles: Vec<Role>,
+    }
+
+    fn default_roles() -> Vec<Role> {
+        vec![DEFAULT_NEW_USER_ROLE]
+    }
 
 #[derive(Serialize, ToSchema)]
 pub(crate) struct OAuthLoginDto {
@@ -240,8 +360,40 @@ impl OAuthService {
                 providers,
                 pending_states: Mutex::new(HashMap::new()),
                 sessions: RwLock::new(HashMap::new()),
+                users: RwLock::new(HashMap::new()),
             }),
         }
+    }
+
+    /// Read the persisted roles for a user, or insert the default
+    /// (`[developer]`) on first sight. Returns a snapshot the caller can
+    /// embed into the session record / OAuthLoginDto without holding the lock.
+    fn resolve_roles(&self, provider: &str, provider_user_id: &str) -> Vec<Role> {
+        let key = UserKey {
+            provider: provider.to_string(),
+            provider_user_id: provider_user_id.to_string(),
+        };
+        {
+            let users = self.inner.users.read().unwrap_or_else(|p| p.into_inner());
+            if let Some(roles) = users.get(&key) {
+                return roles.clone();
+            }
+        }
+        // First login: seed with the safe default and persist a clone.
+        let mut users = self.inner.users.write().unwrap_or_else(|p| p.into_inner());
+        users.entry(key).or_insert_with(|| vec![DEFAULT_NEW_USER_ROLE]).clone()
+    }
+
+    /// Replace the roles for a user. Admin-only operation; not exposed via
+    /// HTTP yet — wired up in a follow-up TDD iteration.
+    #[allow(dead_code)]
+    pub(crate) fn set_roles(&self, provider: &str, provider_user_id: &str, roles: Vec<Role>) -> Option<Vec<Role>> {
+        let key = UserKey {
+            provider: provider.to_string(),
+            provider_user_id: provider_user_id.to_string(),
+        };
+        let mut users = self.inner.users.write().unwrap_or_else(|p| p.into_inner());
+        users.insert(key, roles)
     }
 
     fn begin(&self, provider: OAuthProvider, return_to: Option<&str>) -> Result<String, AuthError> {
@@ -399,13 +551,18 @@ impl OAuthService {
         } else {
             profile.email
         };
+        let user_provider = provider.as_str().to_string();
+        // Resolve roles BEFORE we build the DTO so the response sent to
+        // the SPA on every successful login is always complete.
+        let roles = self.resolve_roles(&user_provider, &provider_user_id);
         Ok(OAuthUserDto {
-            provider: provider.as_str().to_string(),
+            provider: user_provider,
             provider_user_id,
             username,
             name: profile.name,
             email,
             avatar_url: profile.avatar_url,
+            roles,
         })
     }
 
@@ -853,5 +1010,112 @@ mod tests {
         // Browsers doing top-level navigation don't always send Accept.
         let headers = HeaderMap::new();
         assert!(!prefers_json_response(&headers));
+    }
+
+    // -----------------------------------------------------------------------
+    // RBAC: Role / Permission / permissions_for / role_has_permission
+    // These mirror `frontend/src/auth/roles.ts`; drift is an integration bug.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn default_role_for_new_user_is_developer() {
+        assert_eq!(DEFAULT_NEW_USER_ROLE, Role::Developer);
+        assert_eq!(DEFAULT_NEW_USER_ROLE.as_str(), "developer");
+    }
+
+    #[test]
+    fn admin_role_grants_every_permission() {
+        let perms = permissions_for(&[Role::Admin]);
+        assert!(perms.contains(&Permission::AdminAccess));
+        assert!(perms.contains(&Permission::BrowseIssues));
+        assert!(perms.contains(&Permission::ManageQualityGates));
+        assert!(perms.contains(&Permission::ManageProfiles));
+        assert!(perms.contains(&Permission::SubmitAnalyses));
+        assert!(perms.contains(&Permission::TransitionIssues));
+        assert_eq!(perms.len(), 6);
+    }
+
+    #[test]
+    fn developer_role_lacks_admin_access_but_grants_rest() {
+        let perms = permissions_for(&[Role::Developer]);
+        assert!(!perms.contains(&Permission::AdminAccess));
+        assert!(perms.contains(&Permission::BrowseIssues));
+        assert!(perms.contains(&Permission::ManageQualityGates));
+        assert!(perms.contains(&Permission::ManageProfiles));
+        assert!(perms.contains(&Permission::SubmitAnalyses));
+        assert!(perms.contains(&Permission::TransitionIssues));
+    }
+
+    #[test]
+    fn viewer_role_is_read_only() {
+        let perms = permissions_for(&[Role::Viewer]);
+        assert_eq!(perms, vec![Permission::BrowseIssues]);
+    }
+
+    #[test]
+    fn scanner_role_only_submits_analyses() {
+        let perms = permissions_for(&[Role::Scanner]);
+        assert_eq!(perms, vec![Permission::SubmitAnalyses]);
+    }
+
+    #[test]
+    fn multiple_roles_union_permissions_admin_is_a_superset() {
+        // developer + scanner should be able to submit AND browse.
+        let perms = permissions_for(&[Role::Developer, Role::Scanner]);
+        assert!(perms.contains(&Permission::SubmitAnalyses));
+        assert!(perms.contains(&Permission::BrowseIssues));
+        assert!(!perms.contains(&Permission::AdminAccess));
+    }
+
+    #[test]
+    fn empty_role_list_grants_no_permissions() {
+        assert!(permissions_for(&[]).is_empty());
+    }
+
+    #[test]
+    fn role_has_permission_shortcut_works() {
+        assert!(role_has_permission(&[Role::Admin], Permission::AdminAccess));
+        assert!(!role_has_permission(&[Role::Viewer], Permission::SubmitAnalyses));
+        assert!(role_has_permission(&[Role::Scanner], Permission::SubmitAnalyses));
+        assert!(!role_has_permission(&[Role::Scanner], Permission::BrowseIssues));
+    }
+
+    // -----------------------------------------------------------------------
+    // RBAC: resolve_roles / set_roles (persistent user store)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn first_login_defaults_to_developer_role() {
+        let service = test_service();
+        let roles = service.resolve_roles("github", "user-1");
+        assert_eq!(roles, vec![Role::Developer]);
+    }
+
+    #[test]
+    fn subsequent_login_keeps_admin_granted_roles() {
+        let service = test_service();
+        // First sight: seeded with default.
+        assert_eq!(service.resolve_roles("github", "user-2"), vec![Role::Developer]);
+        // Admin grants additional role; replace_full.
+        let previous = service.set_roles("github", "user-2", vec![Role::Admin, Role::Developer]);
+        assert_eq!(previous, Some(vec![Role::Developer]));
+        // Subsequent login: returns the granted set, not the default.
+        assert_eq!(
+            service.resolve_roles("github", "user-2"),
+            vec![Role::Admin, Role::Developer],
+        );
+    }
+
+    #[test]
+    fn roles_are_per_user_across_providers() {
+        let service = test_service();
+        service.resolve_roles("github", "user-3");
+        service.set_roles("github", "user-3", vec![Role::Admin]);
+        // Same gitlab subject stays unaffected by the github grant.
+        assert_eq!(service.resolve_roles("gitlab", "user-3"), vec![Role::Developer]);
+        assert_eq!(
+            service.resolve_roles("github", "user-3"),
+            vec![Role::Admin],
+        );
     }
 }
