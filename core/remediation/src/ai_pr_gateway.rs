@@ -16,6 +16,7 @@
 //! `core/rules_engine/alm_gateway`).
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use thiserror::Error;
@@ -211,19 +212,17 @@ pub enum AiPrGatewayError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     /// In-memory `AlmGateway` that records every decoration + check run.
-    #[derive(Debug, Default)]
+    #[derive(Debug, Clone, Default)]
     struct FakeAlm {
-        pub decorations: Mutex<Vec<PrDecoration>>,
-        pub check_runs: Mutex<Vec<(String, String, String, CheckRunReport)>>,
+        pub decorations: Arc<Mutex<Vec<PrDecoration>>>,
+        pub check_runs: Arc<Mutex<Vec<(String, String, String, CheckRunReport)>>>,
     }
 
-    #[async_trait]
     impl AlmGateway for FakeAlm {
-        async fn decorate_pr(
+        fn decorate_pr(
             &self,
             decoration: PrDecoration,
         ) -> Result<DecorationReceipt, AlmGatewayError> {
@@ -234,17 +233,14 @@ mod tests {
                 provider: decoration.provider,
             })
         }
-        async fn upsert_check_run(
+        fn upsert_check_run(
             &self,
             project_key: String,
             repo: String,
             pr_id: String,
             report: CheckRunReport,
         ) -> Result<String, AlmGatewayError> {
-            self.check_runs
-                .lock()
-                .unwrap()
-                .push((project_key, repo, pr_id, report));
+            self.check_runs.lock().unwrap().push((project_key, repo, pr_id, report));
             Ok("fake-run-id".to_string())
         }
         fn name(&self) -> &'static str {
@@ -275,7 +271,7 @@ mod tests {
     #[tokio::test]
     async fn assign_to_agent_returns_task_id() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let task = gateway.assign_to_agent(&issue, AiAgent::YunqAutoFix).await.unwrap();
         assert_eq!(task.issue, issue);
@@ -286,7 +282,7 @@ mod tests {
     #[tokio::test]
     async fn assign_to_agent_skips_resolved_issues() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let task = gateway.assign_to_agent(&issue, AiAgent::YunqAutoFix).await.unwrap();
         assert!(matches!(
@@ -298,7 +294,7 @@ mod tests {
     #[tokio::test]
     async fn open_ai_pr_calls_decorate_pr_with_correct_project_key() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let proposal = sample_proposal();
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
@@ -311,7 +307,7 @@ mod tests {
     #[tokio::test]
     async fn open_ai_pr_summary_cites_rule_and_file() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let proposal = sample_proposal();
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
@@ -326,7 +322,7 @@ mod tests {
     #[tokio::test]
     async fn open_ai_pr_posted_includes_inline_comment_at_issue_line() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let proposal = sample_proposal();
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
@@ -341,7 +337,7 @@ mod tests {
     #[tokio::test]
     async fn open_ai_pr_attaches_a_check_run() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let proposal = sample_proposal();
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
@@ -355,7 +351,7 @@ mod tests {
     #[tokio::test]
     async fn bulk_assign_returns_summary_with_counts() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issues: Vec<IssueRef> = (0..5).map(|_| sample_issue()).collect();
         let summary = gateway.bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix).await.unwrap();
         assert_eq!(summary.total, 5);
@@ -381,7 +377,7 @@ mod tests {
     #[tokio::test]
     async fn bulk_assign_continues_on_individual_failures() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issues: Vec<IssueRef> = (0..3).map(|_| sample_issue()).collect();
         let summary = gateway.bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix).await.unwrap();
         assert_eq!(summary.tasks.len(), 3);
