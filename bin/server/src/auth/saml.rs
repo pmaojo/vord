@@ -94,10 +94,9 @@ pub fn render_metadata_xml(metadata: &SpMetadata) -> String {
 /// a functional check:
 /// - Verifies the assertion contains a signed XML payload (non-empty)
 /// - Checks the validity window
-/// - Verifies the issuer is present and non-empty
-/// Full cryptographic signature verification will be added when xmlsec/xmldsig
-/// bindings are integrated.
-pub fn verify_signature(assertion: &SamlAssertion) -> Result<(), String> {
+/// - Verifies the issuer is present and non-empty    ///   Full cryptographic signature verification will be added when xmlsec/xmldsig
+    ///   bindings are integrated.
+    pub fn verify_signature(assertion: &SamlAssertion) -> Result<(), String> {
     // Verify there is a signed XML payload
     if assertion.signed_xml_b64.is_empty() {
         return Err("SAML assertion has no signed XML payload".to_string());
