@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { MOCK_PROJECTS, MOCK_FILE_TREE } from '../../../testing/mock-data';
 import { ProjectHeader } from '../../../components/layout/ProjectHeader';
-import { FileNode } from '../../../types';
+import { FileNode, Project } from '../../../types';
 import { SeverityIcon } from '../../../components/common/SeverityIcon';
 import {
   Folder,
@@ -22,14 +22,14 @@ import { cn } from '../../../lib/utils';
 export const CodeBrowser: React.FC = () => {
   const { projectKey } = useParams<{ projectKey: string }>();
   const decodedKey = projectKey ? decodeURIComponent(projectKey) : '';
-  const project = MOCK_PROJECTS.find((p) => p.key === decodedKey) || MOCK_PROJECTS[0];
+  const project: Project | undefined = MOCK_PROJECTS.find((p) => p.key === decodedKey) ?? MOCK_PROJECTS[0];
 
   const [currentBranch, setCurrentBranch] = useState(
-    project.branches.find((b) => b.isMain)?.name || 'main'
+    project?.branches.find((b) => b.isMain)?.name || 'main'
   );
 
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(
-    MOCK_FILE_TREE.children?.[0]?.children?.[0]?.children?.[0] || null
+    MOCK_FILE_TREE[0]?.children?.[0]?.children?.[0] || null
   );
 
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
@@ -42,6 +42,18 @@ export const CodeBrowser: React.FC = () => {
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
   };
+
+  // MOCK_PROJECTS is currently empty (this page has no real project-metrics
+  // data source wired in yet) — render a clear placeholder instead of
+  // crashing on `undefined.branches` above.
+  if (!project) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center text-sm text-slate-500">
+        No project data available for <span className="font-mono font-bold">{decodedKey || 'this key'}</span>.
+        Code browsing still reads from local mock data, which is currently empty.
+      </div>
+    );
+  }
 
   const renderFileTree = (node: FileNode) => {
     if (node.type === 'dir') {
@@ -105,7 +117,7 @@ export const CodeBrowser: React.FC = () => {
               <FileText className="w-4 h-4 text-sky-600" />
               <span>Source Files</span>
             </div>
-            <div className="space-y-1">{renderFileTree(MOCK_FILE_TREE)}</div>
+            <div className="space-y-1">{MOCK_FILE_TREE.map(renderFileTree)}</div>
           </div>
 
           {/* Main Source Viewer Area */}

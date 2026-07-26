@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { MOCK_PROJECTS, MOCK_METRICS_LIST } from '../../../testing/mock-data';
+import type { Project } from '../../../types';
 import { ProjectHeader } from '../../../components/layout/ProjectHeader';
 import { RatingBadge } from '../../../components/common/RatingBadge';
 import {
@@ -20,13 +21,25 @@ import { ResponsiveContainer, Treemap, Tooltip, ScatterChart, Scatter, XAxis, YA
 export const MeasuresView: React.FC = () => {
   const { projectKey } = useParams<{ projectKey: string }>();
   const decodedKey = projectKey ? decodeURIComponent(projectKey) : '';
-  const project = MOCK_PROJECTS.find((p) => p.key === decodedKey) || MOCK_PROJECTS[0];
+  const project: Project | undefined = MOCK_PROJECTS.find((p) => p.key === decodedKey) ?? MOCK_PROJECTS[0];
 
   const [currentBranch, setCurrentBranch] = useState(
-    project.branches.find((b) => b.isMain)?.name || 'main'
+    project?.branches.find((b) => b.isMain)?.name || 'main'
   );
 
   const [selectedCategory, setSelectedCategory] = useState<string>('RELIABILITY');
+
+  // MOCK_PROJECTS is currently empty (this page has no real project-metrics
+  // data source wired in yet) — render a clear placeholder instead of
+  // crashing on `undefined.branches`/`undefined.metrics` below.
+  if (!project) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center text-sm text-slate-500">
+        No project data available for <span className="font-mono font-bold">{decodedKey || 'this key'}</span>.
+        Measures still read from local mock data, which is currently empty.
+      </div>
+    );
+  }
 
   const categories = [
     { key: 'RELIABILITY', name: 'Reliability', icon: Bug },

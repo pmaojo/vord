@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MOCK_PROJECTS } from '../../../testing/mock-data';
+import type { Project } from '../../../types';
 import { ProjectHeader } from '../../../components/layout/ProjectHeader';
 import { RatingBadge } from '../../../components/common/RatingBadge';
 import { QualityGateBadge } from '../../../components/common/QualityGateBadge';
+import { useProjectActivity } from '../../../lib/queries';
 import { formatDuration, formatNumber } from '../../../lib/utils';
 import {
   AlertTriangle,
@@ -16,7 +18,10 @@ import {
   Flame,
   ArrowUpRight,
   TrendingUp,
-  Activity
+  Activity,
+  XCircle,
+  PlayCircle,
+  Loader2,
 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
 
@@ -25,14 +30,31 @@ export const ProjectOverview: React.FC = () => {
   const navigate = useNavigate();
 
   const decodedKey = projectKey ? decodeURIComponent(projectKey) : '';
-  const project = MOCK_PROJECTS.find((p) => p.key === decodedKey) || MOCK_PROJECTS[0];
+  const project: Project | undefined = MOCK_PROJECTS.find((p) => p.key === decodedKey) ?? MOCK_PROJECTS[0];
 
   const [currentBranch, setCurrentBranch] = useState(
-    project.branches.find((b) => b.isMain)?.name || 'main'
+    project?.branches.find((b) => b.isMain)?.name || 'main'
   );
 
   const [activeTabCodeScope, setActiveTabCodeScope] = useState<'NEW_CODE' | 'OVERALL'>('NEW_CODE');
   const [timelineMetric, setTimelineMetric] = useState<'coverage' | 'codeSmells' | 'bugs'>('coverage');
+
+  // MOCK_PROJECTS is currently empty (this page has no real project-metrics
+  // data source wired in yet) — render a clear placeholder for the mocked
+  // metrics instead of crashing on `undefined.branches` above, but still
+  // show the real activity feed below since that doesn't depend on the mock
+  // project object at all.
+  if (!project) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 space-y-8">
+        <div className="text-center text-sm text-slate-500">
+          No project metrics available for <span className="font-mono font-bold">{decodedKey || 'this key'}</span>.
+          Project overview metrics still read from local mock data, which is currently empty.
+        </div>
+        <RecentActivityPanel projectKey={decodedKey} />
+      </div>
+    );
+  }
 
   const encodedKey = encodeURIComponent(project.key);
 
@@ -340,7 +362,58 @@ export const ProjectOverview: React.FC = () => {
             </ResponsiveContainer>
           </div>
         </div>
+
+        <RecentActivityPanel projectKey={decodedKey} />
       </div>
+    </div>
+  );
+};
+
+/** Real data, `GET /api/projects/{key}/activity` — no mock dependency. */
+const RecentActivityPanel: React.FC<{ projectKey: string }> = ({ projectKey }) => {
+  const { data: activityLog, isLoading: activityLoading } = useProjectActivity(projectKey);
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+      <div className="flex items-center gap-2 mb-4">
+        <Activity className="w-5 h-5 text-sky-600" />
+        <h3 className="text-lg font-bold text-slate-900">Recent Activity</h3>
+        <span className="text-xs text-slate-400 font-mono ml-auto">GET /api/projects/{'{key}'}/activity</span>
+      </div>
+
+      {activityLoading ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500 py-8 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading activity...
+        </div>
+      ) : (activityLog?.items.length ?? 0) === 0 ? (
+        <div className="text-xs text-slate-400 font-mono text-center py-8">
+          No background task activity recorded yet for <b>{projectKey}</b> — run a scan to populate this feed.
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {activityLog!.items.map((entry) => {
+            const isFailed = entry.event_type === 'scan.failed';
+            const isSucceeded = entry.event_type === 'scan.succeeded';
+            const Icon = isFailed ? XCircle : isSucceeded ? CheckCircle2 : PlayCircle;
+            const iconClass = isFailed ? 'text-rose-500' : isSucceeded ? 'text-emerald-500' : 'text-sky-500';
+            return (
+              <li key={entry.id} className="flex items-start gap-3 text-xs border-b border-slate-100 last:border-0 py-2">
+                <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${iconClass}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-700 font-mono">{entry.event_type}</span>
+                    <span className="text-slate-400 font-mono">{entry.at}</span>
+                  </div>
+                  <div className="text-slate-600 mt-0.5 truncate" title={entry.message}>
+                    {entry.message}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 };

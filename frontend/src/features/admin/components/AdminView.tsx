@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSystemInfo, useAuditLog } from '../../../lib/queries';
+import { useSystemInfo, useAuditLog, useQueueStatus } from '../../../lib/queries';
 import {
   fetchScimUsers,
   ScimUser,
@@ -28,11 +28,14 @@ import {
   AlertCircle,
   Plus,
   Trash2,
+  ListTodo,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 
 export const AdminView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
-    'system' | 'identity' | 'ai' | 'scm' | 'compliance' | 'users'
+    'system' | 'queue' | 'identity' | 'ai' | 'scm' | 'compliance' | 'users'
   >('system');
 
   const { data: systemInfo, isLoading: systemLoading } = useSystemInfo();
@@ -89,6 +92,16 @@ export const AdminView: React.FC = () => {
         </button>
 
         <button
+          onClick={() => setActiveTab('queue')}
+          className={`py-3 px-3 border-b-2 font-bold flex items-center gap-1.5 transition-colors ${
+            activeTab === 'queue' ? 'border-[#4b9fd5] text-[#4b9fd5]' : 'border-transparent hover:text-gray-900'
+          }`}
+        >
+          <ListTodo className="w-4 h-4" />
+          <span>Task Queue</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('identity')}
           className={`py-3 px-3 border-b-2 font-bold flex items-center gap-1.5 transition-colors ${
             activeTab === 'identity' ? 'border-[#4b9fd5] text-[#4b9fd5]' : 'border-transparent hover:text-gray-900'
@@ -140,6 +153,7 @@ export const AdminView: React.FC = () => {
       </div>
 
       {activeTab === 'system' && <SystemTab systemInfo={systemInfo} loading={systemLoading} />}
+      {activeTab === 'queue' && <QueueTab />}
       {activeTab === 'identity' && <IdentityTab usersList={usersList} />}
       {activeTab === 'ai' && <AiTab />}
       {activeTab === 'scm' && <WebhooksTab />}
@@ -221,6 +235,131 @@ const SystemTab: React.FC<{ systemInfo?: SystemInfoShape; loading: boolean }> = 
           <div className="text-xs text-gray-500 mt-1 font-mono">GET /api/system/info</div>
         </div>
       </div>
+    </div>
+  );
+};
+
+const QueueTab: React.FC = () => {
+  const { data: queueStatus, isLoading, isError, error } = useQueueStatus();
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-2xs space-y-6">
+      <div className="border-b border-gray-100 pb-3">
+        <h3 className="text-sm font-bold text-[#233445] uppercase tracking-wider">Task Queue Status</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Backed by <code className="font-mono">GET /api/admin/queue/status</code> — real scan job depth,
+          oldest-pending age, and recent failures (dead-lettered after 5 attempts). Bearer-authenticated,
+          requires the <code className="font-mono">AdminAccess</code> permission.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500 py-8 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading queue status...
+        </div>
+      ) : isError ? (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-4 text-xs flex items-start gap-2">
+          <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            {error instanceof Error ? error.message : 'Sign in required'} — this endpoint requires an
+            AdminAccess-scoped session, and this UI doesn't have a way to obtain one yet (personal access
+            tokens always grant the Developer role), so it isn't reachable from here until that's built.
+          </span>
+        </div>
+      ) : queueStatus ? (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Pending</span>
+                <Clock className="w-4 h-4 text-amber-500" />
+              </div>
+              <div className="text-lg font-black text-amber-700 mt-2">{queueStatus.pending}</div>
+              {queueStatus.oldest_pending_age_seconds != null && (
+                <div className="text-xs text-gray-500 mt-1 font-mono">
+                  oldest: {formatUptimeSeconds(queueStatus.oldest_pending_age_seconds)}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Processing</span>
+                <Radio className="w-4 h-4 text-teal-600" />
+              </div>
+              <div className="text-lg font-black text-teal-700 mt-2">{queueStatus.processing}</div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Dead-lettered</span>
+                <XCircle className="w-4 h-4 text-rose-600" />
+              </div>
+              <div className="text-lg font-black text-rose-700 mt-2">{queueStatus.dead}</div>
+              <div className="text-xs text-gray-500 mt-1 font-mono">retry budget exhausted</div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Recent Failures</span>
+                <AlertCircle className="w-4 h-4 text-purple-600" />
+              </div>
+              <div className="text-lg font-black text-purple-700 mt-2">{queueStatus.recent_failures.length}</div>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+              Recent Failures & Diagnostics
+            </h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                    <th className="py-2.5 px-4">Project</th>
+                    <th className="py-2.5 px-4">Status</th>
+                    <th className="py-2.5 px-4">Attempts</th>
+                    <th className="py-2.5 px-4">Last Error</th>
+                    <th className="py-2.5 px-4">Updated</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-xs font-medium">
+                  {queueStatus.recent_failures.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-gray-400 font-mono text-xs">
+                        No failed jobs recorded.
+                      </td>
+                    </tr>
+                  ) : (
+                    queueStatus.recent_failures.map((job) => (
+                      <tr key={job.id} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-4 font-bold text-[#233445] font-mono">{job.project}</td>
+                        <td className="py-2.5 px-4">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                              job.status === 'dead'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}
+                          >
+                            {job.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 font-mono">{job.attempts}</td>
+                        <td className="py-2.5 px-4 text-gray-600 max-w-md truncate" title={job.last_error ?? undefined}>
+                          {job.last_error ?? '—'}
+                        </td>
+                        <td className="py-2.5 px-4 text-gray-500 font-mono">{job.updated_at}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 };
