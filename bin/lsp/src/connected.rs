@@ -343,7 +343,7 @@ mod tests {
         let batch = DiagnosticBatch {
             client_id: "c1".into(),
             batch_id: "b1".into(),
-            diagnostics: (0..100).map(|i| diag(i)).collect(),
+            diagnostics: (0..100).map(diag).collect(),
         };
         // RED: push_diagnostics panics with unimplemented!(); when implemented,
         // verify via transport.push_count that exactly one push call was made.
