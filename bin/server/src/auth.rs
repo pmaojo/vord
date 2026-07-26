@@ -6,6 +6,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect};
 use axum::Json;
+
+use crate::auth::permissions::Caller;
 use rand::{rngs::OsRng, RngCore};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -254,6 +256,11 @@ impl CurrentUserDto {
     /// The login/username to record as the actor on audit log entries.
     pub(crate) fn username(&self) -> &str {
         &self.user.username
+    }
+
+    /// RBAC roles attached to this session.
+    pub(crate) fn roles(&self) -> Vec<Role> {
+        self.user.roles.clone()
     }
 }
 
@@ -665,7 +672,7 @@ fn unix_seconds() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
-fn auth_error(status: StatusCode, message: impl Into<String>) -> AuthError {
+pub(crate) fn auth_error(status: StatusCode, message: impl Into<String>) -> AuthError {
     (status, Json(AuthErrorDto { error: message.into() }))
 }
 
@@ -823,6 +830,154 @@ pub(crate) async fn current_user(
     headers: HeaderMap,
 ) -> Result<Json<CurrentUserDto>, AuthError> {
     state.auth.authenticate(&headers).map(Json)
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct LocalRegisterDto {
+    username: String,
+    email: String,
+    password: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct LocalUserDto {
+    id: String,
+    username: String,
+    email: String,
+}
+
+impl From<users::LocalUser> for LocalUserDto {
+    fn from(user: users::LocalUser) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+        }
+    }
+}
+
+/// Register a new local user account.
+#[utoipa::path(
+    post,
+    path = "/api/auth/local/register",
+    request_body = LocalRegisterDto,
+    responses(
+        (status = 201, description = "User registered", body = LocalUserDto),
+        (status = 400, description = "Invalid request or duplicate username", body = AuthErrorDto)
+    )
+)]
+pub(crate) async fn local_register(
+    State(state): State<Arc<crate::AppState>>,
+    Json(request): Json<LocalRegisterDto>,
+) -> Result<Json<LocalUserDto>, AuthError> {
+    let trimmed = request.username.trim();
+    if trimmed.is_empty() || request.password.len() < 8 {
+        return Err(auth_error(
+            StatusCode::BAD_REQUEST,
+            "username required and password must be at least 8 characters",
+        ));
+    }
+    let user = state
+        .users
+        .create_user(trimmed, &request.email, &request.password)
+        .await
+        .map_err(|error| match error {
+            users::UserStoreError::DuplicateUsername => {
+                auth_error(StatusCode::BAD_REQUEST, "username already taken")
+            }
+            _ => auth_error(StatusCode::BAD_REQUEST, "could not create user"),
+        })?;
+    Ok(Json(LocalUserDto::from(user)))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct LocalLoginDto {
+    username: String,
+    password: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct LocalLoginResponseDto {
+    token: String,
+    user: LocalUserDto,
+}
+
+/// Authenticate a local user and issue a personal access token that can be
+/// used as a `Bearer` token on subsequent requests.
+#[utoipa::path(
+    post,
+    path = "/api/auth/local/login",
+    request_body = LocalLoginDto,
+    responses(
+        (status = 200, description = "Login successful", body = LocalLoginResponseDto),
+        (status = 401, description = "Invalid credentials", body = AuthErrorDto)
+    )
+)]
+pub(crate) async fn local_login(
+    State(state): State<Arc<crate::AppState>>,
+    Json(request): Json<LocalLoginDto>,
+) -> Result<Json<LocalLoginResponseDto>, AuthError> {
+    let user = state
+        .users
+        .authenticate_local(&request.username, &request.password)
+        .await
+        .map_err(|_| auth_error(StatusCode::UNAUTHORIZED, "invalid credentials"))?;
+    let (_pat, raw_token) = state
+        .users
+        .create_pat(&user.id, "default-login", users::TokenScope::default_pat().to_vec())
+        .await
+        .map_err(|_| auth_error(StatusCode::INTERNAL_SERVER_ERROR, "could not issue token"))?;
+    Ok(Json(LocalLoginResponseDto {
+        token: raw_token,
+        user: LocalUserDto::from(user),
+    }))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct CreatePatDto {
+    label: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct PatCreatedDto {
+    id: String,
+    label: String,
+    token: String,
+    created_at: u64,
+}
+
+/// Create a new personal access token for the authenticated caller.
+#[utoipa::path(
+    post,
+    path = "/api/auth/tokens",
+    request_body = CreatePatDto,
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 201, description = "Token created", body = PatCreatedDto),
+        (status = 401, description = "Missing or expired bearer token", body = AuthErrorDto)
+    )
+)]
+pub(crate) async fn create_pat(
+    State(state): State<Arc<crate::AppState>>,
+    Caller(caller): Caller,
+    Json(request): Json<CreatePatDto>,
+) -> Result<Json<PatCreatedDto>, AuthError> {
+    let user = state
+        .users
+        .find_user_by_username(&caller.username)
+        .await
+        .map_err(|_| auth_error(StatusCode::NOT_FOUND, "user not found"))?;
+    let (pat, raw_token) = state
+        .users
+        .create_pat(&user.id, &request.label, users::TokenScope::default_pat().to_vec())
+        .await
+        .map_err(|_| auth_error(StatusCode::INTERNAL_SERVER_ERROR, "could not create token"))?;
+    Ok(Json(PatCreatedDto {
+        id: pat.id,
+        label: pat.label,
+        token: raw_token,
+        created_at: pat.created_at,
+    }))
 }
 
 #[cfg(test)]
