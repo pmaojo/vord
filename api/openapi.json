@@ -74,8 +74,90 @@
               }
             }
           },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
+          },
           "502": {
             "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
+    "/api/auth/local/login": {
+      "post": {
+        "summary": "Authenticate a local user and issue a personal access token that can be\nused as a `Bearer` token on subsequent requests.",
+        "operationId": "local_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalLoginDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalLoginResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/local/register": {
+      "post": {
+        "summary": "Register a new local user account.",
+        "operationId": "local_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalRegisterDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "User registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalUserDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or duplicate username",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
           }
         }
       }
@@ -116,6 +198,7 @@
     "/api/auth/oauth/{provider}/callback": {
       "get": {
         "summary": "Finish OAuth login and exchange the provider code for a yunq bearer session.",
+        "description": "Content negotiation:\n - `Accept: application/json` -> JSON body with the bearer session (API clients).\n - anything else (browser top-level navigation) -> 303 redirect to\n   `/auth/callback#token=...&returnTo=...` so the SPA can pick up the\n   token without it ever leaving the browser.",
         "operationId": "oauth_callback",
         "parameters": [
           {
@@ -130,7 +213,7 @@
         ],
         "responses": {
           "200": {
-            "description": "OAuth login completed",
+            "description": "OAuth login completed (JSON for API clients)",
             "content": {
               "application/json": {
                 "schema": {
@@ -138,6 +221,9 @@
                 }
               }
             }
+          },
+          "303": {
+            "description": "Browser redirect to /auth/callback with token in hash fragment"
           },
           "400": {
             "description": "Provider denied the request or parameters are missing",
@@ -185,6 +271,17 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "return_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -212,6 +309,49 @@
             }
           }
         }
+      }
+    },
+    "/api/auth/tokens": {
+      "post": {
+        "summary": "Create a new personal access token for the authenticated caller.",
+        "operationId": "create_pat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePatDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Token created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatCreatedDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or expired bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/api/compliance/owasp.pdf": {
@@ -339,6 +479,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
           },
           "502": {
             "description": "Storage backend unavailable"
@@ -1003,6 +1149,12 @@
           "400": {
             "description": "Invalid role"
           },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
+          },
           "502": {
             "description": "Storage backend unavailable"
           }
@@ -1041,6 +1193,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
           },
           "502": {
             "description": "Storage backend unavailable"
@@ -1083,6 +1241,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
           },
           "502": {
             "description": "Storage backend unavailable"
@@ -1179,6 +1343,12 @@
           "400": {
             "description": "Invalid metric key or operator"
           },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks ManageQualityGates"
+          },
           "502": {
             "description": "Storage backend unavailable"
           }
@@ -1219,6 +1389,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks ManageProfiles"
           },
           "404": {
             "description": "One or both profile names don't exist"
@@ -1268,6 +1444,12 @@
           "400": {
             "description": "Invalid rule id or severity in the backup"
           },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks ManageProfiles"
+          },
           "409": {
             "description": "A profile with this name already exists; retry with force=true"
           },
@@ -1316,6 +1498,12 @@
           "400": {
             "description": "Invalid rule id or severity"
           },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks ManageProfiles"
+          },
           "502": {
             "description": "Storage backend unavailable"
           }
@@ -1347,6 +1535,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks ManageProfiles"
           },
           "404": {
             "description": "No profile named `name`"
@@ -1392,6 +1586,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks ManageProfiles"
           },
           "404": {
             "description": "No profile named `name`"
@@ -1489,6 +1689,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
           }
         }
       }
@@ -2036,6 +2242,17 @@
           }
         }
       },
+      "CreatePatDto": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        }
+      },
       "CreateWebhookDto": {
         "type": "object",
         "required": [
@@ -2391,6 +2608,74 @@
           }
         }
       },
+      "LocalLoginDto": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "LocalLoginResponseDto": {
+        "type": "object",
+        "required": [
+          "token",
+          "user"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/LocalUserDto"
+          }
+        }
+      },
+      "LocalRegisterDto": {
+        "type": "object",
+        "required": [
+          "username",
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "LocalUserDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "MeasureHistoryDto": {
         "type": "object",
         "required": [
@@ -2467,6 +2752,13 @@
             "format": "int64",
             "minimum": 0
           },
+          "return_to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the SPA should send the user after sign-in. Server-side\nvalidated; consumers should still treat it as a hint, not a\ntrusted redirect target."
+          },
           "token_type": {
             "type": "string"
           },
@@ -2507,7 +2799,39 @@
           "provider_user_id": {
             "type": "string"
           },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "description": "RBAC roles; see `Role`. Snapshot per session but persistent\nacross logins via the users store in `OAuthInner`."
+          },
           "username": {
+            "type": "string"
+          }
+        }
+      },
+      "PatCreatedDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "token",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "token": {
             "type": "string"
           }
         }
@@ -2808,6 +3132,15 @@
             "description": "Days to keep this project's analysis history for, or `null` to fall\nback to the instance-wide default (`YUNQ_DEFAULT_RETENTION_DAYS`, if\nset — otherwise history is kept forever)."
           }
         }
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "developer",
+          "viewer",
+          "scanner"
+        ]
       },
       "RuleDto": {
         "type": "object",

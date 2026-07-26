@@ -31,7 +31,14 @@ use yunq_rules_engine::{
     Severity, StorageError,
 };
 
+use crate::auth::permissions::{is_allowed, Caller};
+use crate::auth::Permission;
 use crate::AppState;
+
+/// Shared 403 body shape for every admin endpoint below.
+fn forbidden(permission: Permission) -> (StatusCode, String) {
+    (StatusCode::FORBIDDEN, format!("missing permission: {permission:?}"))
+}
 
 /// One gate condition as `(metric, operator, threshold)`.
 type GateCondition = (String, ComparisonOperator, f64);
@@ -233,10 +240,12 @@ impl OpsStore for PgIssueStorage {
     }
 }
 
-/// The audit log actor: the bearer session's username when present, `None`
-/// for anonymous requests (no endpoint in this server requires auth today,
-/// so a missing/invalid token just means an unattributed entry rather than
-/// a rejected request).
+/// The audit log actor: the bearer session's username. Every write handler
+/// in this file now requires a `Caller` (see the `is_allowed` checks below),
+/// so this only returns `None` in the narrow window where `auth.authenticate`
+/// and `Caller`'s own PAT fallback disagree (e.g. a role check passed via
+/// PAT scopes but the OAuth session lookup used here doesn't recognize the
+/// token) rather than because the request was anonymous.
 fn actor_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
     state.auth.authenticate(headers).ok().map(|user| user.username().to_string())
 }
@@ -267,11 +276,21 @@ pub(crate) struct SystemInfoDto {
 #[utoipa::path(
     get,
     path = "/api/system/info",
-    responses((status = 200, description = "System info snapshot", body = SystemInfoDto))
+    responses(
+        (status = 200, description = "System info snapshot", body = SystemInfoDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
+    )
 )]
-pub(crate) async fn system_info(State(state): State<Arc<AppState>>) -> Json<SystemInfoDto> {
+pub(crate) async fn system_info(
+    State(state): State<Arc<AppState>>,
+    Caller(caller): Caller,
+) -> Result<Json<SystemInfoDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
     let snapshot = state.ops.system_snapshot().await;
-    Json(SystemInfoDto {
+    Ok(Json(SystemInfoDto {
         version: env!("CARGO_PKG_VERSION"),
         git_sha: std::env::var("YUNQ_GIT_SHA").unwrap_or_else(|_| "unknown".to_string()),
         uptime_seconds: state.metrics.uptime_seconds(),
@@ -282,7 +301,7 @@ pub(crate) async fn system_info(State(state): State<Arc<AppState>>) -> Json<Syst
         issues_total: snapshot.issues_total,
         hotspots_total: snapshot.hotspots_total,
         pending_scan_jobs: snapshot.pending_scan_jobs,
-    })
+    }))
 }
 
 #[derive(Deserialize, Serialize, ToSchema, Clone)]
@@ -356,6 +375,8 @@ fn conditions_to_dto(conditions: &[GateCondition]) -> Vec<GateConditionDto> {
     responses(
         (status = 200, description = "Gate after the update", body = GateDto),
         (status = 400, description = "Invalid metric key or operator"),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks ManageQualityGates"),
         (status = 502, description = "Storage backend unavailable"),
     )
 )]
@@ -363,8 +384,12 @@ pub(crate) async fn upsert_quality_gate(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
     headers: HeaderMap,
+    Caller(caller): Caller,
     Json(request): Json<GateUpsertRequestDto>,
 ) -> Result<Json<GateDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::ManageQualityGates) {
+        return Err(forbidden(Permission::ManageQualityGates));
+    }
     let conditions =
         validate_and_convert_conditions(&request.conditions).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let actor = actor_from_headers(&state, &headers);
@@ -443,6 +468,8 @@ fn activations_to_dto(activations: &[ProfileActivation]) -> Vec<ProfileActivatio
     responses(
         (status = 200, description = "Profile after the update", body = ProfileDto),
         (status = 400, description = "Invalid rule id or severity"),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks ManageProfiles"),
         (status = 502, description = "Storage backend unavailable"),
     )
 )]
@@ -450,8 +477,12 @@ pub(crate) async fn upsert_quality_profile(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
     headers: HeaderMap,
+    Caller(caller): Caller,
     Json(request): Json<ProfileUpsertRequestDto>,
 ) -> Result<Json<ProfileDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::ManageProfiles) {
+        return Err(forbidden(Permission::ManageProfiles));
+    }
     let activations = validate_and_convert_activations(&request.activations)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let actor = actor_from_headers(&state, &headers);
@@ -515,6 +546,8 @@ pub(crate) struct PermissionDto {
     responses(
         (status = 200, description = "Permission after the grant", body = PermissionDto),
         (status = 400, description = "Invalid role"),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
         (status = 502, description = "Storage backend unavailable"),
     )
 )]
@@ -522,8 +555,12 @@ pub(crate) async fn grant_permission(
     State(state): State<Arc<AppState>>,
     Path((key, user)): Path<(String, String)>,
     headers: HeaderMap,
+    Caller(caller): Caller,
     Json(request): Json<PermissionGrantRequestDto>,
 ) -> Result<Json<PermissionDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
     validate_role(&request.role).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let actor = actor_from_headers(&state, &headers);
 
@@ -560,6 +597,8 @@ pub(crate) async fn grant_permission(
     ),
     responses(
         (status = 200, description = "Permission after the revoke", body = PermissionDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
         (status = 502, description = "Storage backend unavailable"),
     )
 )]
@@ -567,7 +606,11 @@ pub(crate) async fn revoke_permission(
     State(state): State<Arc<AppState>>,
     Path((key, user)): Path<(String, String)>,
     headers: HeaderMap,
+    Caller(caller): Caller,
 ) -> Result<Json<PermissionDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
     let actor = actor_from_headers(&state, &headers);
 
     let before = state
@@ -616,6 +659,8 @@ pub(crate) struct RetentionDto {
     request_body = RetentionUpdateRequestDto,
     responses(
         (status = 200, description = "Retention override after the update", body = RetentionDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
         (status = 502, description = "Storage backend unavailable"),
     )
 )]
@@ -623,8 +668,12 @@ pub(crate) async fn set_project_retention(
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
     headers: HeaderMap,
+    Caller(caller): Caller,
     Json(request): Json<RetentionUpdateRequestDto>,
 ) -> Result<Json<RetentionDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
     let actor = actor_from_headers(&state, &headers);
 
     let before = state
@@ -670,13 +719,19 @@ pub(crate) struct PurgeReportDto {
     path = "/api/housekeeping/purge",
     responses(
         (status = 200, description = "Rows removed by this run", body = PurgeReportDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
         (status = 502, description = "Storage backend unavailable"),
     )
 )]
 pub(crate) async fn run_housekeeping(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Caller(caller): Caller,
 ) -> Result<Json<PurgeReportDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
     let actor = actor_from_headers(&state, &headers);
 
     let report = state
@@ -768,13 +823,19 @@ pub(crate) struct AuditLogPageDto {
     params(AuditLogQueryDto),
     responses(
         (status = 200, description = "One page of audit log entries", body = AuditLogPageDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
         (status = 502, description = "Storage backend unavailable"),
     )
 )]
 pub(crate) async fn list_audit_log(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AuditLogQueryDto>,
+    Caller(caller): Caller,
 ) -> Result<Json<AuditLogPageDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
     let domain_query = AuditLogQuery {
         entity_type: query.entity_type,
         from: query.from,
