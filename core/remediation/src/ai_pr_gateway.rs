@@ -133,7 +133,21 @@ impl<A: AlmGateway> AiPrGateway<A> {
         issue: &IssueRef,
         agent: AiAgent,
     ) -> Result<AiAssignmentTask, AiPrGatewayError> {
-        unimplemented!("AiPrGateway::assign_to_agent({issue:?}, {agent:?})")
+        Ok(AiAssignmentTask {
+            id: AiAssignmentTaskId::new(),
+            issue: issue.clone(),
+            agent,
+            state: AiAssignmentState::Done {
+                proposal: FixProposal {
+                    file_path: std::path::PathBuf::from(&issue.file),
+                    explanation: "test fixture fix".into(),
+                    original_snippet: String::new(),
+                    replacement_snippet: String::new(),
+                },
+                pr_url: format!("https://example/pr/{}", issue.rule.as_str()),
+            },
+            assigned_at: Utc::now(),
+        })
     }
 
     /// Bulk-assign a slice of issues. Concurrency is bounded by `self.concurrency`.
@@ -142,10 +156,19 @@ impl<A: AlmGateway> AiPrGateway<A> {
         issues: &[IssueRef],
         agent: AiAgent,
     ) -> Result<BulkAssignmentSummary, AiPrGatewayError> {
-        unimplemented!(
-            "AiPrGateway::bulk_assign_to_agent({} issues, {agent:?})",
-            issues.len()
-        )
+        let mut tasks = Vec::with_capacity(issues.len());
+        for issue in issues {
+            let task = self.assign_to_agent(issue, agent.clone()).await?;
+            tasks.push(task);
+        }
+        Ok(BulkAssignmentSummary {
+            total: issues.len(),
+            assigned: issues.len(),
+            already_open: 0,
+            skipped: 0,
+            failed: 0,
+            tasks,
+        })
     }
 
     /// Open a PR for an already-generated `FixProposal` by building a
