@@ -964,7 +964,7 @@ pub(crate) async fn create_pat(
 ) -> Result<Json<PatCreatedDto>, AuthError> {
     let user = state
         .users
-        .find_user_by_username(&caller.0.username)
+        .find_user_by_username(&caller.username)
         .await
         .map_err(|_| auth_error(StatusCode::NOT_FOUND, "user not found"))?;
     let (pat, raw_token) = state
