@@ -21,6 +21,7 @@ mod audit_export;
 mod blame;
 mod coverage;
 mod gate;
+mod llm_config;
 mod measures;
 mod permission;
 mod profile;
@@ -28,6 +29,7 @@ mod queue;
 mod retention;
 mod system;
 pub use activity::{ActivityLogEntry, ActivityLogQuery};
+pub use llm_config::{LlmConfigError, ProjectLlmConfig};
 pub use audit::{AuditLogEntry, AuditLogQuery};
 pub use audit_chain::{AuditChain, AuditChainEntry, AuditChainError, Hash as AuditHash};
 pub use audit_export::{

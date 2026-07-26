@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use yunq_infra_postgres::{
-    AuditLogEntry, AuditLogQuery, CompareProfileError, CopyProfileError, PgIssueStorage,
-    PurgeReport, RestoreProfileError, SystemSnapshot,
+    AuditLogEntry, AuditLogQuery, CompareProfileError, CopyProfileError, LlmConfigError,
+    PgIssueStorage, ProjectLlmConfig, PurgeReport, RestoreProfileError, SystemSnapshot,
 };
 use yunq_rules_engine::{
     ComparisonOperator, MetricKey, Page, ProfileBackup, ProfileDiff, QualityProfile, RuleId,
@@ -130,6 +130,31 @@ pub(crate) trait OpsStore: Send + Sync {
         backup: ProfileBackup,
         force: bool,
     ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, RestoreProfileError>>;
+
+    /// Upserts a project's BYOK LLM provider override (see
+    /// `ai_provider_admin`). Encrypts the API key before it reaches Postgres.
+    fn set_llm_config(
+        &self,
+        project_key: String,
+        provider: String,
+        base_url: Option<String>,
+        model: String,
+        api_key: String,
+    ) -> BoxFuture<'_, Result<(), LlmConfigError>>;
+
+    /// Reads a project's BYOK config, decrypted. `Ok(None)` means the
+    /// project uses the platform-wide default provider.
+    fn llm_config(
+        &self,
+        project_key: String,
+    ) -> BoxFuture<'_, Result<Option<ProjectLlmConfig>, LlmConfigError>>;
+
+    /// Clears a project's BYOK override. Returns whether a row existed.
+    fn clear_llm_config(&self, project_key: String) -> BoxFuture<'_, Result<bool, LlmConfigError>>;
+
+    /// Resolves the project key that owns an issue, so the Remediation
+    /// Agent can route to that project's BYOK config.
+    fn project_key_for_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<Option<String>, StorageError>>;
 }
 
 impl OpsStore for PgIssueStorage {
@@ -237,6 +262,42 @@ impl OpsStore for PgIssueStorage {
         force: bool,
     ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, RestoreProfileError>> {
         Box::pin(async move { PgIssueStorage::restore_quality_profile(self, &backup, force).await })
+    }
+
+    fn set_llm_config(
+        &self,
+        project_key: String,
+        provider: String,
+        base_url: Option<String>,
+        model: String,
+        api_key: String,
+    ) -> BoxFuture<'_, Result<(), LlmConfigError>> {
+        Box::pin(async move {
+            PgIssueStorage::set_project_llm_config(
+                self,
+                &project_key,
+                &provider,
+                base_url.as_deref(),
+                &model,
+                &api_key,
+            )
+            .await
+        })
+    }
+
+    fn llm_config(
+        &self,
+        project_key: String,
+    ) -> BoxFuture<'_, Result<Option<ProjectLlmConfig>, LlmConfigError>> {
+        Box::pin(async move { PgIssueStorage::get_project_llm_config(self, &project_key).await })
+    }
+
+    fn clear_llm_config(&self, project_key: String) -> BoxFuture<'_, Result<bool, LlmConfigError>> {
+        Box::pin(async move { PgIssueStorage::delete_project_llm_config(self, &project_key).await })
+    }
+
+    fn project_key_for_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<Option<String>, StorageError>> {
+        Box::pin(async move { PgIssueStorage::project_key_for_issue(self, issue_id).await })
     }
 }
 
