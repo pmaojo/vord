@@ -183,15 +183,42 @@ re-analysis on typical PRs.
   `rulesets/reactive`'s `reactive:missing-unsubscribe` and
   `reactive:subject-never-completed`. All 8 new rules carry both classic
   `IssueType` and MQR impacts and are active by default in the built-in
-  Sonar way profile (`core/profiles/src/builtin.rs`). Known limitations,
-  not attempted here: the OOP-smell rules are same-file only even though
-  `ClassRegistry::build_cross_file` exists and is tested (a superclass or
-  foreign-typed parameter defined in another file won't resolve — natural
-  follow-up, same wiring pattern as `owasp:cross-file-injection`);
-  dependency-cycle detection skips Rust (module system doesn't map 1:1 to
-  files) and TS path aliases (only relative specifiers resolve); 
-  `exhaustive-deps` only recognizes the four literal hook names, not custom
-  wrapper hooks.
+  Sonar way profile (`core/profiles/src/builtin.rs`). ✅ **(this session)**
+  the OOP-smell rules (`smells:god-class`, `smells:feature-envy`,
+  `smells:refused-bequest`) are now whole-program: converted from `Rule` to
+  `CrossFileRule` (`core/rules-engine::CrossFileRule`, same wiring pattern as
+  `owasp:cross-file-injection`), built on `ClassRegistry::build_cross_file`
+  over every analyzed file instead of one file's AST — a superclass or a
+  foreign-typed parameter declared in a different file now resolves
+  (`Finding` carries the class's own file index, so an issue attaches to
+  where the class/subclass is declared even when its methods were merged in
+  from elsewhere). Wired into all three composition roots (`bin/cli`,
+  `bin/worker`, `bin/server`'s `/api/rules` catalog and issue-classification
+  map — the last of which also picked up `architecture:dependency-cycle`,
+  previously missing from both). Regression-tested against a struct/impl and
+  a class/subclass split across two files each. Dogfooding this against
+  yunq's own ~43k-LOC Rust workspace (`cargo run -p yunq-cli -- scan .`)
+  surfaced zero god-class/feature-envy/refused-bequest findings at default
+  thresholds (20 methods/15 fields) — a true negative, not a bug: this
+  codebase's structs stay under that bar — but the process caught a real,
+  pre-existing false-negative in `core/symbols::classes::attach_rust_impls`
+  along the way: it matched only a bare `type_identifier` as an impl
+  block's target type, so any **generic** impl (`impl<S, M>
+  AnalyzerService<S, M>` — a `generic_type` node, not a `type_identifier`,
+  once it carries type arguments) or impl on a **reference type** (`impl
+  Trait for &Foo`, a `reference_type` node) silently contributed zero
+  methods to the struct — `AnalyzerService` itself, this repo's own central
+  service type, registered as 0 methods/8 fields before the fix, 9/8 after.
+  Fixed via a recursive `impl_type_name` unwrap (generic/reference wrappers
+  → their inner `type_identifier`), regression-tested
+  (`rust_generic_struct_impl_methods_are_attached`,
+  `rust_trait_impl_for_a_reference_type_attaches_methods` in
+  `core/symbols/src/classes.rs`) — this fixes the extraction every
+  Rust-applicable OOP-smell rule depends on, not just god-class. Known
+  limitations, not attempted here: dependency-cycle detection skips Rust
+  (module system doesn't map 1:1 to files) and TS path aliases (only
+  relative specifiers resolve); `exhaustive-deps` only recognizes the four
+  literal hook names, not custom wrapper hooks.
 - **Issue types & classification**: ✅ every rule declares a classic
   `IssueType` (bug / vulnerability / code smell, `Rule::issue_type`,
   `core/rules-engine/src/rule.rs`) alongside MQR-style software-quality

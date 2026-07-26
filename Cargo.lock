@@ -4277,6 +4277,7 @@ dependencies = [
  "yunq-infra-postgres",
  "yunq-remediation",
  "yunq-rules-a11y",
+ "yunq-rules-architecture",
  "yunq-rules-engine",
  "yunq-rules-iac",
  "yunq-rules-owasp",

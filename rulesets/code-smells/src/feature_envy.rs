@@ -7,11 +7,15 @@
 //! needs the declared-type resolution `yunq_symbols` provides — a plain
 //! AST-shape rule can't tell a foreign-class access from an access on an
 //! unrelated plain object or a primitive-typed parameter.
+//!
+//! Whole-program (`CrossFileRule`): built via `ClassRegistry::build_cross_file`
+//! so a parameter typed as a class declared in another file still resolves —
+//! same wiring pattern as `smells:god-class`.
 
 use std::collections::HashMap;
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_ast::{AstNode, NodeKind, SourceFile};
+use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use yunq_symbols::ClassRegistry;
 
 /// Member accesses on `self`/`this` (own-class access) and on `base_name`
@@ -54,13 +58,9 @@ impl Default for FeatureEnvyRule {
     }
 }
 
-impl Rule for FeatureEnvyRule {
+impl CrossFileRule for FeatureEnvyRule {
     fn id(&self) -> &RuleId {
         &self.id
-    }
-
-    fn applies_to(&self, lang: &LanguageIdentifier) -> bool {
-        *lang == LanguageIdentifier::typescript() || *lang == LanguageIdentifier::python()
     }
 
     fn default_severity(&self) -> Severity {
@@ -74,21 +74,23 @@ impl Rule for FeatureEnvyRule {
     fn metadata(&self) -> RuleMetadata {
         RuleMetadata {
             description: "A method accesses another class's members far more than its own — it likely belongs on that other class instead.".into(),
-            tags: vec!["design".into(), "feature-envy".into()],
+            tags: vec!["design".into(), "feature-envy".into(), "cross-file".into()],
             cwe: None,
             produces_hotspots: false,
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        let registry = ClassRegistry::build(ast);
+    fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
+        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let registry = ClassRegistry::build_cross_file(&views);
         let mut findings = Vec::new();
         for class in registry.iter() {
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
             for method in &class.methods {
                 // Foreign-typed parameters: a declared type that resolves to
-                // a *different* known class in this file. An unresolvable
-                // or primitive type is silently skipped — no false positive
-                // on `fn f(count: number)`.
+                // a *different* known class, possibly declared in another
+                // file. An unresolvable or primitive type is silently
+                // skipped — no false positive on `fn f(count: number)`.
                 let foreign_params: Vec<&str> = method
                     .params
                     .iter()
@@ -117,12 +119,15 @@ impl Rule for FeatureEnvyRule {
                     continue;
                 };
                 if foreign_count >= self.min_foreign_accesses && foreign_count > own_total {
-                    findings.push(Finding::new(
-                        format!(
-                            "`{}::{}` accesses `{envied_param}` {foreign_count} times but its own members only {own_total} times — this logic likely belongs on `{envied_param}`'s class instead",
-                            class.name, method.name
+                    findings.push((
+                        index,
+                        Finding::new(
+                            format!(
+                                "`{}::{}` accesses `{envied_param}` {foreign_count} times but its own members only {own_total} times — this logic likely belongs on `{envied_param}`'s class instead",
+                                class.name, method.name
+                            ),
+                            method.span,
                         ),
-                        method.span,
                     ));
                 }
             }
@@ -134,12 +139,14 @@ impl Rule for FeatureEnvyRule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yunq_ast::LanguageIdentifier;
     use yunq_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
-        FeatureEnvyRule::default().check(&file, &ast)
+        let files = vec![(file, ast)];
+        FeatureEnvyRule::default().check(&files).into_iter().map(|(_, f)| f).collect()
     }
 
     #[test]
@@ -185,8 +192,36 @@ mod tests {
         )
         .unwrap();
         let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
-        let findings = FeatureEnvyRule::new(2).check(&file, &ast);
+        let files = vec![(file, ast)];
+        let findings: Vec<Finding> = FeatureEnvyRule::new(2).check(&files).into_iter().map(|(_, f)| f).collect();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Invoice::format"));
+    }
+
+    #[test]
+    fn flags_method_favoring_a_parameter_typed_as_a_class_declared_in_another_file() {
+        let address_file = SourceFile::new(
+            "address.ts",
+            "class Address {\n  street: string = \"\";\n  city: string = \"\";\n  zip: string = \"\";\n}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let invoice_file = SourceFile::new(
+            "invoice.ts",
+            "class Invoice {\n  total: number = 0;\n  format(addr: Address): string {\n    return addr.street + addr.city + addr.zip;\n  }\n}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let files = vec![
+            (address_file.clone(), parser.parse(&address_file).unwrap()),
+            (invoice_file.clone(), parser.parse(&invoice_file).unwrap()),
+        ];
+        let findings = FeatureEnvyRule::default().check(&files);
+        assert_eq!(findings.len(), 1);
+        let (index, finding) = &findings[0];
+        assert_eq!(files[*index].0.path(), "invoice.ts");
+        assert!(finding.message.contains("Invoice::format"));
+        assert!(finding.message.contains("addr"));
     }
 }

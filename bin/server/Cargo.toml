@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 yunq-rules-engine = { workspace = true }
 yunq-rules-owasp = { workspace = true }
+yunq-rules-architecture = { workspace = true }
 yunq-rules-smells = { workspace = true }
 yunq-rules-iac = { workspace = true }
 yunq-rules-a11y = { workspace = true }
