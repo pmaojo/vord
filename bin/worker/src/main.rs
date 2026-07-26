@@ -110,6 +110,7 @@ where
     let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> = yunq_rules_owasp::all_cross_rules()
         .into_iter()
         .chain(yunq_rules_architecture::all_cross_rules())
+        .chain(yunq_rules_smells::all_cross_rules())
         .collect();
     let profile = yunq_rules_engine::sonar_way();
     let mut service = AnalyzerService::new(profile, storage, metrics)

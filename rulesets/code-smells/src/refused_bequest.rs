@@ -9,9 +9,13 @@
 //!
 //! Rust is out of scope: structs have no inheritance, so "override" has no
 //! meaning there.
+//!
+//! Whole-program (`CrossFileRule`): built via `ClassRegistry::build_cross_file`
+//! so a superclass declared in another file still resolves — same wiring
+//! pattern as `smells:god-class`.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_ast::{AstNode, NodeKind, SourceFile};
+use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use yunq_symbols::{ClassInfo, ClassRegistry, MethodInfo};
 
 /// The method body's statement list: TS's `statement_block`, Python's
@@ -99,13 +103,9 @@ impl Default for RefusedBequestRule {
     }
 }
 
-impl Rule for RefusedBequestRule {
+impl CrossFileRule for RefusedBequestRule {
     fn id(&self) -> &RuleId {
         &self.id
-    }
-
-    fn applies_to(&self, lang: &LanguageIdentifier) -> bool {
-        *lang == LanguageIdentifier::typescript() || *lang == LanguageIdentifier::python()
     }
 
     fn default_severity(&self) -> Severity {
@@ -119,19 +119,23 @@ impl Rule for RefusedBequestRule {
     fn metadata(&self) -> RuleMetadata {
         RuleMetadata {
             description: "A subclass overrides most of its parent's methods with empty or trivial bodies, refusing most of what it inherits — inheritance is likely the wrong relationship here.".into(),
-            tags: vec!["design".into(), "refused-bequest".into()],
+            tags: vec!["design".into(), "refused-bequest".into(), "cross-file".into()],
             cwe: None,
             produces_hotspots: false,
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        let registry = ClassRegistry::build(ast);
+    fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
+        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let registry = ClassRegistry::build_cross_file(&views);
         let mut findings = Vec::new();
         for class in registry.iter() {
             let Some(superclass_name) = &class.superclass else { continue };
             let Some(superclass) = registry.get(superclass_name) else { continue };
-            check_class(class, superclass, &mut findings);
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let mut plain = Vec::new();
+            check_class(class, superclass, &mut plain);
+            findings.extend(plain.into_iter().map(|f| (index, f)));
         }
         findings
     }
@@ -140,12 +144,14 @@ impl Rule for RefusedBequestRule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yunq_ast::LanguageIdentifier;
     use yunq_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
-        RefusedBequestRule::new().check(&file, &ast)
+        let files = vec![(file, ast)];
+        RefusedBequestRule::new().check(&files).into_iter().map(|(_, f)| f).collect()
     }
 
     #[test]
@@ -193,5 +199,32 @@ mod tests {
     fn ignores_classes_with_no_superclass() {
         let findings = check_ts("class Standalone {\n  a() {}\n  b() {}\n}\n");
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn flags_subclass_whose_superclass_is_declared_in_another_file() {
+        let bird_file = SourceFile::new(
+            "bird.ts",
+            "class Bird {\n  fly() { return 1; }\n  eat() { return 1; }\n  nest() { return 1; }\n}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let penguin_file = SourceFile::new(
+            "penguin.ts",
+            "class Penguin extends Bird {\n  fly() {}\n  eat() {}\n}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let files = vec![
+            (bird_file.clone(), parser.parse(&bird_file).unwrap()),
+            (penguin_file.clone(), parser.parse(&penguin_file).unwrap()),
+        ];
+        let findings = RefusedBequestRule::new().check(&files);
+        assert_eq!(findings.len(), 1);
+        let (index, finding) = &findings[0];
+        assert_eq!(files[*index].0.path(), "penguin.ts");
+        assert!(finding.message.contains("Penguin"));
+        assert!(finding.message.contains("Bird"));
     }
 }

@@ -322,17 +322,37 @@ fn build_rust_struct<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
     ClassInfo { name, file: file.to_string(), superclass: None, fields, methods: Vec::new(), span: Some(node.span()) }
 }
 
+/// A type expression node's base type name: a bare `type_identifier` as-is,
+/// a `generic_type`'s own name with its `<...>` arguments stripped
+/// (`AnalyzerService<S, M>` → `AnalyzerService`), or a `reference_type`'s
+/// referent recursed into (`&Foo`/`&mut Foo` → `Foo`). `None` for anything
+/// else (lifetimes, tuple types, …) — not a type expression at all.
+fn impl_type_name(node: &AstNode) -> Option<String> {
+    match node.kind() {
+        NodeKind::Other(k) if k.as_ref() == "type_identifier" => Some(node.text().to_string()),
+        NodeKind::Other(k) if k.as_ref() == "generic_type" => {
+            node.children().iter().find(|c| is_other(c, "type_identifier")).map(|c| c.text().to_string())
+        }
+        NodeKind::Other(k) if k.as_ref() == "reference_type" => node.children().iter().find_map(impl_type_name),
+        _ => None,
+    }
+}
+
 /// Second pass: attaches every `impl Foo { .. }` / `impl Trait for Foo { .. }`
 /// block's concrete methods (function items with a body — trait method
 /// *signatures* with no default body are skipped, they have nothing to
 /// inspect) to the already-registered struct `Foo`.
 fn attach_rust_impls<'a>(ast: &'a AstNode, _file: &str, classes: &mut BTreeMap<String, ClassInfo<'a>>) {
     for impl_node in ast.descendants().filter(|n| is_other(n, "impl_item")) {
+        // `impl Foo` → [Foo]; `impl Trait for Foo` → [Trait, Foo]; `impl<T>
+        // Foo<T>` → [Foo<T>] (a `generic_type`, not a bare `type_identifier`,
+        // since it carries type arguments) — either way the implemented-for
+        // type is the last type-expression child, in declaration order (the
+        // `type_parameters`/`where_clause`/`declaration_list` siblings never
+        // match `impl_type_name`, so they don't interfere).
         let type_names: Vec<&AstNode> =
-            impl_node.children().iter().filter(|c| is_other(c, "type_identifier")).collect();
-        // `impl Foo` → [Foo]; `impl Trait for Foo` → [Trait, Foo]. Either
-        // way the implemented-for type is the last `type_identifier`.
-        let Some(target_name) = type_names.last().map(|n| n.text().to_string()) else { continue };
+            impl_node.children().iter().filter(|c| impl_type_name(c).is_some()).collect();
+        let Some(target_name) = type_names.last().and_then(|n| impl_type_name(n)) else { continue };
         let Some(class) = classes.get_mut(&target_name) else { continue };
         let Some(decls) = impl_node.children().iter().find(|c| is_other(c, "declaration_list")) else { continue };
         for member in decls.children() {
@@ -437,6 +457,35 @@ mod tests {
         assert!(foo.method("bar").is_some());
         assert!(foo.method("area").is_some());
         assert_eq!(foo.method("bar").unwrap().params[0].name, "a");
+    }
+
+    #[test]
+    fn rust_generic_struct_impl_methods_are_attached() {
+        // A generic `impl<S, M> Foo<S, M>` target is a `generic_type` node
+        // (`Foo<S, M>`), not a bare `type_identifier` — this used to make
+        // `attach_rust_impls` fail to match the target struct at all,
+        // silently dropping every method a generic impl block declares.
+        let ast = parse_rust(
+            "struct Foo<S, M> {\n    a: S,\n    b: M,\n}\n\nimpl<S, M> Foo<S, M>\nwhere\n    S: Clone,\n{\n    fn bar(&self) -> i32 {\n        1\n    }\n}\n",
+        );
+        let registry = ClassRegistry::build(&ast);
+        let foo = registry.get("Foo").unwrap();
+        assert_eq!(foo.methods.len(), 1);
+        assert!(foo.method("bar").is_some());
+    }
+
+    #[test]
+    fn rust_trait_impl_for_a_reference_type_attaches_methods() {
+        // `impl Trait for &Foo` — the implemented-for type is a
+        // `reference_type` wrapping the real target, not a bare
+        // `type_identifier`.
+        let ast = parse_rust(
+            "struct Foo {\n    x: i32,\n}\n\ntrait Show {\n    fn show(&self) -> i32;\n}\n\nimpl Show for &Foo {\n    fn show(&self) -> i32 {\n        self.x\n    }\n}\n",
+        );
+        let registry = ClassRegistry::build(&ast);
+        let foo = registry.get("Foo").unwrap();
+        assert_eq!(foo.methods.len(), 1);
+        assert!(foo.method("show").is_some());
     }
 
     #[test]

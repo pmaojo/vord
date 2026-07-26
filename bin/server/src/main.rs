@@ -521,6 +521,12 @@ static RULE_CLASSIFICATIONS: LazyLock<HashMap<String, (IssueType, Vec<SoftwareQu
         for rule in yunq_rules_owasp::all_cross_rules() {
             map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
         }
+        for rule in yunq_rules_architecture::all_cross_rules() {
+            map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
+        }
+        for rule in yunq_rules_smells::all_cross_rules() {
+            map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
+        }
         map
     });
 
@@ -791,7 +797,7 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
             impacts: rule.software_quality_impacts().iter().map(ImpactDto::from).collect(),
         }
     });
-    let cross_file = yunq_rules_owasp::all_cross_rules().into_iter().map(|rule| {
+    let to_dto = |rule: Box<dyn yunq_rules_engine::CrossFileRule>| {
         let metadata = rule.metadata();
         RuleDto {
             id: rule.id().to_string(),
@@ -804,7 +810,12 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
             issue_type: rule.issue_type().to_string(),
             impacts: rule.software_quality_impacts().iter().map(ImpactDto::from).collect(),
         }
-    });
+    };
+    let cross_file = yunq_rules_owasp::all_cross_rules()
+        .into_iter()
+        .chain(yunq_rules_architecture::all_cross_rules())
+        .chain(yunq_rules_smells::all_cross_rules())
+        .map(to_dto);
     Json(per_file.chain(cross_file).collect())
 }
 
