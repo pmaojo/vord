@@ -17,10 +17,16 @@ use utoipa::{IntoParams, ToSchema};
 use yunq_infra_postgres::{CompareProfileError, CopyProfileError, RestoreProfileError};
 use yunq_rules_engine::{ProfileBackup, ProfileDiff, RuleId, Severity};
 
+use crate::auth::permissions::{is_allowed, Caller};
+use crate::auth::Permission;
 use crate::AppState;
 
 fn actor_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
     state.auth.authenticate(headers).ok().map(|user| user.username().to_string())
+}
+
+fn forbidden(permission: Permission) -> (StatusCode, String) {
+    (StatusCode::FORBIDDEN, format!("missing permission: {permission:?}"))
 }
 
 /// One rule activation as `(rule id, severity)`, both stringified — the
@@ -107,6 +113,8 @@ impl From<ProfileDiff> for ProfileDiffDto {
     params(CompareQueryDto),
     responses(
         (status = 200, description = "The diff between the two profiles", body = ProfileDiffDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks ManageProfiles"),
         (status = 404, description = "One or both profile names don't exist"),
         (status = 502, description = "Storage backend unavailable"),
     )
@@ -114,7 +122,11 @@ impl From<ProfileDiff> for ProfileDiffDto {
 pub(crate) async fn compare_quality_profiles(
     State(state): State<Arc<AppState>>,
     Query(query): Query<CompareQueryDto>,
+    Caller(caller): Caller,
 ) -> Result<Json<ProfileDiffDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::ManageProfiles) {
+        return Err(forbidden(Permission::ManageProfiles));
+    }
     let diff = state.ops.compare_profiles(query.a, query.b).await.map_err(|e| match e {
         CompareProfileError::NotFound(not_found) => (StatusCode::NOT_FOUND, not_found.to_string()),
         CompareProfileError::Storage(storage) => (StatusCode::BAD_GATEWAY, storage.to_string()),
@@ -148,6 +160,8 @@ pub(crate) struct ProfileSnapshotDto {
     request_body = ProfileCopyRequestDto,
     responses(
         (status = 200, description = "The new copy", body = ProfileSnapshotDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks ManageProfiles"),
         (status = 404, description = "No profile named `name`"),
         (status = 502, description = "Storage backend unavailable"),
     )
@@ -156,8 +170,12 @@ pub(crate) async fn copy_quality_profile(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
     headers: HeaderMap,
+    Caller(caller): Caller,
     Json(request): Json<ProfileCopyRequestDto>,
 ) -> Result<Json<ProfileSnapshotDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::ManageProfiles) {
+        return Err(forbidden(Permission::ManageProfiles));
+    }
     let actor = actor_from_headers(&state, &headers);
     let after = state.ops.copy_profile(name.clone(), request.new_name.clone()).await.map_err(|e| match e {
         CopyProfileError::NotFound(not_found) => (StatusCode::NOT_FOUND, not_found.to_string()),
@@ -220,6 +238,8 @@ fn activation_dtos_to_core(
     params(("name" = String, Path, description = "Profile name")),
     responses(
         (status = 200, description = "Portable backup of the profile", body = ProfileBackupDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks ManageProfiles"),
         (status = 404, description = "No profile named `name`"),
         (status = 502, description = "Storage backend unavailable"),
     )
@@ -227,7 +247,11 @@ fn activation_dtos_to_core(
 pub(crate) async fn backup_quality_profile(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
+    Caller(caller): Caller,
 ) -> Result<Json<ProfileBackupDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::ManageProfiles) {
+        return Err(forbidden(Permission::ManageProfiles));
+    }
     let profile = state
         .ops
         .read_profile(name.clone())
@@ -276,6 +300,8 @@ pub(crate) struct RestoreQueryDto {
     responses(
         (status = 200, description = "The restored profile", body = ProfileSnapshotDto),
         (status = 400, description = "Invalid rule id or severity in the backup"),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks ManageProfiles"),
         (status = 409, description = "A profile with this name already exists; retry with force=true"),
         (status = 502, description = "Storage backend unavailable"),
     )
@@ -284,8 +310,12 @@ pub(crate) async fn restore_quality_profile(
     State(state): State<Arc<AppState>>,
     Query(query): Query<RestoreQueryDto>,
     headers: HeaderMap,
+    Caller(caller): Caller,
     Json(request): Json<ProfileBackupDto>,
 ) -> Result<Json<ProfileSnapshotDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::ManageProfiles) {
+        return Err(forbidden(Permission::ManageProfiles));
+    }
     let activations = activation_dtos_to_core(&request.activations)?;
     let backup = ProfileBackup {
         name: request.name.clone(),

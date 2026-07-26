@@ -180,7 +180,7 @@ export interface ApiSystemInfo {
 }
 
 export async function fetchSystemInfo(): Promise<ApiSystemInfo> {
-  const res = await fetch(`${API_BASE_URL}/system/info`);
+  const res = await fetch(`${API_BASE_URL}/system/info`, { headers: authHeaders() });
   if (!res.ok) {
     throw new Error(`Failed to fetch system info: ${res.statusText}`);
   }
@@ -203,7 +203,7 @@ export interface ApiGate {
 export async function upsertQualityGate(name: string, conditions: ApiGateCondition[]): Promise<ApiGate> {
   const res = await fetch(`${API_BASE_URL}/quality-gates/${encodeURIComponent(name)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ conditions }),
   });
   if (!res.ok) {
@@ -231,7 +231,7 @@ export async function upsertQualityProfile(
 ): Promise<ApiProfile> {
   const res = await fetch(`${API_BASE_URL}/quality-profiles/${encodeURIComponent(name)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ activations }),
   });
   if (!res.ok) {
@@ -258,7 +258,7 @@ export async function grantPermission(
     `${API_BASE_URL}/projects/${encodeURIComponent(projectKey)}/permissions/${encodeURIComponent(userLogin)}`,
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ role }),
     }
   );
@@ -272,7 +272,7 @@ export async function grantPermission(
 export async function revokePermission(projectKey: string, userLogin: string): Promise<ApiPermission> {
   const res = await fetch(
     `${API_BASE_URL}/projects/${encodeURIComponent(projectKey)}/permissions/${encodeURIComponent(userLogin)}`,
-    { method: 'DELETE' }
+    { method: 'DELETE', headers: authHeaders() }
   );
   if (!res.ok) {
     const data = await res.json().catch(() => null);
@@ -311,7 +311,7 @@ export async function fetchAuditLog(params?: {
   if (params?.page) query.set('page', params.page.toString());
   if (params?.pageSize) query.set('page_size', params.pageSize.toString());
 
-  const res = await fetch(`${API_BASE_URL}/audit-log?${query.toString()}`);
+  const res = await fetch(`${API_BASE_URL}/audit-log?${query.toString()}`, { headers: authHeaders() });
   if (!res.ok) {
     throw new Error(`Failed to fetch audit log: ${res.statusText}`);
   }
