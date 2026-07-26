@@ -6,6 +6,8 @@
 //! serialization round-trip are in place; the Postgres store + HTTP routes
 //! land in following iterations.
 
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 

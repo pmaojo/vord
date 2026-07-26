@@ -4,9 +4,10 @@
 //! Skeleton: types + membership logic are in place; storage + HTTP land
 //! in following iterations.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
-use crate::auth::users::LocalUser;
 
 /// One group record. A group has a name and a set of members; per-project
 /// grants are derived from `PermissionTemplate` instances assigned to the
@@ -80,6 +81,7 @@ pub enum GroupRole {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::users::LocalUser;
 
     #[test]
     fn adding_then_removing_member_round_trips() {

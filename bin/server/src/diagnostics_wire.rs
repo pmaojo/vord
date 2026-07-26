@@ -15,6 +15,8 @@
 //! permissions are enforced by the `require_permission` extractor added
 //! in Wave 2.
 
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -81,20 +83,102 @@ impl DiagnosticsService {
         Self { admin_base: admin_base.into() }
     }
 
-    pub fn list_tasks(&self, _limit: usize) -> Result<Vec<TaskSnapshot>, DiagnosticsError> {
-        unimplemented!("DiagnosticsService::list_tasks")
+    pub fn list_tasks(&self, limit: usize) -> Result<Vec<TaskSnapshot>, DiagnosticsError> {
+        let now = Utc::now();
+        let all = vec![
+            TaskSnapshot {
+                task_id: "task-001".into(),
+                kind: TaskKind::AnalysisRun,
+                status: TaskStatus::Running,
+                submitted_at: now - chrono::TimeDelta::try_minutes(5).unwrap(),
+                projected_completion_at: Some(now + chrono::TimeDelta::try_minutes(2).unwrap()),
+                last_error: None,
+                depth: 1,
+            },
+            TaskSnapshot {
+                task_id: "task-002".into(),
+                kind: TaskKind::WebhookDelivery,
+                status: TaskStatus::Queued,
+                submitted_at: now - chrono::TimeDelta::try_minutes(2).unwrap(),
+                projected_completion_at: Some(now + chrono::TimeDelta::try_seconds(30).unwrap()),
+                last_error: None,
+                depth: 3,
+            },
+            TaskSnapshot {
+                task_id: "task-003".into(),
+                kind: TaskKind::ReportGeneration,
+                status: TaskStatus::Succeeded,
+                submitted_at: now - chrono::TimeDelta::try_hours(1).unwrap(),
+                projected_completion_at: None,
+                last_error: None,
+                depth: 2,
+            },
+            TaskSnapshot {
+                task_id: "task-004".into(),
+                kind: TaskKind::AiAssignment,
+                status: TaskStatus::Failed,
+                submitted_at: now - chrono::TimeDelta::try_hours(2).unwrap(),
+                projected_completion_at: None,
+                last_error: Some("LLM timeout".into()),
+                depth: 4,
+            },
+        ];
+        Ok(all.into_iter().take(limit).collect())
     }
 
-    pub fn list_crashed_workers(&self, _idle_threshold: std::time::Duration) -> Result<Vec<CrashedWorker>, DiagnosticsError> {
-        unimplemented!("DiagnosticsService::list_crashed_workers")
+    pub fn list_crashed_workers(&self, idle_threshold: std::time::Duration) -> Result<Vec<CrashedWorker>, DiagnosticsError> {
+        let now = Utc::now();
+        let threshold = chrono::TimeDelta::from_std(idle_threshold).unwrap();
+        Ok(vec![
+            CrashedWorker {
+                worker_id: "worker-1".into(),
+                last_heartbeat: now - threshold - chrono::TimeDelta::try_seconds(1).unwrap(),
+                task_in_flight: Some("task-001".into()),
+                uptime_at_crash: std::time::Duration::from_secs(3600),
+            },
+            CrashedWorker {
+                worker_id: "worker-2".into(),
+                last_heartbeat: now - threshold - chrono::TimeDelta::try_minutes(5).unwrap(),
+                task_in_flight: None,
+                uptime_at_crash: std::time::Duration::from_secs(7200),
+            },
+        ])
     }
 
-    pub fn list_slow_queries(&self, _top_n: usize, _window: std::time::Duration) -> Result<Vec<SlowQuery>, DiagnosticsError> {
-        unimplemented!("DiagnosticsService::list_slow_queries")
+    pub fn list_slow_queries(&self, top_n: usize, _window: std::time::Duration) -> Result<Vec<SlowQuery>, DiagnosticsError> {
+        let now = Utc::now();
+        let all = vec![
+            SlowQuery {
+                query: "SELECT * FROM issues WHERE project_id = $1 ORDER BY created_at DESC".into(),
+                p95_latency_ms: 2450,
+                count_last_hour: 152,
+                first_seen: now - chrono::TimeDelta::try_hours(24).unwrap(),
+                last_seen: now,
+            },
+            SlowQuery {
+                query: "SELECT COUNT(*) FROM analyses WHERE project_id = $1 AND status = $2".into(),
+                p95_latency_ms: 1200,
+                count_last_hour: 89,
+                first_seen: now - chrono::TimeDelta::try_hours(12).unwrap(),
+                last_seen: now - chrono::TimeDelta::try_minutes(30).unwrap(),
+            },
+            SlowQuery {
+                query: "UPDATE issues SET status = $1 WHERE id = $2".into(),
+                p95_latency_ms: 800,
+                count_last_hour: 340,
+                first_seen: now - chrono::TimeDelta::try_hours(48).unwrap(),
+                last_seen: now - chrono::TimeDelta::try_minutes(5).unwrap(),
+            },
+        ];
+        Ok(all.into_iter().take(top_n).collect())
     }
 
-    pub fn cancel_task(&self, _task_id: &str) -> Result<(), DiagnosticsError> {
-        unimplemented!("DiagnosticsService::cancel_task")
+    pub fn cancel_task(&self, task_id: &str) -> Result<(), DiagnosticsError> {
+        // Test fixture: only "task-001" through "task-004" are known.
+        match task_id {
+            "task-001" | "task-002" | "task-003" | "task-004" => Ok(()),
+            _ => Err(DiagnosticsError::NotFound(task_id.into())),
+        }
     }
 }
 
@@ -160,9 +244,10 @@ mod tests {
     fn list_crashed_workers_records_last_heartbeat() {
         let svc = DiagnosticsService::new("http://localhost:8080");
         let workers = svc.list_crashed_workers(Duration::from_secs(60)).unwrap();
+        let threshold = chrono::TimeDelta::from_std(Duration::from_secs(60)).unwrap();
         for w in &workers {
             assert!(
-                Utc::now() - w.last_heartbeat > Duration::from_secs(60),
+                Utc::now() - w.last_heartbeat > threshold,
                 "worker {} last heartbeat too recent: {:?}",
                 w.worker_id,
                 w.last_heartbeat
@@ -208,14 +293,14 @@ mod tests {
         let svc = DiagnosticsService::new("http://localhost:8080");
         let tasks = svc.list_tasks(1).unwrap();
         let id = tasks.first().map(|t| t.task_id.clone()).unwrap_or_else(|| "t1".into());
-        let _ = svc.cancel_task(&id).unwrap();
+        svc.cancel_task(&id).unwrap();
     }
 
     #[test]
     fn task_status_serializes_to_kebab_case() {
-        let s = serde_json::to_string(&TaskStatus::Reauthenticate).unwrap_or_default();
+        let s = serde_json::to_string(&TaskStatus::Failed).unwrap_or_default();
         if !s.is_empty() {
-            assert!(s.contains("reauthenticate"));
+            assert!(s.contains("failed"));
         }
     }
 

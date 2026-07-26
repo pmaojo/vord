@@ -6,6 +6,8 @@
 //! the trigger paths from analysis-finished / gate-changed events land
 //! in following iterations.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 /// One subscription: a user opted into a specific event class.
@@ -136,10 +138,10 @@ pub struct TemplateContext {
 }
 
 /// Filter a subscription list to only those enabled for `event`.
-pub fn subscribed_to<'a>(
-    subscriptions: &'a [EmailSubscription],
+pub fn subscribed_to(
+    subscriptions: &[EmailSubscription],
     event: NotificationEvent,
-) -> impl Iterator<Item = &'a str> {
+) -> impl Iterator<Item = &str> {
     subscriptions
         .iter()
         .filter(move |s| s.enabled && s.event == event)

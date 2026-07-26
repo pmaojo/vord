@@ -48,7 +48,7 @@ pub struct PullRequest {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BranchRef {
     Main,
-    Branch(String),
+    Branch { name: String },
     PullRequest { provider: String, id: String },
 }
 
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn branch_ref_serializes_with_kind_tag() {
-        let r = BranchRef::Branch("feat/foo".to_string());
+        let r = BranchRef::Branch { name: "feat/foo".to_string() };
         let json = serde_json::to_string(&r).expect("serializable");
         assert!(json.contains("branch"));
         assert!(json.contains("feat/foo"));

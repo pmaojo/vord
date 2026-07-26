@@ -5,6 +5,8 @@
 //! the data sources (worker heartbeats, query telemetry, queue depth
 //! read) wire up in following iterations.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 /// One worker heartbeat — every worker sends one every N seconds. Stale
@@ -50,7 +52,7 @@ pub fn crashed_workers(workers: &[WorkerHeartbeat], now_unix: u64, threshold_sec
 /// Top-N slowest queries by p99 — sorted desc, capped at `limit`.
 pub fn top_slowest(queries: &[SlowQueryRecord], limit: usize) -> Vec<SlowQueryRecord> {
     let mut sorted = queries.to_vec();
-    sorted.sort_by(|a, b| b.p99_duration_ms.cmp(&a.p99_duration_ms));
+    sorted.sort_by_key(|q| std::cmp::Reverse(q.p99_duration_ms));
     sorted.truncate(limit);
     sorted
 }

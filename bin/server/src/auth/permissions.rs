@@ -6,9 +6,11 @@
 //! place; wiring into every project-scoped route lands in following
 //! iterations.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
-use crate::auth::roles::{permissionsFor, Permission, Role};
+use crate::auth::{Permission, Role, permissions_for as permissionsFor};
 
 /// The shape returned by `/api/auth/me` — already in `auth.rs::OAuthUserDto`
 /// but mirrored here so the permission module doesn't depend on a `reqwest`
@@ -30,7 +32,7 @@ impl CallerPermissions {
 /// Pure decision: does the caller have the required permission?
 pub fn is_allowed(caller: &CallerPermissions, required: Permission) -> bool {
     if !caller.is_authenticated() { return false; }
-    permissionsFor(&caller.roles).contains(required)
+    permissionsFor(&caller.roles).contains(&required)
 }
 
 /// A handler-level "denied" reason — the extractor turns this into a 403

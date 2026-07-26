@@ -6,6 +6,8 @@
 //! review-rate counter are in place; the persistence + HTTP surface land
 //! in following iterations.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 /// SLA windows by severity — how long a hotspot can sit in `ToReview`

@@ -4,14 +4,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::Redirect;
+use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use rand::{rngs::OsRng, RngCore};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 pub mod groups;
 pub mod permissions;
@@ -29,7 +29,7 @@ const SESSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Role {
+pub enum Role {
     Admin,
     Developer,
     Viewer,
@@ -37,6 +37,7 @@ pub(crate) enum Role {
 }
 
 impl Role {
+    #[allow(dead_code)]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Admin => "admin",
@@ -54,7 +55,7 @@ pub(crate) const DEFAULT_NEW_USER_ROLE: Role = Role::Developer;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Permission {
+pub enum Permission {
     AdminAccess,
     BrowseIssues,
     ManageQualityGates,
@@ -64,7 +65,7 @@ pub(crate) enum Permission {
 }
 
 /// Map a role to its granted permissions. Admin is a superset (defense in depth).
-fn permissions_for(roles: &[Role]) -> Vec<Permission> {
+pub fn permissions_for(roles: &[Role]) -> Vec<Permission> {
     let mut grant_admin = false;
     let mut out: Vec<Permission> = Vec::new();
     for role in roles {
@@ -119,6 +120,7 @@ fn permissions_for(roles: &[Role]) -> Vec<Permission> {
 }
 
 /// True when `roles` covers the named permission.
+#[allow(dead_code)]
 pub(crate) fn role_has_permission(roles: &[Role], permission: Permission) -> bool {
     permissions_for(roles).contains(&permission)
 }
@@ -224,6 +226,7 @@ struct SessionRecord {
         pub(crate) roles: Vec<Role>,
     }
 
+    #[allow(dead_code)]
     fn default_roles() -> Vec<Role> {
         vec![DEFAULT_NEW_USER_ROLE]
     }
@@ -263,12 +266,6 @@ pub(crate) type AuthError = (StatusCode, Json<AuthErrorDto>);
 
 // Re-export the public RBAC types from `auth.rs` so callers (axum
 // extractors, the permissions module, the SPA mirrors) read from one place.
-pub use self::Role as PublicRole;
-pub(crate) use self::Role as InternalRole;
-pub use self::Permission as PublicPermission;
-pub(crate) use self::Permission as InternalPermission;
-pub use self::permissions_for as public_permissions_for;
-pub(crate) use self::permissions_for as internal_permissions_for;
 
 #[derive(Deserialize)]
 pub(crate) struct OAuthCallbackQuery {
@@ -282,7 +279,7 @@ pub(crate) struct OAuthCallbackQuery {
 /// `return_to` is where the SPA should send the user after a successful
 /// login; it is sanitized server-side before being persisted in the
 /// pending OAuth state.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, IntoParams)]
 pub(crate) struct OAuthLoginQuery {
     return_to: Option<String>,
 }
@@ -492,6 +489,7 @@ impl OAuthService {
         Ok(pending)
     }
 
+    #[allow(dead_code)]
     fn consume_state(&self, provider: OAuthProvider, state: &str) -> Result<(), AuthError> {
         self.take_state(provider, state).map(|_| ())
     }
@@ -698,11 +696,12 @@ fn sanitize_return_to(raw: &str) -> Option<String> {
 }
 
 /// Build the URL the browser should land on after a successful OAuth exchange.
-/// The token and return_to are URL-encoded so the fragment is safe even if
+/// The token and return_to are percent-encoded so the fragment is safe even if
 /// the frontend URLSearchParams parser is strict.
 fn build_fragment_callback_url(token: &str, return_to: &str) -> String {
-    let token_enc = url::form_urlencoded::byte_serialize(token.as_bytes()).collect::<String>();
-    let return_to_enc = url::form_urlencoded::byte_serialize(return_to.as_bytes()).collect::<String>();
+    use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
+    let token_enc = percent_encode(token.as_bytes(), NON_ALPHANUMERIC).to_string();
+    let return_to_enc = percent_encode(return_to.as_bytes(), NON_ALPHANUMERIC).to_string();
     format!("/auth/callback#token={}&returnTo={}", token_enc, return_to_enc)
 }
 

@@ -4,13 +4,13 @@
 
 mod alm;
 mod alm_gateway;
-mod branches;
+pub mod branches;
 mod domain;
 mod gate_defaults;
 mod new_code;
 mod new_code_overrides;
 mod ports;
-mod portfolios;
+pub mod portfolios;
 mod project;
 mod rule;
 mod service;

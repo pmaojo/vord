@@ -3,6 +3,7 @@
 //! (`GET /api/audit-log`). Pure persistence: callers decide the action name
 //! and compute `before`/`after`; this module only writes and reads rows.
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::{PgRow, Postgres};
 use sqlx::{QueryBuilder, Row};
@@ -15,7 +16,7 @@ fn storage_err(e: impl std::fmt::Display) -> StorageError {
 }
 
 /// One persisted audit log entry.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditLogEntry {
     pub id: i64,
     pub actor_user_id: Option<String>,

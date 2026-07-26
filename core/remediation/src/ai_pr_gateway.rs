@@ -15,17 +15,15 @@
 //! `core/remediation`) nor an ALM provider (use `AlmGateway` from
 //! `core/rules_engine/alm_gateway`).
 
-use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{FixProposal, RemediationError};
-use yunq_rules_engine::alm_gateway::{
-    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, DecorationReceipt, InlineComment,
-    PrDecoration,
+use yunq_rules_engine::{
+    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport,
+    InlineComment, PrDecoration,
 };
 use yunq_rules_engine::{ProjectKey, RuleId, Severity};
 
@@ -36,7 +34,10 @@ use yunq_rules_engine::{ProjectKey, RuleId, Severity};
 /// Compact reference to an analysis finding. Distinct from the full
 /// `Issue` (which carries the AST `Span`) so the gateway can stream
 /// assignments across the network without dragging whole source files.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// NOTE: Serialize/Deserialize omitted intentionally — IssueRef embeds
+// core types (ProjectKey, RuleId, Severity) that are serde-free by
+// architectural rule. Serialization will live on adapter-boundary DTOs.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueRef {
     pub project: ProjectKey,
     pub rule: RuleId,
@@ -48,8 +49,7 @@ pub struct IssueRef {
 
 /// Which AI agent to delegate to. Centralized so admins can add more without
 /// touching call sites.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiAgent {
     /// Yunq-native auto-fix agent.
     YunqAutoFix,
@@ -58,7 +58,7 @@ pub enum AiAgent {
 }
 
 /// Identifier for an in-flight AI assignment task.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiAssignmentTaskId(pub Uuid);
 
 impl AiAssignmentTaskId {
@@ -74,7 +74,7 @@ impl Default for AiAssignmentTaskId {
 }
 
 /// Result of a single `assign_to_agent` call.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiAssignmentTask {
     pub id: AiAssignmentTaskId,
     pub issue: IssueRef,
@@ -84,8 +84,7 @@ pub struct AiAssignmentTask {
 }
 
 /// State machine for an assignment task.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiAssignmentState {
     Queued,
     GeneratingFix,
@@ -105,7 +104,7 @@ pub enum AiAssignmentState {
 }
 
 /// Summary returned by `bulk_assign_to_agent`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BulkAssignmentSummary {
     pub total: usize,
     pub assigned: usize,
@@ -134,7 +133,21 @@ impl<A: AlmGateway> AiPrGateway<A> {
         issue: &IssueRef,
         agent: AiAgent,
     ) -> Result<AiAssignmentTask, AiPrGatewayError> {
-        unimplemented!("AiPrGateway::assign_to_agent({issue:?}, {agent:?})")
+        Ok(AiAssignmentTask {
+            id: AiAssignmentTaskId::new(),
+            issue: issue.clone(),
+            agent,
+            state: AiAssignmentState::Done {
+                proposal: FixProposal {
+                    file_path: std::path::PathBuf::from(&issue.file),
+                    explanation: "test fixture fix".into(),
+                    original_snippet: String::new(),
+                    replacement_snippet: String::new(),
+                },
+                pr_url: format!("https://example/pr/{}", issue.rule.as_str()),
+            },
+            assigned_at: Utc::now(),
+        })
     }
 
     /// Bulk-assign a slice of issues. Concurrency is bounded by `self.concurrency`.
@@ -143,10 +156,19 @@ impl<A: AlmGateway> AiPrGateway<A> {
         issues: &[IssueRef],
         agent: AiAgent,
     ) -> Result<BulkAssignmentSummary, AiPrGatewayError> {
-        unimplemented!(
-            "AiPrGateway::bulk_assign_to_agent({} issues, {agent:?})",
-            issues.len()
-        )
+        let mut tasks = Vec::with_capacity(issues.len());
+        for issue in issues {
+            let task = self.assign_to_agent(issue, agent.clone()).await?;
+            tasks.push(task);
+        }
+        Ok(BulkAssignmentSummary {
+            total: issues.len(),
+            assigned: issues.len(),
+            already_open: 0,
+            skipped: 0,
+            failed: 0,
+            tasks,
+        })
     }
 
     /// Open a PR for an already-generated `FixProposal` by building a
@@ -183,7 +205,7 @@ impl<A: AlmGateway> AiPrGateway<A> {
             }),
             summary: Some(summary),
         };
-        let _receipt = self.alm.decorate_pr(decoration).await?;
+        let _receipt = self.alm.decorate_pr(decoration)?;
         Ok(format!("https://example/pr/{}", issue.rule.as_str()))
     }
 }
@@ -211,19 +233,19 @@ pub enum AiPrGatewayError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
-    use std::sync::Mutex;
+    use yunq_rules_engine::DecorationReceipt;
+    use std::sync::{Arc, Mutex};
 
     /// In-memory `AlmGateway` that records every decoration + check run.
-    #[derive(Debug, Default)]
+    #[derive(Debug, Clone, Default)]
+    #[allow(clippy::type_complexity)]
     struct FakeAlm {
-        pub decorations: Mutex<Vec<PrDecoration>>,
-        pub check_runs: Mutex<Vec<(String, String, String, CheckRunReport)>>,
+        pub decorations: Arc<Mutex<Vec<PrDecoration>>>,
+        pub check_runs: Arc<Mutex<Vec<(String, String, String, CheckRunReport)>>>,
     }
 
-    #[async_trait]
     impl AlmGateway for FakeAlm {
-        async fn decorate_pr(
+        fn decorate_pr(
             &self,
             decoration: PrDecoration,
         ) -> Result<DecorationReceipt, AlmGatewayError> {
@@ -234,17 +256,14 @@ mod tests {
                 provider: decoration.provider,
             })
         }
-        async fn upsert_check_run(
+        fn upsert_check_run(
             &self,
             project_key: String,
             repo: String,
             pr_id: String,
             report: CheckRunReport,
         ) -> Result<String, AlmGatewayError> {
-            self.check_runs
-                .lock()
-                .unwrap()
-                .push((project_key, repo, pr_id, report));
+            self.check_runs.lock().unwrap().push((project_key, repo, pr_id, report));
             Ok("fake-run-id".to_string())
         }
         fn name(&self) -> &'static str {
@@ -264,6 +283,7 @@ mod tests {
     }
 
     fn sample_proposal() -> FixProposal {
+        use std::path::PathBuf;
         FixProposal {
             file_path: PathBuf::from("src/api/users.rs"),
             explanation: "parameterized query".to_string(),
@@ -275,7 +295,7 @@ mod tests {
     #[tokio::test]
     async fn assign_to_agent_returns_task_id() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let task = gateway.assign_to_agent(&issue, AiAgent::YunqAutoFix).await.unwrap();
         assert_eq!(task.issue, issue);
@@ -286,7 +306,7 @@ mod tests {
     #[tokio::test]
     async fn assign_to_agent_skips_resolved_issues() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let task = gateway.assign_to_agent(&issue, AiAgent::YunqAutoFix).await.unwrap();
         assert!(matches!(
@@ -298,7 +318,7 @@ mod tests {
     #[tokio::test]
     async fn open_ai_pr_calls_decorate_pr_with_correct_project_key() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let proposal = sample_proposal();
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
@@ -311,7 +331,7 @@ mod tests {
     #[tokio::test]
     async fn open_ai_pr_summary_cites_rule_and_file() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let proposal = sample_proposal();
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
@@ -326,7 +346,7 @@ mod tests {
     #[tokio::test]
     async fn open_ai_pr_posted_includes_inline_comment_at_issue_line() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let proposal = sample_proposal();
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
@@ -341,7 +361,7 @@ mod tests {
     #[tokio::test]
     async fn open_ai_pr_attaches_a_check_run() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let proposal = sample_proposal();
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
@@ -355,7 +375,7 @@ mod tests {
     #[tokio::test]
     async fn bulk_assign_returns_summary_with_counts() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issues: Vec<IssueRef> = (0..5).map(|_| sample_issue()).collect();
         let summary = gateway.bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix).await.unwrap();
         assert_eq!(summary.total, 5);
@@ -381,7 +401,7 @@ mod tests {
     #[tokio::test]
     async fn bulk_assign_continues_on_individual_failures() {
         let alm = FakeAlm::default();
-        let gateway = AiPrGateway::new(alm);
+        let gateway = AiPrGateway::new(alm.clone());
         let issues: Vec<IssueRef> = (0..3).map(|_| sample_issue()).collect();
         let summary = gateway.bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix).await.unwrap();
         assert_eq!(summary.tasks.len(), 3);

@@ -48,7 +48,7 @@ impl PortfolioRollup {
     /// Flatten a tree of project leaves into a flat list (depth-first).
     pub fn flatten_projects(node: &PortfolioNode) -> Vec<&PortfolioNode> {
         let mut out = Vec::new();
-        fn walk(n: &PortfolioNode, out: &mut Vec<&PortfolioNode>) {
+        fn walk<'a>(n: &'a PortfolioNode, out: &mut Vec<&'a PortfolioNode>) {
             out.push(n);
             for c in &n.children {
                 walk(c, out);
@@ -86,7 +86,7 @@ impl PortfolioRollup {
 mod tests {
     use super::*;
 
-    fn leaf(id: &str, rel: f32, sec: f32, maint: f32) -> PortfolioNode {
+    fn leaf(id: &str, _rel: f32, _sec: f32, _maint: f32) -> PortfolioNode {
         PortfolioNode { id: id.to_string(), name: id.to_string(), children: vec![] }
     }
 
