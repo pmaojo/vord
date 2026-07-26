@@ -25,7 +25,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use yunq_rules_engine::AnalysisReport;
+use yunq_rules_engine::{AnalysisReport, Metrics};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -150,7 +150,7 @@ pub enum ComplianceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AnalysisReport;
+    use yunq_rules_engine::{AnalysisReport, Metrics};
 
     fn empty_report() -> AnalysisReport {
         AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new())

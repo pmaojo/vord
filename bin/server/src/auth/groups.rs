@@ -6,6 +6,7 @@
 
 #![allow(dead_code)]
 
+use crate::auth::users::LocalUser;
 use serde::{Deserialize, Serialize};
 
 

@@ -22,8 +22,8 @@ use uuid::Uuid;
 
 use crate::{FixProposal, RemediationError};
 use yunq_rules_engine::{
-    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, InlineComment,
-    PrDecoration,
+    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, DecorationReceipt,
+    InlineComment, PrDecoration,
 };
 use yunq_rules_engine::{ProjectKey, RuleId, Severity};
 
@@ -258,6 +258,7 @@ mod tests {
     }
 
     fn sample_proposal() -> FixProposal {
+        use std::path::PathBuf;
         FixProposal {
             file_path: PathBuf::from("src/api/users.rs"),
             explanation: "parameterized query".to_string(),
