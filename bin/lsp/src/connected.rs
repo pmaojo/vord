@@ -130,17 +130,44 @@ impl ConnectedBackend {
 
     /// Push a batch of findings. On 5xx / transport error, buffer locally.
     pub async fn push_diagnostics(&mut self, batch: DiagnosticBatch) -> Result<usize, ConnectedError> {
-        unimplemented!("ConnectedBackend::push_diagnostics(batch_id={})", batch.batch_id)
+        let use_gzip = batch.diagnostics.len() > self.config.gzip_threshold_bytes;
+        let resp = self.transport.push(&batch, use_gzip).await?;
+        Ok(resp.accepted)
     }
 
     /// Heartbeat — call this every 30s. Returns new connection state.
     pub async fn heartbeat(&mut self) -> ConnectionState {
-        unimplemented!("ConnectedBackend::heartbeat")
+        match self.transport.health().await {
+            Ok(()) => {
+                self.consecutive_heartbeat_failures = 0;
+                self.last_heartbeat = Some(Utc::now());
+                self.state = ConnectionState::Online;
+                ConnectionState::Online
+            }
+            Err(_) => {
+                self.consecutive_heartbeat_failures += 1;
+                if self.consecutive_heartbeat_failures >= 3 {
+                    self.state = ConnectionState::Offline;
+                }
+                self.state
+            }
+        }
     }
 
     /// Reconnect after 401: swap bearer_token from refresh_token, retry once.
     pub async fn reauthenticate(&mut self) -> Result<(), ConnectedError> {
-        unimplemented!("ConnectedBackend::reauthenticate")
+        if let Some(refresh) = &self.config.refresh_token {
+            self.config.bearer_token = refresh.clone();
+            self.state = ConnectionState::Authenticating;
+            // Retry health check to verify new token works
+            self.transport.health().await.map_err(|_| {
+                ConnectedError::Auth("refresh token rejected".into())
+            })?;
+            self.state = ConnectionState::Online;
+            Ok(())
+        } else {
+            Err(ConnectedError::Auth("no refresh token configured".into()))
+        }
     }
 
     /// True if the offline buffer is at capacity.
