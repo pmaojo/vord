@@ -81,6 +81,7 @@ pub enum GroupRole {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::users::LocalUser;
 
     #[test]
     fn adding_then_removing_member_round_trips() {
