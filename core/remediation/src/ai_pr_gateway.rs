@@ -238,6 +238,7 @@ mod tests {
 
     /// In-memory `AlmGateway` that records every decoration + check run.
     #[derive(Debug, Clone, Default)]
+    #[allow(clippy::type_complexity)]
     struct FakeAlm {
         pub decorations: Arc<Mutex<Vec<PrDecoration>>>,
         pub check_runs: Arc<Mutex<Vec<(String, String, String, CheckRunReport)>>>,

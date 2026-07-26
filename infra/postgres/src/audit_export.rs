@@ -283,6 +283,7 @@ mod tests {
 
     /// In-memory object store that records every upload for later assertions.
     #[derive(Debug, Default)]
+    #[allow(clippy::type_complexity)]
     pub struct MemStore {
         pub log: Mutex<Vec<(String, String, Vec<u8>, Option<String>)>>,
     }
