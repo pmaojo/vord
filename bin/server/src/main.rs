@@ -35,13 +35,12 @@ use yunq_rules_engine::{
     WorkflowError, IssueFacets,
 };
 
+mod activity;
 mod app_error;
 mod auth;
 pub mod branches;
 mod compliance_pdfs;
 mod coverage;
-mod diagnostics;
-mod diagnostics_wire;
 mod email;
 mod hotspot_sla;
 mod issue_comments;
@@ -56,8 +55,10 @@ mod sources;
 mod tasks;
 mod webhooks;
 
+use activity::ActivityPort;
 use coverage::CoveragePort;
 use ops::OpsStore;
+use tasks::QueueDiagnosticsPort;
 
 struct AppState {
     queue: Arc<dyn ScanQueuePort>,
@@ -65,6 +66,8 @@ struct AppState {
     gate: Arc<dyn GateBadgePort>,
     coverage: Arc<dyn CoveragePort>,
     ops: Arc<dyn OpsStore>,
+    activity: Arc<dyn ActivityPort>,
+    queue_diagnostics: Arc<dyn QueueDiagnosticsPort>,
     metrics: metrics::Metrics,
     webhooks: webhooks::WebhookDispatcher,
     auth: auth::OAuthService,
@@ -314,6 +317,8 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(ops::list_audit_log))
         .routes(routes!(ops::set_project_retention))
         .routes(routes!(ops::run_housekeeping))
+        .routes(routes!(activity::project_activity))
+        .routes(routes!(tasks::queue_status))
         .split_for_parts()
 }
 
@@ -332,6 +337,8 @@ fn build_app_state() -> anyhow::Result<Arc<AppState>> {
     let gate: Arc<dyn GateBadgePort> = Arc::new(storage.clone());
     let coverage: Arc<dyn CoveragePort> = Arc::new(storage.clone());
     let ops: Arc<dyn OpsStore> = Arc::new(storage.clone());
+    let activity: Arc<dyn ActivityPort> = Arc::new(storage.clone());
+    let queue_diagnostics: Arc<dyn QueueDiagnosticsPort> = Arc::new(storage.clone());
     let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
     let default_retention_days = std::env::var("YUNQ_DEFAULT_RETENTION_DAYS")
         .ok()
@@ -343,6 +350,8 @@ fn build_app_state() -> anyhow::Result<Arc<AppState>> {
         gate,
         coverage,
         ops,
+        activity,
+        queue_diagnostics,
         metrics,
         webhooks,
         auth,
