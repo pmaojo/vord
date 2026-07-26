@@ -38,6 +38,7 @@ pub fn validate_project_key(raw: &str) -> Result<String, AppError> {
     Ok(raw.to_string())
 }
 
+#[allow(dead_code)]
 /// `GET /api/projects/{key}/branches`
 pub(crate) async fn list_branches(
     Path(project_key): Path<String>,
@@ -54,6 +55,7 @@ pub(crate) async fn list_branches(
     }))
 }
 
+#[allow(dead_code)]
 /// `GET /api/projects/{key}/pull_requests`
 pub(crate) async fn list_pull_requests(
     Path(project_key): Path<String>,
@@ -67,6 +69,7 @@ pub(crate) async fn list_pull_requests(
     }))
 }
 
+#[allow(dead_code)]
 /// `GET /api/projects/{key}/branches/{name}`
 pub(crate) async fn get_branch(
     Path((project_key, name)): Path<(String, String)>,
@@ -76,6 +79,7 @@ pub(crate) async fn get_branch(
     Ok(Json(Branch::feature(project_key, name)))
 }
 
+#[allow(dead_code)]
 /// `GET /api/projects/{key}/pull_requests/{provider}/{id}`
 pub(crate) async fn get_pull_request(
     Path((project_key, provider, id)): Path<(String, String, String)>,

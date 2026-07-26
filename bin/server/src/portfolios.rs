@@ -42,11 +42,13 @@ use std::sync::Mutex;
 static PORTFOLIO_STORE: std::sync::LazyLock<Mutex<Vec<PortfolioDto>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
+#[allow(dead_code)]
 pub async fn list_portfolios() -> Result<Json<Vec<PortfolioDto>>, AppError> {
     let store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(store.clone()))
 }
 
+#[allow(dead_code)]
 pub async fn get_portfolio(Path(id): Path<String>) -> Result<Json<PortfolioDto>, AppError> {
     let store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
     let node = store.iter().find(|p| p.id == id)
@@ -54,6 +56,7 @@ pub async fn get_portfolio(Path(id): Path<String>) -> Result<Json<PortfolioDto>,
     Ok(Json(node.clone()))
 }
 
+#[allow(dead_code)]
 pub async fn create_portfolio(Json(dto): Json<PortfolioDto>) -> Result<(StatusCode, Json<PortfolioDto>), AppError> {
     let mut store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
     if store.iter().any(|p| p.id == dto.id) {

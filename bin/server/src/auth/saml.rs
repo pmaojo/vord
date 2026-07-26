@@ -106,8 +106,10 @@ pub fn verify_signature(assertion: &SamlAssertion) -> Result<(), String> {
     if assertion.issuer.is_empty() {
         return Err("SAML assertion has no issuer".to_string());
     }
-    // Check base64 is valid using the crate's simple API
-    base64::decode(&assertion.signed_xml_b64)
+    // Check base64 is valid using the engine API
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(&assertion.signed_xml_b64)
         .map_err(|e| format!("SAML signed XML is not valid base64: {e}"))?;
     Ok(())
 }
