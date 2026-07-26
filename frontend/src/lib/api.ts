@@ -281,6 +281,81 @@ export async function revokePermission(projectKey: string, userLogin: string): P
   return await res.json();
 }
 
+// --- Task queue status (GET /api/admin/queue/status) ---
+//
+// Backed by the real scan_jobs queue depth/attempts/last_error columns
+// (Fase 4, issue #30) — requires AdminAccess, same bearer-token model as
+// the audit log below. There's no UI path to obtain an admin-scoped
+// token yet (PATs always map to the Developer role), so this reads as
+// "forbidden" until that's wired up — the tab surfaces that plainly
+// rather than pretending the data is there.
+
+export interface ApiFailedJob {
+  id: number;
+  project: string;
+  path: string;
+  status: string;
+  attempts: number;
+  last_error?: string | null;
+  updated_at: string;
+}
+
+export interface ApiQueueStatus {
+  pending: number;
+  processing: number;
+  dead: number;
+  oldest_pending_age_seconds?: number | null;
+  recent_failures: ApiFailedJob[];
+}
+
+export async function fetchQueueStatus(): Promise<ApiQueueStatus> {
+  const res = await fetch(`${API_BASE_URL}/admin/queue/status`, { headers: authHeaders() });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(typeof data === 'string' ? data : `Failed to fetch queue status: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+// --- Per-project activity log (GET /api/projects/{key}/activity) ---
+//
+// Written by the worker around every scan job (scan.started/succeeded/
+// failed) — Fase 4, issue #30. No permission check, same convention as
+// measures/sources/coverage.
+
+export interface ApiActivityLogEntry {
+  id: number;
+  event_type: string;
+  message: string;
+  metadata: unknown;
+  at: string;
+}
+
+export interface ApiActivityLogPage {
+  items: ApiActivityLogEntry[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export async function fetchProjectActivity(
+  projectKey: string,
+  params?: { eventType?: string; page?: number; pageSize?: number }
+): Promise<ApiActivityLogPage> {
+  const query = new URLSearchParams();
+  if (params?.eventType) query.set('event_type', params.eventType);
+  if (params?.page) query.set('page', params.page.toString());
+  if (params?.pageSize) query.set('page_size', params.pageSize.toString());
+
+  const res = await fetch(
+    `${API_BASE_URL}/projects/${encodeURIComponent(projectKey)}/activity?${query.toString()}`
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to fetch project activity: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
 // --- Audit log (GET /api/audit-log) ---
 
 export interface ApiAuditLogEntry {

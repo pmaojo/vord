@@ -9,6 +9,8 @@ import {
   fetchIssuesFromApi,
   fetchSystemInfo,
   fetchAuditLog,
+  fetchQueueStatus,
+  fetchProjectActivity,
 } from './api';
 
 export function useRules() {
@@ -35,5 +37,23 @@ export function useAuditLog(entityType?: string) {
   return useQuery({
     queryKey: ['audit-log', entityType ?? 'all'],
     queryFn: () => fetchAuditLog({ entityType, pageSize: 100 }),
+  });
+}
+
+export function useQueueStatus() {
+  return useQuery({
+    queryKey: ['queue-status'],
+    queryFn: fetchQueueStatus,
+    refetchInterval: 15_000,
+    retry: false,
+  });
+}
+
+export function useProjectActivity(projectKey: string) {
+  return useQuery({
+    queryKey: ['project-activity', projectKey],
+    queryFn: () => fetchProjectActivity(projectKey, { pageSize: 20 }),
+    enabled: !!projectKey,
+    refetchInterval: 15_000,
   });
 }
