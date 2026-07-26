@@ -293,7 +293,7 @@ mod tests {
         let svc = DiagnosticsService::new("http://localhost:8080");
         let tasks = svc.list_tasks(1).unwrap();
         let id = tasks.first().map(|t| t.task_id.clone()).unwrap_or_else(|| "t1".into());
-        let _ = svc.cancel_task(&id).unwrap();
+        svc.cancel_task(&id).unwrap();
     }
 
     #[test]
