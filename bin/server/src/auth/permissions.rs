@@ -6,6 +6,8 @@
 //! place; wiring into every project-scoped route lands in following
 //! iterations.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 use crate::auth::{Permission, Role, permissions_for as permissionsFor};

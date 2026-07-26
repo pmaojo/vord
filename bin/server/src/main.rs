@@ -27,15 +27,12 @@ use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 use yunq_infra_postgres::PgIssueStorage;
 use yunq_rules_engine::{
-    AlmGateway, AlmGatewayError, Branch, BranchRef, BulkOutcome, ChangelogAction,
-    ChangelogEntry, CheckConclusion, CheckRunReport, DecorationReceipt, GateResultReader,
-    GateResultSummary, GateStatus, HotspotReader, HotspotReview, HotspotStatus,
-    InlineComment, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueFetcher,
-    IssueQuery, IssueReader, IssueStatus, IssueTransition, IssueType, IssueWorkflow, JobQueue,
-    NewCodeOverride, NewCodeAnalysis, OverrideScope, OverrideSource, Page, PortfolioNode,
-    PortfolioRollup, PrDecoration, ProjectRollupInput, PullRequest, QueueError, Resolution,
+    BulkOutcome, ChangelogAction,
+    ChangelogEntry, GateResultReader,
+    GateResultSummary, GateStatus, HotspotReader, HotspotReview, HotspotStatus, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueFetcher,
+    IssueQuery, IssueReader, IssueStatus, IssueTransition, IssueType, IssueWorkflow, JobQueue, Page, QueueError, Resolution,
     RuleId, ScanJob, Severity, SoftwareQualityImpact, StorageError, StoredHotspot, StoredIssue,
-    WorkflowError, IssueFacets, resolve_new_code_definition,
+    WorkflowError, IssueFacets,
 };
 
 mod app_error;

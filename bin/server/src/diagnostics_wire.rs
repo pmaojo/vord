@@ -15,6 +15,8 @@
 //! permissions are enforced by the `require_permission` extractor added
 //! in Wave 2.
 
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

@@ -37,6 +37,7 @@ pub enum Role {
 }
 
 impl Role {
+    #[allow(dead_code)]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Admin => "admin",
@@ -119,6 +120,7 @@ pub fn permissions_for(roles: &[Role]) -> Vec<Permission> {
 }
 
 /// True when `roles` covers the named permission.
+#[allow(dead_code)]
 pub(crate) fn role_has_permission(roles: &[Role], permission: Permission) -> bool {
     permissions_for(roles).contains(&permission)
 }
@@ -224,6 +226,7 @@ struct SessionRecord {
         pub(crate) roles: Vec<Role>,
     }
 
+    #[allow(dead_code)]
     fn default_roles() -> Vec<Role> {
         vec![DEFAULT_NEW_USER_ROLE]
     }
@@ -263,12 +266,6 @@ pub(crate) type AuthError = (StatusCode, Json<AuthErrorDto>);
 
 // Re-export the public RBAC types from `auth.rs` so callers (axum
 // extractors, the permissions module, the SPA mirrors) read from one place.
-pub use self::Role as PublicRole;
-pub(crate) use self::Role as InternalRole;
-pub use self::Permission as PublicPermission;
-pub(crate) use self::Permission as InternalPermission;
-pub use self::permissions_for as public_permissions_for;
-pub(crate) use self::permissions_for as internal_permissions_for;
 
 #[derive(Deserialize)]
 pub(crate) struct OAuthCallbackQuery {
@@ -492,6 +489,7 @@ impl OAuthService {
         Ok(pending)
     }
 
+    #[allow(dead_code)]
     fn consume_state(&self, provider: OAuthProvider, state: &str) -> Result<(), AuthError> {
         self.take_state(provider, state).map(|_| ())
     }

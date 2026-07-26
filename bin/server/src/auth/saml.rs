@@ -7,6 +7,8 @@
 //! builders; the signature path is `unimplemented!()` so it must be
 //! filled in before production use.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 /// The SAML Service Provider metadata document — exposed at

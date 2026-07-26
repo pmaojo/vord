@@ -90,6 +90,7 @@ pub fn resolve_new_code_definition(
 /// type, so the analysis path doesn't need to learn about `NewCodeOverride`.
 /// The string-id form of `ReferenceBranch`/`SpecificAnalysis` becomes the
 /// `Baseline::Named(...)` variant.
+#[allow(dead_code)]
 pub fn override_to_baseline(override_value: NewCodeOverride) -> Baseline {
     let _ = override_value;
     // TODO: resolve ReferenceBranch / SpecificAnalysis / Days to actual

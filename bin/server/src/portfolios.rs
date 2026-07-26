@@ -54,7 +54,7 @@ pub fn rollup_for(
     let leaves = PortfolioRollup::flatten_projects(tree);
     let leaf_ids: Vec<&str> = leaves.iter().map(|n| n.id.as_str()).collect();
     let filtered: Vec<ProjectRollupInput> = inputs
-        .into_iter()
+        .iter()
         .filter(|i| leaf_ids.contains(&i.project_id.as_str()))
         .cloned()
         .collect();

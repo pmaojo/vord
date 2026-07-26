@@ -15,8 +15,6 @@
 //! `core/remediation`) nor an ALM provider (use `AlmGateway` from
 //! `core/rules_engine/alm_gateway`).
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use thiserror::Error;
@@ -24,7 +22,7 @@ use uuid::Uuid;
 
 use crate::{FixProposal, RemediationError};
 use yunq_rules_engine::{
-    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, DecorationReceipt, InlineComment,
+    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, InlineComment,
     PrDecoration,
 };
 use yunq_rules_engine::{ProjectKey, RuleId, Severity};

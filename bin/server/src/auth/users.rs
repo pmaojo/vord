@@ -8,6 +8,8 @@
 //! Skeleton: types and pure helpers are in place; the storage + HTTP layer
 //! land in following iterations.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 /// Local user record. Passwords are never stored — only the Argon2id hash

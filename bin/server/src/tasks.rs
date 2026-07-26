@@ -6,6 +6,8 @@
 //! in-memory tracker are in place; the Postgres/SQS integration + HTTP
 //! surface land in following iterations.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

@@ -24,7 +24,6 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::audit::AuditLogEntry;
 use crate::audit_chain::{AuditChain, AuditChainEntry, Hash};
 
 // ---------------------------------------------------------------------------

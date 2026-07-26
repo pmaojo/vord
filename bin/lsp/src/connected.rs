@@ -19,6 +19,8 @@
 //! * **Rate-limit backoff** — on 429, parse `Retry-After` and pause
 //!   pushes for that long.
 
+#![allow(dead_code)]
+
 use std::collections::VecDeque;
 use std::time::Duration;
 

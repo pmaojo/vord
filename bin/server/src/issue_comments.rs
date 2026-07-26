@@ -9,6 +9,8 @@
 //! Skeleton: types + a small in-memory store + a query helper are in
 //! place; the Postgres store + HTTP routes land in following iterations.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 

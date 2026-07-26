@@ -20,10 +20,12 @@
 //! cleanly so the next implementer can fill the bodies without inventing
 //! the contract.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use yunq_rules_engine::{AnalysisReport, Metrics};
+use yunq_rules_engine::AnalysisReport;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -118,7 +120,7 @@ impl ComplianceReportGenerator {
     ///   requested report kind (e.g. a rule with no PCI requirement mapping).
     pub fn generate(
         &self,
-        report: &AnalysisReport,
+        _report: &AnalysisReport,
         kind: ComplianceReportKind,
     ) -> Result<Vec<u8>, ComplianceError> {
         unimplemented!(
