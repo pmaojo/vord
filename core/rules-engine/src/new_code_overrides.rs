@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn only_global_picks_global() {
         let src = global(7);
-        let (val, src_back) = resolve_new_code_definition(&[src.clone()], "yunq", "main").unwrap();
+        let (val, src_back) = resolve_new_code_definition(std::slice::from_ref(&src), "yunq", "main").unwrap();
         assert_eq!(val, NewCodeOverride::Days(7));
         assert_eq!(src_back.scope, OverrideScope::Global);
     }
