@@ -10,7 +10,14 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashMap;
+use std::sync::RwLock;
+
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
+
+use crate::auth::permissions::CallerPermissions;
+use crate::auth::Role;
 
 /// Local user record. Passwords are never stored — only the Argon2id hash
 /// with a per-user salt.
@@ -92,9 +99,373 @@ impl TokenScope {
     }
 }
 
+/// Errors returned by the user/token store. Kept intentionally small —
+/// callers should not leak whether a username exists.
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
+pub enum UserStoreError {
+    #[error("invalid credentials")]
+    InvalidCredentials,
+    #[error("user not found")]
+    NotFound,
+    #[error("duplicate username")]
+    DuplicateUsername,
+    #[error("token expired or revoked")]
+    TokenRevoked,
+    #[error("internal error")]
+    Internal,
+}
+
+/// Storage port for local users and personal access tokens. Object-safe
+/// (`BoxFuture`) so it can live behind `Arc<dyn UserStore>` in `AppState`.
+pub trait UserStore: Send + Sync {
+    /// Create a local user with a placeholder-hashed password. Production
+    /// should replace the SHA-256 placeholder with Argon2id.
+    fn create_user<'a>(
+        &'a self,
+        username: &'a str,
+        email: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, Result<LocalUser, UserStoreError>>;
+
+    /// Validate username + password and return the user record.
+    fn authenticate_local<'a>(
+        &'a self,
+        username: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, Result<LocalUser, UserStoreError>>;
+
+    /// Create a PAT for `user_id`. Returns the stored token record and the
+    /// raw token (shown exactly once to the caller).
+    fn create_pat<'a>(
+        &'a self,
+        user_id: &'a str,
+        label: &'a str,
+        scopes: Vec<TokenScope>,
+    ) -> BoxFuture<'a, Result<(PersonalAccessToken, String), UserStoreError>>;
+
+    /// Validate a bearer token (PAT) and return the caller it represents.
+    fn authenticate_pat<'a>(
+        &'a self,
+        token: &'a str,
+    ) -> BoxFuture<'a, Result<CallerPermissions, UserStoreError>>;
+
+    /// Revoke a PAT. `user_id` ensures users can only revoke their own
+    /// tokens (admins bypass via a separate path).
+    fn revoke_pat<'a>(
+        &'a self,
+        user_id: &'a str,
+        token_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), UserStoreError>>;
+
+    /// List all PATs belonging to `user_id`.
+    fn list_pats<'a>(
+        &'a self,
+        user_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<PersonalAccessToken>, UserStoreError>>;
+
+    /// Look up a local user by username (case-insensitive).
+    fn find_user_by_username<'a>(
+        &'a self,
+        username: &'a str,
+    ) -> BoxFuture<'a, Result<LocalUser, UserStoreError>>;
+}
+
+/// In-memory implementation suitable for tests and the single-node CLI.
+/// Data does not survive process restart.
+pub struct InMemoryUserStore {
+    users: RwLock<HashMap<String, LocalUser>>,
+    users_by_username: RwLock<HashMap<String, String>>,
+    pats: RwLock<HashMap<String, PersonalAccessToken>>,
+    pats_by_hash: RwLock<HashMap<String, String>>,
+}
+
+impl InMemoryUserStore {
+    pub fn new() -> Self {
+        Self {
+            users: RwLock::new(HashMap::new()),
+            users_by_username: RwLock::new(HashMap::new()),
+            pats: RwLock::new(HashMap::new()),
+            pats_by_hash: RwLock::new(HashMap::new()),
+        }
+    }
+
+    fn new_id() -> String {
+        // Reuse the OAuth token generator — 16 bytes of entropy hex-encoded.
+        super::random_token(16)
+    }
+
+    fn now() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+
+    fn hash_password(password: &str, salt: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(password.as_bytes());
+        hasher.update(salt.as_bytes());
+        format!("sha256:{}:{:x}", salt, hasher.finalize())
+    }
+
+    fn verify_password(stored: &str, password: &str) -> bool {
+        let parts: Vec<&str> = stored.splitn(3, ':').collect();
+        if parts.len() != 3 || parts[0] != "sha256" {
+            return false;
+        }
+        let salt = parts[1];
+        Self::hash_password(password, salt) == stored
+    }
+
+    fn hash_token(token: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(token.as_bytes());
+        format!("sha256:{:x}", hasher.finalize())
+    }
+
+    fn roles_from_scopes(_scopes: &[TokenScope]) -> Vec<Role> {
+        // PATs are scoped, but the existing route-level RBAC is role-based.
+        // For now, any PAT maps to Developer; a future iteration can attach
+        // explicit roles to users/tokens.
+        vec![Role::Developer]
+    }
+}
+
+impl Default for InMemoryUserStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UserStore for InMemoryUserStore {
+    fn create_user<'a>(
+        &'a self,
+        username: &'a str,
+        email: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, Result<LocalUser, UserStoreError>> {
+        Box::pin(async move {
+            let lower = username.to_lowercase();
+            {
+                let by_username = self.users_by_username.read().unwrap_or_else(|p| p.into_inner());
+                if by_username.contains_key(&lower) {
+                    return Err(UserStoreError::DuplicateUsername);
+                }
+            }
+            let id = Self::new_id();
+            let salt = super::random_token(16);
+            let user = LocalUser {
+                id: id.clone(),
+                username: username.to_string(),
+                email: email.to_string(),
+                password_hash: Self::hash_password(password, &salt),
+                active: true,
+                created_at: Self::now(),
+            };
+            {
+                let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
+                let mut by_username = self.users_by_username.write().unwrap_or_else(|p| p.into_inner());
+                users.insert(id, user.clone());
+                by_username.insert(lower, user.id.clone());
+            }
+            Ok(user)
+        })
+    }
+
+    fn authenticate_local<'a>(
+        &'a self,
+        username: &'a str,
+        password: &'a str,
+    ) -> BoxFuture<'a, Result<LocalUser, UserStoreError>> {
+        Box::pin(async move {
+            let by_username = self.users_by_username.read().unwrap_or_else(|p| p.into_inner());
+            let user_id = by_username
+                .get(&username.to_lowercase())
+                .cloned()
+                .ok_or(UserStoreError::InvalidCredentials)?;
+            drop(by_username);
+
+            let users = self.users.read().unwrap_or_else(|p| p.into_inner());
+            let user = users.get(&user_id).cloned().ok_or(UserStoreError::Internal)?;
+            drop(users);
+
+            if !user.active || !Self::verify_password(&user.password_hash, password) {
+                return Err(UserStoreError::InvalidCredentials);
+            }
+            Ok(user)
+        })
+    }
+
+    fn create_pat<'a>(
+        &'a self,
+        user_id: &'a str,
+        label: &'a str,
+        scopes: Vec<TokenScope>,
+    ) -> BoxFuture<'a, Result<(PersonalAccessToken, String), UserStoreError>> {
+        Box::pin(async move {
+            let users = self.users.read().unwrap_or_else(|p| p.into_inner());
+            if !users.contains_key(user_id) {
+                return Err(UserStoreError::NotFound);
+            }
+            drop(users);
+
+            let raw = super::random_token(32);
+            let token_hash = Self::hash_token(&raw);
+            let pat = PersonalAccessToken {
+                id: Self::new_id(),
+                user_id: user_id.to_string(),
+                label: label.to_string(),
+                token_hash: token_hash.clone(),
+                created_at: Self::now(),
+                expires_at: None,
+                revoked_at: None,
+                scopes,
+            };
+            {
+                let mut pats = self.pats.write().unwrap_or_else(|p| p.into_inner());
+                let mut by_hash = self.pats_by_hash.write().unwrap_or_else(|p| p.into_inner());
+                by_hash.insert(token_hash, pat.id.clone());
+                pats.insert(pat.id.clone(), pat.clone());
+            }
+            Ok((pat, raw))
+        })
+    }
+
+    fn authenticate_pat<'a>(
+        &'a self,
+        token: &'a str,
+    ) -> BoxFuture<'a, Result<CallerPermissions, UserStoreError>> {
+        Box::pin(async move {
+            let token_hash = Self::hash_token(token);
+            let pats = self.pats.read().unwrap_or_else(|p| p.into_inner());
+            let token_id = pats_by_hash_lookup(&pats, &self.pats_by_hash, &token_hash)?;
+            let pat = pats.get(&token_id).cloned().ok_or(UserStoreError::Internal)?;
+            drop(pats);
+
+            if pat.revoked_at.is_some() {
+                return Err(UserStoreError::TokenRevoked);
+            }
+            if let Some(expires) = pat.expires_at {
+                if Self::now() > expires {
+                    return Err(UserStoreError::TokenRevoked);
+                }
+            }
+
+            let users = self.users.read().unwrap_or_else(|p| p.into_inner());
+            let user = users.get(&pat.user_id).cloned().ok_or(UserStoreError::Internal)?;
+            drop(users);
+
+            Ok(CallerPermissions {
+                username: user.username,
+                roles: Self::roles_from_scopes(&pat.scopes),
+            })
+        })
+    }
+
+    fn revoke_pat<'a>(
+        &'a self,
+        user_id: &'a str,
+        token_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), UserStoreError>> {
+        Box::pin(async move {
+            let mut pats = self.pats.write().unwrap_or_else(|p| p.into_inner());
+            let pat = pats.get_mut(token_id).ok_or(UserStoreError::NotFound)?;
+            if pat.user_id != user_id {
+                return Err(UserStoreError::NotFound);
+            }
+            pat.revoked_at = Some(Self::now());
+            Ok(())
+        })
+    }
+
+    fn list_pats<'a>(
+        &'a self,
+        user_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<PersonalAccessToken>, UserStoreError>> {
+        Box::pin(async move {
+            let pats = self.pats.read().unwrap_or_else(|p| p.into_inner());
+            let mut owned: Vec<PersonalAccessToken> = pats
+                .values()
+                .filter(|pat| pat.user_id == user_id)
+                .cloned()
+                .collect();
+            drop(pats);
+            owned.sort_by_key(|pat| std::cmp::Reverse(pat.created_at));
+            Ok(owned)
+        })
+    }
+
+    fn find_user_by_username<'a>(
+        &'a self,
+        username: &'a str,
+    ) -> BoxFuture<'a, Result<LocalUser, UserStoreError>> {
+        Box::pin(async move {
+            let by_username = self.users_by_username.read().unwrap_or_else(|p| p.into_inner());
+            let user_id = by_username
+                .get(&username.to_lowercase())
+                .cloned()
+                .ok_or(UserStoreError::NotFound)?;
+            drop(by_username);
+
+            let users = self.users.read().unwrap_or_else(|p| p.into_inner());
+            users.get(&user_id).cloned().ok_or(UserStoreError::Internal)
+        })
+    }
+}
+
+fn pats_by_hash_lookup(
+    _pats: &HashMap<String, PersonalAccessToken>,
+    pats_by_hash: &RwLock<HashMap<String, String>>,
+    token_hash: &str,
+) -> Result<String, UserStoreError> {
+    let by_hash = pats_by_hash.read().unwrap_or_else(|p| p.into_inner());
+    by_hash.get(token_hash).cloned().ok_or(UserStoreError::InvalidCredentials)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn user_store_round_trip() {
+        let store = InMemoryUserStore::new();
+        let user = store.create_user("alice", "alice@example.com", "password123").await.unwrap();
+        assert_eq!(user.username, "alice");
+        assert!(user.password_hash.starts_with("sha256:"));
+
+        let auth = store.authenticate_local("alice", "password123").await.unwrap();
+        assert_eq!(auth.username, "alice");
+
+        let wrong = store.authenticate_local("alice", "wrong").await;
+        assert_eq!(wrong, Err(UserStoreError::InvalidCredentials));
+    }
+
+    #[tokio::test]
+    async fn duplicate_username_is_rejected() {
+        let store = InMemoryUserStore::new();
+        store.create_user("alice", "a@example.com", "password123").await.unwrap();
+        let result = store.create_user("alice", "b@example.com", "password123").await;
+        assert_eq!(result, Err(UserStoreError::DuplicateUsername));
+    }
+
+    #[tokio::test]
+    async fn pat_authenticates_and_revokes() {
+        let store = InMemoryUserStore::new();
+        let user = store.create_user("bob", "bob@example.com", "password123").await.unwrap();
+        let (pat, raw) = store.create_pat(&user.id, "laptop", TokenScope::default_pat().to_vec()).await.unwrap();
+        assert!(pat.token_hash.starts_with("sha256:"));
+
+        let caller = store.authenticate_pat(&raw).await.unwrap();
+        assert_eq!(caller.username, "bob");
+        assert!(caller.roles.contains(&Role::Developer));
+
+        store.revoke_pat(&user.id, &pat.id).await.unwrap();
+        let revoked = store.authenticate_pat(&raw).await;
+        assert_eq!(revoked, Err(UserStoreError::TokenRevoked));
+    }
 
     #[test]
     fn admin_set_includes_every_scope() {

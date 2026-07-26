@@ -68,10 +68,49 @@ struct AppState {
     metrics: metrics::Metrics,
     webhooks: webhooks::WebhookDispatcher,
     auth: auth::OAuthService,
+    users: Arc<dyn auth::users::UserStore>,
     /// Instance-wide analysis-history retention in days, from
     /// `YUNQ_DEFAULT_RETENTION_DAYS`. `None` (unset) means "keep forever"
     /// for any project without its own `retention_days` override.
     default_retention_days: Option<i32>,
+}
+
+impl AppState {
+    /// Authenticate a request from its `Authorization` header, trying an
+    /// OAuth session first and falling back to a personal access token.
+    pub(crate) async fn authenticate_caller(
+        &self,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<auth::permissions::CallerPermissions, auth::AuthError> {
+        match self.auth.authenticate(headers) {
+            Ok(user) => {
+                return Ok(auth::permissions::CallerPermissions {
+                    username: user.username().to_string(),
+                    roles: user.roles(),
+                });
+            }
+            Err((status, _)) if status == axum::http::StatusCode::UNAUTHORIZED => {}
+            Err(error) => return Err(error),
+        }
+
+        let token = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .filter(|token| !token.is_empty());
+
+        if let Some(token) = token {
+            match self.users.authenticate_pat(token).await {
+                Ok(caller) => return Ok(caller),
+                Err(_) => {}
+            }
+        }
+
+        Err(auth::auth_error(
+            axum::http::StatusCode::UNAUTHORIZED,
+            "invalid or expired bearer token",
+        ))
+    }
 }
 
 /// Object-safe HTTP-facing adapters over the segregated core ports. Their
@@ -249,6 +288,9 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(auth::oauth_login))
         .routes(routes!(auth::oauth_callback))
         .routes(routes!(auth::current_user))
+        .routes(routes!(auth::local_register))
+        .routes(routes!(auth::local_login))
+        .routes(routes!(auth::create_pat))
         .routes(routes!(webhooks::create_webhook))
         .routes(routes!(webhooks::list_webhooks))
         .routes(routes!(webhooks::dispatch_webhook))
@@ -282,6 +324,7 @@ fn build_app_state() -> anyhow::Result<Arc<AppState>> {
     let metrics = metrics::Metrics::new();
     let webhooks = webhooks::WebhookDispatcher::from_env(metrics.clone())?;
     let auth = auth::OAuthService::from_env()?;
+    let users: Arc<dyn auth::users::UserStore> = Arc::new(auth::users::InMemoryUserStore::new());
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
@@ -304,6 +347,7 @@ fn build_app_state() -> anyhow::Result<Arc<AppState>> {
         metrics,
         webhooks,
         auth,
+        users,
         default_retention_days,
     }))
 }

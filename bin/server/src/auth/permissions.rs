@@ -2,15 +2,23 @@
 //! real until the backend rejects unauthorized requests, not just the
 //! frontend's UI gate.
 //!
-//! Skeleton: the pure decision function + the axum-style extractor are in
-//! place; wiring into every project-scoped route lands in following
-//! iterations.
+//! `Caller` is an axum extractor that authenticates the bearer token, builds
+//! a `CallerPermissions` value, and can be checked against one or more
+//! `Permission`s inside handlers. Routes that only need identity (not a
+//! specific permission) can simply accept `Caller` as a parameter.
 
 #![allow(dead_code)]
 
+use std::sync::Arc;
+
+use axum::extract::{FromRequestParts, State as AxumState};
+use axum::http::StatusCode;
+use axum::http::request::Parts;
+use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{Permission, Role, permissions_for as permissionsFor};
+use crate::auth::{self, permissions_for, Permission, Role};
+use crate::AppState;
 
 /// The shape returned by `/api/auth/me` — already in `auth.rs::OAuthUserDto`
 /// but mirrored here so the permission module doesn't depend on a `reqwest`
@@ -32,7 +40,7 @@ impl CallerPermissions {
 /// Pure decision: does the caller have the required permission?
 pub fn is_allowed(caller: &CallerPermissions, required: Permission) -> bool {
     if !caller.is_authenticated() { return false; }
-    permissionsFor(&caller.roles).contains(&required)
+    permissions_for(&caller.roles).contains(&required)
 }
 
 /// A handler-level "denied" reason — the extractor turns this into a 403
@@ -49,12 +57,37 @@ impl DenyReason {
     }
 }
 
+/// Axum extractor that authenticates the bearer token and exposes the
+/// caller's identity + roles to handlers. Routes that also need to check a
+/// specific permission can accept `Caller` and then call `is_allowed`.
+pub struct Caller(pub CallerPermissions);
+
 /// Tiny error enum the axum extractor returns. The `main.rs` glue turns
 /// these into the proper HTTP status codes (401 vs 403).
 #[derive(Debug, PartialEq, Eq)]
 pub enum PermissionError {
     Unauthenticated,
     Forbidden(DenyReason),
+}
+
+impl<S> axum::extract::FromRequestParts<S> for Caller
+where
+    S: Send + Sync,
+    std::sync::Arc<crate::AppState>: axum::extract::FromRef<S>,
+{
+    type Rejection = PermissionError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        use axum::extract::FromRef;
+        let state = std::sync::Arc::<crate::AppState>::from_ref(state);
+        match state.authenticate_caller(&parts.headers).await {
+            Ok(caller) => Ok(Self(caller)),
+            Err(_) => Err(PermissionError::Unauthenticated),
+        }
+    }
 }
 
 /// Helper: assert multiple permissions at once (the caller needs ALL of
@@ -70,6 +103,26 @@ pub fn check_all(caller: &CallerPermissions, required: &[Permission]) -> Result<
         }
     }
     Ok(())
+}
+
+/// Response body for 401/403 rejection responses.
+#[derive(serde::Serialize)]
+pub struct AuthzErrorDto {
+    pub error: String,
+}
+
+impl axum::response::IntoResponse for PermissionError {
+    fn into_response(self) -> axum::response::Response {
+        let (status, message) = match &self {
+            PermissionError::Unauthenticated => {
+                (StatusCode::UNAUTHORIZED, "missing or expired bearer token".to_string())
+            }
+            PermissionError::Forbidden(reason) => {
+                (StatusCode::FORBIDDEN, format!("missing permission: {:?}", reason.required_permission))
+            }
+        };
+        (status, Json(AuthzErrorDto { error: message })).into_response()
+    }
 }
 
 #[cfg(test)]
