@@ -100,9 +100,8 @@ impl AppState {
             .filter(|token| !token.is_empty());
 
         if let Some(token) = token {
-            match self.users.authenticate_pat(token).await {
-                Ok(caller) => return Ok(caller),
-                Err(_) => {}
+            if let Ok(caller) = self.users.authenticate_pat(token).await {
+                return Ok(caller);
             }
         }
 

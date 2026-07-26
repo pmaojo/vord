@@ -9,16 +9,11 @@
 
 #![allow(dead_code)]
 
-use std::sync::Arc;
-
-use axum::extract::{FromRequestParts, State as AxumState};
 use axum::http::StatusCode;
-use axum::http::request::Parts;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{self, permissions_for, Permission, Role};
-use crate::AppState;
+use crate::auth::{permissions_for, Permission, Role};
 
 /// The shape returned by `/api/auth/me` — already in `auth.rs::OAuthUserDto`
 /// but mirrored here so the permission module doesn't depend on a `reqwest`

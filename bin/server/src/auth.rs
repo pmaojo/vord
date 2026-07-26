@@ -922,7 +922,7 @@ pub(crate) async fn local_login(
         .authenticate_local(&request.username, &request.password)
         .await
         .map_err(|_| auth_error(StatusCode::UNAUTHORIZED, "invalid credentials"))?;
-    let (pat, raw_token) = state
+    let (_pat, raw_token) = state
         .users
         .create_pat(&user.id, "default-login", users::TokenScope::default_pat().to_vec())
         .await
