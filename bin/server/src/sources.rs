@@ -1,7 +1,8 @@
 //! Line-level source annotations (issue #26): `GET
 //! /api/projects/{key}/sources` returns, per line of one file, the issues
-//! raised on it and its coverage hit count — mirrors SonarQube's
-//! `api/sources/lines`, with two deliberate, documented scope cuts:
+//! raised on it, its coverage hit count and its SCM blame — mirrors
+//! SonarQube's `api/sources/lines`, with two deliberate, documented scope
+//! cuts:
 //!
 //! - **No source line text.** yunq's server never persists checked-out
 //!   source content — the worker analyzes a transient filesystem checkout
@@ -10,15 +11,18 @@
 //!   store) well beyond this slice; callers are expected to already have
 //!   the file (e.g. a CI job's own checkout, or a client that fetches from
 //!   its git host) and overlay these annotations onto it by line number.
-//! - **No duplication or SCM blame annotation.** Duplication blocks
+//! - **No duplication annotation.** Duplication blocks
 //!   (`yunq_cpd::DuplicateBlock`) exist only in-memory on `AnalysisReport`
 //!   during a scan and are never persisted anywhere; persisting them would
 //!   need its own migration/table, deferred rather than rushed into this
-//!   slice's `0017` migration. Blame requires a `git blame`-equivalent
-//!   capability that doesn't exist anywhere in this codebase today (checked
-//!   `core/rules-engine/src/alm.rs` — ALM status reporting, not blame — and
-//!   `infra/github`, which has none either); fabricating blame data instead
-//!   of leaving it out was explicitly ruled out.
+//!   slice's `0017` migration.
+//!
+//! Blame *is* wired in now: `bin/cli/src/blame.rs` (issue #33) captures
+//! per-line `git blame` and writes it to `--blame-output`; that same JSON is
+//! POSTed to `POST /api/projects/{key}/blame` (`bin/server/src/blame.rs`) and
+//! read back here. A file with no blame ever ingested simply carries `None`
+//! per line, same "measured vs never measured" distinction coverage already
+//! makes.
 //!
 //! Issues come from the existing global `issues` table (via `state.reader`,
 //! the same port `GET /api/issues` uses), filtered to this file's exact
@@ -39,7 +43,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
-use yunq_rules_engine::IssueQuery;
+use yunq_rules_engine::{BlameLineInfo, IssueQuery};
 
 use crate::AppState;
 
@@ -74,6 +78,28 @@ pub(crate) struct SourceIssueDto {
 }
 
 #[derive(Serialize, ToSchema)]
+pub(crate) struct SourceBlameDto {
+    commit: String,
+    author: String,
+    author_mail: String,
+    /// Unix timestamp (seconds) from the commit's `author-time`.
+    author_time: i64,
+    summary: String,
+}
+
+impl From<BlameLineInfo> for SourceBlameDto {
+    fn from(info: BlameLineInfo) -> Self {
+        Self {
+            commit: info.commit,
+            author: info.author,
+            author_mail: info.author_mail,
+            author_time: info.author_time,
+            summary: info.summary,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
 pub(crate) struct SourceLineDto {
     /// 1-based line number.
     line: u32,
@@ -83,6 +109,10 @@ pub(crate) struct SourceLineDto {
     /// coverage instrumentation data (or no report has been ingested at
     /// all — see `coverage_available`).
     coverage_hits: Option<usize>,
+    /// Who last touched this line, from the most recently ingested
+    /// `--blame-output`; absent when no blame has ever been ingested for
+    /// this file/branch.
+    blame: Option<SourceBlameDto>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -93,9 +123,9 @@ pub(crate) struct SourcesDto {
     /// `coverage_hits` is `Some(0)`) from "never measured" (every line's
     /// `coverage_hits` is absent because this is `false`).
     coverage_available: bool,
-    /// Only lines with at least one issue or coverage data point are
-    /// present — this is an annotation overlay, not the full file (see
-    /// module docs on why source text isn't returned).
+    /// Only lines with at least one issue, coverage data point or blame
+    /// entry are present — this is an annotation overlay, not the full file
+    /// (see module docs on why source text isn't returned).
     lines: Vec<SourceLineDto>,
 }
 
@@ -116,15 +146,17 @@ fn issues_by_line(issues: &[yunq_rules_engine::StoredIssue], file: &str) -> BTre
     by_line
 }
 
-/// Merges per-line issues and per-line coverage hits into the sorted line
-/// list the DTO carries — pure so the merge logic is unit-testable without
+/// Merges per-line issues, coverage hits and blame into the sorted line list
+/// the DTO carries — pure so the merge logic is unit-testable without
 /// touching the network.
 fn merge_lines(
     mut issues_by_line: BTreeMap<u32, Vec<SourceIssueDto>>,
     hits_by_line: &BTreeMap<u32, usize>,
+    mut blame_by_line: BTreeMap<u32, BlameLineInfo>,
 ) -> Vec<SourceLineDto> {
     let mut line_numbers: BTreeSet<u32> = issues_by_line.keys().copied().collect();
     line_numbers.extend(hits_by_line.keys().copied());
+    line_numbers.extend(blame_by_line.keys().copied());
 
     line_numbers
         .into_iter()
@@ -132,6 +164,7 @@ fn merge_lines(
             line,
             issues: issues_by_line.remove(&line).unwrap_or_default(),
             coverage_hits: hits_by_line.get(&line).copied(),
+            blame: blame_by_line.remove(&line).map(SourceBlameDto::from),
         })
         .collect()
 }
@@ -164,13 +197,20 @@ pub(crate) async fn sources(
 
     let coverage = state
         .coverage
-        .file_coverage_lines(key, query.branch, query.file.clone())
+        .file_coverage_lines(key.clone(), query.branch.clone(), query.file.clone())
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
     let coverage_available = coverage.is_some();
     let hits_by_line = coverage.map(|c| c.lines).unwrap_or_default();
 
-    let lines = merge_lines(by_line, &hits_by_line);
+    let blame = state
+        .coverage
+        .file_blame_lines(key, query.branch, query.file.clone())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    let blame_by_line = blame.map(|b| b.lines).unwrap_or_default();
+
+    let lines = merge_lines(by_line, &hits_by_line, blame_by_line);
 
     Ok(Json(SourcesDto { file: query.file, coverage_available, lines }))
 }
@@ -210,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_lines_unions_issue_and_coverage_line_numbers() {
+    fn merge_lines_unions_issue_coverage_and_blame_line_numbers() {
         let mut issues_by_line = BTreeMap::new();
         issues_by_line.insert(
             3u32,
@@ -219,19 +259,37 @@ mod tests {
         let mut hits_by_line = BTreeMap::new();
         hits_by_line.insert(3u32, 1usize);
         hits_by_line.insert(5u32, 0usize);
+        let mut blame_by_line = BTreeMap::new();
+        blame_by_line.insert(
+            7u32,
+            BlameLineInfo {
+                commit: "abc".to_string(),
+                author: "Jane".to_string(),
+                author_mail: "jane@example.com".to_string(),
+                author_time: 1700000000,
+                summary: "a commit".to_string(),
+            },
+        );
 
-        let lines = merge_lines(issues_by_line, &hits_by_line);
-        assert_eq!(lines.len(), 2);
+        let lines = merge_lines(issues_by_line, &hits_by_line, blame_by_line);
+        assert_eq!(lines.len(), 3);
         assert_eq!(lines[0].line, 3);
         assert_eq!(lines[0].issues.len(), 1);
         assert_eq!(lines[0].coverage_hits, Some(1));
+        assert!(lines[0].blame.is_none());
         assert_eq!(lines[1].line, 5);
         assert!(lines[1].issues.is_empty());
         assert_eq!(lines[1].coverage_hits, Some(0));
+        assert_eq!(lines[2].line, 7);
+        assert!(lines[2].issues.is_empty());
+        assert!(lines[2].coverage_hits.is_none());
+        let blame = lines[2].blame.as_ref().unwrap();
+        assert_eq!(blame.commit, "abc");
+        assert_eq!(blame.author, "Jane");
     }
 
     #[test]
-    fn merge_lines_is_empty_with_no_issues_or_coverage() {
-        assert!(merge_lines(BTreeMap::new(), &BTreeMap::new()).is_empty());
+    fn merge_lines_is_empty_with_no_issues_coverage_or_blame() {
+        assert!(merge_lines(BTreeMap::new(), &BTreeMap::new(), BTreeMap::new()).is_empty());
     }
 }

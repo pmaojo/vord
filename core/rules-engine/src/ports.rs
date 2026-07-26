@@ -10,9 +10,9 @@ use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_profiles::{GateStatus, RuleId, Severity};
 
 use crate::domain::{
-    BulkOutcome, ChangelogEntry, CoverageSummary, FileCoverage, Hotspot, HotspotStatus,
-    InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition, Metrics, ScanJob,
-    StoredHotspot, StoredIssue,
+    BlameLineInfo, BulkOutcome, ChangelogEntry, CoverageSummary, FileBlame, FileCoverage, Hotspot,
+    HotspotStatus, InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition,
+    Metrics, ScanJob, StoredHotspot, StoredIssue,
 };
 use crate::structural_metrics::StructuralCounts;
 
@@ -400,4 +400,36 @@ pub trait FileCoverageLineReader: Send + Sync {
         branch: &str,
         file: &str,
     ) -> impl Future<Output = Result<Option<FileCoverageLines>, StorageError>> + Send;
+}
+
+/// One file's per-line SCM blame detail (1-based line number -> commit
+/// attribution) — the read side behind the `sources` endpoint's blame
+/// annotation (issue #26's now-unblocked follow-up, once #33 added blame
+/// capture to the CLI).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FileBlameLines {
+    pub lines: BTreeMap<u32, BlameLineInfo>,
+}
+
+/// Outbound port: persists per-line SCM blame for every file the CLI's
+/// `--blame-output` captured — the server-side counterpart, ingested via
+/// `POST /api/projects/{key}/blame` from that same JSON output.
+pub trait FileBlameLineStorage: Send + Sync {
+    fn save_file_blame_lines(
+        &self,
+        analysis_id: i64,
+        files: &[FileBlame],
+    ) -> impl Future<Output = Result<(), StorageError>> + Send;
+}
+
+/// Outbound port: reads one file's per-line blame detail as of a project's
+/// most recently blame-ingested analysis. `None` when no blame has ever been
+/// ingested for this file.
+pub trait FileBlameLineReader: Send + Sync {
+    fn file_blame_lines(
+        &self,
+        project_key: &str,
+        branch: &str,
+        file: &str,
+    ) -> impl Future<Output = Result<Option<FileBlameLines>, StorageError>> + Send;
 }

@@ -29,10 +29,11 @@ pub use alm_gateway::{
 pub use branches::{Branch, BranchRef, PullRequest};
 
 pub use domain::{
-    AnalysisReport, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageReport, CoverageSummary,
-    FileCoverage, Hotspot, HotspotStatus, InvalidCoverageError, InvalidIssueStateError,
-    InvalidScanJobError, InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition,
-    Metrics, Resolution, ScanJob, StoredHotspot, StoredIssue, TestReportSummary, TestSuiteSummary,
+    AnalysisReport, BlameLineInfo, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageReport,
+    CoverageSummary, FileBlame, FileCoverage, Hotspot, HotspotStatus, InvalidCoverageError,
+    InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError, Issue, IssueFacets,
+    IssueStatus, IssueTransition, Metrics, Resolution, ScanJob, StoredHotspot, StoredIssue,
+    TestReportSummary, TestSuiteSummary,
 };
 pub use gate_defaults::default_gate;
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
@@ -49,11 +50,12 @@ pub use project::{
 pub use ports::{
     AnalysisCache, AstParser, CacheKey, CachedAnalysis, ComponentMeasures, ComponentTree,
     ComponentTreeReader, CoverageResultReader, CoverageResultSummary, CoverageStorage,
-    FileCoverageLineReader, FileCoverageLineStorage, FileCoverageLines, GateResultReader,
-    GateResultSummary, HotspotReader, HotspotReview, HotspotStorage, IssueBulkWorkflow,
-    IssueChangelogReader, IssueFacetReader, IssueQuery, IssueFetcher, IssueReader, IssueScope,
-    IssueStorage, IssueWorkflow, JobQueue, MeasureHistoryPoint, MeasureHistoryReader,
-    MeasureStorage, MetricsTracker, Page, ParseError, QueueError, StorageError, WorkflowError,
+    FileBlameLineReader, FileBlameLineStorage, FileBlameLines, FileCoverageLineReader,
+    FileCoverageLineStorage, FileCoverageLines, GateResultReader, GateResultSummary, HotspotReader,
+    HotspotReview, HotspotStorage, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader,
+    IssueQuery, IssueFetcher, IssueReader, IssueScope, IssueStorage, IssueWorkflow, JobQueue,
+    MeasureHistoryPoint, MeasureHistoryReader, MeasureStorage, MetricsTracker, Page, ParseError,
+    QueueError, StorageError, WorkflowError,
 };
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 pub use structural_metrics::StructuralCounts;

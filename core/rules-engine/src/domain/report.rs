@@ -315,6 +315,47 @@ impl FileCoverage {
     }
 }
 
+/// One source line's SCM blame: which commit last touched it and who
+/// authored that commit. Field-for-field the same shape as the CLI's
+/// `blame::BlameLine` (`bin/cli/src/blame.rs`, issue #33) so a
+/// `--blame-output` JSON file can be POSTed to `/api/projects/{key}/blame`
+/// without any reshaping.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BlameLineInfo {
+    pub commit: String,
+    pub author: String,
+    pub author_mail: String,
+    /// Unix timestamp (seconds) from the commit's `author-time`.
+    pub author_time: i64,
+    pub summary: String,
+}
+
+/// Per-file line-blame detail: every line's SCM attribution, keyed by
+/// 1-based line number. Analogous to [`FileCoverage`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileBlame {
+    path: String,
+    lines: BTreeMap<u32, BlameLineInfo>,
+}
+
+impl FileBlame {
+    pub fn new(path: impl Into<String>) -> Self {
+        Self { path: path.into(), lines: BTreeMap::new() }
+    }
+
+    pub fn record_line(&mut self, line: u32, info: BlameLineInfo) {
+        self.lines.insert(line, info);
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub fn lines(&self) -> &BTreeMap<u32, BlameLineInfo> {
+        &self.lines
+    }
+}
+
 /// Per-file coverage detail for one ingested report, plus the report-wide
 /// line/branch totals. The totals are carried explicitly rather than derived
 /// by re-summing `files` because several formats have their own authoritative

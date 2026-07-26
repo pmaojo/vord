@@ -944,6 +944,63 @@
         }
       }
     },
+    "/api/projects/{key}/blame": {
+      "post": {
+        "summary": "Ingest per-line SCM blame (the CLI's `--blame-output` JSON, unmodified)\nagainst a project's most recent analysis.",
+        "operationId": "ingest_blame",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "description": "Branch of the analysis the blame data attaches to (default \"main\").",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The CLI's `--blame-output` JSON: file path -> ordered per-line blame",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BlameLineInput"
+                  }
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Blame ingested and persisted"
+          },
+          "404": {
+            "description": "No analysis exists yet for this project/branch — run a scan first"
+          },
+          "502": {
+            "description": "Storage backend failure"
+          }
+        }
+      }
+    },
     "/api/projects/{key}/components/tree": {
       "get": {
         "summary": "A project's components (currently: files only — see module docs) with\ntheir latest measures, as of the most recent analysis — mirrors\nSonarQube's `api/components/tree` navigation, minus directory nesting.",
@@ -2202,6 +2259,41 @@
         ],
         "properties": {
           "error": {
+            "type": "string"
+          }
+        }
+      },
+      "BlameLineInput": {
+        "type": "object",
+        "description": "One line's blame as the CLI's `--blame-output` JSON encodes it — field\nnames match `blame::BlameLine` exactly so that file can be POSTed as-is.",
+        "required": [
+          "line",
+          "commit",
+          "author",
+          "author_mail",
+          "author_time",
+          "summary"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "author_mail": {
+            "type": "string"
+          },
+          "author_time": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "summary": {
             "type": "string"
           }
         }
@@ -3510,6 +3602,35 @@
           }
         }
       },
+      "SourceBlameDto": {
+        "type": "object",
+        "required": [
+          "commit",
+          "author",
+          "author_mail",
+          "author_time",
+          "summary"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "author_mail": {
+            "type": "string"
+          },
+          "author_time": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix timestamp (seconds) from the commit's `author-time`."
+          },
+          "commit": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
       "SourceIssueDto": {
         "type": "object",
         "required": [
@@ -3541,6 +3662,17 @@
           "issues"
         ],
         "properties": {
+          "blame": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SourceBlameDto",
+                "description": "Who last touched this line, from the most recently ingested\n`--blame-output`; absent when no blame has ever been ingested for\nthis file/branch."
+              }
+            ]
+          },
           "coverage_hits": {
             "type": [
               "integer",
@@ -3583,7 +3715,7 @@
             "items": {
               "$ref": "#/components/schemas/SourceLineDto"
             },
-            "description": "Only lines with at least one issue or coverage data point are\npresent — this is an annotation overlay, not the full file (see\nmodule docs on why source text isn't returned)."
+            "description": "Only lines with at least one issue, coverage data point or blame\nentry are present — this is an annotation overlay, not the full file\n(see module docs on why source text isn't returned)."
           }
         }
       },

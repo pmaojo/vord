@@ -38,6 +38,7 @@ use yunq_rules_engine::{
 mod activity;
 mod app_error;
 mod auth;
+mod blame;
 pub mod branches;
 mod compliance_pdfs;
 mod coverage;
@@ -299,6 +300,7 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(webhooks::webhook_delivery_log))
         .routes(routes!(badge_svg))
         .routes(routes!(coverage::ingest_coverage, coverage::latest_coverage))
+        .routes(routes!(blame::ingest_blame))
         .routes(routes!(measures::measure_history))
         .routes(routes!(measures::component_tree))
         .routes(routes!(sources::sources))
