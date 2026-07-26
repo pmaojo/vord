@@ -3,6 +3,9 @@
 //! Skeleton: DTOs + validation + aggregator dispatch in place; storage and
 //! axum route wiring land in following iterations.
 
+use axum::extract::Path;
+use axum::http::StatusCode;
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use yunq_rules_engine::portfolios::{PortfolioNode, PortfolioRollup, ProjectRollupInput};
 
@@ -32,16 +35,32 @@ pub struct PortfolioHealthDto {
     pub rollup: PortfolioRollup,
 }
 
-pub async fn list_portfolios() -> Result<Vec<PortfolioDto>, AppError> {
-    unimplemented!("list_portfolios: read portfolio tree from PgIssueStorage")
+/// In-memory portfolio store behind a `Mutex` for handler access.
+/// Full persistence requires a Postgres migration and PgIssueStorage integration.
+use std::sync::Mutex;
+
+static PORTFOLIO_STORE: std::sync::LazyLock<Mutex<Vec<PortfolioDto>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+
+pub async fn list_portfolios() -> Result<Json<Vec<PortfolioDto>>, AppError> {
+    let store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(store.clone()))
 }
 
-pub async fn get_portfolio(_id: String) -> Result<PortfolioDto, AppError> {
-    unimplemented!("get_portfolio: fetch one portfolio node by id")
+pub async fn get_portfolio(Path(id): Path<String>) -> Result<Json<PortfolioDto>, AppError> {
+    let store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
+    let node = store.iter().find(|p| p.id == id)
+        .ok_or_else(|| AppError::not_found(format!("portfolio {id}")))?;
+    Ok(Json(node.clone()))
 }
 
-pub async fn create_portfolio(_dto: PortfolioDto) -> Result<PortfolioDto, AppError> {
-    unimplemented!("create_portfolio: persist a new portfolio node")
+pub async fn create_portfolio(Json(dto): Json<PortfolioDto>) -> Result<(StatusCode, Json<PortfolioDto>), AppError> {
+    let mut store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
+    if store.iter().any(|p| p.id == dto.id) {
+        return Err(AppError::bad_request(format!("portfolio '{}' already exists", dto.id)));
+    }
+    store.push(dto.clone());
+    Ok((StatusCode::CREATED, Json(dto)))
 }
 
 /// Executive view: aggregated rollup across the whole tree. The HTTP
