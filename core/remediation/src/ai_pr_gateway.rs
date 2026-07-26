@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::{FixProposal, RemediationError};
 use yunq_rules_engine::{
     AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport,
-    InlineComment, PrDecoration,
+    DecorationReceipt, InlineComment, PrDecoration,
 };
 use yunq_rules_engine::{ProjectKey, RuleId, Severity};
 
