@@ -380,19 +380,40 @@ re-analysis on typical PRs.
 
 - **REST API parity**: pagination envelopes, rich filtering/faceting
   (severity, rule, file, assignee, tag, creation date…) — done. ✅
-  **(this session)** Measures + measure history, component tree, and a
-  `sources` endpoint: `analysis_measures`/`analysis_file_coverage_lines`
-  (migration `0017`) persist a real per-analysis measure set (project- and
-  file-level) and per-line coverage hit counts — there was no historical
-  measure storage at all before this, only a couple of summary columns on
-  `analyses`. `GET /api/projects/{key}/measures/history` and
-  `GET /api/projects/{key}/components/tree` (a flat, measure-annotated file
-  list for v1 — not yet a nested directory tree, documented as a scoped-down
-  first cut) expose it; `GET /api/projects/{key}/sources` returns per-line
-  issue + coverage annotations. Duplication and SCM blame annotations,
-  and source text itself (never persisted anywhere), are explicitly
-  deferred rather than fabricated. Contract stays generated:
-  `api/openapi.json`.
+  Measures + measure history, component tree, and a `sources` endpoint:
+  `analysis_measures`/`analysis_file_coverage_lines` (migration `0017`)
+  persist a real per-analysis measure set (project- and file-level) and
+  per-line coverage hit counts — there was no historical measure storage at
+  all before this, only a couple of summary columns on `analyses`. `GET
+  /api/projects/{key}/measures/history` exposes it; `GET
+  /api/projects/{key}/sources` returns per-line issue + coverage
+  annotations, and (via migration `0021`/`analysis_file_blame_lines`, the
+  CLI's `--blame-output` + `POST /api/projects/{key}/blame`) per-line SCM
+  blame — author, commit, timestamp, summary. Source text itself is never
+  persisted anywhere and stays out of scope (a materially bigger storage
+  decision than this endpoint). ✅ **(this session, issue #26)** `GET
+  /api/projects/{key}/components/tree` closes its own last gap: it now
+  returns both the original flat, sortable/filterable `components` list
+  *and* a nested `tree` field — the same filtered file set grouped into
+  directories by splitting each path on `/`, built purely in the DTO layer
+  (`bin/server/src/measures.rs::build_tree`; the underlying
+  `analysis_measures` storage stays a flat per-file table, no schema change
+  needed) since directory nesting has no server-side meaning beyond
+  presentation. Nodes use SonarQube's own DIR/FIL qualifier vocabulary.
+  `tree` is always name-sorted (a `BTreeMap` per level) since `sort`/
+  `direction` describe a flat ordering that stops making sense once nodes
+  are grouped by parent — `components` remains the place to ask for e.g.
+  "worst coverage first". Regression-tested (nested multi-file dirs,
+  root-level files, empty input). Hit and fixed a real utoipa pitfall along
+  the way: the new `ComponentTreeNodeDto` is self-referential
+  (`children: Vec<ComponentTreeNodeDto>`), and utoipa's OpenAPI schema
+  derive recurses into itself with no cycle guard by default — `cargo run
+  -p yunq-server -- openapi` (the same command `api/openapi.json`'s
+  contract export uses) stack-overflowed until `#[schema(no_recursion)]` was
+  added to the `children` field, utoipa's documented fix for exactly this
+  shape. Contract regenerated and committed. `cargo test --workspace` and
+  `cargo clippy --workspace --all-targets -- -D warnings` (both minus
+  `yunq-frontend`) stay green.
 - **Auth**: local users + user tokens (already-hashed at rest), OAuth
   (GitHub/GitLab), SAML later; groups; global + per-project permissions,
   permission templates.
