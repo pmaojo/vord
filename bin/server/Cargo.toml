@@ -37,6 +37,7 @@ chrono = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 hex = "0.4"
 percent-encoding = "2"
+base64 = { workspace = true }
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 utoipa-swagger-ui = { workspace = true }

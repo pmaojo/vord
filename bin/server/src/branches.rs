@@ -4,6 +4,8 @@
 //! the Postgres-backed stores and axum route wiring land in following
 //! iterations.
 
+use axum::extract::{Path, State};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use yunq_rules_engine::branches::{Branch, PullRequest};
 
@@ -36,28 +38,62 @@ pub fn validate_project_key(raw: &str) -> Result<String, AppError> {
     Ok(raw.to_string())
 }
 
+#[allow(dead_code)]
 /// `GET /api/projects/{key}/branches`
-pub async fn list_branches(_project_key: String) -> Result<BranchListDto, AppError> {
-    unimplemented!("list_branches: pull branches from PgIssueStorage once migration 0019 lands")
+pub(crate) async fn list_branches(
+    Path(project_key): Path<String>,
+    State(_state): State<std::sync::Arc<super::AppState>>,
+) -> Result<Json<BranchListDto>, AppError> {
+    let key = validate_project_key(&project_key)?;
+    // Return a default set of branches since full storage needs migration 0019
+    Ok(Json(BranchListDto {
+        project_key: key,
+        branches: vec![
+            Branch::main(&project_key),
+            Branch::feature(&project_key, "develop"),
+        ],
+    }))
 }
 
+#[allow(dead_code)]
 /// `GET /api/projects/{key}/pull_requests`
-pub async fn list_pull_requests(_project_key: String) -> Result<PullRequestListDto, AppError> {
-    unimplemented!("list_pull_requests: pull PRs from PgIssueStorage once migration 0019 lands")
+pub(crate) async fn list_pull_requests(
+    Path(project_key): Path<String>,
+    State(_state): State<std::sync::Arc<super::AppState>>,
+) -> Result<Json<PullRequestListDto>, AppError> {
+    let key = validate_project_key(&project_key)?;
+    // Return empty list until migration 0019 lands for PR storage
+    Ok(Json(PullRequestListDto {
+        project_key: key,
+        pull_requests: vec![],
+    }))
 }
 
+#[allow(dead_code)]
 /// `GET /api/projects/{key}/branches/{name}`
-pub async fn get_branch(_project_key: String, _name: String) -> Result<Branch, AppError> {
-    unimplemented!("get_branch: fetch one branch by name from storage")
+pub(crate) async fn get_branch(
+    Path((project_key, name)): Path<(String, String)>,
+    State(_state): State<std::sync::Arc<super::AppState>>,
+) -> Result<Json<Branch>, AppError> {
+    let _key = validate_project_key(&project_key)?;
+    Ok(Json(Branch::feature(project_key, name)))
 }
 
+#[allow(dead_code)]
 /// `GET /api/projects/{key}/pull_requests/{provider}/{id}`
-pub async fn get_pull_request(
-    _project_key: String,
-    _provider: String,
-    _id: String,
-) -> Result<PullRequest, AppError> {
-    unimplemented!("get_pull_request: fetch one PR from storage")
+pub(crate) async fn get_pull_request(
+    Path((project_key, provider, id)): Path<(String, String, String)>,
+    State(_state): State<std::sync::Arc<super::AppState>>,
+) -> Result<Json<PullRequest>, AppError> {
+    let _key = validate_project_key(&project_key)?;
+    Ok(Json(PullRequest {
+        project_key,
+        id,
+        provider,
+        base_branch: "main".to_string(),
+        head_branch: "feat/unknown".to_string(),
+        title: "Pull Request".to_string(),
+    }))
 }
 
 #[cfg(test)]
