@@ -24,9 +24,9 @@ use yunq_infra_fs::CoverageFormat;
 use yunq_infra_postgres::PgIssueStorage;
 use yunq_rules_engine::{
     ComponentTree, ComponentTreeReader, CoverageResultReader, CoverageResultSummary,
-    CoverageStorage, CoverageSummary, FileCoverage, FileCoverageLineReader,
-    FileCoverageLineStorage, FileCoverageLines, MeasureHistoryPoint, MeasureHistoryReader,
-    StorageError,
+    CoverageStorage, CoverageSummary, FileBlame, FileBlameLineReader, FileBlameLineStorage,
+    FileBlameLines, FileCoverage, FileCoverageLineReader, FileCoverageLineStorage,
+    FileCoverageLines, MeasureHistoryPoint, MeasureHistoryReader, StorageError,
 };
 
 use crate::AppState;
@@ -89,6 +89,19 @@ pub(crate) trait CoveragePort: Send + Sync {
         project_key: String,
         branch: String,
     ) -> BoxFuture<'_, Result<Option<ComponentTree>, StorageError>>;
+
+    fn save_file_blame_lines(
+        &self,
+        analysis_id: i64,
+        files: Vec<FileBlame>,
+    ) -> BoxFuture<'_, Result<(), StorageError>>;
+
+    fn file_blame_lines(
+        &self,
+        project_key: String,
+        branch: String,
+        file: String,
+    ) -> BoxFuture<'_, Result<Option<FileBlameLines>, StorageError>>;
 }
 
 impl CoveragePort for PgIssueStorage {
@@ -169,6 +182,25 @@ impl CoveragePort for PgIssueStorage {
         branch: String,
     ) -> BoxFuture<'_, Result<Option<ComponentTree>, StorageError>> {
         Box::pin(async move { ComponentTreeReader::component_tree(self, &project_key, &branch).await })
+    }
+
+    fn save_file_blame_lines(
+        &self,
+        analysis_id: i64,
+        files: Vec<FileBlame>,
+    ) -> BoxFuture<'_, Result<(), StorageError>> {
+        Box::pin(async move { FileBlameLineStorage::save_file_blame_lines(self, analysis_id, &files).await })
+    }
+
+    fn file_blame_lines(
+        &self,
+        project_key: String,
+        branch: String,
+        file: String,
+    ) -> BoxFuture<'_, Result<Option<FileBlameLines>, StorageError>> {
+        Box::pin(async move {
+            FileBlameLineReader::file_blame_lines(self, &project_key, &branch, &file).await
+        })
     }
 }
 

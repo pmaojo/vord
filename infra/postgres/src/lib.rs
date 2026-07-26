@@ -18,6 +18,7 @@ mod activity;
 mod audit;
 mod audit_chain;
 mod audit_export;
+mod blame;
 mod coverage;
 mod gate;
 mod measures;
