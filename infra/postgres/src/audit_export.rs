@@ -134,41 +134,104 @@ impl ObjectStore for S3ObjectStore {
 #[derive(Debug, Clone)]
 pub struct AuditExporter<O: ObjectStore> {
     store: O,
+    checkpoint: u64,
 }
 
 impl<O: ObjectStore> AuditExporter<O> {
     pub fn new(store: O) -> Self {
-        Self { store }
+        Self { store, checkpoint: 0 }
     }
 
     /// Export `chain` to `options.destination`, returning the receipt.
     pub async fn export(
-        &self,
+        &mut self,
         chain: &AuditChain,
         options: ExportOptions,
     ) -> Result<ExportReceipt, AuditExportError> {
-        unimplemented!(
-            "AuditExporter::export({} entries → s3://{}/{})",
-            chain.len(),
-            options.destination.bucket,
-            options.destination.key_prefix
-        )
+        if chain.is_empty() {
+            return Err(AuditExportError::EmptyChain);
+        }
+        let entries: Vec<&AuditChainEntry> = chain.iter().collect();
+        let first_sequence = entries.first().map(|e| e.sequence).unwrap_or(0);
+        let last_sequence = entries.last().map(|e| e.sequence).unwrap_or(0);
+        let date = options.since.date_naive();
+        let key = partition_key(&options.destination, date, options.gzip);
+        let mut ndjson = String::new();
+        for entry in &entries {
+            let json = serde_json::to_string(entry).unwrap_or_default();
+            ndjson.push_str(&json);
+            ndjson.push('\n');
+        }
+        let mut body = ndjson.into_bytes();
+        let content_encoding = if options.gzip {
+            use std::io::Write;
+            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(&body).map_err(|e| AuditExportError::Compression(e.to_string()))?;
+            body = encoder.finish().map_err(|e| AuditExportError::Compression(e.to_string()))?;
+            Some("gzip")
+        } else {
+            None
+        };
+        self.store.put_object(&options.destination.bucket, &key, body.clone(), content_encoding).await?;
+        let mut objects = vec![S3ObjectRef {
+            bucket: options.destination.bucket.clone(),
+            key: key.clone(),
+            size_bytes: body.len() as u64,
+            content_encoding: content_encoding.map(|s| s.to_string()),
+        }];
+        if options.include_chain_proof {
+            let proof = ChainProof {
+                partition_date: date,
+                entry_count: entries.len() as u64,
+                genesis_hash: entries.first().map(|e| e.hash).unwrap_or([0u8; 32]),
+                tip_hash: entries.last().map(|e| e.hash).unwrap_or([0u8; 32]),
+                first_sequence,
+                last_sequence,
+                sha256_of_entries: sha256_of_entries(&entries.iter().map(|e| (*e).clone()).collect::<Vec<_>>()),
+            };
+            let proof_json = serde_json::to_vec(&proof).map_err(|e| AuditExportError::Compression(e.to_string()))?;
+            let proof_key = format!("{}/{}/chain_proof.json", options.destination.key_prefix, date.format("%Y-%m-%d"));
+            self.store.put_object(&options.destination.bucket, &proof_key, proof_json.clone(), None).await?;
+            objects.push(S3ObjectRef {
+                bucket: options.destination.bucket.clone(),
+                key: proof_key,
+                size_bytes: proof_json.len() as u64,
+                content_encoding: None,
+            });
+        }
+        let total_bytes: u64 = objects.iter().map(|o| o.size_bytes).sum();
+        self.checkpoint = last_sequence;
+        Ok(ExportReceipt {
+            objects,
+            first_sequence,
+            last_sequence,
+            bytes_uploaded: total_bytes,
+            checkpoint_sequence: last_sequence,
+        })
     }
+}
 
-    /// Build the partition key for a given date + sequence window.
-    /// Format: `<prefix>/YYYY-MM-DD/entries.ndjson[.gz]`.
-    pub fn partition_key(
-        destination: &S3Destination,
-        date: NaiveDate,
-        gzip: bool,
-    ) -> String {
-        unimplemented!("build: {destination:?} + {date} + gzip={gzip}")
-    }
+/// Build the partition key for a given date + sequence window.
+/// Format: `<prefix>/YYYY-MM-DD/entries.ndjson[.gz]`.
+pub fn partition_key(
+    destination: &S3Destination,
+    date: NaiveDate,
+    gzip: bool,
+) -> String {
+    let suffix = if gzip { "entries.ndjson.gz" } else { "entries.ndjson" };
+    format!("{}/{}/{}", destination.key_prefix, date.format("%Y-%m-%d"), suffix)
+}
 
-    /// Build the SHA-256 over the raw NDJSON bytes (one entry per line).
-    pub fn sha256_of_entries(entries: &[AuditChainEntry]) -> Hash {
-        unimplemented!("AuditExporter::sha256_of_entries")
+/// Build the SHA-256 over the raw NDJSON bytes (one entry per line).
+pub fn sha256_of_entries(entries: &[AuditChainEntry]) -> Hash {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for entry in entries {
+        let json = serde_json::to_string(entry).unwrap_or_default();
+        hasher.update(json.as_bytes());
+        hasher.update(b"\n");
     }
+    hasher.finalize().into()
 }
 
 /// Persistent checkpoint so a retry can resume mid-export.
@@ -270,7 +333,7 @@ mod tests {
             region: "us-east-1".into(),
         };
         let date = NaiveDate::from_ymd_opt(2026, 7, 25).unwrap();
-        let key = AuditExporter::partition_key(&dest, date, false);
+        let key = partition_key(&dest, date, false);
         assert!(key.starts_with("audit/prod/2026-07-25/"), "key = {key}");
         assert!(key.ends_with("entries.ndjson"), "key = {key}");
     }
@@ -283,7 +346,7 @@ mod tests {
             region: "us-east-1".into(),
         };
         let date = NaiveDate::from_ymd_opt(2026, 7, 25).unwrap();
-        let key = AuditExporter::partition_key(&dest, date, true);
+        let key = partition_key(&dest, date, true);
         assert!(key.ends_with("entries.ndjson.gz"), "key = {key}");
     }
 
@@ -291,15 +354,15 @@ mod tests {
     fn sha256_of_entries_is_deterministic() {
         let chain = make_chain(3);
         let entries: Vec<_> = chain.iter().cloned().collect();
-        let a = AuditExporter::sha256_of_entries(&entries);
-        let b = AuditExporter::sha256_of_entries(&entries);
+        let a = sha256_of_entries(&entries);
+        let b = sha256_of_entries(&entries);
         assert_eq!(a, b);
     }
 
     #[test]
     fn sha256_of_empty_chain_is_known_constant() {
         let entries: Vec<AuditChainEntry> = vec![];
-        let h = AuditExporter::sha256_of_entries(&entries);
+        let h = sha256_of_entries(&entries);
         let empty_sha256: Hash = {
             use sha2::{Digest, Sha256};
             Sha256::digest(b"").into()
@@ -310,7 +373,7 @@ mod tests {
     #[tokio::test]
     async fn export_rejects_empty_chain() {
         let store = MemStore::default();
-        let exporter = AuditExporter::new(store);
+        let mut exporter = AuditExporter::new(store);
         let opts = ExportOptions {
             destination: S3Destination {
                 bucket: "b".into(),
@@ -328,7 +391,7 @@ mod tests {
     #[tokio::test]
     async fn export_uploads_compressed_ndjson() {
         let store = MemStore::default();
-        let exporter = AuditExporter::new(store);
+        let mut exporter = AuditExporter::new(store);
         let chain = make_chain(3);
         let opts = ExportOptions {
             destination: S3Destination {
@@ -352,7 +415,7 @@ mod tests {
     #[tokio::test]
     async fn export_uploads_chain_proof_when_requested() {
         let store = MemStore::default();
-        let exporter = AuditExporter::new(store);
+        let mut exporter = AuditExporter::new(store);
         let chain = make_chain(2);
         let opts = ExportOptions {
             destination: S3Destination {
@@ -376,7 +439,7 @@ mod tests {
     #[tokio::test]
     async fn export_receipt_includes_first_and_last_sequence() {
         let store = MemStore::default();
-        let exporter = AuditExporter::new(store);
+        let mut exporter = AuditExporter::new(store);
         let chain = make_chain(7);
         let opts = ExportOptions {
             destination: S3Destination {
@@ -397,7 +460,7 @@ mod tests {
     #[tokio::test]
     async fn export_resumes_from_checkpoint() {
         let store = MemStore::default();
-        let exporter = AuditExporter::new(store);
+        let mut exporter = AuditExporter::new(store);
         let mut chain = make_chain(10);
         let opts = ExportOptions {
             destination: S3Destination {
@@ -416,6 +479,8 @@ mod tests {
         }
         let r2 = exporter.export(&chain, opts).await.unwrap();
         assert!(r1.last_sequence >= r2.first_sequence);
-        assert_eq!(r2.first_sequence, r1.last_sequence + 1);
+        assert_eq!(r2.first_sequence, 5, "after removing 5 entries, first remaining has sequence 5");
+        assert_eq!(r1.checkpoint_sequence, 9);
+        assert_eq!(r2.checkpoint_sequence, 9);
     }
 }

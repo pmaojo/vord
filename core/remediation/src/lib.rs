@@ -24,7 +24,7 @@ pub struct FixPrompt {
     pub full_source: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FixProposal {
     pub file_path: PathBuf,
     pub explanation: String,

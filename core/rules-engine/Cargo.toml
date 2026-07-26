@@ -10,6 +10,8 @@ yunq-ast = { workspace = true }
 yunq-profiles = { workspace = true }
 yunq-cpd = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }
+serde_json = { workspace = true }

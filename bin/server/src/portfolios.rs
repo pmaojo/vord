@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use yunq_rules_engine::portfolios::{PortfolioNode, PortfolioRollup, ProjectRollupInput};
 
-use crate::AppError;
+use crate::app_error::AppError;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PortfolioDto {

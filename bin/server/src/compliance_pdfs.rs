@@ -122,8 +122,7 @@ impl ComplianceReportGenerator {
         kind: ComplianceReportKind,
     ) -> Result<Vec<u8>, ComplianceError> {
         unimplemented!(
-            "ComplianceReportGenerator::generate({kind:?}) for report with {} issues",
-            report.issues.len()
+            "ComplianceReportGenerator::generate({kind:?})"
         )
     }
 }
@@ -149,7 +148,7 @@ pub enum ComplianceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use infra_pdf::AnalysisReport;
+    use yunq_rules_engine::AnalysisReport;
 
     fn empty_report() -> AnalysisReport {
         AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new())
@@ -158,34 +157,34 @@ mod tests {
     fn one_finding_report(rule_id: &str, severity: Severity) -> AnalysisReport {
         // REAL shape comes from infra_pdf; we just need a non-empty report
         // to test the rejection / acceptance boundary.
-        unimplemented!("test fixture helper: build a 1-finding AnalysisReport for {rule_id} at severity {severity:?}")
+        unimplemented!("test fixture helper: build a 1-finding AnalysisReport")
     }
 
     #[test]
     fn rejects_empty_report_for_cwe_top25() {
-        let gen = ComplianceReportGenerator::new("Acme Corp");
-        let result = gen.generate(&empty_report(), ComplianceReportKind::CweTop25);
+        let cg = ComplianceReportGenerator::new("Acme Corp");
+        let result = cg.generate(&empty_report(), ComplianceReportKind::CweTop25);
         assert_eq!(result, Err(ComplianceError::EmptyReport));
     }
 
     #[test]
     fn rejects_empty_report_for_pci_dss() {
-        let gen = ComplianceReportGenerator::new("Acme Corp");
-        let result = gen.generate(&empty_report(), ComplianceReportKind::PciDss);
+        let cg = ComplianceReportGenerator::new("Acme Corp");
+        let result = cg.generate(&empty_report(), ComplianceReportKind::PciDss);
         assert_eq!(result, Err(ComplianceError::EmptyReport));
     }
 
     #[test]
     fn rejects_empty_report_for_soc2() {
-        let gen = ComplianceReportGenerator::new("Acme Corp");
-        let result = gen.generate(&empty_report(), ComplianceReportKind::Soc2);
+        let cg = ComplianceReportGenerator::new("Acme Corp");
+        let result = cg.generate(&empty_report(), ComplianceReportKind::Soc2);
         assert_eq!(result, Err(ComplianceError::EmptyReport));
     }
 
     #[test]
     fn cwe_top25_maps_known_cwe_id_to_name() {
         // CWE-89 ("SQL Injection") must resolve to a non-empty name.
-        unimplemented!("assertion: present CWE-89 row has name == \"SQL Injection\"")
+        unimplemented!("assertion: present CWE-89 row has name == SQL Injection")
     }
 
     #[test]
@@ -230,29 +229,29 @@ mod tests {
 
     #[test]
     fn soc2_signed_with_institution_name_in_metadata() {
-        let gen = ComplianceReportGenerator::new("Acme Corp");
+        let cg = ComplianceReportGenerator::new("Acme Corp");
         // Real test parses the PDF /Info string; placeholder asserts bytes are non-empty.
         unimplemented!("assertion: PDF /Info contains /Author (Acme Corp)")
     }
 
     #[test]
     fn pdf_output_starts_with_magic_header() {
-        let gen = ComplianceReportGenerator::new("Acme Corp");
+        let cg = ComplianceReportGenerator::new("Acme Corp");
         let report = one_finding_report("owasp:sqli", Severity::Critical);
-        let bytes = gen.generate(&report, ComplianceReportKind::CweTop25).unwrap();
+        let bytes = cg.generate(&report, ComplianceReportKind::CweTop25).unwrap();
         assert!(bytes.starts_with(b"%PDF-1.4"), "must be a valid PDF 1.4 header");
     }
 
     #[test]
     fn pdf_output_has_valid_eof_marker() {
-        let gen = ComplianceReportGenerator::new("Acme Corp");
+        let cg = ComplianceReportGenerator::new("Acme Corp");
         let report = one_finding_report("owasp:sqli", Severity::Critical);
-        let bytes = gen.generate(&report, ComplianceReportKind::PciDss).unwrap();
+        let bytes = cg.generate(&report, ComplianceReportKind::PciDss).unwrap();
         assert!(bytes.windows(5).any(|w| w == b"%%EOF"), "PDF must end with %%EOF");
     }
 
     #[test]
     fn unknown_rule_produces_structured_error() {
-        unimplemented!("assertion: rule with no PCI mapping → Err(UnknownRule { rule_id, kind: PciDss })")
+        unimplemented!("assertion: rule with no PCI mapping returns UnknownRule")
     }
 }

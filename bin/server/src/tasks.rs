@@ -42,8 +42,9 @@ pub struct TaskTracker {
 
 impl TaskTracker {
     pub fn submit(&mut self, task_id: impl Into<String>, kind: impl Into<String>, submitted_at: u64) {
-        self.tasks.insert(task_id.into(), TaskStatusReport {
-            task_id: task_id.into(),
+        let tid: String = task_id.into();
+        self.tasks.insert(tid.clone(), TaskStatusReport {
+            task_id: tid,
             kind: kind.into(),
             state: TaskState::Pending,
             submitted_at,

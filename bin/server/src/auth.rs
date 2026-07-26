@@ -4,14 +4,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::Redirect;
+use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use rand::{rngs::OsRng, RngCore};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 pub mod groups;
 pub mod permissions;
@@ -29,7 +29,7 @@ const SESSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Role {
+pub enum Role {
     Admin,
     Developer,
     Viewer,
@@ -54,7 +54,7 @@ pub(crate) const DEFAULT_NEW_USER_ROLE: Role = Role::Developer;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Permission {
+pub enum Permission {
     AdminAccess,
     BrowseIssues,
     ManageQualityGates,
@@ -64,7 +64,7 @@ pub(crate) enum Permission {
 }
 
 /// Map a role to its granted permissions. Admin is a superset (defense in depth).
-fn permissions_for(roles: &[Role]) -> Vec<Permission> {
+pub fn permissions_for(roles: &[Role]) -> Vec<Permission> {
     let mut grant_admin = false;
     let mut out: Vec<Permission> = Vec::new();
     for role in roles {
@@ -282,7 +282,7 @@ pub(crate) struct OAuthCallbackQuery {
 /// `return_to` is where the SPA should send the user after a successful
 /// login; it is sanitized server-side before being persisted in the
 /// pending OAuth state.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, IntoParams)]
 pub(crate) struct OAuthLoginQuery {
     return_to: Option<String>,
 }
@@ -698,11 +698,12 @@ fn sanitize_return_to(raw: &str) -> Option<String> {
 }
 
 /// Build the URL the browser should land on after a successful OAuth exchange.
-/// The token and return_to are URL-encoded so the fragment is safe even if
+/// The token and return_to are percent-encoded so the fragment is safe even if
 /// the frontend URLSearchParams parser is strict.
 fn build_fragment_callback_url(token: &str, return_to: &str) -> String {
-    let token_enc = url::form_urlencoded::byte_serialize(token.as_bytes()).collect::<String>();
-    let return_to_enc = url::form_urlencoded::byte_serialize(return_to.as_bytes()).collect::<String>();
+    use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
+    let token_enc = percent_encode(token.as_bytes(), NON_ALPHANUMERIC).to_string();
+    let return_to_enc = percent_encode(return_to.as_bytes(), NON_ALPHANUMERIC).to_string();
     format!("/auth/callback#token={}&returnTo={}", token_enc, return_to_enc)
 }
 

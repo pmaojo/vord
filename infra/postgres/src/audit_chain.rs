@@ -153,7 +153,7 @@ impl AuditChain {
 // Errors
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error)]
 pub enum AuditChainError {
     #[error("entry {sequence} hash mismatch (expected {expected_hash:?}, got {actual_hash:?})")]
     TamperDetected {
@@ -166,6 +166,24 @@ pub enum AuditChainError {
     #[error("failed to canonicalize entry: {0}")]
     Canonicalize(serde_json::Error),
 }
+
+// Manual PartialEq/Eq — serde_json::Error does not implement them, so we
+// compare on discriminant + fields of the variants that support it, and
+// return false for Canonicalize (which wraps an uncomparable error).
+impl PartialEq for AuditChainError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::TamperDetected { sequence: s1, expected_hash: e1, actual_hash: a1 },
+             Self::TamperDetected { sequence: s2, expected_hash: e2, actual_hash: a2 }) => {
+                s1 == s2 && e1 == e2 && a1 == a2
+            }
+            (Self::LinkBroken { sequence: s1 }, Self::LinkBroken { sequence: s2 }) => s1 == s2,
+            (Self::Canonicalize(_), Self::Canonicalize(_)) => false,
+            _ => false,
+        }
+    }
+}
+impl Eq for AuditChainError {}
 
 // ---------------------------------------------------------------------------
 // Tests — RED

@@ -40,7 +40,7 @@ use yunq_rules_engine::{
 
 mod app_error;
 mod auth;
-mod branches;
+pub mod branches;
 mod compliance_pdfs;
 mod coverage;
 mod diagnostics;
@@ -52,7 +52,7 @@ mod issue_tags;
 mod measures;
 mod metrics;
 mod ops;
-mod portfolios;
+pub mod portfolios;
 mod project_features;
 mod profiles_admin;
 mod sources;

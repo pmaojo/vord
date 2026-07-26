@@ -46,9 +46,10 @@ impl IssueCommentStore {
         }
         self.next_id += 1;
         c.id = format!("c{}", self.next_id);
+        let id = c.id.clone();
         self.by_issue.entry(c.issue_id.clone()).or_default().push(c.id.clone());
         self.by_id.insert(c.id.clone(), c);
-        Ok(self.by_id.get(&c.id.clone().unwrap_or_default()).map(|x| x.id.clone()).unwrap_or_default())
+        Ok(id)
             // (kept the lookup simple; the insert above already moved c by ownership)
     }
 

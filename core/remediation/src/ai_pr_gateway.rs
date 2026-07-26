@@ -18,12 +18,11 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{FixProposal, RemediationError};
-use yunq_rules_engine::alm_gateway::{
+use yunq_rules_engine::{
     AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, DecorationReceipt, InlineComment,
     PrDecoration,
 };
@@ -36,7 +35,10 @@ use yunq_rules_engine::{ProjectKey, RuleId, Severity};
 /// Compact reference to an analysis finding. Distinct from the full
 /// `Issue` (which carries the AST `Span`) so the gateway can stream
 /// assignments across the network without dragging whole source files.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// NOTE: Serialize/Deserialize omitted intentionally — IssueRef embeds
+// core types (ProjectKey, RuleId, Severity) that are serde-free by
+// architectural rule. Serialization will live on adapter-boundary DTOs.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueRef {
     pub project: ProjectKey,
     pub rule: RuleId,
@@ -48,8 +50,7 @@ pub struct IssueRef {
 
 /// Which AI agent to delegate to. Centralized so admins can add more without
 /// touching call sites.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiAgent {
     /// Yunq-native auto-fix agent.
     YunqAutoFix,
@@ -58,7 +59,7 @@ pub enum AiAgent {
 }
 
 /// Identifier for an in-flight AI assignment task.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiAssignmentTaskId(pub Uuid);
 
 impl AiAssignmentTaskId {
@@ -74,7 +75,7 @@ impl Default for AiAssignmentTaskId {
 }
 
 /// Result of a single `assign_to_agent` call.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiAssignmentTask {
     pub id: AiAssignmentTaskId,
     pub issue: IssueRef,
@@ -84,8 +85,7 @@ pub struct AiAssignmentTask {
 }
 
 /// State machine for an assignment task.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiAssignmentState {
     Queued,
     GeneratingFix,
@@ -105,7 +105,7 @@ pub enum AiAssignmentState {
 }
 
 /// Summary returned by `bulk_assign_to_agent`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BulkAssignmentSummary {
     pub total: usize,
     pub assigned: usize,
@@ -183,7 +183,7 @@ impl<A: AlmGateway> AiPrGateway<A> {
             }),
             summary: Some(summary),
         };
-        let _receipt = self.alm.decorate_pr(decoration).await?;
+        let _receipt = self.alm.decorate_pr(decoration)?;
         Ok(format!("https://example/pr/{}", issue.rule.as_str()))
     }
 }

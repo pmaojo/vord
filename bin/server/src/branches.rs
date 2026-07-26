@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use yunq_rules_engine::branches::{Branch, PullRequest};
 
-use crate::AppError;
+use crate::app_error::AppError;
 
 /// List response: every branch the project has analyses for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
