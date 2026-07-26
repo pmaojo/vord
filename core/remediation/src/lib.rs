@@ -4,6 +4,8 @@
 //! domain entities, and the verify-before-suggest `RemediationEngine` loop that
 //! guarantees proposed LLM fixes resolve targeted issues without introducing regressions.
 
+pub mod ai_pr_gateway;
+
 use std::future::Future;
 use std::path::{Path, PathBuf};
 

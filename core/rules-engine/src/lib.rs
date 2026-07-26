@@ -3,10 +3,14 @@
 //! `AnalyzerService` that orchestrates parse → rules → persist.
 
 mod alm;
+mod alm_gateway;
+mod branches;
 mod domain;
 mod gate_defaults;
 mod new_code;
+mod new_code_overrides;
 mod ports;
+mod portfolios;
 mod project;
 mod rule;
 mod service;
@@ -18,6 +22,11 @@ pub use alm::{
     AlmError, AlmPullRequestReporter, AlmStatusReporter, CommitSha, CommitStatus,
     CommitStatusState, InvalidCommitShaError,
 };
+pub use alm_gateway::{
+    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, DecorationReceipt,
+    InlineComment, PrDecoration,
+};
+pub use branches::{Branch, BranchRef, PullRequest};
 
 pub use domain::{
     AnalysisReport, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageReport, CoverageSummary,
@@ -27,6 +36,12 @@ pub use domain::{
 };
 pub use gate_defaults::default_gate;
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
+pub use new_code_overrides::{
+    NewCodeOverride, OverrideScope, OverrideSource, resolve_new_code_definition,
+};
+pub use portfolios::{
+    PortfolioNode, PortfolioRollup, ProjectRollupInput,
+};
 pub use project::{
     AnalysisContext, AnalysisScope, BranchName, InvalidBranchNameError, InvalidProjectKeyError,
     InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,

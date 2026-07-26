@@ -4,6 +4,7 @@
 //! [`analysis`], reused unchanged from `yunq-cli`'s composition.
 
 mod analysis;
+mod connected;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
