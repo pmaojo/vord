@@ -219,6 +219,15 @@ async fn persist_gate_result(
     }
 }
 
+/// Best-effort activity log write — a failure here (e.g. the project row
+/// couldn't be created) must never fail the scan job it's describing, same
+/// contract as `persist_gate_result`'s own warnings.
+async fn log_activity(gate_storage: &PgIssueStorage, job: &ScanJob, event_type: &str, message: &str) {
+    if let Err(e) = gate_storage.record_activity(job.project(), event_type, message, None).await {
+        eprintln!("warning: could not record activity log entry: {e}");
+    }
+}
+
 async fn handle_job<S, M>(
     service: &AnalyzerService<S, M>,
     gate_storage: &PgIssueStorage,
@@ -228,10 +237,46 @@ where
     S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
+    log_activity(gate_storage, &job, "scan.started", &format!("scan started for {}", job.path())).await;
+
+    match run_scan(service, gate_storage, &job).await {
+        Ok(report) => {
+            log_activity(
+                gate_storage,
+                &job,
+                "scan.succeeded",
+                &format!(
+                    "{} files scanned, {} issues found",
+                    report.metrics().files_scanned(),
+                    report.metrics().issue_total()
+                ),
+            )
+            .await;
+            Ok(())
+        }
+        Err(e) => {
+            log_activity(gate_storage, &job, "scan.failed", &e.0).await;
+            Err(e)
+        }
+    }
+}
+
+/// The actual scan work — parses out of `handle_job` so success/failure
+/// activity logging wraps the whole thing in one place regardless of where
+/// it fails (source collection or analysis itself).
+async fn run_scan<S, M>(
+    service: &AnalyzerService<S, M>,
+    gate_storage: &PgIssueStorage,
+    job: &ScanJob,
+) -> Result<AnalysisReport, QueueError>
+where
+    S: IssueStorage + HotspotStorage,
+    M: MetricsTracker,
+{
     let sources = yunq_infra_fs::collect_sources(Path::new(job.path()))
         .map_err(|e| QueueError(e.to_string()))?;
 
-    let scope = resolve_scan_scope(gate_storage, &job).await;
+    let scope = resolve_scan_scope(gate_storage, job).await;
 
     let report = service
         .analyze_files_scoped(&sources, scope)
@@ -244,7 +289,7 @@ where
         report.metrics().issue_total()
     );
 
-    persist_gate_result(gate_storage, &job, scope, &report).await;
+    persist_gate_result(gate_storage, job, scope, &report).await;
 
-    Ok(())
+    Ok(report)
 }

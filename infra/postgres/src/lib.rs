@@ -14,6 +14,7 @@ use yunq_rules_engine::{
     RuleId, Severity, StorageError, StoredHotspot, StoredIssue, WorkflowError,
 };
 
+mod activity;
 mod audit;
 mod audit_chain;
 mod audit_export;
@@ -25,6 +26,7 @@ mod profile;
 mod queue;
 mod retention;
 mod system;
+pub use activity::{ActivityLogEntry, ActivityLogQuery};
 pub use audit::{AuditLogEntry, AuditLogQuery};
 pub use audit_chain::{AuditChain, AuditChainEntry, AuditChainError, Hash as AuditHash};
 pub use audit_export::{
@@ -32,7 +34,7 @@ pub use audit_export::{
     ObjectStore, ObjectStoreError, S3Destination, S3ObjectRef, S3ObjectStore,
 };
 pub use profile::{CompareProfileError, CopyProfileError, ProfileNotFoundError, RestoreProfileError};
-pub use queue::PgJobConsumer;
+pub use queue::{FailedJob, PgJobConsumer, QueueStatus};
 pub use retention::PurgeReport;
 pub use system::SystemSnapshot;
 

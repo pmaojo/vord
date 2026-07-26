@@ -1,175 +1,116 @@
-//! Background-task queue status API. ROADMAP §Phase 4 — "Background tasks:
-//! task queue status API (SQS pipeline exists), per-project activity log,
-//! failure diagnostics".
+//! Background-task queue status API + failure diagnostics (Fase 4, issue
+//! #30): `GET /api/admin/queue/status` exposes the real `scan_jobs` queue
+//! depth by status, the oldest still-pending job's age, and the jobs that
+//! have actually failed (dead-lettered or still eligible for retry) —
+//! backed by `PgIssueStorage::queue_status` (`infra/postgres/src/queue.rs`,
+//! which is also where the dead-letter/attempt-tracking logic that makes
+//! this data meaningful lives). Requires `AdminAccess`: the failure list
+//! includes internal error text, same sensitivity level as the audit log.
 //!
-//! Skeleton: the task status enum, the TaskStatusReport shape, and the
-//! in-memory tracker are in place; the Postgres/SQS integration + HTTP
-//! surface land in following iterations.
+//! Superseded the earlier in-memory `TaskTracker` skeleton and the fully
+//! hardcoded `diagnostics`/`diagnostics_wire` modules (worker heartbeats
+//! and query telemetry that don't exist anywhere in this codebase) — this
+//! is scoped to data the worker/queue actually produce, not fabricated.
 
-#![allow(dead_code)]
+use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::Json;
+use futures::future::BoxFuture;
+use serde::Serialize;
+use utoipa::ToSchema;
+use yunq_infra_postgres::{FailedJob, PgIssueStorage, QueueStatus};
+use yunq_rules_engine::QueueError;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskState {
-    Pending,
-    Running,
-    Succeeded,
-    Failed,
-    Retrying,
-    Dead,
+use crate::auth::permissions::{is_allowed, Caller};
+use crate::auth::Permission;
+use crate::AppState;
+
+/// Object-safe HTTP-facing adapter over `PgIssueStorage::queue_status` —
+/// same "one trait per composition-root need" pattern as `OpsStore`/
+/// `ScanQueuePort` in `main.rs`.
+pub(crate) trait QueueDiagnosticsPort: Send + Sync {
+    fn queue_status(&self) -> BoxFuture<'_, Result<QueueStatus, QueueError>>;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct TaskStatusReport {
-    pub task_id: String,
-    pub kind: String,                // "scan" | "remediation" | "webhook_delivery" | ...
-    pub state: TaskState,
-    pub submitted_at: u64,
-    pub started_at: Option<u64>,
-    pub finished_at: Option<u64>,
-    pub attempts: u32,
-    pub last_error: Option<String>,
-    pub project_key: Option<String>,
-    pub eta_seconds: Option<u64>,
-}
-
-/// In-memory tracker. Replaced by Postgres + LISTEN/NOTIFY adapter.
-#[derive(Default)]
-pub struct TaskTracker {
-    tasks: HashMap<String, TaskStatusReport>,
-}
-
-impl TaskTracker {
-    pub fn submit(&mut self, task_id: impl Into<String>, kind: impl Into<String>, submitted_at: u64) {
-        let tid: String = task_id.into();
-        self.tasks.insert(tid.clone(), TaskStatusReport {
-            task_id: tid,
-            kind: kind.into(),
-            state: TaskState::Pending,
-            submitted_at,
-            started_at: None,
-            finished_at: None,
-            attempts: 0,
-            last_error: None,
-            project_key: None,
-            eta_seconds: None,
-        });
+impl QueueDiagnosticsPort for PgIssueStorage {
+    fn queue_status(&self) -> BoxFuture<'_, Result<QueueStatus, QueueError>> {
+        Box::pin(PgIssueStorage::queue_status(self))
     }
+}
 
-    pub fn mark_running(&mut self, task_id: &str, started_at: u64) {
-        if let Some(t) = self.tasks.get_mut(task_id) {
-            t.state = TaskState::Running;
-            t.started_at = Some(started_at);
-            t.attempts += 1;
+#[derive(Serialize, ToSchema)]
+pub(crate) struct FailedJobDto {
+    id: i64,
+    project: String,
+    path: String,
+    /// `pending` (still eligible for retry) or `dead` (retry budget exhausted).
+    status: String,
+    attempts: i32,
+    last_error: Option<String>,
+    updated_at: String,
+}
+
+impl From<&FailedJob> for FailedJobDto {
+    fn from(job: &FailedJob) -> Self {
+        Self {
+            id: job.id,
+            project: job.project.clone(),
+            path: job.path.clone(),
+            status: job.status.clone(),
+            attempts: job.attempts,
+            last_error: job.last_error.clone(),
+            updated_at: job.updated_at.clone(),
         }
     }
+}
 
-    pub fn mark_succeeded(&mut self, task_id: &str, finished_at: u64) {
-        if let Some(t) = self.tasks.get_mut(task_id) {
-            t.state = TaskState::Succeeded;
-            t.finished_at = Some(finished_at);
-            t.last_error = None;
+#[derive(Serialize, ToSchema)]
+pub(crate) struct QueueStatusDto {
+    pending: i64,
+    processing: i64,
+    dead: i64,
+    oldest_pending_age_seconds: Option<i64>,
+    recent_failures: Vec<FailedJobDto>,
+}
+
+impl From<QueueStatus> for QueueStatusDto {
+    fn from(status: QueueStatus) -> Self {
+        Self {
+            pending: status.pending,
+            processing: status.processing,
+            dead: status.dead,
+            oldest_pending_age_seconds: status.oldest_pending_age_seconds,
+            recent_failures: status.recent_failures.iter().map(FailedJobDto::from).collect(),
         }
-    }
-
-    pub fn mark_failed(&mut self, task_id: &str, finished_at: u64, error: impl Into<String>, dead: bool) {
-        if let Some(t) = self.tasks.get_mut(task_id) {
-            t.state = if dead { TaskState::Dead } else { TaskState::Failed };
-            t.finished_at = Some(finished_at);
-            t.last_error = Some(error.into());
-        }
-    }
-
-    pub fn get(&self, task_id: &str) -> Option<&TaskStatusReport> { self.tasks.get(task_id) }
-
-    pub fn list_by_state(&self, state: TaskState) -> Vec<&TaskStatusReport> {
-        self.tasks.values().filter(|t| t.state == state).collect()
-    }
-
-    pub fn depth(&self) -> usize {
-        self.list_by_state(TaskState::Pending).len() + self.list_by_state(TaskState::Running).len() + self.list_by_state(TaskState::Retrying).len()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lifecycle_pending_running_succeeded() {
-        let mut t = TaskTracker::default();
-        t.submit("t1", "scan", 1_000);
-        t.mark_running("t1", 1_100);
-        t.mark_succeeded("t1", 1_200);
-        let task = t.get("t1").unwrap();
-        assert_eq!(task.state, TaskState::Succeeded);
-        assert_eq!(task.started_at, Some(1_100));
-        assert_eq!(task.finished_at, Some(1_200));
-        assert_eq!(task.attempts, 1);
-        assert!(task.last_error.is_none());
+/// Task queue depth by status plus recent failures, for the ops dashboard
+/// and for diagnosing a stuck or perpetually-failing scan.
+#[utoipa::path(
+    get,
+    path = "/api/admin/queue/status",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "Queue depth by status and recent failures", body = QueueStatusDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn queue_status(
+    State(state): State<Arc<AppState>>,
+    Caller(caller): Caller,
+) -> Result<Json<QueueStatusDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err((StatusCode::FORBIDDEN, format!("missing permission: {:?}", Permission::AdminAccess)));
     }
-
-    #[test]
-    fn failed_with_retry_still_running_depth() {
-        let mut t = TaskTracker::default();
-        t.submit("t1", "scan", 1_000);
-        t.mark_running("t1", 1_100);
-        t.mark_failed("t1", 1_200, "timeout", false);
-        assert_eq!(t.depth(), 0); // failed tasks don't count toward queue depth
-    }
-
-    #[test]
-    fn dead_task_is_terminal() {
-        let mut t = TaskTracker::default();
-        t.submit("t1", "scan", 1_000);
-        t.mark_running("t1", 1_100);
-        t.mark_failed("t1", 1_200, "boom", true);
-        let task = t.get("t1").unwrap();
-        assert_eq!(task.state, TaskState::Dead);
-        assert_eq!(task.last_error.as_deref(), Some("boom"));
-    }
-
-    #[test]
-    fn depth_counts_only_pending_running_retrying() {
-        let mut t = TaskTracker::default();
-        t.submit("p", "scan", 1_000);
-        t.submit("r", "scan", 1_000);
-        t.mark_running("r", 1_100);
-        t.submit("s", "scan", 1_000);
-        t.mark_running("s", 1_100);
-        t.mark_succeeded("s", 1_200);
-        assert_eq!(t.depth(), 2);
-    }
-
-    #[test]
-    fn list_by_state_filters_correctly() {
-        let mut t = TaskTracker::default();
-        t.submit("a", "scan", 1_000);
-        t.submit("b", "scan", 1_000);
-        t.mark_running("b", 1_100);
-        t.mark_succeeded("b", 1_200);
-        let pending = t.list_by_state(TaskState::Pending);
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].task_id, "a");
-    }
-
-    #[test]
-    fn mark_running_increments_attempts() {
-        let mut t = TaskTracker::default();
-        t.submit("t", "scan", 1_000);
-        t.mark_running("t", 1_100);
-        t.mark_running("t", 1_200);
-        assert_eq!(t.get("t").unwrap().attempts, 2);
-    }
-
-    #[test]
-    fn unknown_task_id_is_a_noop() {
-        let mut t = TaskTracker::default();
-        t.mark_running("missing", 1_000);  // must not panic
-        t.mark_succeeded("missing", 1_100);
-        assert!(t.get("missing").is_none());
-    }
+    let status = state
+        .queue_diagnostics
+        .queue_status()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    Ok(Json(QueueStatusDto::from(status)))
 }

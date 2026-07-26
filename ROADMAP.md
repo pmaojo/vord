@@ -400,8 +400,29 @@ re-analysis on typical PRs.
   retries; **email notifications** per user subscription.
 - **Project features**: badges, links, tags, favorites, project export/
   import between instances.
-- **Background tasks**: task queue status API (SQS pipeline exists),
-  per-project activity log, failure diagnostics.
+- **Background tasks**: ✅ **(this session, issue #30)** `GET
+  /api/admin/queue/status` (`bin/server/src/tasks.rs`, `AdminAccess`-gated)
+  reports the real `scan_jobs` queue depth by status, the oldest pending
+  job's age, and recent failures — backed by `PgIssueStorage::queue_status`
+  (`infra/postgres/src/queue.rs`). That data only exists because the queue
+  itself changed: a claim now increments a persisted `attempts` counter
+  (migration `0019`) and a handler failure records `last_error` instead of
+  being silently released back to `pending` forever, dead-lettering to a
+  terminal `dead` status once the retry budget (5 attempts) is exhausted —
+  previously a failed job retried indefinitely with no trace of why.
+  `GET /api/projects/{key}/activity` (`bin/server/src/activity.rs`,
+  `infra/postgres/src/activity.rs`, migration `0020`) is a new per-project
+  activity log the worker writes `scan.started`/`scan.succeeded`/
+  `scan.failed` entries to around every job (`bin/worker/src/main.rs`) —
+  this doubles as the "diagnóstico de fallos de análisis" item, since a
+  failed scan's error message lands in both the project's activity log and
+  the admin queue-failure list. Removed the earlier `tasks`/`diagnostics`/
+  `diagnostics_wire` skeletons this replaced: the first was an unwired
+  in-memory tracker, the latter two returned fully hardcoded fake data for
+  worker heartbeats and query telemetry that don't exist anywhere in this
+  codebase — real per-project activity plus real queue/failure data is a
+  scoped-down but honest cut of the original three-item checklist, not a
+  fabricated one.
 - **Ops**: ✅ system info endpoint (`ops::system_info`) and audit log
   persistence + endpoint (`ops::list_audit_log`, `infra/postgres/src/{audit,system}.rs`,
   migrations 0011–0013), on top of the existing `/health` and Prometheus metrics.

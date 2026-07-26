@@ -10,6 +10,38 @@
     "version": "0.1.1"
   },
   "paths": {
+    "/api/admin/queue/status": {
+      "get": {
+        "summary": "Task queue depth by status plus recent failures, for the ops dashboard\nand for diagnosing a stuck or perpetually-failing scan.",
+        "operationId": "queue_status",
+        "responses": {
+          "200": {
+            "description": "Queue depth by status and recent failures",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueStatusDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/api/audit-log": {
       "get": {
         "summary": "Read the audit trail of gate/profile/permission changes, newest first.",
@@ -820,6 +852,65 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/projects/{key}/activity": {
+      "get": {
+        "summary": "Read one project's activity log (scan started/succeeded/failed, newest\nfirst). An unknown project key reads as an empty page, not a 404 — same\nconvention `list_activity` documents at the storage layer.",
+        "operationId": "project_activity",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "description": "Filter to one event type, e.g. `scan.failed`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of activity log entries, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityLogPageDto"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Storage backend unavailable"
           }
         }
       }
@@ -1948,6 +2039,60 @@
           }
         }
       },
+      "ActivityLogEntryDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "event_type",
+          "message",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "message": {
+            "type": "string"
+          },
+          "metadata": {}
+        }
+      },
+      "ActivityLogPageDto": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityLogEntryDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "AgentFixProposalDto": {
         "type": "object",
         "required": [
@@ -2376,6 +2521,46 @@
             "items": {
               "$ref": "#/components/schemas/FacetCountDto"
             }
+          }
+        }
+      },
+      "FailedJobDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "project",
+          "path",
+          "status",
+          "attempts",
+          "updated_at"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "`pending` (still eligible for retry) or `dead` (retry budget exhausted)."
+          },
+          "updated_at": {
+            "type": "string"
           }
         }
       },
@@ -3076,6 +3261,42 @@
           "issues_deleted": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "QueueStatusDto": {
+        "type": "object",
+        "required": [
+          "pending",
+          "processing",
+          "dead",
+          "recent_failures"
+        ],
+        "properties": {
+          "dead": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "oldest_pending_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "processing": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "recent_failures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailedJobDto"
+            }
           }
         }
       },
