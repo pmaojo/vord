@@ -36,6 +36,7 @@ use yunq_rules_engine::{
 };
 
 mod activity;
+mod ai_provider_admin;
 mod app_error;
 mod auth;
 mod blame;
@@ -316,6 +317,7 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(profiles_admin::backup_quality_profile))
         .routes(routes!(profiles_admin::restore_quality_profile))
         .routes(routes!(ops::grant_permission, ops::revoke_permission))
+        .routes(routes!(ai_provider_admin::set_ai_provider, ai_provider_admin::get_ai_provider, ai_provider_admin::clear_ai_provider))
         .routes(routes!(ops::list_audit_log))
         .routes(routes!(ops::set_project_retention))
         .routes(routes!(ops::run_housekeeping))
@@ -1230,7 +1232,10 @@ async fn assign_to_agent(
     let issue = state.reader.fetch_issue(id).await.map_err(workflow_error_response)?;
     let file_path = issue.issue.file().to_string();
     let source = fetch_issue_source(&file_path).await?;
-    let proposal = generate_agent_fix(&issue.issue, &file_path, source).await?;
+
+    let project_key = state.ops.project_key_for_issue(id).await.unwrap_or(None);
+    let provider_config = resolve_llm_provider_config(&state, project_key.as_deref()).await?;
+    let proposal = generate_agent_fix(&issue.issue, &file_path, source, provider_config).await?;
 
     let _ = state.reader.set_assignee(id, Some("yunq-ai-agent".to_string())).await;
 
@@ -1270,6 +1275,39 @@ async fn fetch_issue_source(file_path: &str) -> Result<String, (StatusCode, Stri
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not fetch source for {file_path}: {}", e.0)))
 }
 
+/// Resolves which LLM provider to use for `project_key`: its own BYOK
+/// override if one is configured, otherwise the platform-wide default
+/// (env-configured — see `yunq_infra_llm::LlmProviderConfig::from_env`).
+/// Issues that predate project scoping (`project_key` is `None`) always
+/// get the platform default.
+async fn resolve_llm_provider_config(
+    state: &AppState,
+    project_key: Option<&str>,
+) -> Result<yunq_infra_llm::LlmProviderConfig, (StatusCode, String)> {
+    if let Some(key) = project_key {
+        if let Some(config) = state
+            .ops
+            .llm_config(key.to_string())
+            .await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not read AI provider config for {key:?}: {e}")))?
+        {
+            let kind = yunq_infra_llm::LlmProviderKind::parse(&config.provider).ok_or_else(|| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("project {key:?} has an unrecognized stored AI provider {:?}", config.provider),
+                )
+            })?;
+            return Ok(yunq_infra_llm::LlmProviderConfig {
+                kind,
+                base_url: config.base_url,
+                model: config.model,
+                api_key: config.api_key,
+            });
+        }
+    }
+    Ok(yunq_infra_llm::LlmProviderConfig::from_env())
+}
+
 /// Builds the verify-before-suggest remediation engine and runs it,
 /// translating a rejected verdict into the same `Err` shape as a hard
 /// failure — the caller only cares whether it got a usable proposal.
@@ -1277,11 +1315,9 @@ async fn generate_agent_fix(
     issue: &yunq_rules_engine::Issue,
     file_path: &str,
     source: String,
+    provider_config: yunq_infra_llm::LlmProviderConfig,
 ) -> Result<yunq_remediation::FixProposal, (StatusCode, String)> {
-    let base_url = std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-    let api_key = std::env::var("YUNQ_LLM_API_KEY").unwrap_or_default();
-    let model_name = std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string());
-    let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key);
+    let adapter = provider_config.build();
     let sandbox = yunq_infra_memory::InMemorySandbox::with_file(file_path, source.clone());
     let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
     let analyzer = yunq_cli::default_service(

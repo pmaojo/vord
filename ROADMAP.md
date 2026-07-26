@@ -455,6 +455,16 @@ re-analysis on typical PRs.
   verdict via ports: `FixGenerator` (Claude API adapter), `Sandbox` (git
   worktree adapter), verification by the embedded `AnalyzerService` —
   accept only if the original issue disappears and none appear.
+  ✅ **Provider choice + BYOK**: `LlmProvider` has two adapters
+  (`OpenAiCompatibleAdapter` for OpenAI/Groq/DeepSeek/Ollama/vLLM/LiteLLM
+  proxy, `AnthropicAdapter` for the native Messages API) selected at
+  runtime through `LlmProviderConfig`/`AnyLlmProvider`
+  (`infra/llm::provider`). Falls back to a platform-wide env-configured
+  default; a project can override it with its own provider/model/API key
+  via `PUT/GET/DELETE /api/projects/{key}/ai-provider` (`AdminAccess`-gated,
+  audit-logged). The key is AES-256-GCM encrypted at rest under a
+  server-side `YUNQ_SECRETS_KEY` (`infra/postgres::llm_config`), never
+  returned in plaintext by the API.
 - **6b Assign to Agent**: `POST /issues/{id}/assign-to-agent`, bulk action,
   one PR per issue via `PrGateway`; PR-scoped mode proposes fixes when a PR
   breaks its quality gate. Developer-in-the-loop always.
