@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::{FixProposal, RemediationError};
 use yunq_rules_engine::{
     AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport,
-    DecorationReceipt, InlineComment, PrDecoration,
+    InlineComment, PrDecoration,
 };
 use yunq_rules_engine::{ProjectKey, RuleId, Severity};
 
@@ -233,6 +233,7 @@ pub enum AiPrGatewayError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yunq_rules_engine::DecorationReceipt;
     use std::sync::{Arc, Mutex};
 
     /// In-memory `AlmGateway` that records every decoration + check run.
