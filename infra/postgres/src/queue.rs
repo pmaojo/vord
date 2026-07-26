@@ -238,3 +238,154 @@ impl PgIssueStorage {
         Ok(status)
     }
 }
+
+/// `#[ignore]`d by default so `cargo test` needs no database; run explicitly
+/// with `cargo test -p yunq-infra-postgres -- --ignored` against
+/// `DATABASE_URL`, same convention as `lib.rs`'s `live_db_tests` module.
+/// `claim_one`/`fail` were previously untested against a real database at
+/// all (unlike every sibling adapter module) despite being the exact logic
+/// the dead-letter/attempt-tracking behavior depends on.
+#[cfg(test)]
+mod live_db_tests {
+    use super::*;
+    use yunq_rules_engine::JobQueue;
+
+    async fn connected_storage() -> PgIssueStorage {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
+        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        storage.migrate().await.unwrap();
+        storage
+    }
+
+    async fn cleanup(storage: &PgIssueStorage, project: &str) {
+        sqlx::query("DELETE FROM scan_jobs WHERE project = $1")
+            .bind(project)
+            .execute(storage.pool())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn claim_increments_attempts_and_records_project_and_path() {
+        let storage = connected_storage().await;
+        let project = format!(
+            "queue-test-claim-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        );
+        storage.enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap()).await.unwrap();
+        let consumer = PgJobConsumer::new(storage.pool().clone());
+
+        let (id, job, attempts) = consumer.claim_one().await.unwrap().expect("job was just enqueued");
+        assert_eq!(job.project(), project);
+        assert_eq!(job.path(), "/src");
+        assert_eq!(attempts, 1);
+
+        let status: String = sqlx::query("SELECT status FROM scan_jobs WHERE id = $1")
+            .bind(id)
+            .fetch_one(storage.pool())
+            .await
+            .unwrap()
+            .try_get("status")
+            .unwrap();
+        assert_eq!(status, "processing");
+
+        cleanup(&storage, &project).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn failing_below_max_attempts_releases_back_to_pending_with_error() {
+        let storage = connected_storage().await;
+        let project = format!(
+            "queue-test-release-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        );
+        storage.enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap()).await.unwrap();
+        let consumer = PgJobConsumer::new(storage.pool().clone());
+
+        let (id, _job, attempts) = consumer.claim_one().await.unwrap().unwrap();
+        assert_eq!(attempts, 1);
+        consumer.fail(id, attempts, "parse error: unexpected token").await.unwrap();
+
+        let row = sqlx::query("SELECT status, last_error FROM scan_jobs WHERE id = $1")
+            .bind(id)
+            .fetch_one(storage.pool())
+            .await
+            .unwrap();
+        let status: String = row.try_get("status").unwrap();
+        let last_error: String = row.try_get("last_error").unwrap();
+        assert_eq!(status, "pending");
+        assert_eq!(last_error, "parse error: unexpected token");
+
+        cleanup(&storage, &project).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn exhausting_retry_budget_dead_letters_the_job() {
+        let storage = connected_storage().await;
+        let project = format!(
+            "queue-test-deadletter-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        );
+        storage.enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap()).await.unwrap();
+        let consumer = PgJobConsumer::new(storage.pool().clone());
+
+        // Claim and fail repeatedly until the retry budget is exhausted.
+        let mut id = 0i64;
+        for _ in 0..DEFAULT_MAX_ATTEMPTS {
+            let (claimed_id, _job, attempts) = consumer.claim_one().await.unwrap().expect("job still pending");
+            id = claimed_id;
+            consumer.fail(id, attempts, "boom").await.unwrap();
+        }
+
+        let status: String = sqlx::query("SELECT status FROM scan_jobs WHERE id = $1")
+            .bind(id)
+            .fetch_one(storage.pool())
+            .await
+            .unwrap()
+            .try_get("status")
+            .unwrap();
+        assert_eq!(status, "dead");
+
+        // A dead job is never claimed again.
+        assert!(consumer.claim_one().await.unwrap().is_none());
+
+        cleanup(&storage, &project).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn queue_status_reports_counts_and_recent_failures() {
+        let storage = connected_storage().await;
+        let project = format!(
+            "queue-test-status-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        );
+        storage.enqueue_scan(ScanJob::new(project.clone(), "/src-a").unwrap()).await.unwrap();
+        storage.enqueue_scan(ScanJob::new(project.clone(), "/src-b").unwrap()).await.unwrap();
+        let consumer = PgJobConsumer::new(storage.pool().clone());
+
+        // `claim_one` always claims the lowest-id pending row, and a failed
+        // job (below max attempts) goes right back to `pending` — so
+        // `/src-a` (enqueued first, lower id) is reclaimed on every
+        // iteration until it dead-letters, and `/src-b` is never touched.
+        for _ in 0..DEFAULT_MAX_ATTEMPTS {
+            let (id, job, attempts) = consumer.claim_one().await.unwrap().unwrap();
+            assert_eq!(job.path(), "/src-a");
+            consumer.fail(id, attempts, "always fails").await.unwrap();
+        }
+
+        let status = storage.queue_status().await.unwrap();
+        assert_eq!(status.dead, 1);
+        assert!(status.pending >= 1);
+        assert!(status.recent_failures.iter().any(|f| f.project == project
+            && f.path == "/src-a"
+            && f.status == "dead"
+            && f.last_error.as_deref() == Some("always fails")));
+
+        cleanup(&storage, &project).await;
+    }
+}
