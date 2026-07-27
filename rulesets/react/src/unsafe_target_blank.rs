@@ -20,7 +20,9 @@ pub struct UnsafeTargetBlankRule {
 
 impl UnsafeTargetBlankRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:unsafe-target-blank").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:unsafe-target-blank").expect("valid rule id"),
+        }
     }
 }
 
@@ -82,7 +84,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         UnsafeTargetBlankRule::new().check(&file, &ast)
     }
 
@@ -94,8 +98,9 @@ mod tests {
 
     #[test]
     fn allows_target_blank_with_noopener() {
-        let findings =
-            check("const el = <a href=\"https://x.com\" target=\"_blank\" rel=\"noopener\">go</a>;\n");
+        let findings = check(
+            "const el = <a href=\"https://x.com\" target=\"_blank\" rel=\"noopener\">go</a>;\n",
+        );
         assert!(findings.is_empty());
     }
 

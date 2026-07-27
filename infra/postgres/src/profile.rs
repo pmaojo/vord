@@ -371,7 +371,10 @@ mod live_db_tests {
     fn unique_name(prefix: &str) -> String {
         format!(
             "{prefix}-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         )
     }
 
@@ -405,8 +408,16 @@ mod live_db_tests {
         // through a raw update here (restore's own parent-linking is
         // covered by the restore tests below, which go through the real
         // `ProfileBackup` path end to end).
-        let (parent_id, _) = storage.profile_row_by_name(&parent_name).await.unwrap().unwrap();
-        let (child_id, _) = storage.profile_row_by_name(&child_name).await.unwrap().unwrap();
+        let (parent_id, _) = storage
+            .profile_row_by_name(&parent_name)
+            .await
+            .unwrap()
+            .unwrap();
+        let (child_id, _) = storage
+            .profile_row_by_name(&child_name)
+            .await
+            .unwrap()
+            .unwrap();
         sqlx::query("UPDATE quality_profiles SET parent_id = $1 WHERE id = $2")
             .bind(parent_id)
             .bind(child_id)
@@ -414,10 +425,17 @@ mod live_db_tests {
             .await
             .unwrap();
 
-        let profile = storage.read_quality_profile(&child_name).await.unwrap().unwrap();
+        let profile = storage
+            .read_quality_profile(&child_name)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(profile.severity_of(&base_rule), Some(Severity::Critical));
         assert_eq!(profile.severity_of(&tuned_rule), Some(Severity::Info));
-        assert_eq!(profile.parent().map(|p| p.name().to_string()), Some(parent_name.clone()));
+        assert_eq!(
+            profile.parent().map(|p| p.name().to_string()),
+            Some(parent_name.clone())
+        );
 
         delete_profile(&storage, &child_name).await;
         delete_profile(&storage, &parent_name).await;
@@ -427,7 +445,13 @@ mod live_db_tests {
     #[ignore = "requires a live Postgres; see module docs"]
     async fn read_quality_profile_returns_none_for_an_unknown_name() {
         let storage = connected_storage().await;
-        assert!(storage.read_quality_profile(&unique_name("does-not-exist")).await.unwrap().is_none());
+        assert!(
+            storage
+                .read_quality_profile(&unique_name("does-not-exist"))
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -442,7 +466,10 @@ mod live_db_tests {
         storage
             .upsert_quality_profile(
                 &name_a,
-                &[(shared_rule.clone(), Severity::Critical), (only_a_rule.clone(), Severity::Info)],
+                &[
+                    (shared_rule.clone(), Severity::Critical),
+                    (only_a_rule.clone(), Severity::Info),
+                ],
             )
             .await
             .unwrap();
@@ -451,7 +478,10 @@ mod live_db_tests {
             .await
             .unwrap();
 
-        let diff = storage.compare_quality_profiles(&name_a, &name_b).await.unwrap();
+        let diff = storage
+            .compare_quality_profiles(&name_a, &name_b)
+            .await
+            .unwrap();
         assert_eq!(diff.only_in_a, vec![(only_a_rule, Severity::Info)]);
         assert!(diff.only_in_b.is_empty());
         assert_eq!(diff.severity_differs.len(), 1);
@@ -469,8 +499,13 @@ mod live_db_tests {
         let missing = unique_name("profile-cmp-missing-b");
         storage.upsert_quality_profile(&name_a, &[]).await.unwrap();
 
-        let err = storage.compare_quality_profiles(&name_a, &missing).await.unwrap_err();
-        assert!(matches!(err, CompareProfileError::NotFound(ProfileNotFoundError(name)) if name == missing));
+        let err = storage
+            .compare_quality_profiles(&name_a, &missing)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, CompareProfileError::NotFound(ProfileNotFoundError(name)) if name == missing)
+        );
 
         delete_profile(&storage, &name_a).await;
     }
@@ -483,11 +518,27 @@ mod live_db_tests {
         let copy_name = unique_name("profile-copy-target");
         let rule = RuleId::new("owasp:eval-usage").unwrap();
 
-        storage.upsert_quality_profile(&source_name, &[(rule.clone(), Severity::Critical)]).await.unwrap();
-        let after = storage.copy_quality_profile(&source_name, &copy_name).await.unwrap();
-        assert_eq!(after, vec![(rule.as_str().to_string(), Severity::Critical.as_str().to_string())]);
+        storage
+            .upsert_quality_profile(&source_name, &[(rule.clone(), Severity::Critical)])
+            .await
+            .unwrap();
+        let after = storage
+            .copy_quality_profile(&source_name, &copy_name)
+            .await
+            .unwrap();
+        assert_eq!(
+            after,
+            vec![(
+                rule.as_str().to_string(),
+                Severity::Critical.as_str().to_string()
+            )]
+        );
 
-        let copy = storage.read_quality_profile(&copy_name).await.unwrap().unwrap();
+        let copy = storage
+            .read_quality_profile(&copy_name)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(copy.parent().is_none());
         assert_eq!(copy.severity_of(&rule), Some(Severity::Critical));
 
@@ -514,12 +565,22 @@ mod live_db_tests {
             parent_name: Some(parent_name.clone()),
             activations: vec![(own_rule.clone(), Severity::Info)],
         };
-        storage.restore_quality_profile(&backup, false).await.unwrap();
+        storage
+            .restore_quality_profile(&backup, false)
+            .await
+            .unwrap();
 
-        let restored = storage.read_quality_profile(&restored_name).await.unwrap().unwrap();
+        let restored = storage
+            .read_quality_profile(&restored_name)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(restored.severity_of(&own_rule), Some(Severity::Info));
         assert_eq!(restored.severity_of(&base_rule), Some(Severity::Critical));
-        assert_eq!(restored.parent().map(|p| p.name().to_string()), Some(parent_name.clone()));
+        assert_eq!(
+            restored.parent().map(|p| p.name().to_string()),
+            Some(parent_name.clone())
+        );
 
         delete_profile(&storage, &restored_name).await;
         delete_profile(&storage, &parent_name).await;
@@ -531,15 +592,23 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let name = unique_name("profile-restore-collision");
         let rule = RuleId::new("owasp:eval-usage").unwrap();
-        storage.upsert_quality_profile(&name, &[(rule.clone(), Severity::Blocker)]).await.unwrap();
+        storage
+            .upsert_quality_profile(&name, &[(rule.clone(), Severity::Blocker)])
+            .await
+            .unwrap();
 
         let backup = ProfileBackup {
             name: name.clone(),
             parent_name: None,
             activations: vec![(rule.clone(), Severity::Info)],
         };
-        let err = storage.restore_quality_profile(&backup, false).await.unwrap_err();
-        assert!(matches!(err, RestoreProfileError::Conflict(RestoreError::NameCollision(n)) if n == name));
+        let err = storage
+            .restore_quality_profile(&backup, false)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, RestoreProfileError::Conflict(RestoreError::NameCollision(n)) if n == name)
+        );
 
         // The existing profile must be untouched by the rejected restore.
         let unchanged = storage.read_quality_profile(&name).await.unwrap().unwrap();
@@ -554,14 +623,20 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let name = unique_name("profile-restore-force");
         let rule = RuleId::new("owasp:eval-usage").unwrap();
-        storage.upsert_quality_profile(&name, &[(rule.clone(), Severity::Blocker)]).await.unwrap();
+        storage
+            .upsert_quality_profile(&name, &[(rule.clone(), Severity::Blocker)])
+            .await
+            .unwrap();
 
         let backup = ProfileBackup {
             name: name.clone(),
             parent_name: None,
             activations: vec![(rule.clone(), Severity::Info)],
         };
-        storage.restore_quality_profile(&backup, true).await.unwrap();
+        storage
+            .restore_quality_profile(&backup, true)
+            .await
+            .unwrap();
 
         let overwritten = storage.read_quality_profile(&name).await.unwrap().unwrap();
         assert_eq!(overwritten.severity_of(&rule), Some(Severity::Info));
@@ -581,7 +656,10 @@ mod live_db_tests {
             parent_name: Some(unique_name("profile-restore-nonexistent-parent")),
             activations: vec![(rule.clone(), Severity::Info)],
         };
-        storage.restore_quality_profile(&backup, false).await.unwrap();
+        storage
+            .restore_quality_profile(&backup, false)
+            .await
+            .unwrap();
 
         let restored = storage.read_quality_profile(&name).await.unwrap().unwrap();
         assert!(restored.parent().is_none());

@@ -30,13 +30,19 @@ fn dirname_segments(path: &str) -> Vec<&str> {
 }
 
 fn strip_known_extension<'a>(path: &'a str, extensions: &[&str]) -> &'a str {
-    extensions.iter().find_map(|ext| path.strip_suffix(ext)).unwrap_or(path)
+    extensions
+        .iter()
+        .find_map(|ext| path.strip_suffix(ext))
+        .unwrap_or(path)
 }
 
 /// Joins `importer`'s directory with a `./`/`../`-relative specifier,
 /// producing a normalized, extension-less path.
 fn join_relative(importer: &str, specifier: &str) -> String {
-    let mut segments: Vec<String> = dirname_segments(importer).into_iter().map(str::to_string).collect();
+    let mut segments: Vec<String> = dirname_segments(importer)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
     for part in specifier.split('/') {
         match part {
             "" | "." => {}
@@ -52,7 +58,11 @@ fn join_relative(importer: &str, specifier: &str) -> String {
 /// Resolves a TypeScript/JS import specifier (as written, quotes already
 /// stripped) against `candidates`, returning the matching candidate path.
 /// Non-relative specifiers (no `./`/`../` prefix) are always external.
-pub fn resolve_ts_specifier<'a>(importer: &str, specifier: &str, candidates: &[&'a str]) -> Option<&'a str> {
+pub fn resolve_ts_specifier<'a>(
+    importer: &str,
+    specifier: &str,
+    candidates: &[&'a str],
+) -> Option<&'a str> {
     if !specifier.starts_with('.') {
         return None;
     }
@@ -94,7 +104,10 @@ pub fn resolve_py_relative<'a>(
     if dots == 0 {
         return None;
     }
-    let mut segments: Vec<String> = dirname_segments(importer).into_iter().map(str::to_string).collect();
+    let mut segments: Vec<String> = dirname_segments(importer)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
     for _ in 1..dots {
         segments.pop();
     }
@@ -133,19 +146,28 @@ mod tests {
     #[test]
     fn ts_relative_sibling_import_resolves() {
         let candidates = ["main.ts", "lib.ts"];
-        assert_eq!(resolve_ts_specifier("main.ts", "./lib", &candidates), Some("lib.ts"));
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "./lib", &candidates),
+            Some("lib.ts")
+        );
     }
 
     #[test]
     fn ts_relative_parent_import_resolves() {
         let candidates = ["src/a.ts", "shared.ts"];
-        assert_eq!(resolve_ts_specifier("src/a.ts", "../shared", &candidates), Some("shared.ts"));
+        assert_eq!(
+            resolve_ts_specifier("src/a.ts", "../shared", &candidates),
+            Some("shared.ts")
+        );
     }
 
     #[test]
     fn ts_relative_index_import_resolves() {
         let candidates = ["main.ts", "utils/index.ts"];
-        assert_eq!(resolve_ts_specifier("main.ts", "./utils", &candidates), Some("utils/index.ts"));
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "./utils", &candidates),
+            Some("utils/index.ts")
+        );
     }
 
     #[test]
@@ -157,19 +179,28 @@ mod tests {
     #[test]
     fn py_absolute_module_resolves() {
         let candidates = ["foo/bar.py", "main.py"];
-        assert_eq!(resolve_py_absolute("foo.bar", &candidates), Some("foo/bar.py"));
+        assert_eq!(
+            resolve_py_absolute("foo.bar", &candidates),
+            Some("foo/bar.py")
+        );
     }
 
     #[test]
     fn py_absolute_package_init_resolves() {
         let candidates = ["foo/bar/__init__.py"];
-        assert_eq!(resolve_py_absolute("foo.bar", &candidates), Some("foo/bar/__init__.py"));
+        assert_eq!(
+            resolve_py_absolute("foo.bar", &candidates),
+            Some("foo/bar/__init__.py")
+        );
     }
 
     #[test]
     fn py_relative_submodule_resolves() {
         let candidates = ["pkg/a.py", "pkg/sibling.py"];
-        assert_eq!(resolve_py_relative("pkg/a.py", 1, Some("sibling"), None, &candidates), Some("pkg/sibling.py"));
+        assert_eq!(
+            resolve_py_relative("pkg/a.py", 1, Some("sibling"), None, &candidates),
+            Some("pkg/sibling.py")
+        );
     }
 
     #[test]

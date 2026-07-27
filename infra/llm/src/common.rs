@@ -49,7 +49,9 @@ struct FixProposalJson {
 pub(crate) fn parse_fix_proposal(content: &str, file_path: &Path) -> Result<FixProposal, LlmError> {
     let clean_json = strip_code_fence(content);
     let parsed: FixProposalJson = serde_json::from_str(clean_json).map_err(|e| {
-        LlmError::InvalidOutput(format!("JSON fix proposal schema mismatch: {e}. Raw content: {content}"))
+        LlmError::InvalidOutput(format!(
+            "JSON fix proposal schema mismatch: {e}. Raw content: {content}"
+        ))
     })?;
 
     Ok(FixProposal {

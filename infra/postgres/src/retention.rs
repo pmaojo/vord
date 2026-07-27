@@ -71,7 +71,10 @@ impl PgIssueStorage {
     /// `0016_issue_hotspot_scoping.sql`, or from a run that never resolved
     /// a project) can never match the `project_id = c.id` join and so are
     /// never touched by this query, no matter their age.
-    pub async fn purge_expired(&self, default_days: Option<i32>) -> Result<PurgeReport, StorageError> {
+    pub async fn purge_expired(
+        &self,
+        default_days: Option<i32>,
+    ) -> Result<PurgeReport, StorageError> {
         let analyses_deleted = sqlx::query(
             "WITH cutoffs AS (
                  SELECT id, COALESCE(retention_days, $1) AS days FROM projects
@@ -120,7 +123,11 @@ impl PgIssueStorage {
         .map_err(storage_err)?
         .rows_affected();
 
-        Ok(PurgeReport { analyses_deleted, issues_deleted, hotspots_deleted })
+        Ok(PurgeReport {
+            analyses_deleted,
+            issues_deleted,
+            hotspots_deleted,
+        })
     }
 }
 
@@ -132,7 +139,11 @@ mod tests {
     fn purge_report_defaults_to_zero() {
         assert_eq!(
             PurgeReport::default(),
-            PurgeReport { analyses_deleted: 0, issues_deleted: 0, hotspots_deleted: 0 }
+            PurgeReport {
+                analyses_deleted: 0,
+                issues_deleted: 0,
+                hotspots_deleted: 0
+            }
         );
     }
 }
@@ -144,7 +155,9 @@ mod tests {
 mod live_db_tests {
     use super::*;
     use yunq_ast::Span;
-    use yunq_rules_engine::{Hotspot, HotspotStorage, Issue, IssueScope, IssueStorage, RuleId, Severity};
+    use yunq_rules_engine::{
+        Hotspot, HotspotStorage, Issue, IssueScope, IssueStorage, RuleId, Severity,
+    };
 
     async fn connected_storage() -> PgIssueStorage {
         let database_url = std::env::var("DATABASE_URL")
@@ -160,31 +173,44 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = format!(
             "retention-test-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
         let project_id = storage.ensure_project(&key).await.unwrap();
 
-        storage.record_analysis(project_id, "main", 100, 0).await.unwrap();
-        let old_id = storage.record_analysis(project_id, "main", 100, 0).await.unwrap();
+        storage
+            .record_analysis(project_id, "main", 100, 0)
+            .await
+            .unwrap();
+        let old_id = storage
+            .record_analysis(project_id, "main", 100, 0)
+            .await
+            .unwrap();
         sqlx::query("UPDATE analyses SET created_at = now() - interval '30 days' WHERE id = $1")
             .bind(old_id)
             .execute(storage.pool())
             .await
             .unwrap();
 
-        let before = storage.set_project_retention_days(&key, Some(1)).await.unwrap();
+        let before = storage
+            .set_project_retention_days(&key, Some(1))
+            .await
+            .unwrap();
         assert_eq!(before, None);
 
         let report = storage.purge_expired(None).await.unwrap();
         assert_eq!(report.analyses_deleted, 1);
 
-        let remaining: i64 = sqlx::query("SELECT COUNT(*) AS n FROM analyses WHERE project_id = $1")
-            .bind(project_id)
-            .fetch_one(storage.pool())
-            .await
-            .unwrap()
-            .try_get("n")
-            .unwrap();
+        let remaining: i64 =
+            sqlx::query("SELECT COUNT(*) AS n FROM analyses WHERE project_id = $1")
+                .bind(project_id)
+                .fetch_one(storage.pool())
+                .await
+                .unwrap()
+                .try_get("n")
+                .unwrap();
         assert_eq!(remaining, 1);
 
         sqlx::query("DELETE FROM projects WHERE id = $1")
@@ -200,11 +226,17 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = format!(
             "retention-test-noop-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
         let project_id = storage.ensure_project(&key).await.unwrap();
 
-        let old_id = storage.record_analysis(project_id, "main", 100, 0).await.unwrap();
+        let old_id = storage
+            .record_analysis(project_id, "main", 100, 0)
+            .await
+            .unwrap();
         sqlx::query("UPDATE analyses SET created_at = now() - interval '3650 days' WHERE id = $1")
             .bind(old_id)
             .execute(storage.pool())
@@ -214,13 +246,14 @@ mod live_db_tests {
         // No project override, no instance default: this project's analysis
         // must survive the purge no matter what other test data is present.
         storage.purge_expired(None).await.unwrap();
-        let remaining: i64 = sqlx::query("SELECT COUNT(*) AS n FROM analyses WHERE project_id = $1")
-            .bind(project_id)
-            .fetch_one(storage.pool())
-            .await
-            .unwrap()
-            .try_get("n")
-            .unwrap();
+        let remaining: i64 =
+            sqlx::query("SELECT COUNT(*) AS n FROM analyses WHERE project_id = $1")
+                .bind(project_id)
+                .fetch_one(storage.pool())
+                .await
+                .unwrap()
+                .try_get("n")
+                .unwrap();
         assert_eq!(remaining, 1);
 
         sqlx::query("DELETE FROM projects WHERE id = $1")
@@ -255,16 +288,34 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = format!(
             "retention-test-findings-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
         let project_id = storage.ensure_project(&key).await.unwrap();
-        let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
+        let scope = IssueScope {
+            project_id: Some(project_id),
+            analysis_id: None,
+        };
 
         // One recent issue/hotspot (kept) and one old issue/hotspot (purged).
-        storage.save_issues(&[test_issue("recent")], scope).await.unwrap();
-        storage.save_issues(&[test_issue("old")], scope).await.unwrap();
-        storage.save_hotspots(&[test_hotspot("recent")], scope).await.unwrap();
-        storage.save_hotspots(&[test_hotspot("old")], scope).await.unwrap();
+        storage
+            .save_issues(&[test_issue("recent")], scope)
+            .await
+            .unwrap();
+        storage
+            .save_issues(&[test_issue("old")], scope)
+            .await
+            .unwrap();
+        storage
+            .save_hotspots(&[test_hotspot("recent")], scope)
+            .await
+            .unwrap();
+        storage
+            .save_hotspots(&[test_hotspot("old")], scope)
+            .await
+            .unwrap();
 
         sqlx::query(
             "UPDATE issues SET created_at = now() - interval '30 days'
@@ -283,7 +334,10 @@ mod live_db_tests {
         .await
         .unwrap();
 
-        let before = storage.set_project_retention_days(&key, Some(1)).await.unwrap();
+        let before = storage
+            .set_project_retention_days(&key, Some(1))
+            .await
+            .unwrap();
         assert_eq!(before, None);
 
         let report = storage.purge_expired(None).await.unwrap();
@@ -323,15 +377,24 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = format!(
             "retention-test-unscoped-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
         let marker = format!("unscoped-{}", key);
 
         // Pre-migration-shaped rows: saved with no project/analysis at all
         // (the default `IssueScope`), same as every row saved before
         // 0016_issue_hotspot_scoping.sql existed.
-        storage.save_issues(&[test_issue(&marker)], IssueScope::default()).await.unwrap();
-        storage.save_hotspots(&[test_hotspot(&marker)], IssueScope::default()).await.unwrap();
+        storage
+            .save_issues(&[test_issue(&marker)], IssueScope::default())
+            .await
+            .unwrap();
+        storage
+            .save_hotspots(&[test_hotspot(&marker)], IssueScope::default())
+            .await
+            .unwrap();
 
         let issue_file = format!("src/{marker}.rs");
         sqlx::query("UPDATE issues SET created_at = now() - interval '3650 days' WHERE file = $1")
@@ -339,25 +402,26 @@ mod live_db_tests {
             .execute(storage.pool())
             .await
             .unwrap();
-        sqlx::query("UPDATE hotspots SET created_at = now() - interval '3650 days' WHERE file = $1")
-            .bind(&issue_file)
-            .execute(storage.pool())
-            .await
-            .unwrap();
+        sqlx::query(
+            "UPDATE hotspots SET created_at = now() - interval '3650 days' WHERE file = $1",
+        )
+        .bind(&issue_file)
+        .execute(storage.pool())
+        .await
+        .unwrap();
 
         // An aggressive instance-wide default: if these rows had a
         // project_id, this would purge them instantly. They don't, so the
         // purge query's join against `projects` can never match them.
         storage.purge_expired(Some(1)).await.unwrap();
 
-        let remaining_issues: i64 =
-            sqlx::query("SELECT COUNT(*) AS n FROM issues WHERE file = $1")
-                .bind(&issue_file)
-                .fetch_one(storage.pool())
-                .await
-                .unwrap()
-                .try_get("n")
-                .unwrap();
+        let remaining_issues: i64 = sqlx::query("SELECT COUNT(*) AS n FROM issues WHERE file = $1")
+            .bind(&issue_file)
+            .fetch_one(storage.pool())
+            .await
+            .unwrap()
+            .try_get("n")
+            .unwrap();
         assert_eq!(remaining_issues, 1);
 
         let remaining_hotspots: i64 =

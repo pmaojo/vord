@@ -25,7 +25,13 @@ impl Default for HotspotSlaPolicy {
     fn default() -> Self {
         // Sensible defaults: a blocker must be reviewed in 24h, a critical
         // in 72h, etc.
-        Self { blocker_hours: 24, critical_hours: 72, major_hours: 24 * 7, minor_hours: 24 * 30, info_hours: 24 * 90 }
+        Self {
+            blocker_hours: 24,
+            critical_hours: 72,
+            major_hours: 24 * 7,
+            minor_hours: 24 * 30,
+            info_hours: 24 * 90,
+        }
     }
 }
 
@@ -48,8 +54,8 @@ impl HotspotSlaPolicy {
 pub struct HotspotReviewState {
     pub hotspot_id: String,
     pub severity: String,
-    pub detected_at: u64,           // unix millis
-    pub last_status: String,         // to-review|acknowledged|fixed|safe
+    pub detected_at: u64,    // unix millis
+    pub last_status: String, // to-review|acknowledged|fixed|safe
     pub reviewer: Option<String>,
     pub reviewed_at: Option<u64>,
 }
@@ -60,7 +66,9 @@ impl HotspotReviewState {
     /// still `to-review`. Reviewed hotspots (acknowledged/fixed/safe) are
     /// never in breach.
     pub fn is_breached(&self, policy: &HotspotSlaPolicy, now_unix_millis: u64) -> bool {
-        if self.last_status != "to-review" { return false; }
+        if self.last_status != "to-review" {
+            return false;
+        }
         let deadline_hours = policy.deadline_hours_for(&self.severity);
         let deadline_millis = u64::from(deadline_hours) * 60 * 60 * 1000;
         now_unix_millis.saturating_sub(self.detected_at) > deadline_millis
@@ -69,7 +77,8 @@ impl HotspotReviewState {
     /// Time remaining (positive) or overrun (negative) in milliseconds.
     pub fn time_remaining_millis(&self, policy: &HotspotSlaPolicy, now_unix_millis: u64) -> i64 {
         let deadline_hours = policy.deadline_hours_for(&self.severity);
-        let deadline_millis = i64::try_from(u64::from(deadline_hours) * 60 * 60 * 1000).unwrap_or(i64::MAX);
+        let deadline_millis =
+            i64::try_from(u64::from(deadline_hours) * 60 * 60 * 1000).unwrap_or(i64::MAX);
         let elapsed = i64::try_from(now_unix_millis.saturating_sub(self.detected_at)).unwrap_or(0);
         deadline_millis - elapsed
     }
@@ -87,9 +96,21 @@ pub struct ReviewRate {
 
 pub fn review_rate(project_key: impl Into<String>, hotspots: &[HotspotReviewState]) -> ReviewRate {
     let total = hotspots.len();
-    let reviewed = hotspots.iter().filter(|h| h.last_status != "to-review").count();
-    let rate = if total == 0 { 1.0 } else { reviewed as f32 / total as f32 };
-    ReviewRate { project_key: project_key.into(), total, reviewed, rate }
+    let reviewed = hotspots
+        .iter()
+        .filter(|h| h.last_status != "to-review")
+        .count();
+    let rate = if total == 0 {
+        1.0
+    } else {
+        reviewed as f32 / total as f32
+    };
+    ReviewRate {
+        project_key: project_key.into(),
+        total,
+        reviewed,
+        rate,
+    }
 }
 
 #[cfg(test)]

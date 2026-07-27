@@ -10,23 +10,30 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use yunq_infra_llm::LlmProviderKind;
 
-use crate::auth::permissions::{is_allowed, Caller};
-use crate::auth::Permission;
 use crate::AppState;
+use crate::auth::Permission;
+use crate::auth::permissions::{Caller, is_allowed};
 
 fn actor_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    state.auth.authenticate(headers).ok().map(|user| user.username().to_string())
+    state
+        .auth
+        .authenticate(headers)
+        .ok()
+        .map(|user| user.username().to_string())
 }
 
 fn forbidden(permission: Permission) -> (StatusCode, String) {
-    (StatusCode::FORBIDDEN, format!("missing permission: {permission:?}"))
+    (
+        StatusCode::FORBIDDEN,
+        format!("missing permission: {permission:?}"),
+    )
 }
 
 /// Masks a secret down to its last 4 characters (`****ab12`), so a config
@@ -96,14 +103,23 @@ pub(crate) async fn set_ai_provider(
     if LlmProviderKind::parse(&request.provider).is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!("unknown provider {:?}; expected one of: openai_compatible, anthropic", request.provider),
+            format!(
+                "unknown provider {:?}; expected one of: openai_compatible, anthropic",
+                request.provider
+            ),
         ));
     }
     if request.model.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "model must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "model must not be empty".to_string(),
+        ));
     }
     if request.api_key.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "api_key must not be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "api_key must not be empty".to_string(),
+        ));
     }
     let actor = actor_from_headers(&state, &headers);
 
@@ -173,7 +189,12 @@ pub(crate) async fn get_ai_provider(
         .llm_config(key.clone())
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("project {key:?} has no BYOK override")))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("project {key:?} has no BYOK override"),
+            )
+        })?;
 
     Ok(Json(LlmProviderConfigDto {
         project_key: key,
@@ -234,7 +255,10 @@ pub(crate) async fn clear_ai_provider(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(AiProviderClearedDto { project_key: key, removed }))
+    Ok(Json(AiProviderClearedDto {
+        project_key: key,
+        removed,
+    }))
 }
 
 #[cfg(test)]

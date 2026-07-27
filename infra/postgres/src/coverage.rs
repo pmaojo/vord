@@ -60,7 +60,9 @@ impl PgIssueStorage {
             .fetch_optional(&self.pool)
             .await
             .map_err(storage_err)?;
-        row.map(|row| row.try_get::<i64, _>("id")).transpose().map_err(storage_err)
+        row.map(|row| row.try_get::<i64, _>("id"))
+            .transpose()
+            .map_err(storage_err)
     }
 }
 
@@ -100,9 +102,16 @@ impl FileCoverageLineStorage for PgIssueStorage {
                 "INSERT INTO analysis_file_coverage_lines (analysis_id, file, line_number, hits) ",
             );
             builder.push_values(chunk, |mut row, (file, line, hits)| {
-                row.push_bind(analysis_id).push_bind(*file).push_bind(*line as i32).push_bind(*hits);
+                row.push_bind(analysis_id)
+                    .push_bind(*file)
+                    .push_bind(*line as i32)
+                    .push_bind(*hits);
             });
-            builder.build().execute(&mut *tx).await.map_err(storage_err)?;
+            builder
+                .build()
+                .execute(&mut *tx)
+                .await
+                .map_err(storage_err)?;
         }
         tx.commit().await.map_err(storage_err)
     }
@@ -181,7 +190,9 @@ impl CoverageResultReader for PgIssueStorage {
         let coverable_branches: i64 = row.try_get("coverable_branches").map_err(storage_err)?;
 
         let mut summary = CoverageSummary::default();
-        summary.add(covered_lines as usize, coverable_lines as usize).map_err(storage_err)?;
+        summary
+            .add(covered_lines as usize, coverable_lines as usize)
+            .map_err(storage_err)?;
         summary
             .add_branches(covered_branches as usize, coverable_branches as usize)
             .map_err(storage_err)?;

@@ -63,7 +63,10 @@ impl Metrics {
         self.structural.classes += structural.classes;
         self.structural.statements += structural.statements;
         self.structural.comment_lines += structural.comment_lines;
-        self.structural.max_nesting_depth = self.structural.max_nesting_depth.max(structural.max_nesting_depth);
+        self.structural.max_nesting_depth = self
+            .structural
+            .max_nesting_depth
+            .max(structural.max_nesting_depth);
     }
 
     pub fn count_issue(&mut self, severity: Severity) {
@@ -91,7 +94,11 @@ impl Metrics {
             IssueType::CodeSmell => {}
         }
         *self.remediation_effort.by_rule.entry(rule).or_insert(0) += minutes;
-        *self.remediation_effort.by_component.entry(component.to_string()).or_insert(0) += minutes;
+        *self
+            .remediation_effort
+            .by_component
+            .entry(component.to_string())
+            .or_insert(0) += minutes;
     }
 
     pub fn files_scanned(&self) -> usize {
@@ -215,9 +222,17 @@ pub struct InvalidCoverageError {
 impl CoverageSummary {
     pub fn new(covered_lines: usize, coverable_lines: usize) -> Result<Self, InvalidCoverageError> {
         if covered_lines > coverable_lines {
-            return Err(InvalidCoverageError { covered: covered_lines, coverable: coverable_lines });
+            return Err(InvalidCoverageError {
+                covered: covered_lines,
+                coverable: coverable_lines,
+            });
         }
-        Ok(Self { covered_lines, coverable_lines, covered_branches: 0, coverable_branches: 0 })
+        Ok(Self {
+            covered_lines,
+            coverable_lines,
+            covered_branches: 0,
+            coverable_branches: 0,
+        })
     }
 
     pub fn add(&mut self, covered: usize, coverable: usize) -> Result<(), InvalidCoverageError> {
@@ -230,7 +245,11 @@ impl CoverageSummary {
     }
 
     /// Same contract as [`Self::add`], for branch (not line) totals.
-    pub fn add_branches(&mut self, covered: usize, coverable: usize) -> Result<(), InvalidCoverageError> {
+    pub fn add_branches(
+        &mut self,
+        covered: usize,
+        coverable: usize,
+    ) -> Result<(), InvalidCoverageError> {
         if covered > coverable {
             return Err(InvalidCoverageError { covered, coverable });
         }
@@ -287,7 +306,10 @@ pub struct FileCoverage {
 
 impl FileCoverage {
     pub fn new(path: impl Into<String>) -> Self {
-        Self { path: path.into(), lines: BTreeMap::new() }
+        Self {
+            path: path.into(),
+            lines: BTreeMap::new(),
+        }
     }
 
     /// Records one instrumented line's hit count. When the same line is
@@ -295,7 +317,10 @@ impl FileCoverage {
     /// Istanbul report), the highest count wins — enough to answer "was this
     /// line ever executed", which is all coverage-on-new-code needs.
     pub fn record_line(&mut self, line: u32, hits: usize) {
-        self.lines.entry(line).and_modify(|h| *h = (*h).max(hits)).or_insert(hits);
+        self.lines
+            .entry(line)
+            .and_modify(|h| *h = (*h).max(hits))
+            .or_insert(hits);
     }
 
     pub fn path(&self) -> &str {
@@ -340,7 +365,10 @@ pub struct FileBlame {
 
 impl FileBlame {
     pub fn new(path: impl Into<String>) -> Self {
-        Self { path: path.into(), lines: BTreeMap::new() }
+        Self {
+            path: path.into(),
+            lines: BTreeMap::new(),
+        }
     }
 
     pub fn record_line(&mut self, line: u32, info: BlameLineInfo) {
@@ -380,7 +408,13 @@ impl CoverageReport {
         covered_branches: usize,
         coverable_branches: usize,
     ) -> Self {
-        Self { files, covered_lines, coverable_lines, covered_branches, coverable_branches }
+        Self {
+            files,
+            covered_lines,
+            coverable_lines,
+            covered_branches,
+            coverable_branches,
+        }
     }
 
     pub fn files(&self) -> &[FileCoverage] {
@@ -419,7 +453,9 @@ impl CoverageReport {
         let mut covered = 0usize;
         let mut coverable = 0usize;
         for file in &self.files {
-            let Some(changed) = changed_lines.get(file.path()) else { continue };
+            let Some(changed) = changed_lines.get(file.path()) else {
+                continue;
+            };
             for (line, hits) in file.lines() {
                 if changed.contains(line) {
                     coverable += 1;
@@ -551,7 +587,9 @@ impl AnalysisReport {
         &self,
         changed_lines: &BTreeMap<String, std::collections::BTreeSet<u32>>,
     ) -> Option<f64> {
-        self.coverage_report.as_ref().and_then(|report| report.coverage_on_new_code(changed_lines))
+        self.coverage_report
+            .as_ref()
+            .and_then(|report| report.coverage_on_new_code(changed_lines))
     }
 
     pub fn test_report(&self) -> Option<&TestReportSummary> {
@@ -602,9 +640,21 @@ impl AnalysisReport {
     }
 
     pub fn health_score(&self) -> u32 {
-        let blocker = *self.metrics.issues_by_severity().get(&Severity::Blocker).unwrap_or(&0) as u32;
-        let critical = *self.metrics.issues_by_severity().get(&Severity::Critical).unwrap_or(&0) as u32;
-        let major = *self.metrics.issues_by_severity().get(&Severity::Major).unwrap_or(&0) as u32;
+        let blocker = *self
+            .metrics
+            .issues_by_severity()
+            .get(&Severity::Blocker)
+            .unwrap_or(&0) as u32;
+        let critical = *self
+            .metrics
+            .issues_by_severity()
+            .get(&Severity::Critical)
+            .unwrap_or(&0) as u32;
+        let major = *self
+            .metrics
+            .issues_by_severity()
+            .get(&Severity::Major)
+            .unwrap_or(&0) as u32;
         let hotspots = self.hotspots.len() as u32;
         let dup_penalty = (self.metrics.duplicated_lines_density() * 0.5) as u32;
 
@@ -613,7 +663,10 @@ impl AnalysisReport {
     }
 
     pub fn measure(&self, key: &MetricKey) -> Option<f64> {
-        MEASURE_TABLE.iter().find(|(k, _)| *k == key.as_str()).and_then(|(_, f)| f(self))
+        MEASURE_TABLE
+            .iter()
+            .find(|(k, _)| *k == key.as_str())
+            .and_then(|(_, f)| f(self))
     }
 
     /// Every measure this report can currently produce, keyed by metric key
@@ -622,7 +675,10 @@ impl AnalysisReport {
     /// this report (e.g. `coverage` before any report is ingested) is
     /// omitted rather than persisted as a fabricated zero.
     pub fn all_measures(&self) -> Vec<(String, f64)> {
-        MEASURE_TABLE.iter().filter_map(|(key, f)| f(self).map(|v| (key.to_string(), v))).collect()
+        MEASURE_TABLE
+            .iter()
+            .filter_map(|(key, f)| f(self).map(|v| (key.to_string(), v)))
+            .collect()
     }
 
     /// Per-file issue counts (total plus one count per severity), derived
@@ -637,16 +693,30 @@ impl AnalysisReport {
         let mut per_file: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
         for issue in &self.issues {
             let entry = per_file.entry(issue.file().to_string()).or_default();
-            *entry.entry("issue_total".to_string()).or_insert(0.0) += 1.0;
+            if let Some(total) = entry.get_mut("issue_total") {
+                *total += 1.0;
+            } else {
+                entry.insert("issue_total".to_string(), 1.0);
+            }
             let severity_key = format!("{}_issues", issue.severity().as_str());
-            *entry.entry(severity_key).or_insert(0.0) += 1.0;
+            if let Some(val) = entry.get_mut(&severity_key) {
+                *val += 1.0;
+            } else {
+                entry.insert(severity_key, 1.0);
+            }
         }
         per_file
     }
 }
 
 fn severity_measure(report: &AnalysisReport, severity: Severity) -> Option<f64> {
-    Some(*report.metrics.issues_by_severity().get(&severity).unwrap_or(&0) as f64)
+    Some(
+        *report
+            .metrics
+            .issues_by_severity()
+            .get(&severity)
+            .unwrap_or(&0) as f64,
+    )
 }
 
 /// SonarQube's numeric encoding for the A–E letter ratings (`1.0`..`5.0`),
@@ -670,39 +740,81 @@ type MeasureFn = fn(&AnalysisReport) -> Option<f64>;
 const MEASURE_TABLE: &[(&str, MeasureFn)] = &[
     ("files_scanned", |r| Some(r.metrics.files_scanned() as f64)),
     ("lines_of_code", |r| Some(r.metrics.lines_of_code() as f64)),
-    ("parse_failures", |r| Some(r.metrics.parse_failures() as f64)),
+    (
+        "parse_failures",
+        |r| Some(r.metrics.parse_failures() as f64),
+    ),
     ("issue_total", |r| Some(r.metrics.issue_total() as f64)),
     ("blocker_issues", |r| severity_measure(r, Severity::Blocker)),
-    ("critical_issues", |r| severity_measure(r, Severity::Critical)),
+    ("critical_issues", |r| {
+        severity_measure(r, Severity::Critical)
+    }),
     ("major_issues", |r| severity_measure(r, Severity::Major)),
     ("minor_issues", |r| severity_measure(r, Severity::Minor)),
     ("info_issues", |r| severity_measure(r, Severity::Info)),
     ("hotspots", |r| Some(r.hotspots.len() as f64)),
-    ("duplicated_lines", |r| Some(r.metrics.duplicated_lines() as f64)),
-    ("duplicated_blocks", |r| Some(r.metrics.duplicated_blocks() as f64)),
-    ("duplicated_lines_density", |r| Some(r.metrics.duplicated_lines_density())),
+    ("duplicated_lines", |r| {
+        Some(r.metrics.duplicated_lines() as f64)
+    }),
+    ("duplicated_blocks", |r| {
+        Some(r.metrics.duplicated_blocks() as f64)
+    }),
+    ("duplicated_lines_density", |r| {
+        Some(r.metrics.duplicated_lines_density())
+    }),
     ("coverage", |r| r.coverage.and_then(|c| c.percent())),
-    ("branch_coverage", |r| r.coverage.and_then(|c| c.percent_branches())),
-    ("tests", |r| r.test_report.as_ref().map(|t| t.total_tests as f64)),
-    ("tests_passed", |r| r.test_report.as_ref().map(|t| t.passed_tests as f64)),
-    ("test_failures", |r| r.test_report.as_ref().map(|t| t.failed_tests as f64)),
-    ("test_errors", |r| r.test_report.as_ref().map(|t| t.errors as f64)),
-    ("test_skipped", |r| r.test_report.as_ref().map(|t| t.skipped_tests as f64)),
-    ("test_execution_time", |r| r.test_report.as_ref().map(|t| t.time_seconds)),
-    ("test_success_density", |r| r.test_report.as_ref().and_then(|t| t.pass_rate())),
+    ("branch_coverage", |r| {
+        r.coverage.and_then(|c| c.percent_branches())
+    }),
+    ("tests", |r| {
+        r.test_report.as_ref().map(|t| t.total_tests as f64)
+    }),
+    ("tests_passed", |r| {
+        r.test_report.as_ref().map(|t| t.passed_tests as f64)
+    }),
+    ("test_failures", |r| {
+        r.test_report.as_ref().map(|t| t.failed_tests as f64)
+    }),
+    ("test_errors", |r| {
+        r.test_report.as_ref().map(|t| t.errors as f64)
+    }),
+    ("test_skipped", |r| {
+        r.test_report.as_ref().map(|t| t.skipped_tests as f64)
+    }),
+    ("test_execution_time", |r| {
+        r.test_report.as_ref().map(|t| t.time_seconds)
+    }),
+    ("test_success_density", |r| {
+        r.test_report.as_ref().and_then(|t| t.pass_rate())
+    }),
     ("hotspots_to_review", |r| {
-        Some(r.hotspots.iter().filter(|h| h.status() == HotspotStatus::ToReview).count() as f64)
+        Some(
+            r.hotspots
+                .iter()
+                .filter(|h| h.status() == HotspotStatus::ToReview)
+                .count() as f64,
+        )
     }),
     ("debt_minutes", |r| Some(r.metrics.debt_minutes() as f64)),
     ("functions", |r| Some(r.metrics.functions() as f64)),
     ("classes", |r| Some(r.metrics.classes() as f64)),
     ("statements", |r| Some(r.metrics.statements() as f64)),
     ("comment_lines", |r| Some(r.metrics.comment_lines() as f64)),
-    ("comment_lines_density", |r| Some(r.metrics.comment_lines_density())),
-    ("max_nesting_depth", |r| Some(r.metrics.max_nesting_depth() as f64)),
-    ("maintainability_rating", |r| Some(rating_measure(r.rating()))),
-    ("reliability_rating", |r| Some(rating_measure(r.metrics.reliability_rating()))),
-    ("security_rating", |r| Some(rating_measure(r.metrics.security_rating()))),
+    ("comment_lines_density", |r| {
+        Some(r.metrics.comment_lines_density())
+    }),
+    ("max_nesting_depth", |r| {
+        Some(r.metrics.max_nesting_depth() as f64)
+    }),
+    ("maintainability_rating", |r| {
+        Some(rating_measure(r.rating()))
+    }),
+    ("reliability_rating", |r| {
+        Some(rating_measure(r.metrics.reliability_rating()))
+    }),
+    ("security_rating", |r| {
+        Some(rating_measure(r.metrics.security_rating()))
+    }),
 ];
 
 #[cfg(test)]
@@ -721,7 +833,10 @@ mod tests {
             "test_execution_time",
             "test_success_density",
         ] {
-            assert_eq!(report.measure(&yunq_profiles::MetricKey::new(key).unwrap()), None);
+            assert_eq!(
+                report.measure(&yunq_profiles::MetricKey::new(key).unwrap()),
+                None
+            );
         }
     }
 
@@ -846,7 +961,13 @@ mod tests {
     #[test]
     fn no_bugs_or_vulnerabilities_recorded_means_both_ratings_default_to_a() {
         let mut metrics = Metrics::new();
-        metrics.record_issue_type_and_effort(IssueType::CodeSmell, Severity::Blocker, rule("smells:x"), "a.rs", 5);
+        metrics.record_issue_type_and_effort(
+            IssueType::CodeSmell,
+            Severity::Blocker,
+            rule("smells:x"),
+            "a.rs",
+            5,
+        );
         assert_eq!(metrics.reliability_rating(), Rating::A);
         assert_eq!(metrics.security_rating(), Rating::A);
     }
@@ -854,9 +975,27 @@ mod tests {
     #[test]
     fn reliability_and_security_ratings_track_worst_severity_independently() {
         let mut metrics = Metrics::new();
-        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Minor, rule("bugs:a"), "a.rs", 5);
-        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Critical, rule("bugs:b"), "b.rs", 10);
-        metrics.record_issue_type_and_effort(IssueType::Vulnerability, Severity::Major, rule("owasp:c"), "c.rs", 15);
+        metrics.record_issue_type_and_effort(
+            IssueType::Bug,
+            Severity::Minor,
+            rule("bugs:a"),
+            "a.rs",
+            5,
+        );
+        metrics.record_issue_type_and_effort(
+            IssueType::Bug,
+            Severity::Critical,
+            rule("bugs:b"),
+            "b.rs",
+            10,
+        );
+        metrics.record_issue_type_and_effort(
+            IssueType::Vulnerability,
+            Severity::Major,
+            rule("owasp:c"),
+            "c.rs",
+            15,
+        );
         // Worst bug (Critical -> D) drives reliability...
         assert_eq!(metrics.reliability_rating(), Rating::D);
         // ...independently of the worst vulnerability (Major -> C).
@@ -867,9 +1006,27 @@ mod tests {
     fn remediation_effort_accumulates_by_rule_and_component_across_all_issue_types() {
         let mut metrics = Metrics::new();
         let bug_rule = rule("bugs:null-deref");
-        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Major, bug_rule.clone(), "a.rs", 20);
-        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Major, bug_rule.clone(), "b.rs", 20);
-        metrics.record_issue_type_and_effort(IssueType::CodeSmell, Severity::Minor, rule("smells:x"), "a.rs", 30);
+        metrics.record_issue_type_and_effort(
+            IssueType::Bug,
+            Severity::Major,
+            bug_rule.clone(),
+            "a.rs",
+            20,
+        );
+        metrics.record_issue_type_and_effort(
+            IssueType::Bug,
+            Severity::Major,
+            bug_rule.clone(),
+            "b.rs",
+            20,
+        );
+        metrics.record_issue_type_and_effort(
+            IssueType::CodeSmell,
+            Severity::Minor,
+            rule("smells:x"),
+            "a.rs",
+            30,
+        );
 
         let effort = metrics.remediation_effort();
         assert_eq!(effort.by_rule[&bug_rule], 40);
@@ -948,8 +1105,20 @@ mod tests {
     #[test]
     fn rating_measures_are_exposed_on_the_report() {
         let mut metrics = Metrics::new();
-        metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Blocker, rule("bugs:a"), "a.rs", 5);
-        metrics.record_issue_type_and_effort(IssueType::Vulnerability, Severity::Minor, rule("owasp:b"), "b.rs", 5);
+        metrics.record_issue_type_and_effort(
+            IssueType::Bug,
+            Severity::Blocker,
+            rule("bugs:a"),
+            "a.rs",
+            5,
+        );
+        metrics.record_issue_type_and_effort(
+            IssueType::Vulnerability,
+            Severity::Minor,
+            rule("owasp:b"),
+            "b.rs",
+            5,
+        );
         let report = AnalysisReport::new(Vec::new(), Vec::new(), metrics);
 
         assert_eq!(report.reliability_rating(), Rating::E);

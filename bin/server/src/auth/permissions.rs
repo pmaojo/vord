@@ -9,11 +9,11 @@
 
 #![allow(dead_code)]
 
-use axum::http::StatusCode;
 use axum::Json;
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{permissions_for, Permission, Role};
+use crate::auth::{Permission, Role, permissions_for};
 
 /// The shape returned by `/api/auth/me` — already in `auth.rs::OAuthUserDto`
 /// but mirrored here so the permission module doesn't depend on a `reqwest`
@@ -26,15 +26,22 @@ pub struct CallerPermissions {
 
 impl CallerPermissions {
     pub fn anonymous() -> Self {
-        Self { username: String::new(), roles: Vec::new() }
+        Self {
+            username: String::new(),
+            roles: Vec::new(),
+        }
     }
 
-    pub fn is_authenticated(&self) -> bool { !self.username.is_empty() }
+    pub fn is_authenticated(&self) -> bool {
+        !self.username.is_empty()
+    }
 }
 
 /// Pure decision: does the caller have the required permission?
 pub fn is_allowed(caller: &CallerPermissions, required: Permission) -> bool {
-    if !caller.is_authenticated() { return false; }
+    if !caller.is_authenticated() {
+        return false;
+    }
     permissions_for(&caller.roles).contains(&required)
 }
 
@@ -48,7 +55,10 @@ pub struct DenyReason {
 
 impl DenyReason {
     pub fn new(required: Permission, caller: &CallerPermissions) -> Self {
-        Self { required_permission: required, caller_roles: caller.roles.clone() }
+        Self {
+            required_permission: required,
+            caller_roles: caller.roles.clone(),
+        }
     }
 }
 
@@ -87,7 +97,10 @@ where
 
 /// Helper: assert multiple permissions at once (the caller needs ALL of
 /// them). Returns the first failure for diagnostics.
-pub fn check_all(caller: &CallerPermissions, required: &[Permission]) -> Result<(), PermissionError> {
+pub fn check_all(
+    caller: &CallerPermissions,
+    required: &[Permission],
+) -> Result<(), PermissionError> {
     for &p in required {
         if !is_allowed(caller, p) {
             return Err(if !caller.is_authenticated() {
@@ -109,12 +122,14 @@ pub struct AuthzErrorDto {
 impl axum::response::IntoResponse for PermissionError {
     fn into_response(self) -> axum::response::Response {
         let (status, message) = match &self {
-            PermissionError::Unauthenticated => {
-                (StatusCode::UNAUTHORIZED, "missing or expired bearer token".to_string())
-            }
-            PermissionError::Forbidden(reason) => {
-                (StatusCode::FORBIDDEN, format!("missing permission: {:?}", reason.required_permission))
-            }
+            PermissionError::Unauthenticated => (
+                StatusCode::UNAUTHORIZED,
+                "missing or expired bearer token".to_string(),
+            ),
+            PermissionError::Forbidden(reason) => (
+                StatusCode::FORBIDDEN,
+                format!("missing permission: {:?}", reason.required_permission),
+            ),
         };
         (status, Json(AuthzErrorDto { error: message })).into_response()
     }
@@ -125,7 +140,10 @@ mod tests {
     use super::*;
 
     fn caller(roles: Vec<Role>) -> CallerPermissions {
-        CallerPermissions { username: "alice".to_string(), roles }
+        CallerPermissions {
+            username: "alice".to_string(),
+            roles,
+        }
     }
 
     #[test]

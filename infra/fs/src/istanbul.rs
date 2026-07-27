@@ -41,7 +41,9 @@ struct Loc {
 }
 
 pub fn parse_istanbul(content: &str) -> Result<CoverageSummary, IstanbulError> {
-    parse_istanbul_report(content)?.summary().map_err(|e| IstanbulError::Malformed(e.to_string()))
+    parse_istanbul_report(content)?
+        .summary()
+        .map_err(|e| IstanbulError::Malformed(e.to_string()))
 }
 
 /// Like [`parse_istanbul`], but also returns per-file line-hit detail for
@@ -79,7 +81,13 @@ pub fn parse_istanbul_report(content: &str) -> Result<CoverageReport, IstanbulEr
     }
     files.sort_by(|a, b| a.path().cmp(b.path()));
 
-    Ok(CoverageReport::new(files, total_covered_lines, total_lines, total_covered_branches, total_branches))
+    Ok(CoverageReport::new(
+        files,
+        total_covered_lines,
+        total_lines,
+        total_covered_branches,
+        total_branches,
+    ))
 }
 
 #[cfg(test)]
@@ -147,7 +155,10 @@ mod tests {
 
     #[test]
     fn malformed_input_is_an_error() {
-        assert!(matches!(parse_istanbul("not json"), Err(IstanbulError::Malformed(_))));
+        assert!(matches!(
+            parse_istanbul("not json"),
+            Err(IstanbulError::Malformed(_))
+        ));
     }
 
     #[test]

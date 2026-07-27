@@ -76,7 +76,11 @@ pub fn compare(a: &QualityProfile, b: &QualityProfile) -> ProfileDiff {
         .collect();
     severity_differs.sort_by(|x, y| x.rule.as_str().cmp(y.rule.as_str()));
 
-    ProfileDiff { only_in_a, only_in_b, severity_differs }
+    ProfileDiff {
+        only_in_a,
+        only_in_b,
+        severity_differs,
+    }
 }
 
 #[cfg(test)]
@@ -109,8 +113,14 @@ mod tests {
         b.activate(rule("rust:mem-forget"), Severity::Major);
 
         let diff = compare(&a, &b);
-        assert_eq!(diff.only_in_a, vec![(rule("smells:todo-comment"), Severity::Info)]);
-        assert_eq!(diff.only_in_b, vec![(rule("rust:mem-forget"), Severity::Major)]);
+        assert_eq!(
+            diff.only_in_a,
+            vec![(rule("smells:todo-comment"), Severity::Info)]
+        );
+        assert_eq!(
+            diff.only_in_b,
+            vec![(rule("rust:mem-forget"), Severity::Major)]
+        );
         assert!(diff.severity_differs.is_empty());
     }
 

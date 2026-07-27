@@ -8,8 +8,8 @@
 
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// One project feature tag.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -38,12 +38,12 @@ pub struct ProjectExport {
     pub project_key: String,
     pub name: String,
     pub description: String,
-    pub visibility: String,            // public|private
+    pub visibility: String, // public|private
     pub language: String,
     pub tags: Vec<String>,
     pub quality_gate_name: Option<String>,
     pub quality_profile_name: Option<String>,
-    pub new_code_override: Option<String>,  // raw JSON of NewCodeOverride
+    pub new_code_override: Option<String>, // raw JSON of NewCodeOverride
     pub retention_days: Option<i32>,
 }
 
@@ -59,38 +59,66 @@ impl ProjectExport {
 
 #[derive(Default)]
 pub struct ProjectFeatureStore {
-    tags: HashMap<String, HashSet<String>>,           // project_key -> tags
-    favorites: HashMap<String, HashSet<String>>,       // user_id -> project_keys
+    tags: HashMap<String, HashSet<String>>, // project_key -> tags
+    favorites: HashMap<String, HashSet<String>>, // user_id -> project_keys
 }
 
 impl ProjectFeatureStore {
     pub fn add_tag(&mut self, project: &str, tag: &str) -> Result<(), String> {
-        if !ProjectTag::is_valid(tag) { return Err(format!("invalid tag {tag:?}")); }
-        self.tags.entry(project.to_string()).or_default().insert(tag.to_string());
+        if !ProjectTag::is_valid(tag) {
+            return Err(format!("invalid tag {tag:?}"));
+        }
+        self.tags
+            .entry(project.to_string())
+            .or_default()
+            .insert(tag.to_string());
         Ok(())
     }
     pub fn remove_tag(&mut self, project: &str, tag: &str) -> bool {
-        let Some(s) = self.tags.get_mut(project) else { return false; };
+        let Some(s) = self.tags.get_mut(project) else {
+            return false;
+        };
         let removed = s.remove(tag);
-        if s.is_empty() { self.tags.remove(project); }
+        if s.is_empty() {
+            self.tags.remove(project);
+        }
         removed
     }
     pub fn tags_for(&self, project: &str) -> Vec<String> {
-        let mut v: Vec<String> = self.tags.get(project).cloned().unwrap_or_default().into_iter().collect();
+        let mut v: Vec<String> = self
+            .tags
+            .get(project)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         v.sort();
         v
     }
     pub fn favorite(&mut self, user: &str, project: &str) {
-        self.favorites.entry(user.to_string()).or_default().insert(project.to_string());
+        self.favorites
+            .entry(user.to_string())
+            .or_default()
+            .insert(project.to_string());
     }
     pub fn unfavorite(&mut self, user: &str, project: &str) -> bool {
-        let Some(s) = self.favorites.get_mut(user) else { return false; };
+        let Some(s) = self.favorites.get_mut(user) else {
+            return false;
+        };
         let r = s.remove(project);
-        if s.is_empty() { self.favorites.remove(user); }
+        if s.is_empty() {
+            self.favorites.remove(user);
+        }
         r
     }
     pub fn favorites_of(&self, user: &str) -> Vec<String> {
-        let mut v: Vec<String> = self.favorites.get(user).cloned().unwrap_or_default().into_iter().collect();
+        let mut v: Vec<String> = self
+            .favorites
+            .get(user)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         v.sort();
         v
     }

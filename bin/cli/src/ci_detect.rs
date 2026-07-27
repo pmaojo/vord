@@ -49,7 +49,10 @@ pub fn detect_ci_context(env: &impl Fn(&str) -> Option<String>) -> CiContext {
 /// `refs/pull/42/merge` -> `42`; anything else (branch/tag refs, or a
 /// missing ref) -> `None`.
 fn pr_number_from_github_ref(github_ref: &str) -> Option<u32> {
-    github_ref.strip_prefix("refs/pull/").and_then(|rest| rest.split('/').next()).and_then(|s| s.parse().ok())
+    github_ref
+        .strip_prefix("refs/pull/")
+        .and_then(|rest| rest.split('/').next())
+        .and_then(|s| s.parse().ok())
 }
 
 /// `refs/heads/main` -> `main`; `refs/tags/v1`/`refs/pull/...` -> `None`
@@ -114,8 +117,10 @@ mod tests {
     use std::collections::HashMap;
 
     fn env_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
-        let map: HashMap<String, String> =
-            pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let map: HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         move |key: &str| map.get(key).cloned()
     }
 
@@ -129,7 +134,10 @@ mod tests {
         ]);
         let ctx = detect_ci_context(&env);
         assert_eq!(ctx.provider, Some(CiProvider::GithubActions));
-        assert_eq!(ctx.commit_sha.as_deref(), Some("abc1234abc1234abc1234abc1234abc1234abcd"));
+        assert_eq!(
+            ctx.commit_sha.as_deref(),
+            Some("abc1234abc1234abc1234abc1234abc1234abcd")
+        );
         assert_eq!(ctx.branch.as_deref(), Some("main"));
         assert_eq!(ctx.pr, None);
         assert_eq!(ctx.github_repo.as_deref(), Some("pmaojo/yunq"));
@@ -159,7 +167,10 @@ mod tests {
         ]);
         let ctx = detect_ci_context(&env);
         assert_eq!(ctx.provider, Some(CiProvider::GitlabCi));
-        assert_eq!(ctx.commit_sha.as_deref(), Some("cafebabecafebabecafebabecafebabecafebabe"));
+        assert_eq!(
+            ctx.commit_sha.as_deref(),
+            Some("cafebabecafebabecafebabecafebabecafebabe")
+        );
         assert_eq!(ctx.branch.as_deref(), Some("feature/x"));
         assert_eq!(ctx.pr, Some(7));
         assert_eq!(ctx.github_repo, None);

@@ -7,7 +7,9 @@
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::{find_attribute, is_jsx_kind, is_other, map_callback_functions, own_scope_descendants, tag_name};
+use crate::common::{
+    find_attribute, is_jsx_kind, is_other, map_callback_functions, own_scope_descendants, tag_name,
+};
 
 /// True for a shorthand `<>...</>` fragment: tree-sitter-typescript parses
 /// it as an ordinary `jsx_element` whose opening tag just has no name —
@@ -23,7 +25,9 @@ pub struct MissingListKeyRule {
 
 impl MissingListKeyRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:missing-list-key").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:missing-list-key").expect("valid rule id"),
+        }
     }
 }
 
@@ -90,7 +94,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         MissingListKeyRule::new().check(&file, &ast)
     }
 
@@ -109,7 +115,8 @@ mod tests {
 
     #[test]
     fn allows_map_callback_with_key() {
-        let findings = check("const els = items.map(item => <li key={item.id}>{item.name}</li>);\n");
+        let findings =
+            check("const els = items.map(item => <li key={item.id}>{item.name}</li>);\n");
         assert!(findings.is_empty());
     }
 

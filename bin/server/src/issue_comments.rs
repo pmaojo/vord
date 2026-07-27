@@ -11,8 +11,8 @@
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueComment {
@@ -24,8 +24,18 @@ pub struct IssueComment {
 }
 
 impl IssueComment {
-    pub fn new(issue_id: impl Into<String>, author: impl Into<String>, body: impl Into<String>) -> Self {
-        Self { id: String::new(), issue_id: issue_id.into(), author: author.into(), body: body.into(), created_at: 0 }
+    pub fn new(
+        issue_id: impl Into<String>,
+        author: impl Into<String>,
+        body: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: String::new(),
+            issue_id: issue_id.into(),
+            author: author.into(),
+            body: body.into(),
+            created_at: 0,
+        }
     }
 
     /// Reject empty / whitespace-only bodies and bodies over 8 KiB.
@@ -49,21 +59,33 @@ impl IssueCommentStore {
         self.next_id += 1;
         c.id = format!("c{}", self.next_id);
         let id = c.id.clone();
-        self.by_issue.entry(c.issue_id.clone()).or_default().push(c.id.clone());
+        self.by_issue
+            .entry(c.issue_id.clone())
+            .or_default()
+            .push(c.id.clone());
         self.by_id.insert(c.id.clone(), c);
         Ok(id)
-            // (kept the lookup simple; the insert above already moved c by ownership)
+        // (kept the lookup simple; the insert above already moved c by ownership)
     }
 
     pub fn for_issue(&self, issue_id: &str) -> Vec<IssueComment> {
-        self.by_issue.get(issue_id)
-            .map(|ids| ids.iter().filter_map(|i| self.by_id.get(i).cloned()).collect())
+        self.by_issue
+            .get(issue_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|i| self.by_id.get(i).cloned())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
-    pub fn get(&self, id: &str) -> Option<IssueComment> { self.by_id.get(id).cloned() }
+    pub fn get(&self, id: &str) -> Option<IssueComment> {
+        self.by_id.get(id).cloned()
+    }
 
-    pub fn count(&self) -> usize { self.by_id.len() }
+    pub fn count(&self) -> usize {
+        self.by_id.len()
+    }
 }
 
 #[cfg(test)]

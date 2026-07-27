@@ -12,7 +12,9 @@ pub struct CommandExecHotspotRule {
 
 impl CommandExecHotspotRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("owasp:command-execution").expect("valid rule id") }
+        Self {
+            id: RuleId::new("owasp:command-execution").expect("valid rule id"),
+        }
     }
 }
 
@@ -118,7 +120,9 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let findings = CommandExecHotspotRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 2);
     }

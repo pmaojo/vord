@@ -179,13 +179,19 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
 }
 
 async fn run_fix(path: PathBuf, issue: String, model: Option<String>) -> anyhow::Result<ExitCode> {
-    println!("🤖 Requesting AI remediation for issue '{issue}' in {}...", path.display());
+    println!(
+        "🤖 Requesting AI remediation for issue '{issue}' in {}...",
+        path.display()
+    );
 
     let (path, verdict) = yunq_cli::remediate_issue(&path, &issue, model).await?;
 
     match verdict {
         yunq_remediation::RemediationVerdict::Accepted { proposal } => {
-            println!("\n✅ Verified fix applied to {} (issue gone, no regressions):\n", path.display());
+            println!(
+                "\n✅ Verified fix applied to {} (issue gone, no regressions):\n",
+                path.display()
+            );
             println!("{}", proposal.replacement_snippet);
             println!("\nExplanation: {}", proposal.explanation);
             Ok(ExitCode::SUCCESS)
@@ -200,8 +206,9 @@ async fn run_fix(path: PathBuf, issue: String, model: Option<String>) -> anyhow:
 fn parse_fail_on_threshold(fail_on: Option<String>) -> anyhow::Result<Option<Severity>> {
     fail_on
         .map(|raw| {
-            Severity::parse(&raw)
-                .ok_or_else(|| anyhow::anyhow!("invalid severity {raw:?} (info|minor|major|critical|blocker)"))
+            Severity::parse(&raw).ok_or_else(|| {
+                anyhow::anyhow!("invalid severity {raw:?} (info|minor|major|critical|blocker)")
+            })
         })
         .transpose()
 }
@@ -239,7 +246,11 @@ struct ResolvedContext {
 
 impl ResolvedContext {
     fn to_dto(&self) -> output::ScanContextDto {
-        output::ScanContextDto { project: self.project.clone(), branch: self.branch.clone(), pull_request: self.pr }
+        output::ScanContextDto {
+            project: self.project.clone(),
+            branch: self.branch.clone(),
+            pull_request: self.pr,
+        }
     }
 }
 
@@ -267,18 +278,30 @@ fn resolve_ci_context() -> ci_detect::CiContext {
 /// `--github-repo` flags with CI auto-detection (explicit always wins) and
 /// `yunq.toml`'s `[project] key` / the scan path's directory name as the
 /// last-resort project fallback.
-fn resolve_context(args: &ScanArgs, config_project_key: Option<String>, ci: &ci_detect::CiContext) -> ResolvedContext {
-    let project = args
-        .project
-        .clone()
-        .or(config_project_key)
-        .or_else(|| args.path.file_name().map(|n| n.to_string_lossy().to_string()));
+fn resolve_context(
+    args: &ScanArgs,
+    config_project_key: Option<String>,
+    ci: &ci_detect::CiContext,
+) -> ResolvedContext {
+    let project = args.project.clone().or(config_project_key).or_else(|| {
+        args.path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+    });
     ResolvedContext {
         project,
         branch: args.branch.clone().or_else(|| ci.branch.clone()),
         pr: args.github.pr.or(ci.pr),
-        commit_sha: args.github.commit_sha.clone().or_else(|| ci.commit_sha.clone()),
-        github_repo: args.github.github_repo.clone().or_else(|| ci.github_repo.clone()),
+        commit_sha: args
+            .github
+            .commit_sha
+            .clone()
+            .or_else(|| ci.commit_sha.clone()),
+        github_repo: args
+            .github
+            .github_repo
+            .clone()
+            .or_else(|| ci.github_repo.clone()),
     }
 }
 
@@ -294,28 +317,35 @@ fn github_reporter(
     match (&args.github.github_token, &context.github_repo) {
         (Some(token), Some(repo)) => {
             let (owner, name) = repo.split_once('/').unwrap_or(("local", repo));
-            Some(yunq_infra_github::GitHubStatusReporter::new(token.clone(), owner, name))
+            Some(yunq_infra_github::GitHubStatusReporter::new(
+                token.clone(),
+                owner,
+                name,
+            ))
         }
         _ => yunq_infra_github::GitHubStatusReporter::from_env(),
     }
 }
 
-fn parse_coverage_format(raw: Option<String>) -> anyhow::Result<Option<yunq_infra_fs::CoverageFormat>> {
+fn parse_coverage_format(
+    raw: Option<String>,
+) -> anyhow::Result<Option<yunq_infra_fs::CoverageFormat>> {
     raw.map(|raw| match raw.to_ascii_lowercase().as_str() {
         "lcov" => Ok(yunq_infra_fs::CoverageFormat::Lcov),
         "cobertura" => Ok(yunq_infra_fs::CoverageFormat::Cobertura),
         "jacoco" => Ok(yunq_infra_fs::CoverageFormat::Jacoco),
         "llvm-cov" | "llvmcov" => Ok(yunq_infra_fs::CoverageFormat::LlvmCov),
         "istanbul" => Ok(yunq_infra_fs::CoverageFormat::Istanbul),
-        other => {
-            Err(anyhow::anyhow!("unknown --coverage-format {other:?} (lcov|cobertura|jacoco|llvm-cov|istanbul)"))
-        }
+        other => Err(anyhow::anyhow!(
+            "unknown --coverage-format {other:?} (lcov|cobertura|jacoco|llvm-cov|istanbul)"
+        )),
     })
     .transpose()
 }
 
 fn read_report_file(path: &std::path::Path) -> anyhow::Result<String> {
-    std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
+    std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
 }
 
 /// Merges every coverage report format the CLI accepts (LCOV, Cobertura,
@@ -364,16 +394,24 @@ fn ingest_coverage(args: &ScanArgs) -> anyhow::Result<CoverageAccumulator> {
         acc.merge(yunq_infra_fs::parse_lcov_report(&read_report_file(path)?)?)?;
     }
     if let Some(path) = &args.coverage.cobertura {
-        acc.merge(yunq_infra_fs::parse_cobertura_report(&read_report_file(path)?)?)?;
+        acc.merge(yunq_infra_fs::parse_cobertura_report(&read_report_file(
+            path,
+        )?)?)?;
     }
     if let Some(path) = &args.coverage.jacoco {
-        acc.merge(yunq_infra_fs::parse_jacoco_report(&read_report_file(path)?)?)?;
+        acc.merge(yunq_infra_fs::parse_jacoco_report(&read_report_file(
+            path,
+        )?)?)?;
     }
     if let Some(path) = &args.coverage.llvm_cov {
-        acc.merge(yunq_infra_fs::parse_llvm_cov_report(&read_report_file(path)?)?)?;
+        acc.merge(yunq_infra_fs::parse_llvm_cov_report(&read_report_file(
+            path,
+        )?)?)?;
     }
     if let Some(path) = &args.coverage.istanbul {
-        acc.merge(yunq_infra_fs::parse_istanbul_report(&read_report_file(path)?)?)?;
+        acc.merge(yunq_infra_fs::parse_istanbul_report(&read_report_file(
+            path,
+        )?)?)?;
     }
     if let Some(path) = &args.coverage.coverage_report {
         let raw = read_report_file(path)?;
@@ -398,9 +436,13 @@ fn coverage_new_code_measure(
         .and_then(|changed| report.coverage_on_new_code(&changed)))
 }
 
-fn load_test_report(junit: Option<PathBuf>) -> anyhow::Result<Option<yunq_rules_engine::TestReportSummary>> {
+fn load_test_report(
+    junit: Option<PathBuf>,
+) -> anyhow::Result<Option<yunq_rules_engine::TestReportSummary>> {
     junit
-        .map(|path| yunq_infra_fs::parse_junit(&read_report_file(&path)?).map_err(anyhow::Error::from))
+        .map(|path| {
+            yunq_infra_fs::parse_junit(&read_report_file(&path)?).map_err(anyhow::Error::from)
+        })
         .transpose()
 }
 
@@ -414,8 +456,8 @@ fn classify_new_code(
     no_baseline: bool,
     report: &yunq_rules_engine::AnalysisReport,
 ) -> Option<NewCodeAnalysis> {
-    let baseline_store =
-        (!no_baseline && path.is_dir()).then(|| BaselineStore::new(path.join(".yunq-baseline.json")))?;
+    let baseline_store = (!no_baseline && path.is_dir())
+        .then(|| BaselineStore::new(path.join(".yunq-baseline.json")))?;
     let line_hashes = yunq_cli::FileLineHashes::new(path);
     let hash_fn = |file: &str, line: u32| line_hashes.hash(file, line);
     let new_code = baseline_store
@@ -440,10 +482,15 @@ async fn report_pull_request_review(
 ) {
     use yunq_rules_engine::AlmPullRequestReporter;
     let Some(pr_num) = pr else { return };
-    let Ok(pr_number) = yunq_rules_engine::PullRequestNumber::new(pr_num) else { return };
+    let Ok(pr_number) = yunq_rules_engine::PullRequestNumber::new(pr_num) else {
+        return;
+    };
 
     let new_issues = new_code.map(|nc| nc.new_issues()).unwrap_or(&[]);
-    if let Err(e) = reporter.report_pull_request_review(pr_number, new_issues, desc).await {
+    if let Err(e) = reporter
+        .report_pull_request_review(pr_number, new_issues, desc)
+        .await
+    {
         eprintln!("warning: could not report pull request review to GitHub: {e}");
     }
 }
@@ -462,10 +509,16 @@ async fn report_to_github(
 ) {
     use yunq_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
 
-    let Some(sha_str) = &context.commit_sha else { return };
-    let Ok(sha) = yunq_rules_engine::CommitSha::new(sha_str) else { return };
+    let Some(sha_str) = &context.commit_sha else {
+        return;
+    };
+    let Ok(sha) = yunq_rules_engine::CommitSha::new(sha_str) else {
+        return;
+    };
 
-    let Some(reporter) = github_reporter(args, context) else { return };
+    let Some(reporter) = github_reporter(args, context) else {
+        return;
+    };
 
     let state = if gate.status() == yunq_rules_engine::GateStatus::Passed {
         CommitStatusState::Success
@@ -496,17 +549,37 @@ fn render_output(
 ) -> anyhow::Result<()> {
     match args.format {
         Format::Text => {
-            print!("{}", output::render_text(report, gate, new_code, test_report, coverage_new_code, context))
+            print!(
+                "{}",
+                output::render_text(
+                    report,
+                    gate,
+                    new_code,
+                    test_report,
+                    coverage_new_code,
+                    context
+                )
+            )
         }
         Format::Json => {
             println!(
                 "{}",
-                output::render_json(report, gate, new_code, test_report, coverage_new_code, context.clone())?
+                output::render_json(
+                    report,
+                    gate,
+                    new_code,
+                    test_report,
+                    coverage_new_code,
+                    context.clone()
+                )?
             )
         }
     }
     if args.agent_prompt {
-        println!("\n{}", output::render_agent_prompt(report, gate, &args.path.display().to_string()));
+        println!(
+            "\n{}",
+            output::render_agent_prompt(report, gate, &args.path.display().to_string())
+        );
     }
     Ok(())
 }
@@ -525,7 +598,9 @@ fn render_output(
 /// still lines up with `Issue::file()` for any consumer cross-referencing
 /// the two.
 fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisReport) {
-    let Some(output_path) = &args.blame_output else { return };
+    let Some(output_path) = &args.blame_output else {
+        return;
+    };
     let Some(git_root) = yunq_cli::find_git_root(&args.path) else {
         eprintln!(
             "warning: --blame-output given but {} is not inside a Git repository — skipping blame capture",
@@ -534,10 +609,19 @@ fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisRepor
         return;
     };
 
-    let scan_root = args.path.canonicalize().unwrap_or_else(|_| args.path.clone());
-    let prefix = scan_root.strip_prefix(&git_root).unwrap_or(std::path::Path::new(""));
+    let scan_root = args
+        .path
+        .canonicalize()
+        .unwrap_or_else(|_| args.path.clone());
+    let prefix = scan_root
+        .strip_prefix(&git_root)
+        .unwrap_or(std::path::Path::new(""));
 
-    let mut report_files: Vec<String> = report.issues().iter().map(|issue| issue.file().to_string()).collect();
+    let mut report_files: Vec<String> = report
+        .issues()
+        .iter()
+        .map(|issue| issue.file().to_string())
+        .collect();
     report_files.sort();
     report_files.dedup();
 
@@ -546,7 +630,12 @@ fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisRepor
     // itself uses, via this git-relative -> scan-relative lookup.
     let git_relative_to_scan_relative: std::collections::HashMap<String, String> = report_files
         .iter()
-        .map(|file| (prefix.join(file).to_string_lossy().replace('\\', "/"), file.clone()))
+        .map(|file| {
+            (
+                prefix.join(file).to_string_lossy().replace('\\', "/"),
+                file.clone(),
+            )
+        })
         .collect();
     let git_relative_files: Vec<String> = git_relative_to_scan_relative.keys().cloned().collect();
 
@@ -554,14 +643,24 @@ fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisRepor
         blame::blame_files(&git_root, &git_relative_files)
             .into_iter()
             .filter_map(|(git_relative, lines)| {
-                git_relative_to_scan_relative.get(&git_relative).cloned().map(|scan_relative| (scan_relative, lines))
+                git_relative_to_scan_relative
+                    .get(&git_relative)
+                    .cloned()
+                    .map(|scan_relative| (scan_relative, lines))
             })
             .collect();
 
     match serde_json::to_string_pretty(&blame) {
         Ok(json) => match std::fs::write(output_path, json) {
-            Ok(()) => println!("📝 Wrote SCM blame for {} file(s) to {}", blame.len(), output_path.display()),
-            Err(e) => eprintln!("warning: could not write blame output to {}: {e}", output_path.display()),
+            Ok(()) => println!(
+                "📝 Wrote SCM blame for {} file(s) to {}",
+                blame.len(),
+                output_path.display()
+            ),
+            Err(e) => eprintln!(
+                "warning: could not write blame output to {}: {e}",
+                output_path.display()
+            ),
         },
         Err(e) => eprintln!("warning: could not serialize blame output: {e}"),
     }
@@ -573,9 +672,15 @@ fn exit_code(
     enforce_gate: bool,
     gate: &yunq_rules_engine::GateEvaluation,
 ) -> ExitCode {
-    let breached = threshold.zip(report.max_severity()).is_some_and(|(threshold, max)| max >= threshold);
+    let breached = threshold
+        .zip(report.max_severity())
+        .is_some_and(|(threshold, max)| max >= threshold);
     let gate_failed = enforce_gate && gate.status() == yunq_rules_engine::GateStatus::Failed;
-    if breached || gate_failed { ExitCode::from(3) } else { ExitCode::SUCCESS }
+    if breached || gate_failed {
+        ExitCode::from(3)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
@@ -591,10 +696,12 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let cache = (!args.no_cache && args.path.is_dir())
         .then(|| std::sync::Arc::new(FileAnalysisCache::open(args.path.join(".yunq-cache.json"))));
     let mut report =
-        yunq_cli::scan_with_project_config(&args.path, cache.clone(), &source_dirs, &exclusions).await?;
+        yunq_cli::scan_with_project_config(&args.path, cache.clone(), &source_dirs, &exclusions)
+            .await?;
 
     ingest_coverage(&args)?.apply_to(&mut report);
-    let coverage_new_code = coverage_new_code_measure(args.coverage.coverage_diff.clone(), &report)?;
+    let coverage_new_code =
+        coverage_new_code_measure(args.coverage.coverage_diff.clone(), &report)?;
 
     let test_report = load_test_report(args.junit.clone())?;
     if let Some(summary) = &test_report {
@@ -615,12 +722,23 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         if key.as_str() == "coverage_new_code" {
             return coverage_new_code;
         }
-        new_code.as_ref().and_then(|nc| nc.measure(key)).or_else(|| report.measure(key))
+        new_code
+            .as_ref()
+            .and_then(|nc| nc.measure(key))
+            .or_else(|| report.measure(key))
     });
 
     report_to_github(&args, &context, &report, &gate, new_code.as_ref()).await;
     write_blame_output(&args, &report);
-    render_output(&args, &report, &gate, new_code.as_ref(), test_report.as_ref(), coverage_new_code, &context.to_dto())?;
+    render_output(
+        &args,
+        &report,
+        &gate,
+        new_code.as_ref(),
+        test_report.as_ref(),
+        coverage_new_code,
+        &context.to_dto(),
+    )?;
 
     Ok(exit_code(threshold, &report, args.enforce_gate, &gate))
 }

@@ -9,7 +9,9 @@ pub struct EvalUsageRule {
 
 impl EvalUsageRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("owasp:eval-usage").expect("valid rule id") }
+        Self {
+            id: RuleId::new("owasp:eval-usage").expect("valid rule id"),
+        }
     }
 }
 
@@ -56,7 +58,10 @@ impl Rule for EvalUsageRule {
                     _ => return None,
                 };
                 match name {
-                    "eval" => Some(Finding::new("use of `eval` executes arbitrary code", call.span())),
+                    "eval" => Some(Finding::new(
+                        "use of `eval` executes arbitrary code",
+                        call.span(),
+                    )),
                     "Function" if !python => Some(Finding::new(
                         "`new Function(...)` executes arbitrary code",
                         call.span(),
@@ -81,7 +86,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         EvalUsageRule::new().check(&file, &ast)
     }
 

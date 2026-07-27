@@ -54,13 +54,20 @@ impl MeasureStorage for PgIssueStorage {
                 "INSERT INTO analysis_measures (analysis_id, component, measure_key, measure_value) ",
             );
             builder.push_values(chunk, |mut row, (component, key, value)| {
-                row.push_bind(analysis_id).push_bind(*component).push_bind(*key).push_bind(*value);
+                row.push_bind(analysis_id)
+                    .push_bind(*component)
+                    .push_bind(*key)
+                    .push_bind(*value);
             });
             builder.push(
                 " ON CONFLICT (analysis_id, COALESCE(component, ''), measure_key)
                   DO UPDATE SET measure_value = EXCLUDED.measure_value",
             );
-            builder.build().execute(&mut *tx).await.map_err(storage_err)?;
+            builder
+                .build()
+                .execute(&mut *tx)
+                .await
+                .map_err(storage_err)?;
         }
         tx.commit().await.map_err(storage_err)
     }
@@ -108,7 +115,11 @@ impl MeasureHistoryReader for PgIssueStorage {
         }
         builder.push(" ORDER BY a.id ASC");
 
-        let rows = builder.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let rows = builder
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_err)?;
 
         // Rows come back one-per-(analysis, metric); fold into one point per
         // analysis, preserving the ascending order the query already gives.
@@ -126,7 +137,11 @@ impl MeasureHistoryReader for PgIssueStorage {
                 _ => {
                     let mut values = BTreeMap::new();
                     values.insert(key, value);
-                    points.push(MeasureHistoryPoint { analysis_id, date, values });
+                    points.push(MeasureHistoryPoint {
+                        analysis_id,
+                        date,
+                        values,
+                    });
                 }
             }
         }
@@ -155,7 +170,9 @@ impl ComponentTreeReader for PgIssueStorage {
         .transpose()
         .map_err(storage_err)?;
 
-        let Some(analysis_id) = latest else { return Ok(None) };
+        let Some(analysis_id) = latest else {
+            return Ok(None);
+        };
 
         let rows = sqlx::query(
             "SELECT component, measure_key, measure_value FROM analysis_measures
@@ -179,7 +196,10 @@ impl ComponentTreeReader for PgIssueStorage {
             .into_iter()
             .map(|(path, measures)| ComponentMeasures { path, measures })
             .collect();
-        Ok(Some(ComponentTree { analysis_id, components }))
+        Ok(Some(ComponentTree {
+            analysis_id,
+            components,
+        }))
     }
 }
 
@@ -193,7 +213,11 @@ mod tests {
         // above, without a database: same-analysis rows collapse into one
         // point's `values` map.
         let mut points: Vec<MeasureHistoryPoint> = Vec::new();
-        let rows = [(1i64, "2024-01-01T00:00:00Z", "coverage", 80.0), (1, "2024-01-01T00:00:00Z", "issue_total", 3.0), (2, "2024-01-02T00:00:00Z", "coverage", 90.0)];
+        let rows = [
+            (1i64, "2024-01-01T00:00:00Z", "coverage", 80.0),
+            (1, "2024-01-01T00:00:00Z", "issue_total", 3.0),
+            (2, "2024-01-02T00:00:00Z", "coverage", 90.0),
+        ];
         for (analysis_id, date, key, value) in rows {
             match points.last_mut() {
                 Some(point) if point.analysis_id == analysis_id => {
@@ -202,7 +226,11 @@ mod tests {
                 _ => {
                     let mut values = BTreeMap::new();
                     values.insert(key.to_string(), value);
-                    points.push(MeasureHistoryPoint { analysis_id, date: date.to_string(), values });
+                    points.push(MeasureHistoryPoint {
+                        analysis_id,
+                        date: date.to_string(),
+                        values,
+                    });
                 }
             }
         }
@@ -231,7 +259,10 @@ mod live_db_tests {
     fn unique_key(prefix: &str) -> String {
         format!(
             "{prefix}-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         )
     }
 
@@ -241,15 +272,24 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = unique_key("measures-test");
         let project_id = storage.ensure_project(&key).await.unwrap();
-        let analysis_id = storage.record_analysis(project_id, "main", 100, 2).await.unwrap();
+        let analysis_id = storage
+            .record_analysis(project_id, "main", 100, 2)
+            .await
+            .unwrap();
 
-        let project_measures = vec![("coverage".to_string(), 80.0), ("issue_total".to_string(), 2.0)];
+        let project_measures = vec![
+            ("coverage".to_string(), 80.0),
+            ("issue_total".to_string(), 2.0),
+        ];
         let mut file_measures: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
         let mut a_measures = BTreeMap::new();
         a_measures.insert("issue_total".to_string(), 2.0);
         file_measures.insert("src/a.rs".to_string(), a_measures);
 
-        storage.save_measures(analysis_id, &project_measures, &file_measures).await.unwrap();
+        storage
+            .save_measures(analysis_id, &project_measures, &file_measures)
+            .await
+            .unwrap();
 
         let history = storage
             .measure_history(&key, "main", None, &["coverage".to_string()], None, None)
@@ -280,7 +320,10 @@ mod live_db_tests {
         let key = unique_key("measures-range-test");
         let project_id = storage.ensure_project(&key).await.unwrap();
 
-        let old_id = storage.record_analysis(project_id, "main", 100, 0).await.unwrap();
+        let old_id = storage
+            .record_analysis(project_id, "main", 100, 0)
+            .await
+            .unwrap();
         sqlx::query("UPDATE analyses SET created_at = now() - interval '30 days' WHERE id = $1")
             .bind(old_id)
             .execute(storage.pool())
@@ -291,7 +334,10 @@ mod live_db_tests {
             .await
             .unwrap();
 
-        let new_id = storage.record_analysis(project_id, "main", 100, 0).await.unwrap();
+        let new_id = storage
+            .record_analysis(project_id, "main", 100, 0)
+            .await
+            .unwrap();
         storage
             .save_measures(new_id, &[("coverage".to_string(), 90.0)], &BTreeMap::new())
             .await
@@ -312,7 +358,10 @@ mod live_db_tests {
         // to fail cleanly rather than be interpreted as an expression.
         assert!(recent_only.is_err());
 
-        let all = storage.measure_history(&key, "main", None, &[], None, None).await.unwrap();
+        let all = storage
+            .measure_history(&key, "main", None, &[], None, None)
+            .await
+            .unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].analysis_id, old_id);
         assert_eq!(all[1].analysis_id, new_id);

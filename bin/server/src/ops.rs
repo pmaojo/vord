@@ -15,9 +15,9 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,13 +31,16 @@ use yunq_rules_engine::{
     Severity, StorageError,
 };
 
-use crate::auth::permissions::{is_allowed, Caller};
-use crate::auth::Permission;
 use crate::AppState;
+use crate::auth::Permission;
+use crate::auth::permissions::{Caller, is_allowed};
 
 /// Shared 403 body shape for every admin endpoint below.
 fn forbidden(permission: Permission) -> (StatusCode, String) {
-    (StatusCode::FORBIDDEN, format!("missing permission: {permission:?}"))
+    (
+        StatusCode::FORBIDDEN,
+        format!("missing permission: {permission:?}"),
+    )
 }
 
 /// One gate condition as `(metric, operator, threshold)`.
@@ -98,12 +101,18 @@ pub(crate) trait OpsStore: Send + Sync {
 
     /// Deletes analyses past each project's effective retention (its own
     /// override, else `default_days`).
-    fn purge_expired(&self, default_days: Option<i32>) -> BoxFuture<'_, Result<PurgeReport, StorageError>>;
+    fn purge_expired(
+        &self,
+        default_days: Option<i32>,
+    ) -> BoxFuture<'_, Result<PurgeReport, StorageError>>;
 
     /// Reads a stored profile (activations plus its resolved parent chain),
     /// for `profiles_admin`'s backup endpoint. `Ok(None)` if no profile has
     /// that name.
-    fn read_profile(&self, name: String) -> BoxFuture<'_, Result<Option<QualityProfile>, StorageError>>;
+    fn read_profile(
+        &self,
+        name: String,
+    ) -> BoxFuture<'_, Result<Option<QualityProfile>, StorageError>>;
 
     /// Compares two stored profiles' effective activations — issue #22's
     /// "Compare profiles" operation.
@@ -154,7 +163,10 @@ pub(crate) trait OpsStore: Send + Sync {
 
     /// Resolves the project key that owns an issue, so the Remediation
     /// Agent can route to that project's BYOK config.
-    fn project_key_for_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<Option<String>, StorageError>>;
+    fn project_key_for_issue(
+        &self,
+        issue_id: i64,
+    ) -> BoxFuture<'_, Result<Option<String>, StorageError>>;
 }
 
 impl OpsStore for PgIssueStorage {
@@ -171,9 +183,9 @@ impl OpsStore for PgIssueStorage {
         name: String,
         activations: Vec<(RuleId, Severity)>,
     ) -> BoxFuture<'_, Result<BeforeAfter<ProfileActivation>, StorageError>> {
-        Box::pin(async move {
-            PgIssueStorage::upsert_quality_profile(self, &name, &activations).await
-        })
+        Box::pin(
+            async move { PgIssueStorage::upsert_quality_profile(self, &name, &activations).await },
+        )
     }
 
     fn set_permission(
@@ -232,11 +244,17 @@ impl OpsStore for PgIssueStorage {
         })
     }
 
-    fn purge_expired(&self, default_days: Option<i32>) -> BoxFuture<'_, Result<PurgeReport, StorageError>> {
+    fn purge_expired(
+        &self,
+        default_days: Option<i32>,
+    ) -> BoxFuture<'_, Result<PurgeReport, StorageError>> {
         Box::pin(async move { PgIssueStorage::purge_expired(self, default_days).await })
     }
 
-    fn read_profile(&self, name: String) -> BoxFuture<'_, Result<Option<QualityProfile>, StorageError>> {
+    fn read_profile(
+        &self,
+        name: String,
+    ) -> BoxFuture<'_, Result<Option<QualityProfile>, StorageError>> {
         Box::pin(async move { PgIssueStorage::read_quality_profile(self, &name).await })
     }
 
@@ -245,7 +263,9 @@ impl OpsStore for PgIssueStorage {
         name_a: String,
         name_b: String,
     ) -> BoxFuture<'_, Result<ProfileDiff, CompareProfileError>> {
-        Box::pin(async move { PgIssueStorage::compare_quality_profiles(self, &name_a, &name_b).await })
+        Box::pin(
+            async move { PgIssueStorage::compare_quality_profiles(self, &name_a, &name_b).await },
+        )
     }
 
     fn copy_profile(
@@ -253,7 +273,9 @@ impl OpsStore for PgIssueStorage {
         source_name: String,
         new_name: String,
     ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, CopyProfileError>> {
-        Box::pin(async move { PgIssueStorage::copy_quality_profile(self, &source_name, &new_name).await })
+        Box::pin(async move {
+            PgIssueStorage::copy_quality_profile(self, &source_name, &new_name).await
+        })
     }
 
     fn restore_profile(
@@ -296,7 +318,10 @@ impl OpsStore for PgIssueStorage {
         Box::pin(async move { PgIssueStorage::delete_project_llm_config(self, &project_key).await })
     }
 
-    fn project_key_for_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<Option<String>, StorageError>> {
+    fn project_key_for_issue(
+        &self,
+        issue_id: i64,
+    ) -> BoxFuture<'_, Result<Option<String>, StorageError>> {
         Box::pin(async move { PgIssueStorage::project_key_for_issue(self, issue_id).await })
     }
 }
@@ -308,7 +333,11 @@ impl OpsStore for PgIssueStorage {
 /// PAT scopes but the OAuth session lookup used here doesn't recognize the
 /// token) rather than because the request was anonymous.
 fn actor_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    state.auth.authenticate(headers).ok().map(|user| user.username().to_string())
+    state
+        .auth
+        .authenticate(headers)
+        .ok()
+        .map(|user| user.username().to_string())
 }
 
 #[derive(Serialize, ToSchema)]
@@ -451,8 +480,8 @@ pub(crate) async fn upsert_quality_gate(
     if !is_allowed(&caller, Permission::ManageQualityGates) {
         return Err(forbidden(Permission::ManageQualityGates));
     }
-    let conditions =
-        validate_and_convert_conditions(&request.conditions).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let conditions = validate_and_convert_conditions(&request.conditions)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let actor = actor_from_headers(&state, &headers);
 
     let (before, after) = state
@@ -474,7 +503,10 @@ pub(crate) async fn upsert_quality_gate(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(GateDto { name, conditions: conditions_to_dto(&after) }))
+    Ok(Json(GateDto {
+        name,
+        conditions: conditions_to_dto(&after),
+    }))
 }
 
 #[derive(Deserialize, Serialize, ToSchema, Clone)]
@@ -505,8 +537,12 @@ fn validate_and_convert_activations(
         .iter()
         .map(|a| {
             let rule = RuleId::new(&a.rule).map_err(|e| e.to_string())?;
-            let severity = Severity::parse(&a.severity)
-                .ok_or_else(|| format!("invalid severity {:?} (info|minor|major|critical|blocker)", a.severity))?;
+            let severity = Severity::parse(&a.severity).ok_or_else(|| {
+                format!(
+                    "invalid severity {:?} (info|minor|major|critical|blocker)",
+                    a.severity
+                )
+            })?;
             Ok((rule, severity))
         })
         .collect()
@@ -515,7 +551,10 @@ fn validate_and_convert_activations(
 fn activations_to_dto(activations: &[ProfileActivation]) -> Vec<ProfileActivationDto> {
     activations
         .iter()
-        .map(|(rule, severity)| ProfileActivationDto { rule: rule.clone(), severity: severity.clone() })
+        .map(|(rule, severity)| ProfileActivationDto {
+            rule: rule.clone(),
+            severity: severity.clone(),
+        })
         .collect()
 }
 
@@ -567,7 +606,10 @@ pub(crate) async fn upsert_quality_profile(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(ProfileDto { name, activations: activations_to_dto(&after) }))
+    Ok(Json(ProfileDto {
+        name,
+        activations: activations_to_dto(&after),
+    }))
 }
 
 const VALID_ROLES: [&str; 3] = ["admin", "editor", "viewer"];
@@ -576,7 +618,10 @@ fn validate_role(role: &str) -> Result<(), String> {
     if VALID_ROLES.contains(&role) {
         Ok(())
     } else {
-        Err(format!("invalid role {role:?} (expected one of: {})", VALID_ROLES.join(", ")))
+        Err(format!(
+            "invalid role {role:?} (expected one of: {})",
+            VALID_ROLES.join(", ")
+        ))
     }
 }
 
@@ -645,7 +690,11 @@ pub(crate) async fn grant_permission(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(PermissionDto { project_key: key, user_login: user, role: Some(request.role) }))
+    Ok(Json(PermissionDto {
+        project_key: key,
+        user_login: user,
+        role: Some(request.role),
+    }))
 }
 
 /// Revoke a user's role on a project; audit-logged as `permission.revoked`.
@@ -694,7 +743,11 @@ pub(crate) async fn revoke_permission(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(PermissionDto { project_key: key, user_login: user, role: None }))
+    Ok(Json(PermissionDto {
+        project_key: key,
+        user_login: user,
+        role: None,
+    }))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -756,7 +809,10 @@ pub(crate) async fn set_project_retention(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(RetentionDto { project_key: key, retention_days: request.retention_days }))
+    Ok(Json(RetentionDto {
+        project_key: key,
+        retention_days: request.retention_days,
+    }))
 }
 
 #[derive(Serialize, ToSchema)]
@@ -929,7 +985,11 @@ mod tests {
                 operator: "gt".to_string(),
                 threshold: 0.0,
             },
-            GateConditionDto { metric: "coverage".to_string(), operator: "lt".to_string(), threshold: 80.0 },
+            GateConditionDto {
+                metric: "coverage".to_string(),
+                operator: "lt".to_string(),
+                threshold: 80.0,
+            },
         ];
         let domain = validate_and_convert_conditions(&dto).expect("valid conditions");
         assert_eq!(domain.len(), 2);
@@ -964,8 +1024,10 @@ mod tests {
 
     #[test]
     fn valid_profile_activations_are_accepted() {
-        let dto =
-            vec![ProfileActivationDto { rule: "owasp:eval-usage".to_string(), severity: "critical".to_string() }];
+        let dto = vec![ProfileActivationDto {
+            rule: "owasp:eval-usage".to_string(),
+            severity: "critical".to_string(),
+        }];
         let domain = validate_and_convert_activations(&dto).expect("valid activations");
         assert_eq!(domain.len(), 1);
         assert_eq!(domain[0].1, Severity::Critical);
@@ -973,13 +1035,19 @@ mod tests {
 
     #[test]
     fn invalid_severity_is_rejected() {
-        let dto = vec![ProfileActivationDto { rule: "owasp:eval-usage".to_string(), severity: "urgent".to_string() }];
+        let dto = vec![ProfileActivationDto {
+            rule: "owasp:eval-usage".to_string(),
+            severity: "urgent".to_string(),
+        }];
         assert!(validate_and_convert_activations(&dto).is_err());
     }
 
     #[test]
     fn invalid_rule_id_is_rejected() {
-        let dto = vec![ProfileActivationDto { rule: "".to_string(), severity: "major".to_string() }];
+        let dto = vec![ProfileActivationDto {
+            rule: "".to_string(),
+            severity: "major".to_string(),
+        }];
         assert!(validate_and_convert_activations(&dto).is_err());
     }
 

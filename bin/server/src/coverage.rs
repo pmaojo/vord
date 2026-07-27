@@ -14,9 +14,9 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -181,7 +181,9 @@ impl CoveragePort for PgIssueStorage {
         project_key: String,
         branch: String,
     ) -> BoxFuture<'_, Result<Option<ComponentTree>, StorageError>> {
-        Box::pin(async move { ComponentTreeReader::component_tree(self, &project_key, &branch).await })
+        Box::pin(
+            async move { ComponentTreeReader::component_tree(self, &project_key, &branch).await },
+        )
     }
 
     fn save_file_blame_lines(
@@ -189,7 +191,9 @@ impl CoveragePort for PgIssueStorage {
         analysis_id: i64,
         files: Vec<FileBlame>,
     ) -> BoxFuture<'_, Result<(), StorageError>> {
-        Box::pin(async move { FileBlameLineStorage::save_file_blame_lines(self, analysis_id, &files).await })
+        Box::pin(async move {
+            FileBlameLineStorage::save_file_blame_lines(self, analysis_id, &files).await
+        })
     }
 
     fn file_blame_lines(
@@ -211,9 +215,9 @@ fn parse_format(raw: &str) -> Result<CoverageFormat, String> {
         "jacoco" => Ok(CoverageFormat::Jacoco),
         "llvm-cov" | "llvmcov" => Ok(CoverageFormat::LlvmCov),
         "istanbul" => Ok(CoverageFormat::Istanbul),
-        other => {
-            Err(format!("unknown format {other:?} (lcov|cobertura|jacoco|llvm-cov|istanbul)"))
-        }
+        other => Err(format!(
+            "unknown format {other:?} (lcov|cobertura|jacoco|llvm-cov|istanbul)"
+        )),
     }
 }
 
@@ -281,12 +285,17 @@ pub(crate) async fn ingest_coverage(
     Query(query): Query<CoverageIngestQuery>,
     body: String,
 ) -> Result<Json<CoverageSummaryDto>, (StatusCode, String)> {
-    let format =
-        query.format.as_deref().map(parse_format).transpose().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let format = query
+        .format
+        .as_deref()
+        .map(parse_format)
+        .transpose()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let report = yunq_infra_fs::parse_coverage_report(&body, format)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let summary =
-        report.summary().map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let summary = report
+        .summary()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let project_id = state
         .coverage
@@ -345,7 +354,12 @@ pub(crate) async fn latest_coverage(
         .latest_coverage(key)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "no coverage report ingested yet".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "no coverage report ingested yet".to_string(),
+            )
+        })?;
     Ok(Json(CoverageSummaryDto::from(result.summary)))
 }
 
@@ -356,11 +370,23 @@ mod tests {
     #[test]
     fn accepts_known_formats_case_insensitively() {
         assert!(matches!(parse_format("LCOV"), Ok(CoverageFormat::Lcov)));
-        assert!(matches!(parse_format("cobertura"), Ok(CoverageFormat::Cobertura)));
+        assert!(matches!(
+            parse_format("cobertura"),
+            Ok(CoverageFormat::Cobertura)
+        ));
         assert!(matches!(parse_format("JaCoCo"), Ok(CoverageFormat::Jacoco)));
-        assert!(matches!(parse_format("llvm-cov"), Ok(CoverageFormat::LlvmCov)));
-        assert!(matches!(parse_format("llvmcov"), Ok(CoverageFormat::LlvmCov)));
-        assert!(matches!(parse_format("istanbul"), Ok(CoverageFormat::Istanbul)));
+        assert!(matches!(
+            parse_format("llvm-cov"),
+            Ok(CoverageFormat::LlvmCov)
+        ));
+        assert!(matches!(
+            parse_format("llvmcov"),
+            Ok(CoverageFormat::LlvmCov)
+        ));
+        assert!(matches!(
+            parse_format("istanbul"),
+            Ok(CoverageFormat::Istanbul)
+        ));
     }
 
     #[test]

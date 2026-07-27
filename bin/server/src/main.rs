@@ -13,11 +13,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Json;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
@@ -27,12 +27,12 @@ use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 use yunq_infra_postgres::PgIssueStorage;
 use yunq_rules_engine::{
-    BulkOutcome, ChangelogAction,
-    ChangelogEntry, GateResultReader,
-    GateResultSummary, GateStatus, HotspotReader, HotspotReview, HotspotStatus, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader, IssueFetcher,
-    IssueQuery, IssueReader, IssueStatus, IssueTransition, IssueType, IssueWorkflow, JobQueue, Page, QueueError, Resolution,
-    RuleId, ScanJob, Severity, SoftwareQualityImpact, StorageError, StoredHotspot, StoredIssue,
-    WorkflowError, IssueFacets,
+    BulkOutcome, ChangelogAction, ChangelogEntry, GateResultReader, GateResultSummary, GateStatus,
+    HotspotReader, HotspotReview, HotspotStatus, IssueBulkWorkflow, IssueChangelogReader,
+    IssueFacetReader, IssueFacets, IssueFetcher, IssueQuery, IssueReader, IssueStatus,
+    IssueTransition, IssueType, IssueWorkflow, JobQueue, Page, QueueError, Resolution, RuleId,
+    ScanJob, Severity, SoftwareQualityImpact, StorageError, StoredHotspot, StoredIssue,
+    WorkflowError,
 };
 
 mod activity;
@@ -51,8 +51,8 @@ mod measures;
 mod metrics;
 mod ops;
 pub mod portfolios;
-mod project_features;
 mod profiles_admin;
+mod project_features;
 mod sources;
 mod tasks;
 mod webhooks;
@@ -137,14 +137,20 @@ trait IssueApiStore: Send + Sync {
         &'a self,
         query: &'a IssueQuery,
     ) -> BoxFuture<'a, Result<Page<StoredIssue>, StorageError>>;
-    fn facets<'a>(&'a self, query: &'a IssueQuery) -> BoxFuture<'a, Result<IssueFacets, StorageError>>;
+    fn facets<'a>(
+        &'a self,
+        query: &'a IssueQuery,
+    ) -> BoxFuture<'a, Result<IssueFacets, StorageError>>;
     fn bulk_transition(
         &self,
         issue_ids: Vec<i64>,
         transition: IssueTransition,
     ) -> BoxFuture<'_, Result<Vec<BulkOutcome>, StorageError>>;
     fn changelog(&self, issue_id: i64) -> BoxFuture<'_, Result<Vec<ChangelogEntry>, StorageError>>;
-    fn recent_hotspots(&self, limit: usize) -> BoxFuture<'_, Result<Vec<StoredHotspot>, StorageError>>;
+    fn recent_hotspots(
+        &self,
+        limit: usize,
+    ) -> BoxFuture<'_, Result<Vec<StoredHotspot>, StorageError>>;
     fn review_hotspot(
         &self,
         hotspot_id: i64,
@@ -183,7 +189,10 @@ where
         Box::pin(IssueReader::search_issues(self, query))
     }
 
-    fn facets<'a>(&'a self, query: &'a IssueQuery) -> BoxFuture<'a, Result<IssueFacets, StorageError>> {
+    fn facets<'a>(
+        &'a self,
+        query: &'a IssueQuery,
+    ) -> BoxFuture<'a, Result<IssueFacets, StorageError>> {
         Box::pin(IssueFacetReader::facets(self, query))
     }
 
@@ -192,14 +201,19 @@ where
         issue_ids: Vec<i64>,
         transition: IssueTransition,
     ) -> BoxFuture<'_, Result<Vec<BulkOutcome>, StorageError>> {
-        Box::pin(async move { IssueBulkWorkflow::bulk_transition(self, &issue_ids, transition).await })
+        Box::pin(
+            async move { IssueBulkWorkflow::bulk_transition(self, &issue_ids, transition).await },
+        )
     }
 
     fn changelog(&self, issue_id: i64) -> BoxFuture<'_, Result<Vec<ChangelogEntry>, StorageError>> {
         Box::pin(IssueChangelogReader::changelog(self, issue_id))
     }
 
-    fn recent_hotspots(&self, limit: usize) -> BoxFuture<'_, Result<Vec<StoredHotspot>, StorageError>> {
+    fn recent_hotspots(
+        &self,
+        limit: usize,
+    ) -> BoxFuture<'_, Result<Vec<StoredHotspot>, StorageError>> {
         Box::pin(HotspotReader::recent_hotspots(self, limit))
     }
 
@@ -300,7 +314,10 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(webhooks::dispatch_webhook))
         .routes(routes!(webhooks::webhook_delivery_log))
         .routes(routes!(badge_svg))
-        .routes(routes!(coverage::ingest_coverage, coverage::latest_coverage))
+        .routes(routes!(
+            coverage::ingest_coverage,
+            coverage::latest_coverage
+        ))
         .routes(routes!(blame::ingest_blame))
         .routes(routes!(measures::measure_history))
         .routes(routes!(measures::component_tree))
@@ -317,7 +334,11 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(profiles_admin::backup_quality_profile))
         .routes(routes!(profiles_admin::restore_quality_profile))
         .routes(routes!(ops::grant_permission, ops::revoke_permission))
-        .routes(routes!(ai_provider_admin::set_ai_provider, ai_provider_admin::get_ai_provider, ai_provider_admin::clear_ai_provider))
+        .routes(routes!(
+            ai_provider_admin::set_ai_provider,
+            ai_provider_admin::get_ai_provider,
+            ai_provider_admin::clear_ai_provider
+        ))
         .routes(routes!(ops::list_audit_log))
         .routes(routes!(ops::set_project_retention))
         .routes(routes!(ops::run_housekeeping))
@@ -380,7 +401,10 @@ async fn main() -> anyhow::Result<()> {
 
     let app = router
         .route("/health", get(|| async { "ok" }))
-        .layer(axum::middleware::from_fn_with_state(state.metrics.clone(), metrics::track_request))
+        .layer(axum::middleware::from_fn_with_state(
+            state.metrics.clone(),
+            metrics::track_request,
+        ))
         .merge(SwaggerUi::new("/api-docs").url("/api-docs/openapi.json", api))
         .with_state(state);
 
@@ -425,7 +449,10 @@ async fn enqueue_scan(
         .enqueue_scan(job)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
-    Ok((StatusCode::ACCEPTED, Json(ScanQueuedDto { status: "queued" })))
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ScanQueuedDto { status: "queued" }),
+    ))
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -456,7 +483,13 @@ impl IssuesQuery {
     fn requested_facets(&self) -> Vec<String> {
         self.facets
             .as_deref()
-            .map(|raw| raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect())
+            .map(|raw| {
+                raw.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -517,7 +550,10 @@ struct ImpactDto {
 
 impl From<&SoftwareQualityImpact> for ImpactDto {
     fn from(impact: &SoftwareQualityImpact) -> Self {
-        Self { quality: impact.quality.to_string(), severity: impact.severity.to_string() }
+        Self {
+            quality: impact.quality.to_string(),
+            severity: impact.severity.to_string(),
+        }
     }
 }
 
@@ -529,16 +565,28 @@ static RULE_CLASSIFICATIONS: LazyLock<HashMap<String, (IssueType, Vec<SoftwareQu
     LazyLock::new(|| {
         let mut map = HashMap::new();
         for rule in rule_catalog() {
-            map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
+            map.insert(
+                rule.id().to_string(),
+                (rule.issue_type(), rule.software_quality_impacts()),
+            );
         }
         for rule in yunq_rules_owasp::all_cross_rules() {
-            map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
+            map.insert(
+                rule.id().to_string(),
+                (rule.issue_type(), rule.software_quality_impacts()),
+            );
         }
         for rule in yunq_rules_architecture::all_cross_rules() {
-            map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
+            map.insert(
+                rule.id().to_string(),
+                (rule.issue_type(), rule.software_quality_impacts()),
+            );
         }
         for rule in yunq_rules_smells::all_cross_rules() {
-            map.insert(rule.id().to_string(), (rule.issue_type(), rule.software_quality_impacts()));
+            map.insert(
+                rule.id().to_string(),
+                (rule.issue_type(), rule.software_quality_impacts()),
+            );
         }
         map
     });
@@ -610,7 +658,9 @@ async fn list_issues(
     Query(query): Query<IssuesQuery>,
 ) -> Result<Json<IssuePageDto>, (StatusCode, String)> {
     let requested_facets = query.requested_facets();
-    let query = query.into_domain().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let query = query
+        .into_domain()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let page = state
         .reader
         .search_issues(&query)
@@ -627,17 +677,38 @@ async fn list_issues(
             .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
         Some(FacetsDto {
             by_severity: if requested_facets.iter().any(|f| f == "severity") {
-                computed.by_severity.iter().map(|(s, c)| FacetCountDto { value: s.to_string(), count: *c }).collect()
+                computed
+                    .by_severity
+                    .iter()
+                    .map(|(s, c)| FacetCountDto {
+                        value: s.to_string(),
+                        count: *c,
+                    })
+                    .collect()
             } else {
                 Vec::new()
             },
             by_status: if requested_facets.iter().any(|f| f == "status") {
-                computed.by_status.iter().map(|(s, c)| FacetCountDto { value: s.to_string(), count: *c }).collect()
+                computed
+                    .by_status
+                    .iter()
+                    .map(|(s, c)| FacetCountDto {
+                        value: s.to_string(),
+                        count: *c,
+                    })
+                    .collect()
             } else {
                 Vec::new()
             },
             by_rule: if requested_facets.iter().any(|f| f == "rule") {
-                computed.by_rule.iter().map(|(r, c)| FacetCountDto { value: r.to_string(), count: *c }).collect()
+                computed
+                    .by_rule
+                    .iter()
+                    .map(|(r, c)| FacetCountDto {
+                        value: r.to_string(),
+                        count: *c,
+                    })
+                    .collect()
             } else {
                 Vec::new()
             },
@@ -807,7 +878,11 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
             remediation_effort_minutes: rule.remediation_effort_minutes(),
             produces_hotspots: metadata.produces_hotspots,
             issue_type: rule.issue_type().to_string(),
-            impacts: rule.software_quality_impacts().iter().map(ImpactDto::from).collect(),
+            impacts: rule
+                .software_quality_impacts()
+                .iter()
+                .map(ImpactDto::from)
+                .collect(),
         }
     });
     let to_dto = |rule: Box<dyn yunq_rules_engine::CrossFileRule>| {
@@ -821,7 +896,11 @@ async fn list_rules() -> Json<Vec<RuleDto>> {
             remediation_effort_minutes: rule.remediation_effort_minutes(),
             produces_hotspots: metadata.produces_hotspots,
             issue_type: rule.issue_type().to_string(),
-            impacts: rule.software_quality_impacts().iter().map(ImpactDto::from).collect(),
+            impacts: rule
+                .software_quality_impacts()
+                .iter()
+                .map(ImpactDto::from)
+                .collect(),
         }
     };
     let cross_file = yunq_rules_owasp::all_cross_rules()
@@ -838,7 +917,9 @@ mod issue_classification_tests {
 
     #[test]
     fn known_rule_carries_its_classic_type_and_mqr_impact() {
-        let (issue_type, impacts) = RULE_CLASSIFICATIONS.get("owasp:eval-usage").expect("rule is in the catalog");
+        let (issue_type, impacts) = RULE_CLASSIFICATIONS
+            .get("owasp:eval-usage")
+            .expect("rule is in the catalog");
         assert_eq!(issue_type.to_string(), "vulnerability");
         assert_eq!(impacts.len(), 1);
         assert_eq!(impacts[0].quality.to_string(), "security");
@@ -896,7 +977,10 @@ async fn review_hotspot(
 ) -> Result<Json<HotspotDto>, (StatusCode, String)> {
     let status = HotspotStatus::parse(&request.status).ok_or((
         StatusCode::BAD_REQUEST,
-        format!("invalid status {:?} (to-review|acknowledged|fixed|safe)", request.status),
+        format!(
+            "invalid status {:?} (to-review|acknowledged|fixed|safe)",
+            request.status
+        ),
     ))?;
     let stored = state
         .reader
@@ -965,7 +1049,10 @@ fn render_gate_badge_svg(label: &str, color: &str) -> String {
         (status = 200, description = "SVG badge", body = String, content_type = "image/svg+xml")
     )
 )]
-async fn badge_svg(State(state): State<Arc<AppState>>, Path(key): Path<String>) -> impl IntoResponse {
+async fn badge_svg(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> impl IntoResponse {
     let result = state.gate.latest_gate_result(key).await;
     let (label, color) = badge_status_label_and_color(&result);
     let svg = render_gate_badge_svg(label, color);
@@ -1042,18 +1129,35 @@ mod badge_tests {
         (status = 402, description = "Enterprise plan required")
     )
 )]
-async fn export_compliance_pdf(headers: axum::http::HeaderMap) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let plan = headers.get("x-yunq-plan").and_then(|h| h.to_str().ok()).unwrap_or("free");
-    if plan == "free" && std::env::var("YUNQ_REQUIRE_PREMIUM_PDF").map(|v| v == "true").unwrap_or(true) {
+async fn export_compliance_pdf(
+    headers: axum::http::HeaderMap,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let plan = headers
+        .get("x-yunq-plan")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("free");
+    if plan == "free"
+        && std::env::var("YUNQ_REQUIRE_PREMIUM_PDF")
+            .map(|v| v == "true")
+            .unwrap_or(true)
+    {
         return Err((
             StatusCode::PAYMENT_REQUIRED,
             "ISO 32000-1 Binary PDF Compliance Exports require an Enterprise subscription. Upgrade at https://yunq.dev/pricing".to_string(),
         ));
     }
-    let report = yunq_rules_engine::AnalysisReport::new(vec![], vec![], yunq_rules_engine::Metrics::default());
-    let pdf_bytes = yunq_infra_pdf::ComplianceReportGenerator::generate_owasp_compliance_pdf_binary(&report)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(([(axum::http::header::CONTENT_TYPE, "application/pdf")], pdf_bytes))
+    let report = yunq_rules_engine::AnalysisReport::new(
+        vec![],
+        vec![],
+        yunq_rules_engine::Metrics::default(),
+    );
+    let pdf_bytes =
+        yunq_infra_pdf::ComplianceReportGenerator::generate_owasp_compliance_pdf_binary(&report)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/pdf")],
+        pdf_bytes,
+    ))
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1114,12 +1218,17 @@ fn parse_transition(dto: &TransitionRequestDto) -> Result<IssueTransition, Strin
         "reopen" => Ok(IssueTransition::Reopen),
         "close" => Ok(IssueTransition::Close),
         "resolve" => {
-            let raw = dto.resolution.as_deref().ok_or("resolve requires a resolution")?;
+            let raw = dto
+                .resolution
+                .as_deref()
+                .ok_or("resolve requires a resolution")?;
             let resolution = Resolution::parse(raw)
                 .ok_or("invalid resolution (fixed|wont-fix|false-positive)")?;
             Ok(IssueTransition::Resolve(resolution))
         }
-        other => Err(format!("invalid transition {other:?} (confirm|resolve|reopen|close)")),
+        other => Err(format!(
+            "invalid transition {other:?} (confirm|resolve|reopen|close)"
+        )),
     }
 }
 
@@ -1229,7 +1338,11 @@ async fn assign_to_agent(
 ) -> Result<Json<AgentFixProposalDto>, (StatusCode, String)> {
     require_premium_plan(&headers)?;
 
-    let issue = state.reader.fetch_issue(id).await.map_err(workflow_error_response)?;
+    let issue = state
+        .reader
+        .fetch_issue(id)
+        .await
+        .map_err(workflow_error_response)?;
     let file_path = issue.issue.file().to_string();
     let source = fetch_issue_source(&file_path).await?;
 
@@ -1237,7 +1350,10 @@ async fn assign_to_agent(
     let provider_config = resolve_llm_provider_config(&state, project_key.as_deref()).await?;
     let proposal = generate_agent_fix(&issue.issue, &file_path, source, provider_config).await?;
 
-    let _ = state.reader.set_assignee(id, Some("yunq-ai-agent".to_string())).await;
+    let _ = state
+        .reader
+        .set_assignee(id, Some("yunq-ai-agent".to_string()))
+        .await;
 
     Ok(Json(AgentFixProposalDto {
         issue_id: id,
@@ -1248,8 +1364,15 @@ async fn assign_to_agent(
 }
 
 fn require_premium_plan(headers: &axum::http::HeaderMap) -> Result<(), (StatusCode, String)> {
-    let plan = headers.get("x-yunq-plan").and_then(|h| h.to_str().ok()).unwrap_or("free");
-    if plan == "free" && std::env::var("YUNQ_REQUIRE_PREMIUM_AI").map(|v| v == "true").unwrap_or(true) {
+    let plan = headers
+        .get("x-yunq-plan")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("free");
+    if plan == "free"
+        && std::env::var("YUNQ_REQUIRE_PREMIUM_AI")
+            .map(|v| v == "true")
+            .unwrap_or(true)
+    {
         return Err((
             StatusCode::PAYMENT_REQUIRED,
             "AI Remediation Agent requires a Pro or Enterprise subscription. Upgrade at https://yunq.dev/pricing".to_string(),
@@ -1272,7 +1395,12 @@ async fn fetch_issue_source(file_path: &str) -> Result<String, (StatusCode, Stri
     github
         .fetch_file_content(file_path, git_ref.as_deref())
         .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not fetch source for {file_path}: {}", e.0)))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("could not fetch source for {file_path}: {}", e.0),
+            )
+        })
 }
 
 /// Resolves which LLM provider to use for `project_key`: its own BYOK
@@ -1285,18 +1413,22 @@ async fn resolve_llm_provider_config(
     project_key: Option<&str>,
 ) -> Result<yunq_infra_llm::LlmProviderConfig, (StatusCode, String)> {
     if let Some(key) = project_key {
-        if let Some(config) = state
-            .ops
-            .llm_config(key.to_string())
-            .await
-            .map_err(|e| (StatusCode::BAD_GATEWAY, format!("could not read AI provider config for {key:?}: {e}")))?
-        {
-            let kind = yunq_infra_llm::LlmProviderKind::parse(&config.provider).ok_or_else(|| {
-                (
-                    StatusCode::BAD_GATEWAY,
-                    format!("project {key:?} has an unrecognized stored AI provider {:?}", config.provider),
-                )
-            })?;
+        if let Some(config) = state.ops.llm_config(key.to_string()).await.map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("could not read AI provider config for {key:?}: {e}"),
+            )
+        })? {
+            let kind =
+                yunq_infra_llm::LlmProviderKind::parse(&config.provider).ok_or_else(|| {
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        format!(
+                            "project {key:?} has an unrecognized stored AI provider {:?}",
+                            config.provider
+                        ),
+                    )
+                })?;
             return Ok(yunq_infra_llm::LlmProviderConfig {
                 kind,
                 base_url: config.base_url,
@@ -1328,7 +1460,12 @@ async fn generate_agent_fix(
     let verdict = engine
         .attempt_remediation(issue, std::path::Path::new(file_path), &source, &analyzer)
         .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Remediation Agent error: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Remediation Agent error: {e}"),
+            )
+        })?;
 
     match verdict {
         yunq_remediation::RemediationVerdict::Accepted { proposal } => Ok(proposal),
@@ -1365,9 +1502,12 @@ impl From<&BulkOutcome> for BulkOutcomeDto {
                 issue: Some(IssueDto::from(stored)),
                 error: None,
             },
-            BulkOutcome::Failed { issue_id, reason } => {
-                Self { issue_id: *issue_id, status: "failed", issue: None, error: Some(reason.clone()) }
-            }
+            BulkOutcome::Failed { issue_id, reason } => Self {
+                issue_id: *issue_id,
+                status: "failed",
+                issue: None,
+                error: Some(reason.clone()),
+            },
         }
     }
 }

@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use yunq_remediation::{FixPrompt, FixProposal, LlmError, LlmProvider};
 
-use crate::common::{parse_fix_proposal, user_prompt, SYSTEM_PROMPT};
+use crate::common::{SYSTEM_PROMPT, parse_fix_proposal, user_prompt};
 
 // Matches what `bin/server` and `bin/cli` have always defaulted to (a local
 // Ollama), so consolidating their env-var parsing into `from_env()` doesn't
@@ -20,7 +20,11 @@ pub struct OpenAiCompatibleAdapter {
 }
 
 impl OpenAiCompatibleAdapter {
-    pub fn new(api_base: impl Into<String>, model: impl Into<String>, api_key: impl Into<String>) -> Self {
+    pub fn new(
+        api_base: impl Into<String>,
+        model: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_base: api_base.into().trim_end_matches('/').to_string(),
@@ -31,10 +35,10 @@ impl OpenAiCompatibleAdapter {
 
     /// Builds adapter from environment variables (`YUNQ_LLM_BASE_URL`, `YUNQ_LLM_MODEL`, `YUNQ_LLM_API_KEY`).
     pub fn from_env() -> Self {
-        let api_base = std::env::var("YUNQ_LLM_BASE_URL")
-            .unwrap_or_else(|_| DEFAULT_OPENAI_BASE.to_string());
-        let model = std::env::var("YUNQ_LLM_MODEL")
-            .unwrap_or_else(|_| DEFAULT_OPENAI_MODEL.to_string());
+        let api_base =
+            std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| DEFAULT_OPENAI_BASE.to_string());
+        let model =
+            std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| DEFAULT_OPENAI_MODEL.to_string());
         let api_key = std::env::var("YUNQ_LLM_API_KEY")
             .or_else(|_| std::env::var("OPENAI_API_KEY"))
             .unwrap_or_default();
@@ -88,8 +92,14 @@ impl OpenAiCompatibleAdapter {
         let req_body = ChatCompletionRequest {
             model: &self.model,
             messages: vec![
-                ChatMessage { role: "system", content: SYSTEM_PROMPT },
-                ChatMessage { role: "user", content: user_prompt },
+                ChatMessage {
+                    role: "system",
+                    content: SYSTEM_PROMPT,
+                },
+                ChatMessage {
+                    role: "user",
+                    content: user_prompt,
+                },
             ],
             temperature: 0.1,
         };
@@ -107,13 +117,14 @@ impl OpenAiCompatibleAdapter {
         if !resp.status().is_success() {
             let status = resp.status();
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(LlmError::ApiFailure(format!("LLM provider returned {status}: {err_text}")));
+            return Err(LlmError::ApiFailure(format!(
+                "LLM provider returned {status}: {err_text}"
+            )));
         }
 
-        let data: ChatCompletionResponse = resp
-            .json()
-            .await
-            .map_err(|e| LlmError::InvalidOutput(format!("Failed to parse LLM response JSON: {e}")))?;
+        let data: ChatCompletionResponse = resp.json().await.map_err(|e| {
+            LlmError::InvalidOutput(format!("Failed to parse LLM response JSON: {e}"))
+        })?;
 
         data.choices
             .into_iter()

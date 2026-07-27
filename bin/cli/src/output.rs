@@ -269,22 +269,36 @@ impl From<&Metrics> for MetricsDto {
             comment_lines: metrics.comment_lines(),
             comment_lines_density: metrics.comment_lines_density(),
             max_nesting_depth: metrics.max_nesting_depth(),
-            remediation_effort_by_rule: remediation_effort_by_rule_dto(metrics.remediation_effort()),
-            remediation_effort_by_component: remediation_effort_by_component_dto(metrics.remediation_effort()),
+            remediation_effort_by_rule: remediation_effort_by_rule_dto(
+                metrics.remediation_effort(),
+            ),
+            remediation_effort_by_component: remediation_effort_by_component_dto(
+                metrics.remediation_effort(),
+            ),
         }
     }
 }
 
 fn remediation_effort_by_rule_dto(effort: &RemediationEffortSummary) -> Vec<RuleEffortDto> {
-    let by_rule = effort.by_rule.iter().map(|(rule, minutes)| (rule.to_string(), *minutes)).collect();
+    let by_rule = effort
+        .by_rule
+        .iter()
+        .map(|(rule, minutes)| (rule.to_string(), *minutes))
+        .collect();
     sorted_effort(by_rule)
         .into_iter()
         .map(|(rule, minutes)| RuleEffortDto { rule, minutes })
         .collect()
 }
 
-fn remediation_effort_by_component_dto(effort: &RemediationEffortSummary) -> Vec<ComponentEffortDto> {
-    let by_component = effort.by_component.iter().map(|(c, m)| (c.clone(), *m)).collect();
+fn remediation_effort_by_component_dto(
+    effort: &RemediationEffortSummary,
+) -> Vec<ComponentEffortDto> {
+    let by_component = effort
+        .by_component
+        .iter()
+        .map(|(c, m)| (c.clone(), *m))
+        .collect();
     sorted_effort(by_component)
         .into_iter()
         .map(|(component, minutes)| ComponentEffortDto { component, minutes })
@@ -324,7 +338,11 @@ impl ReportDto {
             coverage: report.coverage().map(CoverageDto::from),
             test_report: test_report.map(TestReportDto::from),
             coverage_new_code,
-            duplications: report.duplications().iter().map(DuplicationDto::from).collect(),
+            duplications: report
+                .duplications()
+                .iter()
+                .map(DuplicationDto::from)
+                .collect(),
             metrics: MetricsDto::from(report.metrics()),
             context,
         }
@@ -431,14 +449,20 @@ fn render_coverage_text(out: &mut String, report: &AnalysisReport, coverage_new_
     if let Some(coverage) = report.coverage() {
         out.push_str(&format!(
             "Coverage: {} ({}/{} lines)\n",
-            coverage.percent().map(|p| format!("{p:.1}%")).unwrap_or_else(|| "n/a".to_string()),
+            coverage
+                .percent()
+                .map(|p| format!("{p:.1}%"))
+                .unwrap_or_else(|| "n/a".to_string()),
             coverage.covered_lines(),
             coverage.coverable_lines(),
         ));
         if coverage.coverable_branches() > 0 {
             out.push_str(&format!(
                 "Branch coverage: {} ({}/{} branches)\n",
-                coverage.percent_branches().map(|p| format!("{p:.1}%")).unwrap_or_else(|| "n/a".to_string()),
+                coverage
+                    .percent_branches()
+                    .map(|p| format!("{p:.1}%"))
+                    .unwrap_or_else(|| "n/a".to_string()),
                 coverage.covered_branches(),
                 coverage.coverable_branches(),
             ));
@@ -453,14 +477,23 @@ fn render_test_report_text(out: &mut String, test_report: Option<&TestReportSumm
     let Some(tests) = test_report else { return };
     out.push_str(&format!(
         "Tests: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
-        tests.total_tests, tests.passed_tests, tests.failed_tests, tests.skipped_tests, tests.errors,
+        tests.total_tests,
+        tests.passed_tests,
+        tests.failed_tests,
+        tests.skipped_tests,
+        tests.errors,
         tests.time_seconds,
     ));
     if tests.suites.len() > 1 {
         for suite in &tests.suites {
             out.push_str(&format!(
                 "  - {}: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
-                suite.name, suite.tests, suite.passed, suite.failures, suite.errors, suite.skipped,
+                suite.name,
+                suite.tests,
+                suite.passed,
+                suite.failures,
+                suite.errors,
+                suite.skipped,
                 suite.time_seconds,
             ));
         }
@@ -517,7 +550,10 @@ pub fn render_text(
     render_duplications_text(&mut out, report);
     render_coverage_text(&mut out, report, coverage_new_code);
     if let Some(new_code) = new_code {
-        out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
+        out.push_str(&format!(
+            "New issues since previous analysis: {}\n",
+            new_code.new_issues().len()
+        ));
     }
     render_test_report_text(&mut out, test_report);
     out.push_str(&format!("Health score: {}/100\n", report.health_score()));
@@ -575,7 +611,11 @@ fn render_agent_prompt_gate_conditions(out: &mut String, gate: &GateEvaluation) 
     }
 }
 
-pub fn render_agent_prompt(report: &AnalysisReport, gate: &GateEvaluation, scan_path: &str) -> String {
+pub fn render_agent_prompt(
+    report: &AnalysisReport,
+    gate: &GateEvaluation,
+    scan_path: &str,
+) -> String {
     let mut issues: Vec<&Issue> = report.issues().iter().collect();
     issues.sort_by(|a, b| {
         b.severity()
@@ -619,5 +659,12 @@ pub fn render_json(
     coverage_new_code: Option<f64>,
     context: ScanContextDto,
 ) -> serde_json::Result<String> {
-    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code, test_report, coverage_new_code, context))
+    serde_json::to_string_pretty(&ReportDto::build(
+        report,
+        gate,
+        new_code,
+        test_report,
+        coverage_new_code,
+        context,
+    ))
 }

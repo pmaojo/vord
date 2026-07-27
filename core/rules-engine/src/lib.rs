@@ -9,8 +9,8 @@ mod domain;
 mod gate_defaults;
 mod new_code;
 mod new_code_overrides;
-mod ports;
 pub mod portfolios;
+mod ports;
 mod project;
 mod rule;
 mod service;
@@ -23,8 +23,8 @@ pub use alm::{
     CommitStatusState, InvalidCommitShaError,
 };
 pub use alm_gateway::{
-    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, DecorationReceipt,
-    InlineComment, PrDecoration,
+    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, DecorationReceipt, InlineComment,
+    PrDecoration,
 };
 pub use branches::{Branch, BranchRef, PullRequest};
 
@@ -40,22 +40,20 @@ pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
 pub use new_code_overrides::{
     NewCodeOverride, OverrideScope, OverrideSource, resolve_new_code_definition,
 };
-pub use portfolios::{
-    PortfolioNode, PortfolioRollup, ProjectRollupInput,
-};
-pub use project::{
-    AnalysisContext, AnalysisScope, BranchName, InvalidBranchNameError, InvalidProjectKeyError,
-    InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,
-};
+pub use portfolios::{PortfolioNode, PortfolioRollup, ProjectRollupInput};
 pub use ports::{
     AnalysisCache, AstParser, CacheKey, CachedAnalysis, ComponentMeasures, ComponentTree,
     ComponentTreeReader, CoverageResultReader, CoverageResultSummary, CoverageStorage,
     FileBlameLineReader, FileBlameLineStorage, FileBlameLines, FileCoverageLineReader,
     FileCoverageLineStorage, FileCoverageLines, GateResultReader, GateResultSummary, HotspotReader,
     HotspotReview, HotspotStorage, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader,
-    IssueQuery, IssueFetcher, IssueReader, IssueScope, IssueStorage, IssueWorkflow, JobQueue,
+    IssueFetcher, IssueQuery, IssueReader, IssueScope, IssueStorage, IssueWorkflow, JobQueue,
     MeasureHistoryPoint, MeasureHistoryReader, MeasureStorage, MetricsTracker, Page, ParseError,
     QueueError, StorageError, WorkflowError,
+};
+pub use project::{
+    AnalysisContext, AnalysisScope, BranchName, InvalidBranchNameError, InvalidProjectKeyError,
+    InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,
 };
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 pub use structural_metrics::StructuralCounts;
@@ -63,15 +61,15 @@ pub use suppression::is_suppressed;
 pub use test_code::{LineRange, in_ranges, is_test_only_path, rust_test_module_ranges};
 
 // Re-export duplication vocabulary so consumers depend on one facade.
-pub use yunq_cpd::{BlockRef, DuplicateBlock, DuplicationConfig};
 pub use service::{AnalyzeError, AnalyzerService};
+pub use yunq_cpd::{BlockRef, DuplicateBlock, DuplicationConfig};
 
 // Re-export the quality model so consumers depend on one facade.
 pub use yunq_profiles::{
-    backup, compare, copy_profile, default_impact, restore, sonar_way, sonar_way_for_language,
     ComparisonOperator, Condition, ConditionResult, ConditionStatus, GateEvaluation, GateStatus,
     ImpactSeverity, InvalidMetricKeyError, InvalidRuleIdError, IssueType, MetricKey, ProfileBackup,
     ProfileDiff, QualityGate, QualityProfile, Rating, RemediationEffortSummary, RestoreError,
-    RestorePolicy, RuleId, Severity, SeverityDifference, SoftwareQuality, SoftwareQualityImpact,
-    SONAR_WAY_NAME,
+    RestorePolicy, RuleId, SONAR_WAY_NAME, Severity, SeverityDifference, SoftwareQuality,
+    SoftwareQualityImpact, backup, compare, copy_profile, default_impact, restore, sonar_way,
+    sonar_way_for_language,
 };

@@ -49,12 +49,14 @@ async fn apply_role_change(
             .map_err(storage_err)?;
         }
         None => {
-            sqlx::query("DELETE FROM project_permissions WHERE project_id = $1 AND user_login = $2")
-                .bind(project_id)
-                .bind(user_login)
-                .execute(tx)
-                .await
-                .map_err(storage_err)?;
+            sqlx::query(
+                "DELETE FROM project_permissions WHERE project_id = $1 AND user_login = $2",
+            )
+            .bind(project_id)
+            .bind(user_login)
+            .execute(tx)
+            .await
+            .map_err(storage_err)?;
         }
     }
     Ok(())

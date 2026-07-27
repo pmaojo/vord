@@ -41,5 +41,9 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
 /// OOP-smell rules need every file's classes at once so a superclass or a
 /// foreign-typed parameter declared in a different file still resolves.
 pub fn all_cross_rules() -> Vec<Box<dyn CrossFileRule>> {
-    vec![Box::new(GodClassRule::default()), Box::new(FeatureEnvyRule::default()), Box::new(RefusedBequestRule::new())]
+    vec![
+        Box::new(GodClassRule::default()),
+        Box::new(FeatureEnvyRule::default()),
+        Box::new(RefusedBequestRule::new()),
+    ]
 }

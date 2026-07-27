@@ -12,7 +12,10 @@ pub struct LongFunctionRule {
 
 impl LongFunctionRule {
     pub fn new(max_lines: u32) -> Self {
-        Self { id: RuleId::new("smells:long-function").expect("valid rule id"), max_lines }
+        Self {
+            id: RuleId::new("smells:long-function").expect("valid rule id"),
+            max_lines,
+        }
     }
 }
 

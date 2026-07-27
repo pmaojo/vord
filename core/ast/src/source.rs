@@ -30,7 +30,11 @@ impl SourceFile {
         if path.is_empty() || path.starts_with('/') {
             return Err(SourceFileError::InvalidPath(path));
         }
-        Ok(Self { path, content: content.into(), language })
+        Ok(Self {
+            path,
+            content: content.into(),
+            language,
+        })
     }
 
     pub fn path(&self) -> &str {
@@ -67,8 +71,12 @@ mod tests {
 
     #[test]
     fn counts_lines() {
-        let file = SourceFile::new("a.rs", "fn main() {}\nlet x = 1;\n", LanguageIdentifier::rust())
-            .unwrap();
+        let file = SourceFile::new(
+            "a.rs",
+            "fn main() {}\nlet x = 1;\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
         assert_eq!(file.line_count(), 2);
     }
 }

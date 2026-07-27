@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::extract::{Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Redirect};
 use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Redirect};
 
 use crate::auth::permissions::Caller;
-use rand::{rngs::OsRng, RngCore};
+use rand::{RngCore, rngs::OsRng};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -215,23 +215,24 @@ struct SessionRecord {
     expires_at_unix: u64,
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]    pub(crate) struct OAuthUserDto {
-        provider: String,
-        provider_user_id: String,
-        username: String,
-        name: Option<String>,
-        email: Option<String>,
-        avatar_url: Option<String>,
-        /// RBAC roles; see `Role`. Snapshot per session but persistent
-        /// across logins via the users store in `OAuthInner`.
-        #[serde(default = "default_roles")]
-        pub(crate) roles: Vec<Role>,
-    }
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct OAuthUserDto {
+    provider: String,
+    provider_user_id: String,
+    username: String,
+    name: Option<String>,
+    email: Option<String>,
+    avatar_url: Option<String>,
+    /// RBAC roles; see `Role`. Snapshot per session but persistent
+    /// across logins via the users store in `OAuthInner`.
+    #[serde(default = "default_roles")]
+    pub(crate) roles: Vec<Role>,
+}
 
-    #[allow(dead_code)]
-    fn default_roles() -> Vec<Role> {
-        vec![DEFAULT_NEW_USER_ROLE]
-    }
+#[allow(dead_code)]
+fn default_roles() -> Vec<Role> {
+    vec![DEFAULT_NEW_USER_ROLE]
+}
 
 #[derive(Serialize, ToSchema)]
 pub(crate) struct OAuthLoginDto {
@@ -315,7 +316,9 @@ struct GitHubEmail {
 
 /// The GitHub OAuth provider config, if `YUNQ_GITHUB_*` credentials are set.
 fn github_provider(public_url: &str) -> anyhow::Result<Option<(OAuthProvider, ProviderConfig)>> {
-    let Some((client_id, client_secret)) = credentials("YUNQ_GITHUB") else { return Ok(None) };
+    let Some((client_id, client_secret)) = credentials("YUNQ_GITHUB") else {
+        return Ok(None);
+    };
     let web_base = env_base_url("YUNQ_GITHUB_URL", "https://github.com")?;
     let api_base = env_base_url("YUNQ_GITHUB_API_URL", "https://api.github.com")?;
     Ok(Some((
@@ -336,7 +339,9 @@ fn github_provider(public_url: &str) -> anyhow::Result<Option<(OAuthProvider, Pr
 
 /// The GitLab OAuth provider config, if `YUNQ_GITLAB_*` credentials are set.
 fn gitlab_provider(public_url: &str) -> anyhow::Result<Option<(OAuthProvider, ProviderConfig)>> {
-    let Some((client_id, client_secret)) = credentials("YUNQ_GITLAB") else { return Ok(None) };
+    let Some((client_id, client_secret)) = credentials("YUNQ_GITLAB") else {
+        return Ok(None);
+    };
     let web_base = env_base_url("YUNQ_GITLAB_URL", "https://gitlab.com")?;
     Ok(Some((
         OAuthProvider::GitLab,
@@ -360,7 +365,10 @@ impl OAuthService {
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
         let public_url = public_url.trim_end_matches('/');
         let mut providers = HashMap::new();
-        for (key, config) in [github_provider(public_url)?, gitlab_provider(public_url)?].into_iter().flatten() {
+        for (key, config) in [github_provider(public_url)?, gitlab_provider(public_url)?]
+            .into_iter()
+            .flatten()
+        {
             providers.insert(key, config);
         }
 
@@ -399,13 +407,21 @@ impl OAuthService {
         }
         // First login: seed with the safe default and persist a clone.
         let mut users = self.inner.users.write().unwrap_or_else(|p| p.into_inner());
-        users.entry(key).or_insert_with(|| vec![DEFAULT_NEW_USER_ROLE]).clone()
+        users
+            .entry(key)
+            .or_insert_with(|| vec![DEFAULT_NEW_USER_ROLE])
+            .clone()
     }
 
     /// Replace the roles for a user. Admin-only operation; not exposed via
     /// HTTP yet — wired up in a follow-up TDD iteration.
     #[allow(dead_code)]
-    pub(crate) fn set_roles(&self, provider: &str, provider_user_id: &str, roles: Vec<Role>) -> Option<Vec<Role>> {
+    pub(crate) fn set_roles(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+        roles: Vec<Role>,
+    ) -> Option<Vec<Role>> {
         let key = UserKey {
             provider: provider.to_string(),
             provider_user_id: provider_user_id.to_string(),
@@ -439,7 +455,10 @@ impl OAuthService {
             );
         }
         authorization_url(config, &state).map_err(|error| {
-            auth_error(StatusCode::INTERNAL_SERVER_ERROR, format!("invalid OAuth configuration: {error}"))
+            auth_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("invalid OAuth configuration: {error}"),
+            )
         })
     }
 
@@ -451,7 +470,10 @@ impl OAuthService {
     ) -> Result<OAuthLoginDto, AuthError> {
         let pending = self.take_state(provider, state)?;
         let config = self.inner.providers.get(&provider).ok_or_else(|| {
-            auth_error(StatusCode::SERVICE_UNAVAILABLE, "OAuth provider is not configured")
+            auth_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "OAuth provider is not configured",
+            )
         })?;
         let provider_token = self.exchange_code(provider, config, code).await?;
         let user = self.fetch_user(provider, config, &provider_token).await?;
@@ -489,9 +511,17 @@ impl OAuthService {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(state)
-            .ok_or_else(|| auth_error(StatusCode::UNAUTHORIZED, "invalid or already used OAuth state"))?;
+            .ok_or_else(|| {
+                auth_error(
+                    StatusCode::UNAUTHORIZED,
+                    "invalid or already used OAuth state",
+                )
+            })?;
         if pending.provider != provider || pending.expires_at <= Instant::now() {
-            return Err(auth_error(StatusCode::UNAUTHORIZED, "expired or mismatched OAuth state"));
+            return Err(auth_error(
+                StatusCode::UNAUTHORIZED,
+                "expired or mismatched OAuth state",
+            ));
         }
         Ok(pending)
     }
@@ -518,19 +548,30 @@ impl OAuthService {
             request = request.header(header::ACCEPT, "application/json");
         }
         let response = request.send().await.map_err(|error| {
-            auth_error(StatusCode::BAD_GATEWAY, format!("OAuth token exchange failed: {error}"))
+            auth_error(
+                StatusCode::BAD_GATEWAY,
+                format!("OAuth token exchange failed: {error}"),
+            )
         })?;
         if !response.status().is_success() {
             return Err(auth_error(
                 StatusCode::BAD_GATEWAY,
-                format!("OAuth provider rejected the code with status {}", response.status()),
+                format!(
+                    "OAuth provider rejected the code with status {}",
+                    response.status()
+                ),
             ));
         }
         response
             .json::<TokenResponse>()
             .await
             .map(|token| token.access_token)
-            .map_err(|error| auth_error(StatusCode::BAD_GATEWAY, format!("invalid OAuth token response: {error}")))
+            .map_err(|error| {
+                auth_error(
+                    StatusCode::BAD_GATEWAY,
+                    format!("invalid OAuth token response: {error}"),
+                )
+            })
     }
 
     async fn fetch_user(
@@ -547,23 +588,49 @@ impl OAuthService {
             .header(header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|error| auth_error(StatusCode::BAD_GATEWAY, format!("OAuth profile request failed: {error}")))?;
+            .map_err(|error| {
+                auth_error(
+                    StatusCode::BAD_GATEWAY,
+                    format!("OAuth profile request failed: {error}"),
+                )
+            })?;
         if !response.status().is_success() {
             return Err(auth_error(
                 StatusCode::BAD_GATEWAY,
-                format!("OAuth profile request failed with status {}", response.status()),
+                format!(
+                    "OAuth profile request failed with status {}",
+                    response.status()
+                ),
             ));
         }
-        let profile = response.json::<ProviderUserResponse>().await.map_err(|error| {
-            auth_error(StatusCode::BAD_GATEWAY, format!("invalid OAuth profile response: {error}"))
-        })?;
-        let username = profile.login.or(profile.username).filter(|value| !value.is_empty()).ok_or_else(|| {
-            auth_error(StatusCode::BAD_GATEWAY, "OAuth profile did not include a username")
-        })?;
+        let profile = response
+            .json::<ProviderUserResponse>()
+            .await
+            .map_err(|error| {
+                auth_error(
+                    StatusCode::BAD_GATEWAY,
+                    format!("invalid OAuth profile response: {error}"),
+                )
+            })?;
+        let username = profile
+            .login
+            .or(profile.username)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                auth_error(
+                    StatusCode::BAD_GATEWAY,
+                    "OAuth profile did not include a username",
+                )
+            })?;
         let provider_user_id = match profile.id {
             Value::String(id) if !id.is_empty() => id,
             Value::Number(id) => id.to_string(),
-            _ => return Err(auth_error(StatusCode::BAD_GATEWAY, "OAuth profile did not include a valid id")),
+            _ => {
+                return Err(auth_error(
+                    StatusCode::BAD_GATEWAY,
+                    "OAuth profile did not include a valid id",
+                ));
+            }
         };
         let email = if profile.email.is_none() && provider == OAuthProvider::GitHub {
             self.fetch_github_email(config, provider_token).await
@@ -585,7 +652,11 @@ impl OAuthService {
         })
     }
 
-    async fn fetch_github_email(&self, config: &ProviderConfig, provider_token: &str) -> Option<String> {
+    async fn fetch_github_email(
+        &self,
+        config: &ProviderConfig,
+        provider_token: &str,
+    ) -> Option<String> {
         let url = config.email_url.as_ref()?;
         let response = self
             .inner
@@ -615,11 +686,17 @@ impl OAuthService {
             .and_then(|value| value.strip_prefix("Bearer "))
             .filter(|token| !token.is_empty())
             .ok_or_else(|| auth_error(StatusCode::UNAUTHORIZED, "missing bearer token"))?;
-        let sessions = self.inner.sessions.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let sessions = self
+            .inner
+            .sessions
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let session = sessions
             .get(token)
             .filter(|session| session.expires_at > Instant::now())
-            .ok_or_else(|| auth_error(StatusCode::UNAUTHORIZED, "invalid or expired bearer token"))?;
+            .ok_or_else(|| {
+                auth_error(StatusCode::UNAUTHORIZED, "invalid or expired bearer token")
+            })?;
         Ok(CurrentUserDto {
             user: session.user.clone(),
             session_expires_at: session.expires_at_unix,
@@ -669,11 +746,19 @@ pub(crate) fn random_token(bytes: usize) -> String {
 }
 
 fn unix_seconds() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 pub(crate) fn auth_error(status: StatusCode, message: impl Into<String>) -> AuthError {
-    (status, Json(AuthErrorDto { error: message.into() }))
+    (
+        status,
+        Json(AuthErrorDto {
+            error: message.into(),
+        }),
+    )
 }
 
 /// Defense-in-depth open-redirect protection. The frontend also validates;
@@ -706,10 +791,13 @@ fn sanitize_return_to(raw: &str) -> Option<String> {
 /// The token and return_to are percent-encoded so the fragment is safe even if
 /// the frontend URLSearchParams parser is strict.
 fn build_fragment_callback_url(token: &str, return_to: &str) -> String {
-    use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
+    use percent_encoding::{NON_ALPHANUMERIC, percent_encode};
     let token_enc = percent_encode(token.as_bytes(), NON_ALPHANUMERIC).to_string();
     let return_to_enc = percent_encode(return_to.as_bytes(), NON_ALPHANUMERIC).to_string();
-    format!("/auth/callback#token={}&returnTo={}", token_enc, return_to_enc)
+    format!(
+        "/auth/callback#token={}&returnTo={}",
+        token_enc, return_to_enc
+    )
 }
 
 /// Content negotiation: API clients send `Accept: application/json` and
@@ -719,7 +807,10 @@ fn build_fragment_callback_url(token: &str, return_to: &str) -> String {
 /// it up and store it in localStorage without ever exposing it to the
 /// server-side session layer.
 fn prefers_json_response(headers: &HeaderMap) -> bool {
-    let accept = headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let accept = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     accept.contains("application/json")
 }
 
@@ -788,8 +879,12 @@ pub(crate) async fn oauth_callback(
             query.error_description.unwrap_or(error),
         ));
     }
-    let code = query.code.ok_or_else(|| auth_error(StatusCode::BAD_REQUEST, "missing OAuth code"))?;
-    let oauth_state = query.state.ok_or_else(|| auth_error(StatusCode::BAD_REQUEST, "missing OAuth state"))?;
+    let code = query
+        .code
+        .ok_or_else(|| auth_error(StatusCode::BAD_REQUEST, "missing OAuth code"))?;
+    let oauth_state = query
+        .state
+        .ok_or_else(|| auth_error(StatusCode::BAD_REQUEST, "missing OAuth state"))?;
     match state.auth.complete(provider, &code, &oauth_state).await {
         Ok(login) => {
             state.metrics.oauth_succeeded();
@@ -924,7 +1019,11 @@ pub(crate) async fn local_login(
         .map_err(|_| auth_error(StatusCode::UNAUTHORIZED, "invalid credentials"))?;
     let (_pat, raw_token) = state
         .users
-        .create_pat(&user.id, "default-login", users::TokenScope::default_pat().to_vec())
+        .create_pat(
+            &user.id,
+            "default-login",
+            users::TokenScope::default_pat().to_vec(),
+        )
         .await
         .map_err(|_| auth_error(StatusCode::INTERNAL_SERVER_ERROR, "could not issue token"))?;
     Ok(Json(LocalLoginResponseDto {
@@ -969,7 +1068,11 @@ pub(crate) async fn create_pat(
         .map_err(|_| auth_error(StatusCode::NOT_FOUND, "user not found"))?;
     let (pat, raw_token) = state
         .users
-        .create_pat(&user.id, &request.label, users::TokenScope::default_pat().to_vec())
+        .create_pat(
+            &user.id,
+            &request.label,
+            users::TokenScope::default_pat().to_vec(),
+        )
         .await
         .map_err(|_| auth_error(StatusCode::INTERNAL_SERVER_ERROR, "could not create token"))?;
     Ok(Json(PatCreatedDto {
@@ -1004,18 +1107,31 @@ mod tests {
 
     fn extract_state(url: &str) -> String {
         let parsed = Url::parse(url).unwrap();
-        parsed.query_pairs().find(|(k, _)| k == "state").unwrap().1.into_owned()
+        parsed
+            .query_pairs()
+            .find(|(k, _)| k == "state")
+            .unwrap()
+            .1
+            .into_owned()
     }
 
     #[test]
     fn authorization_url_contains_encoded_redirect_scope_and_random_state() {
         let service = test_service();
-        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
+        let raw = service
+            .begin(OAuthProvider::GitHub, None)
+            .expect("configured provider");
         let url = Url::parse(&raw).expect("valid authorization URL");
         let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
 
-        assert_eq!(query.get("client_id").map(String::as_str), Some("client id"));
-        assert_eq!(query.get("scope").map(String::as_str), Some("read:user user:email"));
+        assert_eq!(
+            query.get("client_id").map(String::as_str),
+            Some("client id")
+        );
+        assert_eq!(
+            query.get("scope").map(String::as_str),
+            Some("read:user user:email")
+        );
         assert_eq!(
             query.get("redirect_uri").map(String::as_str),
             Some("https://yunq.example/api/auth/oauth/github/callback")
@@ -1026,11 +1142,21 @@ mod tests {
     #[test]
     fn state_is_provider_bound_and_single_use() {
         let service = test_service();
-        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
+        let raw = service
+            .begin(OAuthProvider::GitHub, None)
+            .expect("configured provider");
         let state = extract_state(&raw);
 
-        assert!(service.consume_state(OAuthProvider::GitLab, &state).is_err());
-        assert!(service.consume_state(OAuthProvider::GitHub, &state).is_err());
+        assert!(
+            service
+                .consume_state(OAuthProvider::GitLab, &state)
+                .is_err()
+        );
+        assert!(
+            service
+                .consume_state(OAuthProvider::GitHub, &state)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1061,7 +1187,9 @@ mod tests {
     #[test]
     fn begin_with_no_return_to_yields_none_in_state() {
         let service = test_service();
-        let raw = service.begin(OAuthProvider::GitHub, None).expect("configured provider");
+        let raw = service
+            .begin(OAuthProvider::GitHub, None)
+            .expect("configured provider");
         let state = extract_state(&raw);
 
         let pending = service
@@ -1073,7 +1201,9 @@ mod tests {
     #[test]
     fn take_state_rejects_wrong_provider_even_with_return_to() {
         let service = test_service();
-        let raw = service.begin(OAuthProvider::GitHub, Some("/admin")).expect("ok");
+        let raw = service
+            .begin(OAuthProvider::GitHub, Some("/admin"))
+            .expect("ok");
         let state = extract_state(&raw);
 
         assert!(service.take_state(OAuthProvider::GitLab, &state).is_err());
@@ -1138,7 +1268,10 @@ mod tests {
     fn build_fragment_url_url_encodes_special_chars_in_return_to() {
         let url = build_fragment_callback_url("tok", "/foo bar?x=1");
         // The `/` and `?` and `=` and ` ` must all be percent-encoded inside the fragment.
-        assert_eq!(url, "/auth/callback#token=tok&returnTo=%2Ffoo%20bar%3Fx%3D1");
+        assert_eq!(
+            url,
+            "/auth/callback#token=tok&returnTo=%2Ffoo%20bar%3Fx%3D1"
+        );
     }
 
     #[test]
@@ -1162,7 +1295,12 @@ mod tests {
     #[test]
     fn prefers_json_when_accept_includes_json_with_other_types() {
         let mut headers = HeaderMap::new();
-        headers.insert(header::ACCEPT, "text/html,application/json;q=0.9,*/*;q=0.5".parse().unwrap());
+        headers.insert(
+            header::ACCEPT,
+            "text/html,application/json;q=0.9,*/*;q=0.5"
+                .parse()
+                .unwrap(),
+        );
         assert!(prefers_json_response(&headers));
     }
 
@@ -1243,9 +1381,18 @@ mod tests {
     #[test]
     fn role_has_permission_shortcut_works() {
         assert!(role_has_permission(&[Role::Admin], Permission::AdminAccess));
-        assert!(!role_has_permission(&[Role::Viewer], Permission::SubmitAnalyses));
-        assert!(role_has_permission(&[Role::Scanner], Permission::SubmitAnalyses));
-        assert!(!role_has_permission(&[Role::Scanner], Permission::BrowseIssues));
+        assert!(!role_has_permission(
+            &[Role::Viewer],
+            Permission::SubmitAnalyses
+        ));
+        assert!(role_has_permission(
+            &[Role::Scanner],
+            Permission::SubmitAnalyses
+        ));
+        assert!(!role_has_permission(
+            &[Role::Scanner],
+            Permission::BrowseIssues
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -1263,7 +1410,10 @@ mod tests {
     fn subsequent_login_keeps_admin_granted_roles() {
         let service = test_service();
         // First sight: seeded with default.
-        assert_eq!(service.resolve_roles("github", "user-2"), vec![Role::Developer]);
+        assert_eq!(
+            service.resolve_roles("github", "user-2"),
+            vec![Role::Developer]
+        );
         // Admin grants additional role; replace_full.
         let previous = service.set_roles("github", "user-2", vec![Role::Admin, Role::Developer]);
         assert_eq!(previous, Some(vec![Role::Developer]));
@@ -1280,10 +1430,10 @@ mod tests {
         service.resolve_roles("github", "user-3");
         service.set_roles("github", "user-3", vec![Role::Admin]);
         // Same gitlab subject stays unaffected by the github grant.
-        assert_eq!(service.resolve_roles("gitlab", "user-3"), vec![Role::Developer]);
         assert_eq!(
-            service.resolve_roles("github", "user-3"),
-            vec![Role::Admin],
+            service.resolve_roles("gitlab", "user-3"),
+            vec![Role::Developer]
         );
+        assert_eq!(service.resolve_roles("github", "user-3"), vec![Role::Admin],);
     }
 }

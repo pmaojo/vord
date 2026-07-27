@@ -39,7 +39,8 @@ mod tests {
     }
 
     fn scratch_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("yunq-monorepo-test-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-monorepo-test-{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -48,8 +49,14 @@ mod tests {
     #[test]
     fn discovers_every_yunq_toml_under_the_root() {
         let root = scratch_dir("multi");
-        write(&root.join("services/api/yunq.toml"), "[project]\nkey = \"api\"\n");
-        write(&root.join("services/worker/yunq.toml"), "[project]\nkey = \"worker\"\n");
+        write(
+            &root.join("services/api/yunq.toml"),
+            "[project]\nkey = \"api\"\n",
+        );
+        write(
+            &root.join("services/worker/yunq.toml"),
+            "[project]\nkey = \"worker\"\n",
+        );
         write(&root.join("services/worker/src/main.rs"), "fn main() {}\n");
 
         let projects = discover_projects(&root);
@@ -65,7 +72,10 @@ mod tests {
     fn includes_the_root_itself_when_it_has_a_yunq_toml() {
         let root = scratch_dir("root-project");
         write(&root.join("yunq.toml"), "[project]\nkey = \"root\"\n");
-        write(&root.join("nested/yunq.toml"), "[project]\nkey = \"nested\"\n");
+        write(
+            &root.join("nested/yunq.toml"),
+            "[project]\nkey = \"nested\"\n",
+        );
 
         let projects = discover_projects(&root);
         assert_eq!(projects, vec![root.clone(), root.join("nested")]);
@@ -91,7 +101,10 @@ mod tests {
         // bare `.git` directory is enough to satisfy that.
         std::fs::create_dir_all(root.join(".git")).unwrap();
         write(&root.join(".gitignore"), "vendor/\n");
-        write(&root.join("vendor/dep/yunq.toml"), "[project]\nkey = \"dep\"\n");
+        write(
+            &root.join("vendor/dep/yunq.toml"),
+            "[project]\nkey = \"dep\"\n",
+        );
         write(&root.join("app/yunq.toml"), "[project]\nkey = \"app\"\n");
 
         assert_eq!(discover_projects(&root), vec![root.join("app")]);
@@ -102,9 +115,18 @@ mod tests {
     #[test]
     fn ignores_the_looser_dot_yunq_toml_and_sonar_properties_forms() {
         let root = scratch_dir("loose-config");
-        write(&root.join("legacy/.yunq.toml"), "[project]\nkey = \"legacy\"\n");
-        write(&root.join("legacy-sonar/sonar-project.properties"), "sonar.projectKey=old\n");
-        write(&root.join("explicit/yunq.toml"), "[project]\nkey = \"explicit\"\n");
+        write(
+            &root.join("legacy/.yunq.toml"),
+            "[project]\nkey = \"legacy\"\n",
+        );
+        write(
+            &root.join("legacy-sonar/sonar-project.properties"),
+            "sonar.projectKey=old\n",
+        );
+        write(
+            &root.join("explicit/yunq.toml"),
+            "[project]\nkey = \"explicit\"\n",
+        );
 
         assert_eq!(discover_projects(&root), vec![root.join("explicit")]);
 

@@ -107,7 +107,9 @@ impl<'a> ClassRegistry<'a> {
 fn build_class_info<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> {
     match node.kind() {
         NodeKind::Other(k) if k.as_ref() == "class_declaration" => Some(build_ts_class(node, file)),
-        NodeKind::Other(k) if k.as_ref() == "class_definition" => Some(build_python_class(node, file)),
+        NodeKind::Other(k) if k.as_ref() == "class_definition" => {
+            Some(build_python_class(node, file))
+        }
         NodeKind::Other(k) if k.as_ref() == "struct_item" => Some(build_rust_struct(node, file)),
         _ => None,
     }
@@ -127,7 +129,9 @@ fn simple_type_name(node: &AstNode) -> String {
 }
 
 fn first_identifier(node: &AstNode) -> Option<&AstNode> {
-    node.children().iter().find(|c| *c.kind() == NodeKind::Identifier)
+    node.children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::Identifier)
 }
 
 // ---- TypeScript ------------------------------------------------------
@@ -143,7 +147,12 @@ fn build_ts_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
         .children()
         .iter()
         .find(|c| is_other(c, "class_heritage"))
-        .and_then(|heritage| heritage.children().iter().find(|c| is_other(c, "extends_clause")))
+        .and_then(|heritage| {
+            heritage
+                .children()
+                .iter()
+                .find(|c| is_other(c, "extends_clause"))
+        })
         .and_then(|clause| clause.first_child())
         .map(simple_type_name);
     let body = node.children().iter().find(|c| is_other(c, "class_body"));
@@ -153,7 +162,10 @@ fn build_ts_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
     if let Some(body) = body {
         for member in body.children() {
             if *member.kind() == NodeKind::FunctionDef {
-                if let Some(name_node) = member.first_child().filter(|n| *n.kind() == NodeKind::Identifier) {
+                if let Some(name_node) = member
+                    .first_child()
+                    .filter(|n| *n.kind() == NodeKind::Identifier)
+                {
                     methods.push(MethodInfo {
                         name: name_node.text().to_string(),
                         params: ts_params(member),
@@ -161,7 +173,8 @@ fn build_ts_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
                         span: member.span(),
                     });
                 }
-            } else if matches!(member.kind(), NodeKind::Other(k) if k.as_ref().ends_with("field_definition")) {
+            } else if matches!(member.kind(), NodeKind::Other(k) if k.as_ref().ends_with("field_definition"))
+            {
                 if let Some(name_node) = first_identifier(member) {
                     fields.push(MemberInfo {
                         name: name_node.text().to_string(),
@@ -172,11 +185,22 @@ fn build_ts_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
             }
         }
     }
-    ClassInfo { name, file: file.to_string(), superclass, fields, methods, span: Some(node.span()) }
+    ClassInfo {
+        name,
+        file: file.to_string(),
+        superclass,
+        fields,
+        methods,
+        span: Some(node.span()),
+    }
 }
 
 fn ts_params(function: &AstNode) -> Vec<MemberInfo> {
-    let Some(wrapper) = function.children().iter().find(|c| is_other(c, "formal_parameters")) else {
+    let Some(wrapper) = function
+        .children()
+        .iter()
+        .find(|c| is_other(c, "formal_parameters"))
+    else {
         return Vec::new();
     };
     wrapper.children().iter().map(extract_param).collect()
@@ -188,10 +212,20 @@ fn ts_params(function: &AstNode) -> Vec<MemberInfo> {
 /// child is the bound name.
 fn extract_param(node: &AstNode) -> MemberInfo {
     if *node.kind() == NodeKind::Identifier {
-        return MemberInfo { name: node.text().to_string(), declared_type: None, span: node.span() };
+        return MemberInfo {
+            name: node.text().to_string(),
+            declared_type: None,
+            span: node.span(),
+        };
     }
-    let name = first_identifier(node).map(|n| n.text().to_string()).unwrap_or_default();
-    MemberInfo { name, declared_type: declared_type(node), span: node.span() }
+    let name = first_identifier(node)
+        .map(|n| n.text().to_string())
+        .unwrap_or_default();
+    MemberInfo {
+        name,
+        declared_type: declared_type(node),
+        span: node.span(),
+    }
 }
 
 // ---- Python ------------------------------------------------------------
@@ -199,7 +233,9 @@ fn extract_param(node: &AstNode) -> MemberInfo {
 const SELF_NAMES: &[&str] = &["self", "cls"];
 
 fn build_python_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
-    let name = first_identifier(node).map(|n| n.text().to_string()).unwrap_or_default();
+    let name = first_identifier(node)
+        .map(|n| n.text().to_string())
+        .unwrap_or_default();
     let superclass = node
         .children()
         .iter()
@@ -215,7 +251,10 @@ fn build_python_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
         for member in body.children() {
             match member.kind() {
                 NodeKind::FunctionDef => {
-                    if let Some(name_node) = member.first_child().filter(|n| *n.kind() == NodeKind::Identifier) {
+                    if let Some(name_node) = member
+                        .first_child()
+                        .filter(|n| *n.kind() == NodeKind::Identifier)
+                    {
                         methods.push(MethodInfo {
                             name: name_node.text().to_string(),
                             params: python_params(member),
@@ -234,10 +273,14 @@ fn build_python_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
                     let assignment = if *member.kind() == NodeKind::Assignment {
                         Some(member)
                     } else {
-                        member.first_child().filter(|c| *c.kind() == NodeKind::Assignment)
+                        member
+                            .first_child()
+                            .filter(|c| *c.kind() == NodeKind::Assignment)
                     };
                     if let Some(assignment) = assignment {
-                        if let Some(target) = assignment.first_child().filter(|n| *n.kind() == NodeKind::Identifier)
+                        if let Some(target) = assignment
+                            .first_child()
+                            .filter(|n| *n.kind() == NodeKind::Identifier)
                         {
                             if field_names.insert(target.text().to_string()) {
                                 fields.push(MemberInfo {
@@ -252,11 +295,22 @@ fn build_python_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
             }
         }
     }
-    ClassInfo { name, file: file.to_string(), superclass, fields, methods, span: Some(node.span()) }
+    ClassInfo {
+        name,
+        file: file.to_string(),
+        superclass,
+        fields,
+        methods,
+        span: Some(node.span()),
+    }
 }
 
 fn python_params(function: &AstNode) -> Vec<MemberInfo> {
-    let Some(wrapper) = function.children().iter().find(|c| is_other(c, "parameters")) else {
+    let Some(wrapper) = function
+        .children()
+        .iter()
+        .find(|c| is_other(c, "parameters"))
+    else {
         return Vec::new();
     };
     wrapper
@@ -275,8 +329,13 @@ fn collect_self_attrs(
     fields: &mut Vec<MemberInfo>,
     seen: &mut std::collections::BTreeSet<String>,
 ) {
-    for assignment in method.descendants().filter(|n| *n.kind() == NodeKind::Assignment) {
-        let Some(target) = assignment.first_child() else { continue };
+    for assignment in method
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::Assignment)
+    {
+        let Some(target) = assignment.first_child() else {
+            continue;
+        };
         if *target.kind() != NodeKind::MemberAccess {
             continue;
         }
@@ -287,7 +346,11 @@ fn collect_self_attrs(
         }
         let Some(prop) = parts.next() else { continue };
         if *prop.kind() == NodeKind::Identifier && seen.insert(prop.text().to_string()) {
-            fields.push(MemberInfo { name: prop.text().to_string(), declared_type: None, span: prop.span() });
+            fields.push(MemberInfo {
+                name: prop.text().to_string(),
+                declared_type: None,
+                span: prop.span(),
+            });
         }
     }
 }
@@ -319,7 +382,14 @@ fn build_rust_struct<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
                 .collect()
         })
         .unwrap_or_default();
-    ClassInfo { name, file: file.to_string(), superclass: None, fields, methods: Vec::new(), span: Some(node.span()) }
+    ClassInfo {
+        name,
+        file: file.to_string(),
+        superclass: None,
+        fields,
+        methods: Vec::new(),
+        span: Some(node.span()),
+    }
 }
 
 /// A type expression node's base type name: a bare `type_identifier` as-is,
@@ -330,10 +400,14 @@ fn build_rust_struct<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
 fn impl_type_name(node: &AstNode) -> Option<String> {
     match node.kind() {
         NodeKind::Other(k) if k.as_ref() == "type_identifier" => Some(node.text().to_string()),
-        NodeKind::Other(k) if k.as_ref() == "generic_type" => {
-            node.children().iter().find(|c| is_other(c, "type_identifier")).map(|c| c.text().to_string())
+        NodeKind::Other(k) if k.as_ref() == "generic_type" => node
+            .children()
+            .iter()
+            .find(|c| is_other(c, "type_identifier"))
+            .map(|c| c.text().to_string()),
+        NodeKind::Other(k) if k.as_ref() == "reference_type" => {
+            node.children().iter().find_map(impl_type_name)
         }
-        NodeKind::Other(k) if k.as_ref() == "reference_type" => node.children().iter().find_map(impl_type_name),
         _ => None,
     }
 }
@@ -342,7 +416,11 @@ fn impl_type_name(node: &AstNode) -> Option<String> {
 /// block's concrete methods (function items with a body — trait method
 /// *signatures* with no default body are skipped, they have nothing to
 /// inspect) to the already-registered struct `Foo`.
-fn attach_rust_impls<'a>(ast: &'a AstNode, _file: &str, classes: &mut BTreeMap<String, ClassInfo<'a>>) {
+fn attach_rust_impls<'a>(
+    ast: &'a AstNode,
+    _file: &str,
+    classes: &mut BTreeMap<String, ClassInfo<'a>>,
+) {
     for impl_node in ast.descendants().filter(|n| is_other(n, "impl_item")) {
         // `impl Foo` → [Foo]; `impl Trait for Foo` → [Trait, Foo]; `impl<T>
         // Foo<T>` → [Foo<T>] (a `generic_type`, not a bare `type_identifier`,
@@ -350,16 +428,32 @@ fn attach_rust_impls<'a>(ast: &'a AstNode, _file: &str, classes: &mut BTreeMap<S
         // type is the last type-expression child, in declaration order (the
         // `type_parameters`/`where_clause`/`declaration_list` siblings never
         // match `impl_type_name`, so they don't interfere).
-        let type_names: Vec<&AstNode> =
-            impl_node.children().iter().filter(|c| impl_type_name(c).is_some()).collect();
-        let Some(target_name) = type_names.last().and_then(|n| impl_type_name(n)) else { continue };
-        let Some(class) = classes.get_mut(&target_name) else { continue };
-        let Some(decls) = impl_node.children().iter().find(|c| is_other(c, "declaration_list")) else { continue };
+        let type_names: Vec<&AstNode> = impl_node
+            .children()
+            .iter()
+            .filter(|c| impl_type_name(c).is_some())
+            .collect();
+        let Some(target_name) = type_names.last().and_then(|n| impl_type_name(n)) else {
+            continue;
+        };
+        let Some(class) = classes.get_mut(&target_name) else {
+            continue;
+        };
+        let Some(decls) = impl_node
+            .children()
+            .iter()
+            .find(|c| is_other(c, "declaration_list"))
+        else {
+            continue;
+        };
         for member in decls.children() {
             if *member.kind() != NodeKind::FunctionDef {
                 continue;
             }
-            let Some(name_node) = member.first_child().filter(|n| *n.kind() == NodeKind::Identifier) else {
+            let Some(name_node) = member
+                .first_child()
+                .filter(|n| *n.kind() == NodeKind::Identifier)
+            else {
                 continue;
             };
             if class.methods.iter().any(|m| m.name == name_node.text()) {
@@ -376,7 +470,11 @@ fn attach_rust_impls<'a>(ast: &'a AstNode, _file: &str, classes: &mut BTreeMap<S
 }
 
 fn rust_params(function: &AstNode) -> Vec<MemberInfo> {
-    let Some(wrapper) = function.children().iter().find(|c| is_other(c, "parameters")) else {
+    let Some(wrapper) = function
+        .children()
+        .iter()
+        .find(|c| is_other(c, "parameters"))
+    else {
         return Vec::new();
     };
     wrapper
@@ -395,7 +493,9 @@ mod tests {
 
     fn parse_ts(code: &str) -> AstNode {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     fn parse_rust(code: &str) -> AstNode {
@@ -405,7 +505,9 @@ mod tests {
 
     fn parse_py(code: &str) -> AstNode {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+        yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     #[test]
@@ -422,7 +524,10 @@ mod tests {
         assert_eq!(foo.methods.len(), 1);
         assert_eq!(foo.methods[0].name, "method");
         assert_eq!(foo.methods[0].params[0].name, "a");
-        assert_eq!(foo.methods[0].params[0].declared_type.as_deref(), Some("Other"));
+        assert_eq!(
+            foo.methods[0].params[0].declared_type.as_deref(),
+            Some("Other")
+        );
     }
 
     #[test]
@@ -491,8 +596,10 @@ mod tests {
     #[test]
     fn cross_file_registry_merges_impls_from_other_files() {
         let struct_file = parse_rust("struct Foo { x: i32 }\n");
-        let impl_file = parse_rust("impl Foo {\n    fn bar(&self) -> i32 {\n        self.x\n    }\n}\n");
-        let registry = ClassRegistry::build_cross_file(&[("s.rs", &struct_file), ("i.rs", &impl_file)]);
+        let impl_file =
+            parse_rust("impl Foo {\n    fn bar(&self) -> i32 {\n        self.x\n    }\n}\n");
+        let registry =
+            ClassRegistry::build_cross_file(&[("s.rs", &struct_file), ("i.rs", &impl_file)]);
         let foo = registry.get("Foo").unwrap();
         assert_eq!(foo.methods.len(), 1);
         assert_eq!(foo.methods[0].name, "bar");

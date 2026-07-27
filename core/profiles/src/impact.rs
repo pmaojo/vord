@@ -128,7 +128,10 @@ pub fn default_impact(issue_type: IssueType, severity: Severity) -> SoftwareQual
         IssueType::Vulnerability => SoftwareQuality::Security,
         IssueType::CodeSmell => SoftwareQuality::Maintainability,
     };
-    SoftwareQualityImpact { quality, severity: ImpactSeverity::from_severity(severity) }
+    SoftwareQualityImpact {
+        quality,
+        severity: ImpactSeverity::from_severity(severity),
+    }
 }
 
 #[cfg(test)]
@@ -137,11 +140,26 @@ mod tests {
 
     #[test]
     fn severity_migration_matches_sonarqube_table() {
-        assert_eq!(ImpactSeverity::from_severity(Severity::Info), ImpactSeverity::Info);
-        assert_eq!(ImpactSeverity::from_severity(Severity::Minor), ImpactSeverity::Low);
-        assert_eq!(ImpactSeverity::from_severity(Severity::Major), ImpactSeverity::Medium);
-        assert_eq!(ImpactSeverity::from_severity(Severity::Critical), ImpactSeverity::High);
-        assert_eq!(ImpactSeverity::from_severity(Severity::Blocker), ImpactSeverity::Blocker);
+        assert_eq!(
+            ImpactSeverity::from_severity(Severity::Info),
+            ImpactSeverity::Info
+        );
+        assert_eq!(
+            ImpactSeverity::from_severity(Severity::Minor),
+            ImpactSeverity::Low
+        );
+        assert_eq!(
+            ImpactSeverity::from_severity(Severity::Major),
+            ImpactSeverity::Medium
+        );
+        assert_eq!(
+            ImpactSeverity::from_severity(Severity::Critical),
+            ImpactSeverity::High
+        );
+        assert_eq!(
+            ImpactSeverity::from_severity(Severity::Blocker),
+            ImpactSeverity::Blocker
+        );
     }
 
     #[test]
@@ -154,26 +172,43 @@ mod tests {
     fn default_impact_maps_each_classic_type_to_its_own_quality() {
         assert_eq!(
             default_impact(IssueType::Bug, Severity::Critical),
-            SoftwareQualityImpact { quality: SoftwareQuality::Reliability, severity: ImpactSeverity::High }
+            SoftwareQualityImpact {
+                quality: SoftwareQuality::Reliability,
+                severity: ImpactSeverity::High
+            }
         );
         assert_eq!(
             default_impact(IssueType::Vulnerability, Severity::Blocker),
-            SoftwareQualityImpact { quality: SoftwareQuality::Security, severity: ImpactSeverity::Blocker }
+            SoftwareQualityImpact {
+                quality: SoftwareQuality::Security,
+                severity: ImpactSeverity::Blocker
+            }
         );
         assert_eq!(
             default_impact(IssueType::CodeSmell, Severity::Minor),
-            SoftwareQualityImpact { quality: SoftwareQuality::Maintainability, severity: ImpactSeverity::Low }
+            SoftwareQualityImpact {
+                quality: SoftwareQuality::Maintainability,
+                severity: ImpactSeverity::Low
+            }
         );
     }
 
     #[test]
     fn parses_and_displays_round_trip() {
-        for quality in [SoftwareQuality::Maintainability, SoftwareQuality::Reliability, SoftwareQuality::Security] {
+        for quality in [
+            SoftwareQuality::Maintainability,
+            SoftwareQuality::Reliability,
+            SoftwareQuality::Security,
+        ] {
             assert_eq!(SoftwareQuality::parse(&quality.to_string()), Some(quality));
         }
-        for severity in
-            [ImpactSeverity::Info, ImpactSeverity::Low, ImpactSeverity::Medium, ImpactSeverity::High, ImpactSeverity::Blocker]
-        {
+        for severity in [
+            ImpactSeverity::Info,
+            ImpactSeverity::Low,
+            ImpactSeverity::Medium,
+            ImpactSeverity::High,
+            ImpactSeverity::Blocker,
+        ] {
             assert_eq!(ImpactSeverity::parse(&severity.to_string()), Some(severity));
         }
     }

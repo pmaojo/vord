@@ -8,25 +8,32 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use yunq_infra_postgres::{CompareProfileError, CopyProfileError, RestoreProfileError};
 use yunq_rules_engine::{ProfileBackup, ProfileDiff, RuleId, Severity};
 
-use crate::auth::permissions::{is_allowed, Caller};
-use crate::auth::Permission;
 use crate::AppState;
+use crate::auth::Permission;
+use crate::auth::permissions::{Caller, is_allowed};
 
 fn actor_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    state.auth.authenticate(headers).ok().map(|user| user.username().to_string())
+    state
+        .auth
+        .authenticate(headers)
+        .ok()
+        .map(|user| user.username().to_string())
 }
 
 fn forbidden(permission: Permission) -> (StatusCode, String) {
-    (StatusCode::FORBIDDEN, format!("missing permission: {permission:?}"))
+    (
+        StatusCode::FORBIDDEN,
+        format!("missing permission: {permission:?}"),
+    )
 }
 
 /// One rule activation as `(rule id, severity)`, both stringified — the
@@ -42,7 +49,10 @@ pub(crate) struct ActivationDto {
 fn activations_to_dto(activations: &[(String, String)]) -> Vec<ActivationDto> {
     activations
         .iter()
-        .map(|(rule, severity)| ActivationDto { rule: rule.clone(), severity: severity.clone() })
+        .map(|(rule, severity)| ActivationDto {
+            rule: rule.clone(),
+            severity: severity.clone(),
+        })
         .collect()
 }
 
@@ -127,10 +137,16 @@ pub(crate) async fn compare_quality_profiles(
     if !is_allowed(&caller, Permission::ManageProfiles) {
         return Err(forbidden(Permission::ManageProfiles));
     }
-    let diff = state.ops.compare_profiles(query.a, query.b).await.map_err(|e| match e {
-        CompareProfileError::NotFound(not_found) => (StatusCode::NOT_FOUND, not_found.to_string()),
-        CompareProfileError::Storage(storage) => (StatusCode::BAD_GATEWAY, storage.to_string()),
-    })?;
+    let diff = state
+        .ops
+        .compare_profiles(query.a, query.b)
+        .await
+        .map_err(|e| match e {
+            CompareProfileError::NotFound(not_found) => {
+                (StatusCode::NOT_FOUND, not_found.to_string())
+            }
+            CompareProfileError::Storage(storage) => (StatusCode::BAD_GATEWAY, storage.to_string()),
+        })?;
     Ok(Json(diff.into()))
 }
 
@@ -177,10 +193,14 @@ pub(crate) async fn copy_quality_profile(
         return Err(forbidden(Permission::ManageProfiles));
     }
     let actor = actor_from_headers(&state, &headers);
-    let after = state.ops.copy_profile(name.clone(), request.new_name.clone()).await.map_err(|e| match e {
-        CopyProfileError::NotFound(not_found) => (StatusCode::NOT_FOUND, not_found.to_string()),
-        CopyProfileError::Storage(storage) => (StatusCode::BAD_GATEWAY, storage.to_string()),
-    })?;
+    let after = state
+        .ops
+        .copy_profile(name.clone(), request.new_name.clone())
+        .await
+        .map_err(|e| match e {
+            CopyProfileError::NotFound(not_found) => (StatusCode::NOT_FOUND, not_found.to_string()),
+            CopyProfileError::Storage(storage) => (StatusCode::BAD_GATEWAY, storage.to_string()),
+        })?;
 
     state
         .ops
@@ -195,7 +215,10 @@ pub(crate) async fn copy_quality_profile(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(ProfileSnapshotDto { name: request.new_name, activations: activations_to_dto(&after) }))
+    Ok(Json(ProfileSnapshotDto {
+        name: request.new_name,
+        activations: activations_to_dto(&after),
+    }))
 }
 
 /// Portable backup format: a profile's name, its own (non-inherited)
@@ -217,11 +240,15 @@ fn activation_dtos_to_core(
     activations
         .iter()
         .map(|a| {
-            let rule = RuleId::new(&a.rule).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            let rule =
+                RuleId::new(&a.rule).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             let severity = Severity::parse(&a.severity).ok_or_else(|| {
                 (
                     StatusCode::BAD_REQUEST,
-                    format!("invalid severity {:?} (info|minor|major|critical|blocker)", a.severity),
+                    format!(
+                        "invalid severity {:?} (info|minor|major|critical|blocker)",
+                        a.severity
+                    ),
                 )
             })?;
             Ok((rule, severity))
@@ -257,7 +284,12 @@ pub(crate) async fn backup_quality_profile(
         .read_profile(name.clone())
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("no quality profile named {name:?}")))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("no quality profile named {name:?}"),
+            )
+        })?;
 
     let backup = yunq_rules_engine::backup(&profile);
     Ok(Json(ProfileBackupDto {
@@ -324,10 +356,14 @@ pub(crate) async fn restore_quality_profile(
     };
     let actor = actor_from_headers(&state, &headers);
 
-    let after = state.ops.restore_profile(backup, query.force).await.map_err(|e| match e {
-        RestoreProfileError::Conflict(conflict) => (StatusCode::CONFLICT, conflict.to_string()),
-        RestoreProfileError::Storage(storage) => (StatusCode::BAD_GATEWAY, storage.to_string()),
-    })?;
+    let after = state
+        .ops
+        .restore_profile(backup, query.force)
+        .await
+        .map_err(|e| match e {
+            RestoreProfileError::Conflict(conflict) => (StatusCode::CONFLICT, conflict.to_string()),
+            RestoreProfileError::Storage(storage) => (StatusCode::BAD_GATEWAY, storage.to_string()),
+        })?;
 
     state
         .ops
@@ -342,7 +378,10 @@ pub(crate) async fn restore_quality_profile(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    Ok(Json(ProfileSnapshotDto { name: request.name, activations: activations_to_dto(&after) }))
+    Ok(Json(ProfileSnapshotDto {
+        name: request.name,
+        activations: activations_to_dto(&after),
+    }))
 }
 
 #[cfg(test)]
@@ -351,13 +390,19 @@ mod tests {
 
     #[test]
     fn activation_dtos_to_core_rejects_an_invalid_severity() {
-        let dtos = vec![ActivationDto { rule: "owasp:eval-usage".to_string(), severity: "urgent".to_string() }];
+        let dtos = vec![ActivationDto {
+            rule: "owasp:eval-usage".to_string(),
+            severity: "urgent".to_string(),
+        }];
         assert!(activation_dtos_to_core(&dtos).is_err());
     }
 
     #[test]
     fn activation_dtos_to_core_rejects_an_invalid_rule_id() {
-        let dtos = vec![ActivationDto { rule: "not-namespaced".to_string(), severity: "major".to_string() }];
+        let dtos = vec![ActivationDto {
+            rule: "not-namespaced".to_string(),
+            severity: "major".to_string(),
+        }];
         assert!(activation_dtos_to_core(&dtos).is_err());
     }
 }

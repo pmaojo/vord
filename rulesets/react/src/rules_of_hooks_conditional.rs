@@ -38,7 +38,10 @@ fn branch_terminates(node: &AstNode) -> bool {
 /// the same block only runs when `cond` was false, so it's reached
 /// conditionally too — the textbook "early return before a Hook" violation.
 fn is_early_return_guard(if_node: &AstNode) -> bool {
-    let has_else = if_node.children().iter().any(|c| is_other(c, "else_clause"));
+    let has_else = if_node
+        .children()
+        .iter()
+        .any(|c| is_other(c, "else_clause"));
     !has_else && if_node.children().get(1).is_some_and(branch_terminates)
 }
 
@@ -65,7 +68,11 @@ fn walk_block(node: &AstNode, conditional: bool, findings: &mut Vec<Finding>) {
         if *child.kind() == NodeKind::FunctionDef {
             continue;
         }
-        walk(child, conditional || after_return || is_conditional_kind(child), findings);
+        walk(
+            child,
+            conditional || after_return || is_conditional_kind(child),
+            findings,
+        );
         if is_other(child, "return_statement")
             || is_other(child, "throw_statement")
             || (is_other(child, "if_statement") && is_early_return_guard(child))
@@ -101,7 +108,9 @@ pub struct RulesOfHooksConditionalRule {
 
 impl RulesOfHooksConditionalRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:rules-of-hooks-conditional").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:rules-of-hooks-conditional").expect("valid rule id"),
+        }
     }
 }
 
@@ -156,7 +165,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         RulesOfHooksConditionalRule::new().check(&file, &ast)
     }
 

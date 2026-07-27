@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
-use yunq_profiles::{default_impact, IssueType, RuleId, Severity, SoftwareQualityImpact};
+use yunq_profiles::{IssueType, RuleId, Severity, SoftwareQualityImpact, default_impact};
 
 /// Whether a detection is a definite problem (issue) or security-sensitive
 /// code that needs human review (hotspot).
@@ -21,11 +21,19 @@ pub struct Finding {
 
 impl Finding {
     pub fn new(message: impl Into<String>, span: Span) -> Self {
-        Self { message: message.into(), span, kind: FindingKind::Issue }
+        Self {
+            message: message.into(),
+            span,
+            kind: FindingKind::Issue,
+        }
     }
 
     pub fn hotspot(message: impl Into<String>, span: Span) -> Self {
-        Self { message: message.into(), span, kind: FindingKind::Hotspot }
+        Self {
+            message: message.into(),
+            span,
+            kind: FindingKind::Hotspot,
+        }
     }
 }
 

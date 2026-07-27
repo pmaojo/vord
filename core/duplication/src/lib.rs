@@ -108,7 +108,10 @@ fn statements(file: &TokenizedFile) -> Vec<Statement> {
         .map(|(line_number, text)| {
             let mut hasher = DefaultHasher::new();
             text.hash(&mut hasher);
-            Statement { line_number: *line_number, hash: hasher.finish() }
+            Statement {
+                line_number: *line_number,
+                hash: hasher.finish(),
+            }
         })
         .collect()
 }
@@ -161,8 +164,14 @@ fn chunk_blocks(statements: &[Statement], block_size: usize) -> Vec<Block> {
 
     let mut blocks = Vec::with_capacity(statements.len() - block_size + 1);
     for (first, last) in ((block_size - 1)..statements.len()).enumerate() {
-        hash = hash.wrapping_mul(PRIME_BASE).wrapping_add(statements[last].hash);
-        blocks.push(Block { stmt_start: first, stmt_end: last, hash });
+        hash = hash
+            .wrapping_mul(PRIME_BASE)
+            .wrapping_add(statements[last].hash);
+        blocks.push(Block {
+            stmt_start: first,
+            stmt_end: last,
+            hash,
+        });
         // Remove the outgoing statement from the rolling hash.
         hash = hash.wrapping_sub(power.wrapping_mul(statements[first].hash));
     }
@@ -176,7 +185,10 @@ fn build_hash_index(per_file_blocks: &[Vec<Block>]) -> HashMap<u64, Vec<(usize, 
     let mut index: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
     for (file_index, blocks) in per_file_blocks.iter().enumerate() {
         for (block_index, block) in blocks.iter().enumerate() {
-            index.entry(block.hash).or_default().push((file_index, block_index));
+            index
+                .entry(block.hash)
+                .or_default()
+                .push((file_index, block_index));
         }
     }
     index
@@ -198,7 +210,10 @@ fn record_pair(
     let (file_a, idx_a) = a;
     let (file_b, idx_b) = b;
     let delta = idx_b as isize - idx_a as isize;
-    matches.entry((file_a, file_b, delta)).or_default().insert(idx_b);
+    matches
+        .entry((file_a, file_b, delta))
+        .or_default()
+        .insert(idx_b);
 }
 
 fn group_matches_by_delta(
@@ -211,8 +226,11 @@ fn group_matches_by_delta(
         }
         for i in 0..locations.len() {
             for j in (i + 1)..locations.len() {
-                let (a, b) =
-                    if locations[i] <= locations[j] { (locations[i], locations[j]) } else { (locations[j], locations[i]) };
+                let (a, b) = if locations[i] <= locations[j] {
+                    (locations[i], locations[j])
+                } else {
+                    (locations[j], locations[i])
+                };
                 record_pair(&mut matches, a, b);
             }
         }
@@ -289,15 +307,23 @@ fn record_duplicate_run(
         end_line: stmts_b[block_b_end.stmt_end].line_number,
     };
     let lines = (second.end_line - second.start_line + 1) as usize;
-    DuplicateBlock { first, second, lines }
+    DuplicateBlock {
+        first,
+        second,
+        lines,
+    }
 }
 
 pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> DuplicationReport {
     let block_size = config.block_size.max(2);
-    let per_file_statements: Vec<Vec<Statement>> =
-        files.iter().map(|f| collapse_repeats(statements(f))).collect();
-    let per_file_blocks: Vec<Vec<Block>> =
-        per_file_statements.iter().map(|s| chunk_blocks(s, block_size)).collect();
+    let per_file_statements: Vec<Vec<Statement>> = files
+        .iter()
+        .map(|f| collapse_repeats(statements(f)))
+        .collect();
+    let per_file_blocks: Vec<Vec<Block>> = per_file_statements
+        .iter()
+        .map(|s| chunk_blocks(s, block_size))
+        .collect();
 
     let index = build_hash_index(&per_file_blocks);
     let matches = group_matches_by_delta(&index);
@@ -320,7 +346,10 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
         }
     }
 
-    DuplicationReport { blocks: blocks_out, duplicated_lines: duplicated.len() }
+    DuplicationReport {
+        blocks: blocks_out,
+        duplicated_lines: duplicated.len(),
+    }
 }
 
 #[cfg(test)]
@@ -331,16 +360,23 @@ mod tests {
 
     fn file(path: &str, content: &str) -> TokenizedFile {
         let source = SourceFile::new(path, content, LanguageIdentifier::rust()).unwrap();
-        TokenizedFile { path: source.path().to_string(), lines: fallback_tokenize(&source) }
+        TokenizedFile {
+            path: source.path().to_string(),
+            lines: fallback_tokenize(&source),
+        }
     }
 
     fn block_body(prefix: &str) -> String {
-        (0..6).map(|i| format!("    let {prefix}_{i} = compute({i});\n")).collect()
+        (0..6)
+            .map(|i| format!("    let {prefix}_{i} = compute({i});\n"))
+            .collect()
     }
 
     #[test]
     fn detects_cross_file_duplicates_and_merges_windows() {
-        let shared: String = (0..8).map(|i| format!("    total += weights[{i}] * {i};\n")).collect();
+        let shared: String = (0..8)
+            .map(|i| format!("    total += weights[{i}] * {i};\n"))
+            .collect();
         let a = format!("fn a() {{\n{shared}}}\n");
         let b = format!("fn b() {{\n\n{shared}}}\n");
         let files = [file("a.rs", &a), file("b.rs", &b)];
@@ -389,7 +425,9 @@ mod tests {
 
     #[test]
     fn three_way_duplicate_is_reported_pairwise_across_all_files() {
-        let shared: String = (0..6).map(|i| format!("    acc += items[{i}];\n")).collect();
+        let shared: String = (0..6)
+            .map(|i| format!("    acc += items[{i}];\n"))
+            .collect();
         let files = [
             file("a.rs", &format!("fn a() {{\n{shared}}}\n")),
             file("b.rs", &format!("fn b() {{\n{shared}}}\n")),
@@ -410,8 +448,14 @@ mod tests {
         let body: Vec<(u32, String)> = (0..6)
             .map(|i| (i + 2, format!("total += weights [ {i} ] * LIT ;")))
             .collect();
-        let a = TokenizedFile { path: "a.rs".into(), lines: body.clone() };
-        let b = TokenizedFile { path: "b.rs".into(), lines: body };
+        let a = TokenizedFile {
+            path: "a.rs".into(),
+            lines: body.clone(),
+        };
+        let b = TokenizedFile {
+            path: "b.rs".into(),
+            lines: body,
+        };
         let report = find_duplicates(&[a, b], DuplicationConfig { block_size: 5 });
         assert_eq!(report.blocks.len(), 1);
         assert_eq!(report.blocks[0].lines, 6);

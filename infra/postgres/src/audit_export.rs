@@ -131,13 +131,19 @@ impl ObjectStore for S3ObjectStore {
         // inputs and returns success — suitable for testing the export pipeline
         // without a real S3 endpoint.
         if bucket.is_empty() {
-            return Err(ObjectStoreError::Permanent("bucket name cannot be empty".to_string()));
+            return Err(ObjectStoreError::Permanent(
+                "bucket name cannot be empty".to_string(),
+            ));
         }
         if key.is_empty() {
-            return Err(ObjectStoreError::Permanent("key cannot be empty".to_string()));
+            return Err(ObjectStoreError::Permanent(
+                "key cannot be empty".to_string(),
+            ));
         }
         if bytes.is_empty() {
-            return Err(ObjectStoreError::Permanent("body cannot be empty".to_string()));
+            return Err(ObjectStoreError::Permanent(
+                "body cannot be empty".to_string(),
+            ));
         }
         // When aws-sdk-s3 is wired:
         // let s3 = self.client().downcast_ref::<aws_sdk_s3::Client>()
@@ -162,7 +168,10 @@ pub struct AuditExporter<O: ObjectStore> {
 
 impl<O: ObjectStore> AuditExporter<O> {
     pub fn new(store: O) -> Self {
-        Self { store, checkpoint: 0 }
+        Self {
+            store,
+            checkpoint: 0,
+        }
     }
 
     /// Export `chain` to `options.destination`, returning the receipt.
@@ -188,14 +197,26 @@ impl<O: ObjectStore> AuditExporter<O> {
         let mut body = ndjson.into_bytes();
         let content_encoding = if options.gzip {
             use std::io::Write;
-            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-            encoder.write_all(&body).map_err(|e| AuditExportError::Compression(e.to_string()))?;
-            body = encoder.finish().map_err(|e| AuditExportError::Compression(e.to_string()))?;
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder
+                .write_all(&body)
+                .map_err(|e| AuditExportError::Compression(e.to_string()))?;
+            body = encoder
+                .finish()
+                .map_err(|e| AuditExportError::Compression(e.to_string()))?;
             Some("gzip")
         } else {
             None
         };
-        self.store.put_object(&options.destination.bucket, &key, body.clone(), content_encoding).await?;
+        self.store
+            .put_object(
+                &options.destination.bucket,
+                &key,
+                body.clone(),
+                content_encoding,
+            )
+            .await?;
         let mut objects = vec![S3ObjectRef {
             bucket: options.destination.bucket.clone(),
             key: key.clone(),
@@ -210,11 +231,25 @@ impl<O: ObjectStore> AuditExporter<O> {
                 tip_hash: entries.last().map(|e| e.hash).unwrap_or([0u8; 32]),
                 first_sequence,
                 last_sequence,
-                sha256_of_entries: sha256_of_entries(&entries.iter().map(|e| (*e).clone()).collect::<Vec<_>>()),
+                sha256_of_entries: sha256_of_entries(
+                    &entries.iter().map(|e| (*e).clone()).collect::<Vec<_>>(),
+                ),
             };
-            let proof_json = serde_json::to_vec(&proof).map_err(|e| AuditExportError::Compression(e.to_string()))?;
-            let proof_key = format!("{}/{}/chain_proof.json", options.destination.key_prefix, date.format("%Y-%m-%d"));
-            self.store.put_object(&options.destination.bucket, &proof_key, proof_json.clone(), None).await?;
+            let proof_json = serde_json::to_vec(&proof)
+                .map_err(|e| AuditExportError::Compression(e.to_string()))?;
+            let proof_key = format!(
+                "{}/{}/chain_proof.json",
+                options.destination.key_prefix,
+                date.format("%Y-%m-%d")
+            );
+            self.store
+                .put_object(
+                    &options.destination.bucket,
+                    &proof_key,
+                    proof_json.clone(),
+                    None,
+                )
+                .await?;
             objects.push(S3ObjectRef {
                 bucket: options.destination.bucket.clone(),
                 key: proof_key,
@@ -236,13 +271,18 @@ impl<O: ObjectStore> AuditExporter<O> {
 
 /// Build the partition key for a given date + sequence window.
 /// Format: `<prefix>/YYYY-MM-DD/entries.ndjson[.gz]`.
-pub fn partition_key(
-    destination: &S3Destination,
-    date: NaiveDate,
-    gzip: bool,
-) -> String {
-    let suffix = if gzip { "entries.ndjson.gz" } else { "entries.ndjson" };
-    format!("{}/{}/{}", destination.key_prefix, date.format("%Y-%m-%d"), suffix)
+pub fn partition_key(destination: &S3Destination, date: NaiveDate, gzip: bool) -> String {
+    let suffix = if gzip {
+        "entries.ndjson.gz"
+    } else {
+        "entries.ndjson"
+    };
+    format!(
+        "{}/{}/{}",
+        destination.key_prefix,
+        date.format("%Y-%m-%d"),
+        suffix
+    )
 }
 
 /// Build the SHA-256 over the raw NDJSON bytes (one entry per line).
@@ -503,7 +543,10 @@ mod tests {
         }
         let r2 = exporter.export(&chain, opts).await.unwrap();
         assert!(r1.last_sequence >= r2.first_sequence);
-        assert_eq!(r2.first_sequence, 5, "after removing 5 entries, first remaining has sequence 5");
+        assert_eq!(
+            r2.first_sequence, 5,
+            "after removing 5 entries, first remaining has sequence 5"
+        );
         assert_eq!(r1.checkpoint_sequence, 9);
         assert_eq!(r2.checkpoint_sequence, 9);
     }

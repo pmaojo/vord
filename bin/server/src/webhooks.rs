@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -133,14 +133,21 @@ type WebhookError = (StatusCode, Json<WebhookErrorDto>);
 
 impl WebhookDispatcher {
     pub(crate) fn from_env(metrics: Metrics) -> anyhow::Result<Self> {
-        let max_attempts = env_number("YUNQ_WEBHOOK_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS).clamp(1, 10);
-        let retry_base_ms = env_number("YUNQ_WEBHOOK_RETRY_BASE_MS", DEFAULT_RETRY_BASE_MS).clamp(10, 60_000);
+        let max_attempts =
+            env_number("YUNQ_WEBHOOK_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS).clamp(1, 10);
+        let retry_base_ms =
+            env_number("YUNQ_WEBHOOK_RETRY_BASE_MS", DEFAULT_RETRY_BASE_MS).clamp(10, 60_000);
         let client = reqwest::Client::builder()
             .user_agent(concat!("yunq-webhooks/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
-        Ok(Self::new(client, metrics, max_attempts, Duration::from_millis(retry_base_ms)))
+        Ok(Self::new(
+            client,
+            metrics,
+            max_attempts,
+            Duration::from_millis(retry_base_ms),
+        ))
     }
 
     fn new(
@@ -172,7 +179,10 @@ impl WebhookDispatcher {
             ));
         }
         if request.events.is_empty() {
-            return Err(webhook_error(StatusCode::BAD_REQUEST, "at least one event is required"));
+            return Err(webhook_error(
+                StatusCode::BAD_REQUEST,
+                "at least one event is required",
+            ));
         }
         let events: HashSet<_> = request
             .events
@@ -208,16 +218,26 @@ impl WebhookDispatcher {
 
     /// The webhook(s) `request` targets: the one named by `webhook_id`, or
     /// every registration subscribed to `request.event` when none is given.
-    fn resolve_webhooks(&self, request: &DispatchWebhookDto) -> Result<Vec<WebhookRegistration>, WebhookError> {
-        let registrations = self.inner.registrations.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    fn resolve_webhooks(
+        &self,
+        request: &DispatchWebhookDto,
+    ) -> Result<Vec<WebhookRegistration>, WebhookError> {
+        let registrations = self
+            .inner
+            .registrations
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(webhook_id) = request.webhook_id.as_ref() {
-            let webhook = registrations
-                .get(webhook_id)
-                .cloned()
-                .ok_or_else(|| webhook_error(StatusCode::NOT_FOUND, "webhook registration not found"))?;
+            let webhook = registrations.get(webhook_id).cloned().ok_or_else(|| {
+                webhook_error(StatusCode::NOT_FOUND, "webhook registration not found")
+            })?;
             Ok(vec![webhook])
         } else {
-            Ok(registrations.values().filter(|webhook| webhook.events.contains(&request.event)).cloned().collect())
+            Ok(registrations
+                .values()
+                .filter(|webhook| webhook.events.contains(&request.event))
+                .cloned()
+                .collect())
         }
     }
 
@@ -229,7 +249,10 @@ impl WebhookDispatcher {
         request: &DispatchWebhookDto,
     ) -> Result<QueuedDeliveryDto, WebhookError> {
         if !webhook.events.contains(&request.event) {
-            return Err(webhook_error(StatusCode::BAD_REQUEST, "target webhook is not subscribed to this event"));
+            return Err(webhook_error(
+                StatusCode::BAD_REQUEST,
+                "target webhook is not subscribed to this event",
+            ));
         }
         let delivery_id = crate::auth::random_token(16);
         let body = serde_json::to_vec(&serde_json::json!({
@@ -247,13 +270,24 @@ impl WebhookDispatcher {
         };
         self.inner.sender.send(job).await.map_err(|_| {
             self.inner.metrics.webhook_queue_error();
-            webhook_error(StatusCode::SERVICE_UNAVAILABLE, "webhook dispatcher is unavailable")
+            webhook_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "webhook dispatcher is unavailable",
+            )
         })?;
         self.inner.metrics.webhook_queued();
-        Ok(QueuedDeliveryDto { delivery_id, webhook_id: webhook.id, event: request.event.clone(), status: "queued" })
+        Ok(QueuedDeliveryDto {
+            delivery_id,
+            webhook_id: webhook.id,
+            event: request.event.clone(),
+            status: "queued",
+        })
     }
 
-    async fn dispatch(&self, request: DispatchWebhookDto) -> Result<Vec<QueuedDeliveryDto>, WebhookError> {
+    async fn dispatch(
+        &self,
+        request: DispatchWebhookDto,
+    ) -> Result<Vec<QueuedDeliveryDto>, WebhookError> {
         validate_event(&request.event)?;
         let webhooks = self.resolve_webhooks(&request)?;
 
@@ -271,7 +305,10 @@ impl WebhookDispatcher {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .iter()
             .filter(|attempt| {
-                query.delivery_id.as_ref().is_none_or(|id| attempt.delivery_id == *id)
+                query
+                    .delivery_id
+                    .as_ref()
+                    .is_none_or(|id| attempt.delivery_id == *id)
             })
             .take(query.limit.min(1_000))
             .cloned()
@@ -312,14 +349,27 @@ async fn send_delivery_attempt(inner: &DispatcherInner, job: &DeliveryJob) -> At
         .await;
     let elapsed = started.elapsed();
     let (success, retryable, http_status, error) = match response {
-        Ok(response) if response.status().is_success() => (true, false, Some(response.status().as_u16()), None),
+        Ok(response) if response.status().is_success() => {
+            (true, false, Some(response.status().as_u16()), None)
+        }
         Ok(response) => {
             let status = response.status();
-            (false, is_retryable_status(status), Some(status.as_u16()), Some(format!("endpoint returned {status}")))
+            (
+                false,
+                is_retryable_status(status),
+                Some(status.as_u16()),
+                Some(format!("endpoint returned {status}")),
+            )
         }
         Err(error) => (false, true, None, Some(error.to_string())),
     };
-    AttemptOutcome { success, retryable, http_status, error, elapsed }
+    AttemptOutcome {
+        success,
+        retryable,
+        http_status,
+        error,
+        elapsed,
+    }
 }
 
 async fn deliver_with_retries(inner: &DispatcherInner, job: DeliveryJob) {
@@ -366,13 +416,18 @@ async fn deliver_with_retries(inner: &DispatcherInner, job: DeliveryJob) {
 }
 
 fn record_attempt(inner: &DispatcherInner, attempt: WebhookAttemptDto) {
-    let mut attempts = inner.attempts.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut attempts = inner
+        .attempts
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     attempts.push_front(attempt);
     attempts.truncate(DELIVERY_LOG_CAPACITY);
 }
 
 fn retry_delay(base: Duration, failed_attempt: u32) -> Duration {
-    let multiplier = 1_u32.checked_shl(failed_attempt.saturating_sub(1)).unwrap_or(u32::MAX);
+    let multiplier = 1_u32
+        .checked_shl(failed_attempt.saturating_sub(1))
+        .unwrap_or(u32::MAX);
     base.saturating_mul(multiplier).min(Duration::from_secs(60))
 }
 
@@ -383,7 +438,8 @@ fn is_retryable_status(status: StatusCode) -> bool {
 }
 
 fn sign_payload(secret: &str, body: &[u8]) -> String {
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts all key lengths");
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts all key lengths");
     mac.update(body);
     let digest = mac.finalize().into_bytes();
     let mut signature = String::from("sha256=");
@@ -415,9 +471,9 @@ fn validate_target_url(raw: &str) -> Result<(), WebhookError> {
 fn validate_event(event: &str) -> Result<(), WebhookError> {
     let valid = !event.is_empty()
         && event.len() <= 100
-        && event
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte));
+        && event.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
+        });
     if valid {
         Ok(())
     } else {
@@ -429,14 +485,22 @@ fn validate_event(event: &str) -> Result<(), WebhookError> {
 }
 
 fn webhook_error(status: StatusCode, message: impl Into<String>) -> WebhookError {
-    (status, Json(WebhookErrorDto { error: message.into() }))
+    (
+        status,
+        Json(WebhookErrorDto {
+            error: message.into(),
+        }),
+    )
 }
 
 fn env_number<T>(name: &str, default: T) -> T
 where
     T: std::str::FromStr + Copy,
 {
-    std::env::var(name).ok().and_then(|value| value.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
 }
 
 fn unix_millis() -> u64 {
@@ -468,10 +532,14 @@ pub(crate) async fn create_webhook(
     headers: HeaderMap,
     Json(request): Json<CreateWebhookDto>,
 ) -> Result<(StatusCode, Json<WebhookDto>), WebhookError> {
-    state.auth.authenticate(&headers).map_err(|(status, Json(error))| {
-        webhook_error(status, error.error)
-    })?;
-    state.webhooks.register(request).map(|hook| (StatusCode::CREATED, Json(hook)))
+    state
+        .auth
+        .authenticate(&headers)
+        .map_err(|(status, Json(error))| webhook_error(status, error.error))?;
+    state
+        .webhooks
+        .register(request)
+        .map(|hook| (StatusCode::CREATED, Json(hook)))
 }
 
 /// List webhook subscriptions without exposing their signing secrets.
@@ -488,9 +556,10 @@ pub(crate) async fn list_webhooks(
     State(state): State<Arc<crate::AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<WebhookDto>>, WebhookError> {
-    state.auth.authenticate(&headers).map_err(|(status, Json(error))| {
-        webhook_error(status, error.error)
-    })?;
+    state
+        .auth
+        .authenticate(&headers)
+        .map_err(|(status, Json(error))| webhook_error(status, error.error))?;
     Ok(Json(state.webhooks.list()))
 }
 
@@ -513,9 +582,10 @@ pub(crate) async fn dispatch_webhook(
     headers: HeaderMap,
     Json(request): Json<DispatchWebhookDto>,
 ) -> Result<(StatusCode, Json<Vec<QueuedDeliveryDto>>), WebhookError> {
-    state.auth.authenticate(&headers).map_err(|(status, Json(error))| {
-        webhook_error(status, error.error)
-    })?;
+    state
+        .auth
+        .authenticate(&headers)
+        .map_err(|(status, Json(error))| webhook_error(status, error.error))?;
     state
         .webhooks
         .dispatch(request)
@@ -539,9 +609,10 @@ pub(crate) async fn webhook_delivery_log(
     headers: HeaderMap,
     Query(query): Query<DeliveryLogQuery>,
 ) -> Result<Json<Vec<WebhookAttemptDto>>, WebhookError> {
-    state.auth.authenticate(&headers).map_err(|(status, Json(error))| {
-        webhook_error(status, error.error)
-    })?;
+    state
+        .auth
+        .authenticate(&headers)
+        .map_err(|(status, Json(error))| webhook_error(status, error.error))?;
     Ok(Json(state.webhooks.logs(query)))
 }
 

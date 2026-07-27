@@ -16,8 +16,8 @@ use std::sync::RwLock;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::permissions::CallerPermissions;
 use crate::auth::Role;
+use crate::auth::permissions::CallerPermissions;
 
 /// Local user record. Passwords are never stored — only the Argon2id hash
 /// with a per-user salt.
@@ -26,7 +26,7 @@ pub struct LocalUser {
     pub id: String,
     pub username: String,
     pub email: String,
-    pub password_hash: String,  // argon2id $argon2id$v=19$...
+    pub password_hash: String, // argon2id $argon2id$v=19$...
     pub active: bool,
     pub created_at: u64,
 }
@@ -38,7 +38,7 @@ pub struct PersonalAccessToken {
     pub id: String,
     pub user_id: String,
     pub label: String,
-    pub token_hash: String,  // sha256 of the raw token; raw never stored
+    pub token_hash: String, // sha256 of the raw token; raw never stored
     pub created_at: u64,
     pub expires_at: Option<u64>,
     pub revoked_at: Option<u64>,
@@ -250,7 +250,10 @@ impl UserStore for InMemoryUserStore {
         Box::pin(async move {
             let lower = username.to_lowercase();
             {
-                let by_username = self.users_by_username.read().unwrap_or_else(|p| p.into_inner());
+                let by_username = self
+                    .users_by_username
+                    .read()
+                    .unwrap_or_else(|p| p.into_inner());
                 if by_username.contains_key(&lower) {
                     return Err(UserStoreError::DuplicateUsername);
                 }
@@ -267,7 +270,10 @@ impl UserStore for InMemoryUserStore {
             };
             {
                 let mut users = self.users.write().unwrap_or_else(|p| p.into_inner());
-                let mut by_username = self.users_by_username.write().unwrap_or_else(|p| p.into_inner());
+                let mut by_username = self
+                    .users_by_username
+                    .write()
+                    .unwrap_or_else(|p| p.into_inner());
                 users.insert(id, user.clone());
                 by_username.insert(lower, user.id.clone());
             }
@@ -281,7 +287,10 @@ impl UserStore for InMemoryUserStore {
         password: &'a str,
     ) -> BoxFuture<'a, Result<LocalUser, UserStoreError>> {
         Box::pin(async move {
-            let by_username = self.users_by_username.read().unwrap_or_else(|p| p.into_inner());
+            let by_username = self
+                .users_by_username
+                .read()
+                .unwrap_or_else(|p| p.into_inner());
             let user_id = by_username
                 .get(&username.to_lowercase())
                 .cloned()
@@ -289,7 +298,10 @@ impl UserStore for InMemoryUserStore {
             drop(by_username);
 
             let users = self.users.read().unwrap_or_else(|p| p.into_inner());
-            let user = users.get(&user_id).cloned().ok_or(UserStoreError::Internal)?;
+            let user = users
+                .get(&user_id)
+                .cloned()
+                .ok_or(UserStoreError::Internal)?;
             drop(users);
 
             if !user.active || !Self::verify_password(&user.password_hash, password) {
@@ -342,7 +354,10 @@ impl UserStore for InMemoryUserStore {
             let token_hash = Self::hash_token(token);
             let pats = self.pats.read().unwrap_or_else(|p| p.into_inner());
             let token_id = pats_by_hash_lookup(&pats, &self.pats_by_hash, &token_hash)?;
-            let pat = pats.get(&token_id).cloned().ok_or(UserStoreError::Internal)?;
+            let pat = pats
+                .get(&token_id)
+                .cloned()
+                .ok_or(UserStoreError::Internal)?;
             drop(pats);
 
             if pat.revoked_at.is_some() {
@@ -355,7 +370,10 @@ impl UserStore for InMemoryUserStore {
             }
 
             let users = self.users.read().unwrap_or_else(|p| p.into_inner());
-            let user = users.get(&pat.user_id).cloned().ok_or(UserStoreError::Internal)?;
+            let user = users
+                .get(&pat.user_id)
+                .cloned()
+                .ok_or(UserStoreError::Internal)?;
             drop(users);
 
             Ok(CallerPermissions {
@@ -403,7 +421,10 @@ impl UserStore for InMemoryUserStore {
         username: &'a str,
     ) -> BoxFuture<'a, Result<LocalUser, UserStoreError>> {
         Box::pin(async move {
-            let by_username = self.users_by_username.read().unwrap_or_else(|p| p.into_inner());
+            let by_username = self
+                .users_by_username
+                .read()
+                .unwrap_or_else(|p| p.into_inner());
             let user_id = by_username
                 .get(&username.to_lowercase())
                 .cloned()
@@ -422,7 +443,10 @@ fn pats_by_hash_lookup(
     token_hash: &str,
 ) -> Result<String, UserStoreError> {
     let by_hash = pats_by_hash.read().unwrap_or_else(|p| p.into_inner());
-    by_hash.get(token_hash).cloned().ok_or(UserStoreError::InvalidCredentials)
+    by_hash
+        .get(token_hash)
+        .cloned()
+        .ok_or(UserStoreError::InvalidCredentials)
 }
 
 #[cfg(test)]
@@ -432,11 +456,17 @@ mod tests {
     #[tokio::test]
     async fn user_store_round_trip() {
         let store = InMemoryUserStore::new();
-        let user = store.create_user("alice", "alice@example.com", "password123").await.unwrap();
+        let user = store
+            .create_user("alice", "alice@example.com", "password123")
+            .await
+            .unwrap();
         assert_eq!(user.username, "alice");
         assert!(user.password_hash.starts_with("sha256:"));
 
-        let auth = store.authenticate_local("alice", "password123").await.unwrap();
+        let auth = store
+            .authenticate_local("alice", "password123")
+            .await
+            .unwrap();
         assert_eq!(auth.username, "alice");
 
         let wrong = store.authenticate_local("alice", "wrong").await;
@@ -446,16 +476,27 @@ mod tests {
     #[tokio::test]
     async fn duplicate_username_is_rejected() {
         let store = InMemoryUserStore::new();
-        store.create_user("alice", "a@example.com", "password123").await.unwrap();
-        let result = store.create_user("alice", "b@example.com", "password123").await;
+        store
+            .create_user("alice", "a@example.com", "password123")
+            .await
+            .unwrap();
+        let result = store
+            .create_user("alice", "b@example.com", "password123")
+            .await;
         assert_eq!(result, Err(UserStoreError::DuplicateUsername));
     }
 
     #[tokio::test]
     async fn pat_authenticates_and_revokes() {
         let store = InMemoryUserStore::new();
-        let user = store.create_user("bob", "bob@example.com", "password123").await.unwrap();
-        let (pat, raw) = store.create_pat(&user.id, "laptop", TokenScope::default_pat().to_vec()).await.unwrap();
+        let user = store
+            .create_user("bob", "bob@example.com", "password123")
+            .await
+            .unwrap();
+        let (pat, raw) = store
+            .create_pat(&user.id, "laptop", TokenScope::default_pat().to_vec())
+            .await
+            .unwrap();
         assert!(pat.token_hash.starts_with("sha256:"));
 
         let caller = store.authenticate_pat(&raw).await.unwrap();
@@ -528,7 +569,7 @@ mod tests {
             service_account: "ci-scanner".to_string(),
             token_hash: "sha256:...".to_string(),
             created_at: 1_700_000_000_000,
-            expires_at: None,  // service tokens are typically non-expiring
+            expires_at: None, // service tokens are typically non-expiring
             revoked_at: None,
             scopes: TokenScope::default_service().to_vec(),
         };
@@ -538,7 +579,13 @@ mod tests {
 
     #[test]
     fn scope_serializes_snake_case_for_jwt_and_db() {
-        assert_eq!(serde_json::to_string(&TokenScope::ScanSubmit).unwrap(), "\"scan_submit\"");
-        assert_eq!(serde_json::to_string(&TokenScope::AdminWrite).unwrap(), "\"admin_write\"");
+        assert_eq!(
+            serde_json::to_string(&TokenScope::ScanSubmit).unwrap(),
+            "\"scan_submit\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TokenScope::AdminWrite).unwrap(),
+            "\"admin_write\""
+        );
     }
 }

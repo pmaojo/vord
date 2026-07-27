@@ -48,7 +48,11 @@ impl AuditLogQuery {
     }
 
     pub fn normalized_page_size(&self) -> usize {
-        if self.page_size == 0 { 50 } else { self.page_size.clamp(1, 500) }
+        if self.page_size == 0 {
+            50
+        } else {
+            self.page_size.clamp(1, 500)
+        }
     }
 
     pub fn offset(&self) -> usize {
@@ -58,13 +62,21 @@ impl AuditLogQuery {
 
 fn push_audit_filters<'a>(builder: &mut QueryBuilder<'a, Postgres>, query: &'a AuditLogQuery) {
     if let Some(entity_type) = &query.entity_type {
-        builder.push(" AND entity_type = ").push_bind(entity_type.as_str());
+        builder
+            .push(" AND entity_type = ")
+            .push_bind(entity_type.as_str());
     }
     if let Some(from) = &query.from {
-        builder.push(" AND created_at >= ").push_bind(from.as_str()).push("::timestamptz");
+        builder
+            .push(" AND created_at >= ")
+            .push_bind(from.as_str())
+            .push("::timestamptz");
     }
     if let Some(to) = &query.to {
-        builder.push(" AND created_at <= ").push_bind(to.as_str()).push("::timestamptz");
+        builder
+            .push(" AND created_at <= ")
+            .push_bind(to.as_str())
+            .push("::timestamptz");
     }
 }
 
@@ -118,8 +130,11 @@ impl PgIssueStorage {
     ) -> Result<Page<AuditLogEntry>, StorageError> {
         let mut count = QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM audit_log WHERE 1=1");
         push_audit_filters(&mut count, query);
-        let total: i64 =
-            count.build_query_scalar().fetch_one(&self.pool).await.map_err(storage_err)?;
+        let total: i64 = count
+            .build_query_scalar()
+            .fetch_one(&self.pool)
+            .await
+            .map_err(storage_err)?;
 
         let mut select = QueryBuilder::<Postgres>::new(
             "SELECT id, actor_user_id, action, entity_type, entity_id, before, after,
@@ -132,10 +147,17 @@ impl PgIssueStorage {
             .push_bind(query.normalized_page_size() as i64)
             .push(" OFFSET ")
             .push_bind(query.offset() as i64);
-        let rows = select.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let rows = select
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_err)?;
 
         Ok(Page {
-            items: rows.iter().map(audit_entry_from_row).collect::<Result<_, _>>()?,
+            items: rows
+                .iter()
+                .map(audit_entry_from_row)
+                .collect::<Result<_, _>>()?,
             page: query.normalized_page(),
             page_size: query.normalized_page_size(),
             total: total as usize,
@@ -157,13 +179,20 @@ mod tests {
 
     #[test]
     fn page_size_is_capped_at_five_hundred() {
-        let query = AuditLogQuery { page_size: 10_000, ..Default::default() };
+        let query = AuditLogQuery {
+            page_size: 10_000,
+            ..Default::default()
+        };
         assert_eq!(query.normalized_page_size(), 500);
     }
 
     #[test]
     fn offset_advances_by_page_size() {
-        let query = AuditLogQuery { page: 3, page_size: 20, ..Default::default() };
+        let query = AuditLogQuery {
+            page: 3,
+            page_size: 20,
+            ..Default::default()
+        };
         assert_eq!(query.offset(), 40);
     }
 }

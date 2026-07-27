@@ -14,18 +14,18 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use futures::future::BoxFuture;
 use serde::Serialize;
 use utoipa::ToSchema;
 use yunq_infra_postgres::{FailedJob, PgIssueStorage, QueueStatus};
 use yunq_rules_engine::QueueError;
 
-use crate::auth::permissions::{is_allowed, Caller};
-use crate::auth::Permission;
 use crate::AppState;
+use crate::auth::Permission;
+use crate::auth::permissions::{Caller, is_allowed};
 
 /// Object-safe HTTP-facing adapter over `PgIssueStorage::queue_status` —
 /// same "one trait per composition-root need" pattern as `OpsStore`/
@@ -82,7 +82,11 @@ impl From<QueueStatus> for QueueStatusDto {
             processing: status.processing,
             dead: status.dead,
             oldest_pending_age_seconds: status.oldest_pending_age_seconds,
-            recent_failures: status.recent_failures.iter().map(FailedJobDto::from).collect(),
+            recent_failures: status
+                .recent_failures
+                .iter()
+                .map(FailedJobDto::from)
+                .collect(),
         }
     }
 }
@@ -105,7 +109,10 @@ pub(crate) async fn queue_status(
     Caller(caller): Caller,
 ) -> Result<Json<QueueStatusDto>, (StatusCode, String)> {
     if !is_allowed(&caller, Permission::AdminAccess) {
-        return Err((StatusCode::FORBIDDEN, format!("missing permission: {:?}", Permission::AdminAccess)));
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!("missing permission: {:?}", Permission::AdminAccess),
+        ));
     }
     let status = state
         .queue_diagnostics

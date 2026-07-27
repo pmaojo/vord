@@ -47,7 +47,9 @@ async fn main() -> anyhow::Result<()> {
     // rarer than, scan-job throughput.
     tokio::spawn(run_housekeeping_loop(gate_storage.clone()));
     println!("yunq-worker consuming scan jobs");
-    consumer.listen(|job| handle_job(&service, &gate_storage, job)).await?;
+    consumer
+        .listen(|job| handle_job(&service, &gate_storage, job))
+        .await?;
     Ok(())
 }
 
@@ -107,11 +109,12 @@ where
         .chain(yunq_rules_rust::all_rules())
         .chain(yunq_rules_reactive::all_rules())
         .collect();
-    let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> = yunq_rules_owasp::all_cross_rules()
-        .into_iter()
-        .chain(yunq_rules_architecture::all_cross_rules())
-        .chain(yunq_rules_smells::all_cross_rules())
-        .collect();
+    let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> =
+        yunq_rules_owasp::all_cross_rules()
+            .into_iter()
+            .chain(yunq_rules_architecture::all_cross_rules())
+            .chain(yunq_rules_smells::all_cross_rules())
+            .collect();
     let profile = yunq_rules_engine::sonar_way();
     let mut service = AnalyzerService::new(profile, storage, metrics)
         .register_parser(Box::new(TypeScriptParser::new()))
@@ -145,15 +148,24 @@ async fn resolve_scan_scope(gate_storage: &PgIssueStorage, job: &ScanJob) -> Iss
         }
     };
 
-    let analysis_id = match gate_storage.record_analysis_pending(project_id, DEFAULT_BRANCH).await {
+    let analysis_id = match gate_storage
+        .record_analysis_pending(project_id, DEFAULT_BRANCH)
+        .await
+    {
         Ok(id) => Some(id),
         Err(e) => {
-            eprintln!("warning: could not pre-record analysis for {}: {e}", job.project());
+            eprintln!(
+                "warning: could not pre-record analysis for {}: {e}",
+                job.project()
+            );
             None
         }
     };
 
-    IssueScope { project_id: Some(project_id), analysis_id }
+    IssueScope {
+        project_id: Some(project_id),
+        analysis_id,
+    }
 }
 
 /// Evaluates the project's assigned gate (or the built-in default, if none
@@ -172,8 +184,10 @@ async fn persist_gate_result(
         return;
     };
 
-    let gate =
-        gate_storage.gate_for_project(project_id).await.unwrap_or_else(|_| yunq_rules_engine::default_gate());
+    let gate = gate_storage
+        .gate_for_project(project_id)
+        .await
+        .unwrap_or_else(|_| yunq_rules_engine::default_gate());
     let evaluation = gate.evaluate(|key| report.measure(key));
     let lines_of_code = report.metrics().lines_of_code() as i64;
     let issue_total = report.metrics().issue_total() as i32;
@@ -182,7 +196,10 @@ async fn persist_gate_result(
     // case), backfill its real metrics rather than creating a second row.
     let analysis_id = match scope.analysis_id {
         Some(id) => {
-            if let Err(e) = gate_storage.finalize_analysis(id, lines_of_code, issue_total).await {
+            if let Err(e) = gate_storage
+                .finalize_analysis(id, lines_of_code, issue_total)
+                .await
+            {
                 eprintln!("warning: could not finalize analysis: {e}");
             }
             id
@@ -199,10 +216,17 @@ async fn persist_gate_result(
         },
     };
 
-    if let Err(e) = gate_storage.save_gate_result(analysis_id, &evaluation).await {
+    if let Err(e) = gate_storage
+        .save_gate_result(analysis_id, &evaluation)
+        .await
+    {
         eprintln!("warning: could not persist gate result: {e}");
     } else {
-        println!("quality gate for {}: {}", job.project(), evaluation.status());
+        println!(
+            "quality gate for {}: {}",
+            job.project(),
+            evaluation.status()
+        );
     }
 
     // Measure history / component tree (issue #26): persist this analysis'
@@ -212,7 +236,11 @@ async fn persist_gate_result(
     // nothing. Best-effort, same rationale as the gate result above: a
     // failure here must not fail the scan job.
     if let Err(e) = gate_storage
-        .save_measures(analysis_id, &report.all_measures(), &report.file_issue_measures())
+        .save_measures(
+            analysis_id,
+            &report.all_measures(),
+            &report.file_issue_measures(),
+        )
         .await
     {
         eprintln!("warning: could not persist measures: {e}");
@@ -222,8 +250,16 @@ async fn persist_gate_result(
 /// Best-effort activity log write — a failure here (e.g. the project row
 /// couldn't be created) must never fail the scan job it's describing, same
 /// contract as `persist_gate_result`'s own warnings.
-async fn log_activity(gate_storage: &PgIssueStorage, job: &ScanJob, event_type: &str, message: &str) {
-    if let Err(e) = gate_storage.record_activity(job.project(), event_type, message, None).await {
+async fn log_activity(
+    gate_storage: &PgIssueStorage,
+    job: &ScanJob,
+    event_type: &str,
+    message: &str,
+) {
+    if let Err(e) = gate_storage
+        .record_activity(job.project(), event_type, message, None)
+        .await
+    {
         eprintln!("warning: could not record activity log entry: {e}");
     }
 }
@@ -237,7 +273,13 @@ where
     S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
-    log_activity(gate_storage, &job, "scan.started", &format!("scan started for {}", job.path())).await;
+    log_activity(
+        gate_storage,
+        &job,
+        "scan.started",
+        &format!("scan started for {}", job.path()),
+    )
+    .await;
 
     match run_scan(service, gate_storage, &job).await {
         Ok(report) => {

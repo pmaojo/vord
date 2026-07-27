@@ -65,7 +65,11 @@ impl FileBlameLineStorage for PgIssueStorage {
                     .push_bind(info.author_time)
                     .push_bind(&info.summary);
             });
-            builder.build().execute(&mut *tx).await.map_err(storage_err)?;
+            builder
+                .build()
+                .execute(&mut *tx)
+                .await
+                .map_err(storage_err)?;
         }
         tx.commit().await.map_err(storage_err)
     }
@@ -116,7 +120,16 @@ impl FileBlameLineReader for PgIssueStorage {
             let author_mail: String = row.try_get("author_mail").map_err(storage_err)?;
             let author_time: i64 = row.try_get("author_time").map_err(storage_err)?;
             let summary: String = row.try_get("summary").map_err(storage_err)?;
-            lines.insert(line as u32, BlameLineInfo { commit, author, author_mail, author_time, summary });
+            lines.insert(
+                line as u32,
+                BlameLineInfo {
+                    commit,
+                    author,
+                    author_mail,
+                    author_time,
+                    summary,
+                },
+            );
         }
         Ok(Some(FileBlameLines { lines }))
     }
@@ -138,7 +151,10 @@ mod live_db_tests {
     fn unique_key(prefix: &str) -> String {
         format!(
             "{prefix}-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         )
     }
 
@@ -158,14 +174,24 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = unique_key("blame-test");
         let project_id = storage.ensure_project(&key).await.unwrap();
-        let analysis_id = storage.record_analysis(project_id, "main", 10, 0).await.unwrap();
+        let analysis_id = storage
+            .record_analysis(project_id, "main", 10, 0)
+            .await
+            .unwrap();
 
         let mut file = FileBlame::new("src/a.rs");
         file.record_line(1, info("aaaa", "Jane"));
         file.record_line(2, info("bbbb", "Bob"));
-        storage.save_file_blame_lines(analysis_id, &[file]).await.unwrap();
+        storage
+            .save_file_blame_lines(analysis_id, &[file])
+            .await
+            .unwrap();
 
-        let blame = storage.file_blame_lines(&key, "main", "src/a.rs").await.unwrap().unwrap();
+        let blame = storage
+            .file_blame_lines(&key, "main", "src/a.rs")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(blame.lines.len(), 2);
         assert_eq!(blame.lines[&1].author, "Jane");
         assert_eq!(blame.lines[&2].commit, "bbbb");
@@ -177,7 +203,13 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = unique_key("blame-empty-test");
         storage.ensure_project(&key).await.unwrap();
-        assert_eq!(storage.file_blame_lines(&key, "main", "src/a.rs").await.unwrap(), None);
+        assert_eq!(
+            storage
+                .file_blame_lines(&key, "main", "src/a.rs")
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[tokio::test]
@@ -186,17 +218,30 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = unique_key("blame-reingest-test");
         let project_id = storage.ensure_project(&key).await.unwrap();
-        let analysis_id = storage.record_analysis(project_id, "main", 10, 0).await.unwrap();
+        let analysis_id = storage
+            .record_analysis(project_id, "main", 10, 0)
+            .await
+            .unwrap();
 
         let mut first = FileBlame::new("src/a.rs");
         first.record_line(1, info("aaaa", "Jane"));
-        storage.save_file_blame_lines(analysis_id, &[first]).await.unwrap();
+        storage
+            .save_file_blame_lines(analysis_id, &[first])
+            .await
+            .unwrap();
 
         let mut second = FileBlame::new("src/a.rs");
         second.record_line(1, info("cccc", "Carl"));
-        storage.save_file_blame_lines(analysis_id, &[second]).await.unwrap();
+        storage
+            .save_file_blame_lines(analysis_id, &[second])
+            .await
+            .unwrap();
 
-        let blame = storage.file_blame_lines(&key, "main", "src/a.rs").await.unwrap().unwrap();
+        let blame = storage
+            .file_blame_lines(&key, "main", "src/a.rs")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(blame.lines.len(), 1);
         assert_eq!(blame.lines[&1].author, "Carl");
     }

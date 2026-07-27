@@ -52,7 +52,10 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("secrets:aws-secret-access-key"), Severity::Blocker),
         (rule("secrets:gcp-api-key"), Severity::Blocker),
         (rule("secrets:gcp-service-account-key"), Severity::Blocker),
-        (rule("secrets:azure-storage-connection-string"), Severity::Blocker),
+        (
+            rule("secrets:azure-storage-connection-string"),
+            Severity::Blocker,
+        ),
         (rule("secrets:azure-sas-token"), Severity::Blocker),
         (rule("secrets:stripe-live-key"), Severity::Blocker),
         (rule("secrets:private-key-block"), Severity::Blocker),
@@ -123,7 +126,10 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("react:dangerously-set-inner-html"), Severity::Critical),
         (rule("react:unsafe-target-blank"), Severity::Major),
         (rule("react:jsx-img-missing-alt"), Severity::Major),
-        (rule("react:inline-prop-function-in-component"), Severity::Minor),
+        (
+            rule("react:inline-prop-function-in-component"),
+            Severity::Minor,
+        ),
         (rule("react:exhaustive-deps"), Severity::Major),
         (rule("react:unused-state"), Severity::Minor),
         // rulesets/code-smells — applies_to typescript/python/rust or
@@ -241,9 +247,30 @@ fn activations_for(language: &str) -> Vec<(RuleId, Severity)> {
 /// `yunq_ast::LanguageIdentifier::new`'s match arms by hand (this crate
 /// can't depend on `yunq-ast` — see module docs).
 const ALL_LANGUAGES: &[&str] = &[
-    "rust", "typescript", "python", "go", "java", "c", "cpp", "php", "dockerfile", "yaml", "json",
-    "csharp", "ruby", "kotlin", "swift", "scala", "html", "css", "xml", "hcl", "bash", "groovy",
-    "lua", "elixir",
+    "rust",
+    "typescript",
+    "python",
+    "go",
+    "java",
+    "c",
+    "cpp",
+    "php",
+    "dockerfile",
+    "yaml",
+    "json",
+    "csharp",
+    "ruby",
+    "kotlin",
+    "swift",
+    "scala",
+    "html",
+    "css",
+    "xml",
+    "hcl",
+    "bash",
+    "groovy",
+    "lua",
+    "elixir",
 ];
 
 /// The Sonar way profile curated for a single language — e.g. what a
@@ -307,7 +334,10 @@ mod tests {
     #[test]
     fn typescript_profile_activates_xss_and_react_rules() {
         let profile = sonar_way_for_language("typescript");
-        assert_eq!(profile.severity_of(&RuleId::new("owasp:xss").unwrap()), Some(Severity::Blocker));
+        assert_eq!(
+            profile.severity_of(&RuleId::new("owasp:xss").unwrap()),
+            Some(Severity::Blocker)
+        );
         assert_eq!(
             profile.severity_of(&RuleId::new("react:direct-state-mutation").unwrap()),
             Some(Severity::Critical)

@@ -51,7 +51,9 @@ struct LlvmCovLines {
 }
 
 pub fn parse_llvm_cov(content: &str) -> Result<CoverageSummary, LlvmCovError> {
-    parse_llvm_cov_report(content)?.summary().map_err(|e| LlvmCovError::Malformed(e.to_string()))
+    parse_llvm_cov_report(content)?
+        .summary()
+        .map_err(|e| LlvmCovError::Malformed(e.to_string()))
 }
 
 /// `(line, count)` for one llvm-cov segment
@@ -109,7 +111,13 @@ pub fn parse_llvm_cov_report(content: &str) -> Result<CoverageReport, LlvmCovErr
     if records == 0 {
         Err(LlvmCovError::Empty)
     } else {
-        Ok(CoverageReport::new(files, total_covered_lines, total_lines, total_covered_branches, total_branches))
+        Ok(CoverageReport::new(
+            files,
+            total_covered_lines,
+            total_lines,
+            total_covered_branches,
+            total_branches,
+        ))
     }
 }
 
@@ -172,7 +180,10 @@ mod tests {
 
     #[test]
     fn empty_input_is_an_error() {
-        assert!(matches!(parse_llvm_cov(r#"{"data":[]}"#), Err(LlvmCovError::Empty)));
+        assert!(matches!(
+            parse_llvm_cov(r#"{"data":[]}"#),
+            Err(LlvmCovError::Empty)
+        ));
     }
 
     #[test]

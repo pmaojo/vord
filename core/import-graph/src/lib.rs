@@ -26,11 +26,14 @@ pub struct ImportGraph {
 }
 
 fn is_ts_like(path: &str) -> bool {
-    [".ts", ".tsx", ".js", ".jsx"].iter().any(|ext| path.ends_with(ext))
+    [".ts", ".tsx", ".js", ".jsx"]
+        .iter()
+        .any(|ext| path.ends_with(ext))
 }
 
 fn strip_quotes(text: &str) -> String {
-    text.trim_matches(|c| c == '\'' || c == '"' || c == '`').to_string()
+    text.trim_matches(|c| c == '\'' || c == '"' || c == '`')
+        .to_string()
 }
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
@@ -38,16 +41,24 @@ fn is_other(node: &AstNode, kind: &str) -> bool {
 }
 
 fn extract_ts_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut Vec<ImportEdge>) {
-    for node in
-        ast.descendants().filter(|n| is_other(n, "import_statement") || is_other(n, "export_statement"))
+    for node in ast
+        .descendants()
+        .filter(|n| is_other(n, "import_statement") || is_other(n, "export_statement"))
     {
-        let Some(spec_node) = node.descendants().find(|n| *n.kind() == NodeKind::StringLiteral) else {
+        let Some(spec_node) = node
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::StringLiteral)
+        else {
             continue;
         };
         let specifier = strip_quotes(spec_node.text());
         if let Some(target) = resolve::resolve_ts_specifier(path, &specifier, candidates) {
             if target != path {
-                edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                edges.push(ImportEdge {
+                    from: path.to_string(),
+                    to: target.to_string(),
+                    span: node.span(),
+                });
             }
         }
     }
@@ -60,7 +71,10 @@ fn dotted_module_text(node: &AstNode) -> Option<String> {
         return Some(node.text().to_string());
     }
     if is_other(node, "aliased_import") {
-        return node.first_child().filter(|c| is_other(c, "dotted_name")).map(|c| c.text().to_string());
+        return node
+            .first_child()
+            .filter(|c| is_other(c, "dotted_name"))
+            .map(|c| c.text().to_string());
     }
     None
 }
@@ -69,15 +83,23 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
     for node in ast.descendants() {
         if is_other(node, "import_statement") {
             for child in node.children() {
-                let Some(module) = dotted_module_text(child) else { continue };
+                let Some(module) = dotted_module_text(child) else {
+                    continue;
+                };
                 if let Some(target) = resolve::resolve_py_absolute(&module, candidates) {
                     if target != path {
-                        edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                        edges.push(ImportEdge {
+                            from: path.to_string(),
+                            to: target.to_string(),
+                            span: node.span(),
+                        });
                     }
                 }
             }
         } else if is_other(node, "import_from_statement") {
-            let Some(target_node) = node.first_child() else { continue };
+            let Some(target_node) = node.first_child() else {
+                continue;
+            };
             let imported_name = node.children().get(1).map(|n| n.text());
             let resolved = if is_other(target_node, "dotted_name") {
                 resolve::resolve_py_absolute(target_node.text(), candidates)
@@ -88,15 +110,22 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
                     .find(|c| is_other(c, "import_prefix"))
                     .map(|c| c.text().len())
                     .unwrap_or(0);
-                let submodule =
-                    target_node.children().iter().find(|c| is_other(c, "dotted_name")).map(|c| c.text());
+                let submodule = target_node
+                    .children()
+                    .iter()
+                    .find(|c| is_other(c, "dotted_name"))
+                    .map(|c| c.text());
                 resolve::resolve_py_relative(path, dots, submodule, imported_name, candidates)
             } else {
                 None
             };
             if let Some(target) = resolved {
                 if target != path {
-                    edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                    edges.push(ImportEdge {
+                        from: path.to_string(),
+                        to: target.to_string(),
+                        span: node.span(),
+                    });
                 }
             }
         }
@@ -127,7 +156,10 @@ impl ImportGraph {
     /// edge, if one exists — used to point a cycle finding at the actual
     /// import line rather than the top of the file.
     pub fn edge_span(&self, from: &str, to: &str) -> Option<Span> {
-        self.edges.iter().find(|e| e.from == from && e.to == to).map(|e| e.span)
+        self.edges
+            .iter()
+            .find(|e| e.from == from && e.to == to)
+            .map(|e| e.span)
     }
 
     /// Every import cycle in the graph, each as an ordered path
@@ -139,7 +171,10 @@ impl ImportGraph {
     pub fn cycles(&self) -> Vec<Vec<String>> {
         let mut adjacency: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for edge in &self.edges {
-            adjacency.entry(edge.from.clone()).or_default().push(edge.to.clone());
+            adjacency
+                .entry(edge.from.clone())
+                .or_default()
+                .push(edge.to.clone());
             adjacency.entry(edge.to.clone()).or_default();
         }
         Tarjan::new(&adjacency)
@@ -243,7 +278,10 @@ impl<'g> Tarjan<'g> {
         if self.lowlink[&v] == self.indices[&v] {
             let mut component = Vec::new();
             loop {
-                let w = self.stack.pop().expect("component root is always on the stack");
+                let w = self
+                    .stack
+                    .pop()
+                    .expect("component root is always on the stack");
                 self.on_stack.remove(&w);
                 let done = w == v;
                 component.push(w);
@@ -264,13 +302,17 @@ mod tests {
 
     fn parse_ts(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         (file, ast)
     }
 
     fn parse_py(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         (file, ast)
     }
 
@@ -282,7 +324,10 @@ mod tests {
         let graph = ImportGraph::build(&files);
         let cycles = graph.cycles();
         assert_eq!(cycles.len(), 1);
-        assert_eq!(cycles[0], vec!["a.ts".to_string(), "b.ts".to_string(), "a.ts".to_string()]);
+        assert_eq!(
+            cycles[0],
+            vec!["a.ts".to_string(), "b.ts".to_string(), "a.ts".to_string()]
+        );
     }
 
     #[test]
@@ -290,7 +335,8 @@ mod tests {
         let a = parse_ts("a.ts", "import { b } from './b';\n");
         let b = parse_ts("b.ts", "import { c } from './c';\n");
         let c = parse_ts("c.ts", "export const c = 1;\n");
-        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1), (c.0.path(), &c.1)];
+        let files: Vec<(&str, &AstNode)> =
+            vec![(a.0.path(), &a.1), (b.0.path(), &b.1), (c.0.path(), &c.1)];
         assert!(ImportGraph::build(&files).cycles().is_empty());
     }
 
@@ -299,7 +345,8 @@ mod tests {
         let a = parse_ts("a.ts", "import { b } from './b';\n");
         let b = parse_ts("b.ts", "import { c } from './c';\n");
         let c = parse_ts("c.ts", "import { a } from './a';\n");
-        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1), (c.0.path(), &c.1)];
+        let files: Vec<(&str, &AstNode)> =
+            vec![(a.0.path(), &a.1), (b.0.path(), &b.1), (c.0.path(), &c.1)];
         let cycles = ImportGraph::build(&files).cycles();
         assert_eq!(cycles.len(), 1);
         assert_eq!(cycles[0].first(), cycles[0].last());
@@ -308,7 +355,10 @@ mod tests {
 
     #[test]
     fn external_bare_specifiers_produce_no_edges() {
-        let a = parse_ts("a.ts", "import React from 'react';\nimport { b } from './b';\n");
+        let a = parse_ts(
+            "a.ts",
+            "import React from 'react';\nimport { b } from './b';\n",
+        );
         let b = parse_ts("b.ts", "export const b = 1;\n");
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1)];
         let graph = ImportGraph::build(&files);
@@ -323,7 +373,14 @@ mod tests {
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1)];
         let cycles = ImportGraph::build(&files).cycles();
         assert_eq!(cycles.len(), 1);
-        assert_eq!(cycles[0], vec!["pkg/a.py".to_string(), "pkg/b.py".to_string(), "pkg/a.py".to_string()]);
+        assert_eq!(
+            cycles[0],
+            vec![
+                "pkg/a.py".to_string(),
+                "pkg/b.py".to_string(),
+                "pkg/a.py".to_string()
+            ]
+        );
     }
 
     #[test]

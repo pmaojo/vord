@@ -12,8 +12,8 @@
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
-use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use sqlx::Row;
 use yunq_rules_engine::StorageError;
 
@@ -23,7 +23,9 @@ use crate::PgIssueStorage;
 pub enum LlmConfigError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
-    #[error("YUNQ_SECRETS_KEY is not set or invalid; per-project BYOK requires a 32-byte base64-encoded server-side secrets key: {0}")]
+    #[error(
+        "YUNQ_SECRETS_KEY is not set or invalid; per-project BYOK requires a 32-byte base64-encoded server-side secrets key: {0}"
+    )]
     MissingSecretsKey(String),
     #[error("crypto error: {0}")]
     Crypto(String),
@@ -68,11 +70,17 @@ fn encrypt(key: &Key<Aes256Gcm>, plaintext: &str) -> Result<(Vec<u8>, Vec<u8>), 
     Ok((ciphertext, nonce.to_vec()))
 }
 
-fn decrypt(key: &Key<Aes256Gcm>, ciphertext: &[u8], nonce: &[u8]) -> Result<String, LlmConfigError> {
+fn decrypt(
+    key: &Key<Aes256Gcm>,
+    ciphertext: &[u8],
+    nonce: &[u8],
+) -> Result<String, LlmConfigError> {
     let cipher = Aes256Gcm::new(key);
     let nonce = Nonce::from_slice(nonce);
     let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|e| {
-        LlmConfigError::Crypto(format!("decryption failed (wrong key or tampered ciphertext): {e}"))
+        LlmConfigError::Crypto(format!(
+            "decryption failed (wrong key or tampered ciphertext): {e}"
+        ))
     })?;
     String::from_utf8(plaintext)
         .map_err(|e| LlmConfigError::Crypto(format!("decrypted plaintext wasn't valid UTF-8: {e}")))
@@ -92,7 +100,10 @@ impl PgIssueStorage {
     ) -> Result<(), LlmConfigError> {
         let key = master_key()?;
         let (cipher, nonce) = encrypt(&key, api_key)?;
-        let project_id = self.ensure_project(project_key).await.map_err(LlmConfigError::Storage)?;
+        let project_id = self
+            .ensure_project(project_key)
+            .await
+            .map_err(LlmConfigError::Storage)?;
 
         sqlx::query(
             "INSERT INTO project_llm_provider_config
@@ -148,12 +159,20 @@ impl PgIssueStorage {
         let key = master_key()?;
         let api_key = decrypt(&key, &cipher, &nonce)?;
 
-        Ok(Some(ProjectLlmConfig { provider, base_url, model, api_key }))
+        Ok(Some(ProjectLlmConfig {
+            provider,
+            base_url,
+            model,
+            api_key,
+        }))
     }
 
     /// Clears a project's BYOK override, reverting it to the platform
     /// default provider. Returns whether a row was actually removed.
-    pub async fn delete_project_llm_config(&self, project_key: &str) -> Result<bool, LlmConfigError> {
+    pub async fn delete_project_llm_config(
+        &self,
+        project_key: &str,
+    ) -> Result<bool, LlmConfigError> {
         let result = sqlx::query(
             "DELETE FROM project_llm_provider_config
              WHERE project_id = (SELECT id FROM projects WHERE key = $1)",
@@ -169,7 +188,10 @@ impl PgIssueStorage {
     /// Resolves the project key that owns an issue, so the Remediation
     /// Agent can look up that project's BYOK config. `None` if the issue
     /// predates project scoping (`issues.project_id` NULL) or doesn't exist.
-    pub async fn project_key_for_issue(&self, issue_id: i64) -> Result<Option<String>, StorageError> {
+    pub async fn project_key_for_issue(
+        &self,
+        issue_id: i64,
+    ) -> Result<Option<String>, StorageError> {
         sqlx::query(
             "SELECT p.key FROM issues i
              JOIN projects p ON p.id = i.project_id
@@ -277,7 +299,10 @@ mod live_db_tests {
     fn unique_project_key(label: &str) -> String {
         format!(
             "llm-config-test-{label}-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         )
     }
 
@@ -298,11 +323,21 @@ mod live_db_tests {
         let key = unique_project_key("round-trip");
 
         storage
-            .set_project_llm_config(&key, "anthropic", None, "claude-sonnet-4-5-20250929", "sk-ant-test-key")
+            .set_project_llm_config(
+                &key,
+                "anthropic",
+                None,
+                "claude-sonnet-4-5-20250929",
+                "sk-ant-test-key",
+            )
             .await
             .unwrap();
 
-        let config = storage.get_project_llm_config(&key).await.unwrap().expect("config was just set");
+        let config = storage
+            .get_project_llm_config(&key)
+            .await
+            .unwrap()
+            .expect("config was just set");
         assert_eq!(config.provider, "anthropic");
         assert_eq!(config.base_url, None);
         assert_eq!(config.model, "claude-sonnet-4-5-20250929");
@@ -317,11 +352,23 @@ mod live_db_tests {
         let key = unique_project_key("upsert");
 
         storage
-            .set_project_llm_config(&key, "openai_compatible", Some("http://localhost:4000/v1"), "codellama", "key-1")
+            .set_project_llm_config(
+                &key,
+                "openai_compatible",
+                Some("http://localhost:4000/v1"),
+                "codellama",
+                "key-1",
+            )
             .await
             .unwrap();
         storage
-            .set_project_llm_config(&key, "anthropic", None, "claude-sonnet-4-5-20250929", "key-2")
+            .set_project_llm_config(
+                &key,
+                "anthropic",
+                None,
+                "claude-sonnet-4-5-20250929",
+                "key-2",
+            )
             .await
             .unwrap();
 
@@ -346,7 +393,10 @@ mod live_db_tests {
         set_test_secrets_key();
         let storage = connected_storage().await;
         let key = unique_project_key("delete");
-        storage.set_project_llm_config(&key, "anthropic", None, "model", "key").await.unwrap();
+        storage
+            .set_project_llm_config(&key, "anthropic", None, "model", "key")
+            .await
+            .unwrap();
 
         let deleted = storage.delete_project_llm_config(&key).await.unwrap();
         assert!(deleted);

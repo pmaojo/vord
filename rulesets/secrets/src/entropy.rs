@@ -122,9 +122,10 @@ fn looks_like_format_template(s: &str) -> bool {
             && let Some(rel_close) = s[i + 1..].find('}')
         {
             let inner = &s[i + 1..i + 1 + rel_close];
-            let is_placeholder = inner
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | ':' | '.' | '?' | '#' | '<' | '>' | '^' | '+' | '-'));
+            let is_placeholder = inner.chars().all(|c| {
+                c.is_alphanumeric()
+                    || matches!(c, '_' | ':' | '.' | '?' | '#' | '<' | '>' | '^' | '+' | '-')
+            });
             if is_placeholder {
                 return true;
             }
@@ -146,8 +147,9 @@ fn looks_like_format_template(s: &str) -> bool {
 fn has_secret_like_charset(s: &str) -> bool {
     const STRUCTURAL: &[u8] = b"_-:.,";
     let has_digit = s.bytes().any(|b| b.is_ascii_digit());
-    let has_symbol =
-        s.bytes().any(|b| !b.is_ascii_alphanumeric() && !STRUCTURAL.contains(&b));
+    let has_symbol = s
+        .bytes()
+        .any(|b| !b.is_ascii_alphanumeric() && !STRUCTURAL.contains(&b));
     has_digit || has_symbol
 }
 
@@ -171,7 +173,11 @@ impl HighEntropyStringRule {
     /// Builds the rule with a custom threshold/minimum length, e.g. for a
     /// stricter or looser profile.
     pub fn with_threshold(threshold: f64, min_length: usize) -> Self {
-        Self { id: RuleId::new("secrets:high-entropy-string").expect("valid rule id"), threshold, min_length }
+        Self {
+            id: RuleId::new("secrets:high-entropy-string").expect("valid rule id"),
+            threshold,
+            min_length,
+        }
     }
 }
 
@@ -215,7 +221,10 @@ impl Rule for HighEntropyStringRule {
 
         let mut findings = Vec::new();
 
-        for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+        for literal in ast
+            .descendants()
+            .filter(|n| *n.kind() == NodeKind::StringLiteral)
+        {
             if yunq_rules_engine::in_ranges(&test_ranges, literal.span().start_line) {
                 continue;
             }
@@ -261,7 +270,9 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         HighEntropyStringRule::new().check(&file, &ast)
     }
 
@@ -295,7 +306,8 @@ mod tests {
 
     #[test]
     fn ignores_common_identifier_style_text() {
-        let code = "const description = \"aVeryDescriptiveHumanReadableConfigurationOptionName\";\n";
+        let code =
+            "const description = \"aVeryDescriptiveHumanReadableConfigurationOptionName\";\n";
         assert!(check_ts(code).is_empty());
     }
 
@@ -343,7 +355,9 @@ mod tests {
 
     #[test]
     fn ignores_format_string_placeholders() {
-        assert!(check_ts("const url = \"{public_url}/api/auth/oauth/github/callback\";\n").is_empty());
+        assert!(
+            check_ts("const url = \"{public_url}/api/auth/oauth/github/callback\";\n").is_empty()
+        );
         assert!(check_ts("const metric = \"yunq_http_requests_total{{method=\\\"{}\\\",route=\\\"{}\\\"}}\";\n").is_empty());
     }
 
@@ -355,7 +369,10 @@ mod tests {
 
     #[test]
     fn ignores_urn_identifiers() {
-        assert!(check_ts("const s = \"urn:ietf:params:scim:api:messages:2.0:ListResponse\";\n").is_empty());
+        assert!(
+            check_ts("const s = \"urn:ietf:params:scim:api:messages:2.0:ListResponse\";\n")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -372,7 +389,9 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let strict_rule = HighEntropyStringRule::with_threshold(5.9, 20);
         assert!(strict_rule.check(&file, &ast).is_empty());
     }

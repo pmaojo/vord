@@ -88,7 +88,10 @@ pub fn render(event: NotificationEvent, ctx: &TemplateContext) -> EmailMessage {
         },
         NotificationEvent::GateChanged => EmailMessage {
             to: ctx.recipient.clone(),
-            subject: format!("[yunq] Quality gate {} for {}", ctx.gate_status, ctx.project_key),
+            subject: format!(
+                "[yunq] Quality gate {} for {}",
+                ctx.gate_status, ctx.project_key
+            ),
             body_text: format!(
                 "Quality gate for {} is now {}.",
                 ctx.project_key, ctx.gate_status
@@ -198,15 +201,27 @@ mod tests {
         );
         assert!(m.subject.contains("YQ-42"));
         assert!(m.body_text.contains("YQ-42"));
-        assert!(m.body_html.is_none());  // simple events get plain text only
+        assert!(m.body_html.is_none()); // simple events get plain text only
     }
 
     #[test]
     fn subscribed_to_filters_disabled_subscriptions() {
         let subs = vec![
-            EmailSubscription { user_email: "a@x".to_string(), event: NotificationEvent::AnalysisFinished, enabled: true },
-            EmailSubscription { user_email: "b@x".to_string(), event: NotificationEvent::AnalysisFinished, enabled: false },
-            EmailSubscription { user_email: "c@x".to_string(), event: NotificationEvent::GateChanged, enabled: true },
+            EmailSubscription {
+                user_email: "a@x".to_string(),
+                event: NotificationEvent::AnalysisFinished,
+                enabled: true,
+            },
+            EmailSubscription {
+                user_email: "b@x".to_string(),
+                event: NotificationEvent::AnalysisFinished,
+                enabled: false,
+            },
+            EmailSubscription {
+                user_email: "c@x".to_string(),
+                event: NotificationEvent::GateChanged,
+                enabled: true,
+            },
         ];
         let got: Vec<&str> = subscribed_to(&subs, NotificationEvent::AnalysisFinished).collect();
         assert_eq!(got, vec!["a@x"]);
@@ -220,7 +235,13 @@ mod tests {
 
     #[test]
     fn event_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&NotificationEvent::AnalysisFinished).unwrap(), "\"analysis_finished\"");
-        assert_eq!(serde_json::to_string(&NotificationEvent::QualityProfileUpdated).unwrap(), "\"quality_profile_updated\"");
+        assert_eq!(
+            serde_json::to_string(&NotificationEvent::AnalysisFinished).unwrap(),
+            "\"analysis_finished\""
+        );
+        assert_eq!(
+            serde_json::to_string(&NotificationEvent::QualityProfileUpdated).unwrap(),
+            "\"quality_profile_updated\""
+        );
     }
 }

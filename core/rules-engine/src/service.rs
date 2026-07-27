@@ -158,7 +158,10 @@ where
                     .get(file.language())
                     .map(|parser| parser.tokenize_for_duplication(file))
                     .unwrap_or_else(|| yunq_cpd::fallback_tokenize(file));
-                yunq_cpd::TokenizedFile { path: file.path().to_string(), lines }
+                yunq_cpd::TokenizedFile {
+                    path: file.path().to_string(),
+                    lines,
+                }
             })
             .collect();
         yunq_cpd::find_duplicates(&tokenized, self.duplication)
@@ -167,17 +170,30 @@ where
     /// Cross-file rules (e.g. inter-procedural taint) need every AST at
     /// once, so the file set is re-parsed in parallel for this phase.
     /// Appends their findings straight into `issues`/`metrics`.
-    fn run_cross_file_rules(&self, files: &[SourceFile], issues: &mut Vec<Issue>, metrics: &mut Metrics) {
-        let active_cross: Vec<&Box<dyn CrossFileRule>> =
-            self.cross_rules.iter().filter(|r| self.profile.is_active(r.id())).collect();
+    fn run_cross_file_rules(
+        &self,
+        files: &[SourceFile],
+        issues: &mut Vec<Issue>,
+        metrics: &mut Metrics,
+    ) {
+        let active_cross: Vec<&Box<dyn CrossFileRule>> = self
+            .cross_rules
+            .iter()
+            .filter(|r| self.profile.is_active(r.id()))
+            .collect();
         if active_cross.is_empty() {
             return;
         }
         let parsed = self.parse_all(files);
         for rule in active_cross {
-            let severity = self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
+            let severity = self
+                .profile
+                .severity_of(rule.id())
+                .unwrap_or_else(|| rule.default_severity());
             for (file_index, finding) in rule.check(&parsed) {
-                let Some((file, _)) = parsed.get(file_index) else { continue };
+                let Some((file, _)) = parsed.get(file_index) else {
+                    continue;
+                };
                 metrics.count_issue(severity);
                 metrics.add_debt(rule.remediation_effort_minutes() as usize);
                 metrics.record_issue_type_and_effort(
@@ -187,7 +203,13 @@ where
                     file.path(),
                     rule.remediation_effort_minutes(),
                 );
-                issues.push(Issue::new(rule.id().clone(), severity, finding.message, file.path(), finding.span));
+                issues.push(Issue::new(
+                    rule.id().clone(),
+                    severity,
+                    finding.message,
+                    file.path(),
+                    finding.span,
+                ));
             }
         }
     }
@@ -200,7 +222,12 @@ where
     fn rule_classifications(&self) -> HashMap<RuleId, (IssueType, u32)> {
         self.rules
             .iter()
-            .map(|r| (r.id().clone(), (r.issue_type(), r.remediation_effort_minutes())))
+            .map(|r| {
+                (
+                    r.id().clone(),
+                    (r.issue_type(), r.remediation_effort_minutes()),
+                )
+            })
             .collect()
     }
 
@@ -208,8 +235,12 @@ where
     /// path every local, one-off caller uses (CLI, LSP, remediation's
     /// verify-before-suggest loop), none of which resolve a project at all.
     /// Equivalent to `analyze_files_scoped` with `IssueScope::default()`.
-    pub async fn analyze_files(&self, files: &[SourceFile]) -> Result<AnalysisReport, AnalyzeError> {
-        self.analyze_files_scoped(files, IssueScope::default()).await
+    pub async fn analyze_files(
+        &self,
+        files: &[SourceFile],
+    ) -> Result<AnalysisReport, AnalyzeError> {
+        self.analyze_files_scoped(files, IssueScope::default())
+            .await
     }
 
     /// Same as [`Self::analyze_files`], but scopes the newly-persisted
@@ -223,7 +254,8 @@ where
     ) -> Result<AnalysisReport, AnalyzeError> {
         let mut metrics = Metrics::new();
         let classifications = self.rule_classifications();
-        let (mut issues, hotspots) = fold_outcomes(self.analyze_all(files), &mut metrics, &classifications);
+        let (mut issues, hotspots) =
+            fold_outcomes(self.analyze_all(files), &mut metrics, &classifications);
 
         let duplication = self.detect_duplication(files);
         metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
@@ -250,7 +282,10 @@ where
             .unwrap_or(1)
             .min(files.len());
         if workers <= 1 {
-            return files.iter().map(|f| self.analyze_one(f, config_hash)).collect();
+            return files
+                .iter()
+                .map(|f| self.analyze_one(f, config_hash))
+                .collect();
         }
 
         let next = AtomicUsize::new(0);
@@ -271,7 +306,9 @@ where
         slots
             .into_iter()
             .map(|slot| {
-                slot.into_inner().expect("slot lock poisoned").expect("every file processed")
+                slot.into_inner()
+                    .expect("slot lock poisoned")
+                    .expect("every file processed")
             })
             .collect()
     }
@@ -281,8 +318,10 @@ where
         let next = AtomicUsize::new(0);
         let slots: Vec<Mutex<Option<Option<AstNode>>>> =
             files.iter().map(|_| Mutex::new(None)).collect();
-        let workers =
-            std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(files.len().max(1));
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .min(files.len().max(1));
         std::thread::scope(|scope| {
             for _ in 0..workers {
                 scope.spawn(|| {
@@ -312,7 +351,11 @@ where
 
     /// Runs every applicable active rule against `file`/`ast`, returning
     /// its issues, hotspots, and total remediation-effort debt.
-    fn run_rules_on_file(&self, file: &SourceFile, ast: &AstNode) -> (Vec<Issue>, Vec<Hotspot>, usize) {
+    fn run_rules_on_file(
+        &self,
+        file: &SourceFile,
+        ast: &AstNode,
+    ) -> (Vec<Issue>, Vec<Hotspot>, usize) {
         let mut issues = Vec::new();
         let mut hotspots = Vec::new();
         let mut debt_minutes = 0usize;
@@ -320,10 +363,13 @@ where
             if !rule.applies_to(file.language()) || !self.profile.is_active(rule.id()) {
                 continue;
             }
-            let severity =
-                self.profile.severity_of(rule.id()).unwrap_or_else(|| rule.default_severity());
+            let severity = self
+                .profile
+                .severity_of(rule.id())
+                .unwrap_or_else(|| rule.default_severity());
             for finding in rule.check(file, ast) {
-                if crate::is_suppressed(file.content(), finding.span.start_line, rule.id().as_str()) {
+                if crate::is_suppressed(file.content(), finding.span.start_line, rule.id().as_str())
+                {
                     continue;
                 }
                 match finding.kind {
@@ -350,7 +396,10 @@ where
     }
 
     fn analyze_one(&self, file: &SourceFile, config_hash: u64) -> FileOutcome {
-        let key = CacheKey { content_hash: Self::content_fingerprint(file), config_hash };
+        let key = CacheKey {
+            content_hash: Self::content_fingerprint(file),
+            config_hash,
+        };
         if let Some(cache) = &self.cache
             && let Some(hit) = cache.get(&key)
         {
@@ -386,7 +435,14 @@ where
                 },
             );
         }
-        FileOutcome::Analyzed { lines, debt_minutes, issues, hotspots, structural, from_cache: false }
+        FileOutcome::Analyzed {
+            lines,
+            debt_minutes,
+            issues,
+            hotspots,
+            structural,
+            from_cache: false,
+        }
     }
 
     /// Covers everything that changes analysis output besides file content:
@@ -400,7 +456,10 @@ where
             rule.id().as_str().hash(&mut hasher);
             (rule.default_severity() as u8).hash(&mut hasher);
             self.profile.is_active(rule.id()).hash(&mut hasher);
-            self.profile.severity_of(rule.id()).map(|s| s as u8).hash(&mut hasher);
+            self.profile
+                .severity_of(rule.id())
+                .map(|s| s as u8)
+                .hash(&mut hasher);
         }
         let mut languages: Vec<&str> = self.parsers.keys().map(|l| l.as_str()).collect();
         languages.sort_unstable();
@@ -459,7 +518,12 @@ mod tests {
                     detail: "boom".into(),
                 });
             }
-            Ok(AstNode::new(NodeKind::SourceUnit, Span::new(1, 1, 1, 1), file.content(), vec![]))
+            Ok(AstNode::new(
+                NodeKind::SourceUnit,
+                Span::new(1, 1, 1, 1),
+                file.content(),
+                vec![],
+            ))
         }
     }
 
@@ -528,7 +592,11 @@ mod tests {
     }
 
     impl IssueStorage for &CapturingStorage {
-        async fn save_issues(&self, issues: &[Issue], scope: IssueScope) -> Result<(), StorageError> {
+        async fn save_issues(
+            &self,
+            issues: &[Issue],
+            scope: IssueScope,
+        ) -> Result<(), StorageError> {
             self.saved.lock().unwrap().extend_from_slice(issues);
             self.saved_scope.lock().unwrap().push(scope);
             Ok(())
@@ -541,7 +609,10 @@ mod tests {
             hotspots: &[Hotspot],
             scope: IssueScope,
         ) -> Result<(), StorageError> {
-            self.saved_hotspots.lock().unwrap().extend_from_slice(hotspots);
+            self.saved_hotspots
+                .lock()
+                .unwrap()
+                .extend_from_slice(hotspots);
             self.saved_scope.lock().unwrap().push(scope);
             Ok(())
         }
@@ -572,7 +643,10 @@ mod tests {
         let storage = CapturingStorage::default();
         let metrics = CapturingMetrics::default();
         let service = AnalyzerService::new(profile, &storage, &metrics)
-            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: false }))
+            .register_parser(Box::new(FakeParser {
+                language: LanguageIdentifier::rust(),
+                fail: false,
+            }))
             .register_rule(Box::new(AlwaysFindsRule {
                 id: rule_id.clone(),
                 language: LanguageIdentifier::rust(),
@@ -604,18 +678,27 @@ mod tests {
         let storage = CapturingStorage::default();
         let metrics = CapturingMetrics::default();
         let service = AnalyzerService::new(profile, &storage, &metrics)
-            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: false }))
+            .register_parser(Box::new(FakeParser {
+                language: LanguageIdentifier::rust(),
+                fail: false,
+            }))
             .register_rule(Box::new(AlwaysFindsRule {
                 id: rule_id,
                 language: LanguageIdentifier::rust(),
             }));
 
-        let scope = IssueScope { project_id: Some(7), analysis_id: Some(42) };
+        let scope = IssueScope {
+            project_id: Some(7),
+            analysis_id: Some(42),
+        };
         futures::executor::block_on(service.analyze_files_scoped(&[rust_file("a.rs")], scope))
             .unwrap();
 
         // Both the issues save and the hotspots save saw the same scope.
-        assert_eq!(storage.saved_scope.lock().unwrap().as_slice(), [scope, scope]);
+        assert_eq!(
+            storage.saved_scope.lock().unwrap().as_slice(),
+            [scope, scope]
+        );
     }
 
     #[test]
@@ -627,7 +710,10 @@ mod tests {
         let storage = CapturingStorage::default();
         let metrics = CapturingMetrics::default();
         let service = AnalyzerService::new(profile, &storage, &metrics)
-            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: false }))
+            .register_parser(Box::new(FakeParser {
+                language: LanguageIdentifier::rust(),
+                fail: false,
+            }))
             .register_rule(Box::new(AlwaysFindsRule {
                 id: rule_id,
                 language: LanguageIdentifier::rust(),
@@ -647,7 +733,12 @@ mod tests {
         }
         fn parse(&self, file: &SourceFile) -> Result<AstNode, ParseError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
-            Ok(AstNode::new(NodeKind::SourceUnit, Span::new(1, 1, 1, 1), file.content(), vec![]))
+            Ok(AstNode::new(
+                NodeKind::SourceUnit,
+                Span::new(1, 1, 1, 1),
+                file.content(),
+                vec![],
+            ))
         }
     }
 
@@ -673,7 +764,9 @@ mod tests {
         let storage = CapturingStorage::default();
         let metrics = CapturingMetrics::default();
         let parser_calls = Arc::new(AtomicUsize::new(0));
-        let parser = Box::new(CountingParser { calls: Arc::clone(&parser_calls) });
+        let parser = Box::new(CountingParser {
+            calls: Arc::clone(&parser_calls),
+        });
         let cache = Arc::new(MapCache::default());
         let service = AnalyzerService::new(profile, &storage, &metrics)
             .register_parser(parser)
@@ -687,7 +780,11 @@ mod tests {
         let first = futures::executor::block_on(service.analyze_files(&files)).unwrap();
         let second = futures::executor::block_on(service.analyze_files(&files)).unwrap();
 
-        assert_eq!(parser_calls.load(Ordering::Relaxed), 1, "second run must not re-parse");
+        assert_eq!(
+            parser_calls.load(Ordering::Relaxed),
+            1,
+            "second run must not re-parse"
+        );
         assert_eq!(first.issues(), second.issues());
         assert_eq!(second.metrics().cache_hits(), 1);
         assert_eq!(first.metrics().cache_hits(), 0);
@@ -708,21 +805,28 @@ mod tests {
         let storage = CapturingStorage::default();
         let metrics = CapturingMetrics::default();
         let service = AnalyzerService::new(profile, &storage, &metrics)
-            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: false }))
+            .register_parser(Box::new(FakeParser {
+                language: LanguageIdentifier::rust(),
+                fail: false,
+            }))
             .register_rule(Box::new(AlwaysFindsRule {
                 id: rule_id,
                 language: LanguageIdentifier::rust(),
             }));
 
-        let files: Vec<SourceFile> =
-            (0..128).map(|i| rust_file(&format!("src/file_{i:03}.rs"))).collect();
+        let files: Vec<SourceFile> = (0..128)
+            .map(|i| rust_file(&format!("src/file_{i:03}.rs")))
+            .collect();
         let report = futures::executor::block_on(service.analyze_files(&files)).unwrap();
 
         assert_eq!(report.issues().len(), 128);
         assert_eq!(report.metrics().files_scanned(), 128);
         let reported: Vec<&str> = report.issues().iter().map(Issue::file).collect();
         let expected: Vec<String> = (0..128).map(|i| format!("src/file_{i:03}.rs")).collect();
-        assert_eq!(reported, expected.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(
+            reported,
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -731,15 +835,18 @@ mod tests {
         let storage = CapturingStorage::default();
         let metrics = CapturingMetrics::default();
         // Only a failing Rust parser; TypeScript has no parser at all.
-        let service = AnalyzerService::new(profile, &storage, &metrics)
-            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: true }));
+        let service = AnalyzerService::new(profile, &storage, &metrics).register_parser(Box::new(
+            FakeParser {
+                language: LanguageIdentifier::rust(),
+                fail: true,
+            },
+        ));
 
         let ts_file =
             SourceFile::new("a.ts", "const x = 1;\n", LanguageIdentifier::typescript()).unwrap();
-        let report = futures::executor::block_on(
-            service.analyze_files(&[rust_file("a.rs"), ts_file]),
-        )
-        .unwrap();
+        let report =
+            futures::executor::block_on(service.analyze_files(&[rust_file("a.rs"), ts_file]))
+                .unwrap();
 
         assert_eq!(report.metrics().parse_failures(), 1);
         assert_eq!(report.metrics().files_skipped(), 1);
@@ -757,7 +864,10 @@ mod tests {
         let storage = CapturingStorage::default();
         let metrics = CapturingMetrics::default();
         let service = AnalyzerService::new(profile, &storage, &metrics)
-            .register_parser(Box::new(FakeParser { language: LanguageIdentifier::rust(), fail: false }))
+            .register_parser(Box::new(FakeParser {
+                language: LanguageIdentifier::rust(),
+                fail: false,
+            }))
             .register_rule(Box::new(AlwaysFindsBugRule {
                 id: bug_rule.clone(),
                 language: LanguageIdentifier::rust(),

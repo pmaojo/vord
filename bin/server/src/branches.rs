@@ -4,8 +4,8 @@
 //! the Postgres-backed stores and axum route wiring land in following
 //! iterations.
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
 use yunq_rules_engine::branches::{Branch, PullRequest};
 
@@ -32,8 +32,13 @@ pub fn validate_project_key(raw: &str) -> Result<String, AppError> {
     if raw.is_empty() {
         return Err(AppError::bad_request("project_key must not be empty"));
     }
-    if !raw.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_') {
-        return Err(AppError::bad_request("project_key must be lowercase alphanumeric or -/_"));
+    if !raw
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+    {
+        return Err(AppError::bad_request(
+            "project_key must be lowercase alphanumeric or -/_",
+        ));
     }
     Ok(raw.to_string())
 }

@@ -173,10 +173,18 @@ pub enum AuditChainError {
 impl PartialEq for AuditChainError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::TamperDetected { sequence: s1, expected_hash: e1, actual_hash: a1 },
-             Self::TamperDetected { sequence: s2, expected_hash: e2, actual_hash: a2 }) => {
-                s1 == s2 && e1 == e2 && a1 == a2
-            }
+            (
+                Self::TamperDetected {
+                    sequence: s1,
+                    expected_hash: e1,
+                    actual_hash: a1,
+                },
+                Self::TamperDetected {
+                    sequence: s2,
+                    expected_hash: e2,
+                    actual_hash: a2,
+                },
+            ) => s1 == s2 && e1 == e2 && a1 == a2,
             (Self::LinkBroken { sequence: s1 }, Self::LinkBroken { sequence: s2 }) => s1 == s2,
             (Self::Canonicalize(_), Self::Canonicalize(_)) => false,
             _ => false,
@@ -264,7 +272,10 @@ mod tests {
         let entries = chain.entries_mut_for_test();
         entries[1].entry.action = "user.logout".into();
         let err = chain.verify().unwrap_err();
-        assert!(matches!(err, AuditChainError::TamperDetected { sequence: 1, .. }));
+        assert!(matches!(
+            err,
+            AuditChainError::TamperDetected { sequence: 1, .. }
+        ));
     }
 
     #[test]

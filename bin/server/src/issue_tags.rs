@@ -8,8 +8,8 @@
 
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// One tag on one issue.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -22,14 +22,22 @@ pub struct IssueTag {
 
 impl IssueTag {
     pub fn new(issue_id: impl Into<String>, tag: impl Into<String>) -> Self {
-        Self { issue_id: issue_id.into(), tag: tag.into(), added_by: None, added_at: 0 }
+        Self {
+            issue_id: issue_id.into(),
+            tag: tag.into(),
+            added_by: None,
+            added_at: 0,
+        }
     }
 
     /// Reject empty / whitespace-only tags, tags with control chars, and
     /// tags longer than 64 chars. Mirrors SonarQube's tag naming rules.
     pub fn is_valid_label(tag: &str) -> bool {
-        if tag.is_empty() || tag.len() > 64 { return false; }
-        tag.chars().all(|c| !c.is_control() && c != ' ' && c != '\n')
+        if tag.is_empty() || tag.len() > 64 {
+            return false;
+        }
+        tag.chars()
+            .all(|c| !c.is_control() && c != ' ' && c != '\n')
     }
 }
 
@@ -45,12 +53,17 @@ impl IssueTagStore {
         if !IssueTag::is_valid_label(tag) {
             return Err(format!("invalid tag {tag:?}"));
         }
-        self.inner.entry(issue_id.to_string()).or_default().insert(tag.to_string());
+        self.inner
+            .entry(issue_id.to_string())
+            .or_default()
+            .insert(tag.to_string());
         Ok(())
     }
 
     pub fn remove(&mut self, issue_id: &str, tag: &str) -> bool {
-        let Some(set) = self.inner.get_mut(issue_id) else { return false; };
+        let Some(set) = self.inner.get_mut(issue_id) else {
+            return false;
+        };
         let removed = set.remove(tag);
         if set.is_empty() {
             self.inner.remove(issue_id);
@@ -59,19 +72,28 @@ impl IssueTagStore {
     }
 
     pub fn tags_for(&self, issue_id: &str) -> Vec<String> {
-        let mut v: Vec<String> = self.inner.get(issue_id).cloned().unwrap_or_default().into_iter().collect();
+        let mut v: Vec<String> = self
+            .inner
+            .get(issue_id)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         v.sort();
         v
     }
 
     pub fn issues_with_tag(&self, tag: &str) -> Vec<String> {
-        self.inner.iter()
+        self.inner
+            .iter()
             .filter(|(_, s)| s.contains(tag))
             .map(|(k, _)| k.clone())
             .collect()
     }
 
-    pub fn len(&self) -> usize { self.inner.len() }
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
 }
 
 #[cfg(test)]
@@ -83,7 +105,7 @@ mod tests {
         let mut s = IssueTagStore::default();
         s.add("i1", "security").unwrap();
         s.add("i1", "audit").unwrap();
-        s.add("i1", "security").unwrap();  // duplicate is idempotent
+        s.add("i1", "security").unwrap(); // duplicate is idempotent
         assert_eq!(s.tags_for("i1"), vec!["audit", "security"]);
     }
 
@@ -94,7 +116,7 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert!(s.remove("i1", "x"));
         assert_eq!(s.len(), 0);
-        assert!(!s.remove("i1", "x"));  // already gone
+        assert!(!s.remove("i1", "x")); // already gone
     }
 
     #[test]

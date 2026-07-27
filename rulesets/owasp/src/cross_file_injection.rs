@@ -77,7 +77,9 @@ impl CrossFileRule for CrossFileInjectionRule {
             .find_flows(&views)
             .into_iter()
             .filter_map(|flow| {
-                let index = files.iter().position(|(file, _)| file.path() == flow.file)?;
+                let index = files
+                    .iter()
+                    .position(|(file, _)| file.path() == flow.file)?;
                 Some((index, Finding::new(flow.message, flow.span)))
             })
             .collect()

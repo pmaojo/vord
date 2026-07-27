@@ -29,14 +29,16 @@ mod queue;
 mod retention;
 mod system;
 pub use activity::{ActivityLogEntry, ActivityLogQuery};
-pub use llm_config::{LlmConfigError, ProjectLlmConfig};
 pub use audit::{AuditLogEntry, AuditLogQuery};
 pub use audit_chain::{AuditChain, AuditChainEntry, AuditChainError, Hash as AuditHash};
 pub use audit_export::{
-    AuditExporter, AuditExportError, ChainProof, ExportCheckpoint, ExportOptions, ExportReceipt,
+    AuditExportError, AuditExporter, ChainProof, ExportCheckpoint, ExportOptions, ExportReceipt,
     ObjectStore, ObjectStoreError, S3Destination, S3ObjectRef, S3ObjectStore,
 };
-pub use profile::{CompareProfileError, CopyProfileError, ProfileNotFoundError, RestoreProfileError};
+pub use llm_config::{LlmConfigError, ProjectLlmConfig};
+pub use profile::{
+    CompareProfileError, CopyProfileError, ProfileNotFoundError, RestoreProfileError,
+};
 pub use queue::{FailedJob, PgJobConsumer, QueueStatus};
 pub use retention::PurgeReport;
 pub use system::SystemSnapshot;
@@ -59,7 +61,10 @@ impl PgIssueStorage {
 
     /// Applies the embedded migrations (compiled in at build time).
     pub async fn migrate(&self) -> Result<(), StorageError> {
-        sqlx::migrate!("./migrations").run(&self.pool).await.map_err(storage_err)
+        sqlx::migrate!("./migrations")
+            .run(&self.pool)
+            .await
+            .map_err(storage_err)
     }
 
     /// The underlying pool, shared with the job queue adapter so producer,
@@ -110,21 +115,28 @@ impl IssueStorage for PgIssueStorage {
                     .push_bind(scope.project_id)
                     .push_bind(scope.analysis_id);
             });
-            builder.build().execute(&mut *tx).await.map_err(storage_err)?;
+            builder
+                .build()
+                .execute(&mut *tx)
+                .await
+                .map_err(storage_err)?;
         }
         tx.commit().await.map_err(storage_err)
     }
 }
 
-const ISSUE_COLUMNS: &str =
-    "id, rule, severity, file, start_line, start_col, end_line, end_col, message, status, resolution, assignee";
+const ISSUE_COLUMNS: &str = "id, rule, severity, file, start_line, start_col, end_line, end_col, message, status, resolution, assignee";
 
 /// Rehydrates one row through the strict domain constructors; corrupt rows
 /// surface as errors, never as invalid domain values.
 fn issue_from_row(row: &PgRow) -> Result<StoredIssue, StorageError> {
     let id: i64 = row.try_get("id").map_err(storage_err)?;
-    let rule = RuleId::new(row.try_get::<String, _>("rule").map_err(storage_err)?.as_str())
-        .map_err(storage_err)?;
+    let rule = RuleId::new(
+        row.try_get::<String, _>("rule")
+            .map_err(storage_err)?
+            .as_str(),
+    )
+    .map_err(storage_err)?;
     let severity_raw: String = row.try_get("severity").map_err(storage_err)?;
     let severity = Severity::parse(&severity_raw)
         .ok_or_else(|| StorageError(format!("invalid severity {severity_raw:?}")))?;
@@ -141,7 +153,8 @@ fn issue_from_row(row: &PgRow) -> Result<StoredIssue, StorageError> {
         .try_get::<Option<String>, _>("resolution")
         .map_err(storage_err)?
         .map(|raw| {
-            Resolution::parse(&raw).ok_or_else(|| StorageError(format!("invalid resolution {raw:?}")))
+            Resolution::parse(&raw)
+                .ok_or_else(|| StorageError(format!("invalid resolution {raw:?}")))
         })
         .transpose()?;
     let issue = Issue::restore(
@@ -152,7 +165,8 @@ fn issue_from_row(row: &PgRow) -> Result<StoredIssue, StorageError> {
         span,
         status,
         resolution,
-        row.try_get::<Option<String>, _>("assignee").map_err(storage_err)?,
+        row.try_get::<Option<String>, _>("assignee")
+            .map_err(storage_err)?,
     )
     .map_err(storage_err)?;
     Ok(StoredIssue { id, issue })
@@ -181,7 +195,9 @@ fn push_issue_filters_skip<'a>(
     if !matches!(skip, FacetSkip::Severity)
         && let Some(severity) = query.severity
     {
-        builder.push(" AND severity = ").push_bind(severity.as_str().to_string());
+        builder
+            .push(" AND severity = ")
+            .push_bind(severity.as_str().to_string());
     }
     if !matches!(skip, FacetSkip::Status)
         && let Some(status) = query.status
@@ -194,10 +210,14 @@ fn push_issue_filters_skip<'a>(
         builder.push(" AND rule = ").push_bind(rule.as_str());
     }
     if let Some(file) = &query.file {
-        builder.push(" AND file LIKE ").push_bind(format!("%{file}%"));
+        builder
+            .push(" AND file LIKE ")
+            .push_bind(format!("%{file}%"));
     }
     if let Some(assignee) = &query.assignee {
-        builder.push(" AND assignee = ").push_bind(assignee.as_str());
+        builder
+            .push(" AND assignee = ")
+            .push_bind(assignee.as_str());
     }
 }
 
@@ -205,19 +225,25 @@ impl IssueReader for PgIssueStorage {
     async fn search_issues(&self, query: &IssueQuery) -> Result<Page<StoredIssue>, StorageError> {
         let mut count = QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM issues WHERE 1=1");
         push_issue_filters(&mut count, query);
-        let total: i64 =
-            count.build_query_scalar().fetch_one(&self.pool).await.map_err(storage_err)?;
+        let total: i64 = count
+            .build_query_scalar()
+            .fetch_one(&self.pool)
+            .await
+            .map_err(storage_err)?;
 
-        let mut select = QueryBuilder::<Postgres>::new(format!(
-            "SELECT {ISSUE_COLUMNS} FROM issues WHERE 1=1"
-        ));
+        let mut select =
+            QueryBuilder::<Postgres>::new(format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE 1=1"));
         push_issue_filters(&mut select, query);
         select
             .push(" ORDER BY id DESC LIMIT ")
             .push_bind(query.normalized_page_size() as i64)
             .push(" OFFSET ")
             .push_bind(query.offset() as i64);
-        let rows = select.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let rows = select
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_err)?;
 
         Ok(Page {
             items: rows.iter().map(issue_from_row).collect::<Result<_, _>>()?,
@@ -230,13 +256,15 @@ impl IssueReader for PgIssueStorage {
 
 impl IssueFacetReader for PgIssueStorage {
     async fn facets(&self, query: &IssueQuery) -> Result<IssueFacets, StorageError> {
-        let mut by_severity_q = QueryBuilder::<Postgres>::new(
-            "SELECT severity, COUNT(*) AS n FROM issues WHERE 1=1",
-        );
+        let mut by_severity_q =
+            QueryBuilder::<Postgres>::new("SELECT severity, COUNT(*) AS n FROM issues WHERE 1=1");
         push_issue_filters_skip(&mut by_severity_q, query, &FacetSkip::Severity);
         by_severity_q.push(" GROUP BY severity");
-        let severity_rows =
-            by_severity_q.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let severity_rows = by_severity_q
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_err)?;
         let mut by_severity = std::collections::BTreeMap::new();
         for row in &severity_rows {
             let raw: String = row.try_get("severity").map_err(storage_err)?;
@@ -250,7 +278,11 @@ impl IssueFacetReader for PgIssueStorage {
             QueryBuilder::<Postgres>::new("SELECT status, COUNT(*) AS n FROM issues WHERE 1=1");
         push_issue_filters_skip(&mut by_status_q, query, &FacetSkip::Status);
         by_status_q.push(" GROUP BY status");
-        let status_rows = by_status_q.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let status_rows = by_status_q
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_err)?;
         let mut by_status = Vec::new();
         for row in &status_rows {
             let raw: String = row.try_get("status").map_err(storage_err)?;
@@ -264,7 +296,11 @@ impl IssueFacetReader for PgIssueStorage {
             QueryBuilder::<Postgres>::new("SELECT rule, COUNT(*) AS n FROM issues WHERE 1=1");
         push_issue_filters_skip(&mut by_rule_q, query, &FacetSkip::Rule);
         by_rule_q.push(" GROUP BY rule");
-        let rule_rows = by_rule_q.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let rule_rows = by_rule_q
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_err)?;
         let mut by_rule = Vec::new();
         for row in &rule_rows {
             let raw: String = row.try_get("rule").map_err(storage_err)?;
@@ -273,14 +309,22 @@ impl IssueFacetReader for PgIssueStorage {
             by_rule.push((rule, count as usize));
         }
 
-        Ok(IssueFacets { by_severity, by_status, by_rule })
+        Ok(IssueFacets {
+            by_severity,
+            by_status,
+            by_rule,
+        })
     }
 }
 
 fn hotspot_from_row(row: &PgRow) -> Result<StoredHotspot, StorageError> {
     let id: i64 = row.try_get("id").map_err(storage_err)?;
-    let rule = RuleId::new(row.try_get::<String, _>("rule").map_err(storage_err)?.as_str())
-        .map_err(storage_err)?;
+    let rule = RuleId::new(
+        row.try_get::<String, _>("rule")
+            .map_err(storage_err)?
+            .as_str(),
+    )
+    .map_err(storage_err)?;
     let status_raw: String = row.try_get("status").map_err(storage_err)?;
     let status = HotspotStatus::parse(&status_raw)
         .ok_or_else(|| StorageError(format!("invalid hotspot status {status_raw:?}")))?;
@@ -307,7 +351,11 @@ fn hotspot_from_row(row: &PgRow) -> Result<StoredHotspot, StorageError> {
 const HOTSPOT_BATCH_ROWS: usize = 1000;
 
 impl HotspotStorage for PgIssueStorage {
-    async fn save_hotspots(&self, hotspots: &[Hotspot], scope: IssueScope) -> Result<(), StorageError> {
+    async fn save_hotspots(
+        &self,
+        hotspots: &[Hotspot],
+        scope: IssueScope,
+    ) -> Result<(), StorageError> {
         if hotspots.is_empty() {
             return Ok(());
         }
@@ -328,7 +376,11 @@ impl HotspotStorage for PgIssueStorage {
                     .push_bind(scope.project_id)
                     .push_bind(scope.analysis_id);
             });
-            builder.build().execute(&mut *tx).await.map_err(storage_err)?;
+            builder
+                .build()
+                .execute(&mut *tx)
+                .await
+                .map_err(storage_err)?;
         }
         tx.commit().await.map_err(storage_err)
     }
@@ -459,7 +511,8 @@ impl IssueWorkflow for PgIssueStorage {
             None => stored.issue.unassign(),
         }
         self.store_workflow_state(&stored).await?;
-        self.record_assignment(issue_id, assignee.as_deref()).await?;
+        self.record_assignment(issue_id, assignee.as_deref())
+            .await?;
         Ok(stored)
     }
 }
@@ -474,7 +527,10 @@ impl IssueBulkWorkflow for PgIssueStorage {
         for &issue_id in issue_ids {
             match IssueWorkflow::apply_transition(self, issue_id, transition).await {
                 Ok(stored) => outcomes.push(BulkOutcome::Applied(stored)),
-                Err(e) => outcomes.push(BulkOutcome::Failed { issue_id, reason: e.to_string() }),
+                Err(e) => outcomes.push(BulkOutcome::Failed {
+                    issue_id,
+                    reason: e.to_string(),
+                }),
             }
         }
         Ok(outcomes)
@@ -509,8 +565,7 @@ impl IssueChangelogReader for PgIssueStorage {
                             "reopen" => IssueTransition::Reopen,
                             "close" => IssueTransition::Close,
                             "resolve" => {
-                                let raw: String =
-                                    row.try_get("resolution").map_err(storage_err)?;
+                                let raw: String = row.try_get("resolution").map_err(storage_err)?;
                                 let resolution = Resolution::parse(&raw).ok_or_else(|| {
                                     StorageError(format!("invalid resolution {raw:?}"))
                                 })?;
@@ -525,9 +580,15 @@ impl IssueChangelogReader for PgIssueStorage {
                     "assigned" => ChangelogAction::Assigned {
                         assignee: row.try_get("assignee").map_err(storage_err)?,
                     },
-                    other => return Err(StorageError(format!("invalid changelog action {other:?}"))),
+                    other => {
+                        return Err(StorageError(format!("invalid changelog action {other:?}")));
+                    }
                 };
-                Ok(ChangelogEntry { issue_id, action, at })
+                Ok(ChangelogEntry {
+                    issue_id,
+                    action,
+                    at,
+                })
             })
             .collect()
     }
@@ -569,8 +630,14 @@ mod live_db_tests {
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
         let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
-        sqlx::query("DELETE FROM issues").execute(storage.pool()).await.unwrap();
-        sqlx::query("DELETE FROM hotspots").execute(storage.pool()).await.unwrap();
+        sqlx::query("DELETE FROM issues")
+            .execute(storage.pool())
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM hotspots")
+            .execute(storage.pool())
+            .await
+            .unwrap();
         storage
     }
 
@@ -590,16 +657,25 @@ mod live_db_tests {
                 )
             })
             .collect();
-        let project_id = storage.ensure_project("batch-insert-issue-cols").await.unwrap();
-        let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
+        let project_id = storage
+            .ensure_project("batch-insert-issue-cols")
+            .await
+            .unwrap();
+        let scope = IssueScope {
+            project_id: Some(project_id),
+            analysis_id: None,
+        };
         storage.save_issues(&issues, scope).await.unwrap();
 
         let rows = sqlx::query(&format!("SELECT {ISSUE_COLUMNS} FROM issues ORDER BY id"))
             .fetch_all(storage.pool())
             .await
             .unwrap();
-        let restored: Vec<StoredIssue> =
-            rows.iter().map(issue_from_row).collect::<Result<_, _>>().unwrap();
+        let restored: Vec<StoredIssue> = rows
+            .iter()
+            .map(issue_from_row)
+            .collect::<Result<_, _>>()
+            .unwrap();
         assert_eq!(restored.len(), 5);
         for (i, stored) in restored.iter().enumerate() {
             assert_eq!(stored.issue.message(), format!("issue {i}"));
@@ -610,12 +686,13 @@ mod live_db_tests {
 
         // The scope columns aren't part of the domain `Issue`/`StoredIssue`
         // (persistence detail only), so check them with a raw query.
-        let scoped_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM issues WHERE project_id = $1 AND analysis_id IS NULL")
-                .bind(project_id)
-                .fetch_one(storage.pool())
-                .await
-                .unwrap();
+        let scoped_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM issues WHERE project_id = $1 AND analysis_id IS NULL",
+        )
+        .bind(project_id)
+        .fetch_one(storage.pool())
+        .await
+        .unwrap();
         assert_eq!(scoped_count, 5);
 
         // Documented no-op: must not open a transaction or error.
@@ -648,8 +725,14 @@ mod live_db_tests {
                 )
             })
             .collect();
-        let project_id = storage.ensure_project("batch-insert-hotspot-cols").await.unwrap();
-        let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
+        let project_id = storage
+            .ensure_project("batch-insert-hotspot-cols")
+            .await
+            .unwrap();
+        let scope = IssueScope {
+            project_id: Some(project_id),
+            analysis_id: None,
+        };
         storage.save_hotspots(&hotspots, scope).await.unwrap();
 
         let rows = sqlx::query(
@@ -659,8 +742,11 @@ mod live_db_tests {
         .fetch_all(storage.pool())
         .await
         .unwrap();
-        let restored: Vec<StoredHotspot> =
-            rows.iter().map(hotspot_from_row).collect::<Result<_, _>>().unwrap();
+        let restored: Vec<StoredHotspot> = rows
+            .iter()
+            .map(hotspot_from_row)
+            .collect::<Result<_, _>>()
+            .unwrap();
         assert_eq!(restored.len(), 5);
         for (i, stored) in restored.iter().enumerate() {
             assert_eq!(stored.hotspot.message(), format!("hotspot {i}"));

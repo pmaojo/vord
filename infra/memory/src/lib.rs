@@ -7,10 +7,10 @@ use std::sync::{Arc, Mutex};
 
 use yunq_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, Hotspot, HotspotReader, HotspotReview,
-    HotspotStatus, HotspotStorage, Issue, IssueBulkWorkflow, IssueChangelogReader, IssueFacetReader,
-    IssueFacets, IssueQuery, IssueReader, IssueScope, IssueStorage, IssueTransition, IssueWorkflow,
-    Metrics, MetricsTracker, Page, RuleId, Severity, StorageError, StoredHotspot, StoredIssue,
-    WorkflowError,
+    HotspotStatus, HotspotStorage, Issue, IssueBulkWorkflow, IssueChangelogReader,
+    IssueFacetReader, IssueFacets, IssueQuery, IssueReader, IssueScope, IssueStorage,
+    IssueTransition, IssueWorkflow, Metrics, MetricsTracker, Page, RuleId, Severity, StorageError,
+    StoredHotspot, StoredIssue, WorkflowError,
 };
 
 #[derive(Clone, Default)]
@@ -32,11 +32,20 @@ enum SkipDimension {
 }
 
 fn issue_matches(issue: &Issue, query: &IssueQuery, skip: &SkipDimension) -> bool {
-    (matches!(skip, SkipDimension::Severity) || query.severity.is_none_or(|s| issue.severity() == s))
-        && (matches!(skip, SkipDimension::Status) || query.status.is_none_or(|s| issue.status() == s))
-        && (matches!(skip, SkipDimension::Rule) || query.rule.as_ref().is_none_or(|r| issue.rule() == r))
-        && query.file.as_deref().is_none_or(|f| issue.file().contains(f))
-        && query.assignee.as_deref().is_none_or(|a| issue.assignee() == Some(a))
+    (matches!(skip, SkipDimension::Severity)
+        || query.severity.is_none_or(|s| issue.severity() == s))
+        && (matches!(skip, SkipDimension::Status)
+            || query.status.is_none_or(|s| issue.status() == s))
+        && (matches!(skip, SkipDimension::Rule)
+            || query.rule.as_ref().is_none_or(|r| issue.rule() == r))
+        && query
+            .file
+            .as_deref()
+            .is_none_or(|f| issue.file().contains(f))
+        && query
+            .assignee
+            .as_deref()
+            .is_none_or(|a| issue.assignee() == Some(a))
 }
 
 impl InMemoryIssueStorage {
@@ -64,13 +73,19 @@ impl IssueStorage for InMemoryIssueStorage {
 
 impl IssueReader for InMemoryIssueStorage {
     async fn search_issues(&self, query: &IssueQuery) -> Result<Page<StoredIssue>, StorageError> {
-        let issues = self.issues.lock().map_err(|e| StorageError(e.to_string()))?;
+        let issues = self
+            .issues
+            .lock()
+            .map_err(|e| StorageError(e.to_string()))?;
         let matches: Vec<StoredIssue> = issues
             .iter()
             .enumerate()
             .rev()
             .filter(|(_, issue)| issue_matches(issue, query, &SkipDimension::None))
-            .map(|(index, issue)| StoredIssue { id: index as i64 + 1, issue: issue.clone() })
+            .map(|(index, issue)| StoredIssue {
+                id: index as i64 + 1,
+                issue: issue.clone(),
+            })
             .collect();
         let total = matches.len();
         let items = matches
@@ -89,29 +104,49 @@ impl IssueReader for InMemoryIssueStorage {
 
 impl IssueFacetReader for InMemoryIssueStorage {
     async fn facets(&self, query: &IssueQuery) -> Result<IssueFacets, StorageError> {
-        let issues = self.issues.lock().map_err(|e| StorageError(e.to_string()))?;
+        let issues = self
+            .issues
+            .lock()
+            .map_err(|e| StorageError(e.to_string()))?;
 
         let mut by_severity: BTreeMap<Severity, usize> = BTreeMap::new();
-        for issue in issues.iter().filter(|i| issue_matches(i, query, &SkipDimension::Severity)) {
+        for issue in issues
+            .iter()
+            .filter(|i| issue_matches(i, query, &SkipDimension::Severity))
+        {
             *by_severity.entry(issue.severity()).or_default() += 1;
         }
 
-        let mut status_counts: BTreeMap<String, (yunq_rules_engine::IssueStatus, usize)> = BTreeMap::new();
-        for issue in issues.iter().filter(|i| issue_matches(i, query, &SkipDimension::Status)) {
-            let entry = status_counts.entry(issue.status().to_string()).or_insert((issue.status(), 0));
+        let mut status_counts: BTreeMap<String, (yunq_rules_engine::IssueStatus, usize)> =
+            BTreeMap::new();
+        for issue in issues
+            .iter()
+            .filter(|i| issue_matches(i, query, &SkipDimension::Status))
+        {
+            let entry = status_counts
+                .entry(issue.status().to_string())
+                .or_insert((issue.status(), 0));
             entry.1 += 1;
         }
         let by_status = status_counts.into_values().collect();
 
         let mut rule_counts: BTreeMap<String, (RuleId, usize)> = BTreeMap::new();
-        for issue in issues.iter().filter(|i| issue_matches(i, query, &SkipDimension::Rule)) {
-            let entry =
-                rule_counts.entry(issue.rule().to_string()).or_insert_with(|| (issue.rule().clone(), 0));
+        for issue in issues
+            .iter()
+            .filter(|i| issue_matches(i, query, &SkipDimension::Rule))
+        {
+            let entry = rule_counts
+                .entry(issue.rule().to_string())
+                .or_insert_with(|| (issue.rule().clone(), 0));
             entry.1 += 1;
         }
         let by_rule = rule_counts.into_values().collect();
 
-        Ok(IssueFacets { by_severity, by_status, by_rule })
+        Ok(IssueFacets {
+            by_severity,
+            by_status,
+            by_rule,
+        })
     }
 }
 
@@ -125,7 +160,10 @@ impl IssueBulkWorkflow for InMemoryIssueStorage {
         for &issue_id in issue_ids {
             match IssueWorkflow::apply_transition(self, issue_id, transition).await {
                 Ok(stored) => outcomes.push(BulkOutcome::Applied(stored)),
-                Err(e) => outcomes.push(BulkOutcome::Failed { issue_id, reason: e.to_string() }),
+                Err(e) => outcomes.push(BulkOutcome::Failed {
+                    issue_id,
+                    reason: e.to_string(),
+                }),
             }
         }
         Ok(outcomes)
@@ -134,13 +172,24 @@ impl IssueBulkWorkflow for InMemoryIssueStorage {
 
 impl IssueChangelogReader for InMemoryIssueStorage {
     async fn changelog(&self, issue_id: i64) -> Result<Vec<ChangelogEntry>, StorageError> {
-        let log = self.changelog.lock().map_err(|e| StorageError(e.to_string()))?;
-        Ok(log.iter().filter(|e| e.issue_id == issue_id).cloned().collect())
+        let log = self
+            .changelog
+            .lock()
+            .map_err(|e| StorageError(e.to_string()))?;
+        Ok(log
+            .iter()
+            .filter(|e| e.issue_id == issue_id)
+            .cloned()
+            .collect())
     }
 }
 
 impl HotspotStorage for InMemoryIssueStorage {
-    async fn save_hotspots(&self, hotspots: &[Hotspot], _scope: IssueScope) -> Result<(), StorageError> {
+    async fn save_hotspots(
+        &self,
+        hotspots: &[Hotspot],
+        _scope: IssueScope,
+    ) -> Result<(), StorageError> {
         self.hotspots
             .lock()
             .map_err(|e| StorageError(e.to_string()))?
@@ -151,13 +200,19 @@ impl HotspotStorage for InMemoryIssueStorage {
 
 impl HotspotReader for InMemoryIssueStorage {
     async fn recent_hotspots(&self, limit: usize) -> Result<Vec<StoredHotspot>, StorageError> {
-        let hotspots = self.hotspots.lock().map_err(|e| StorageError(e.to_string()))?;
+        let hotspots = self
+            .hotspots
+            .lock()
+            .map_err(|e| StorageError(e.to_string()))?;
         Ok(hotspots
             .iter()
             .enumerate()
             .rev()
             .take(limit)
-            .map(|(index, hotspot)| StoredHotspot { id: index as i64 + 1, hotspot: hotspot.clone() })
+            .map(|(index, hotspot)| StoredHotspot {
+                id: index as i64 + 1,
+                hotspot: hotspot.clone(),
+            })
             .collect())
     }
 }
@@ -168,11 +223,21 @@ impl HotspotReview for InMemoryIssueStorage {
         hotspot_id: i64,
         status: HotspotStatus,
     ) -> Result<StoredHotspot, WorkflowError> {
-        let mut hotspots = self.hotspots.lock().map_err(|e| StorageError(e.to_string()))?;
-        let index = usize::try_from(hotspot_id - 1).ok().filter(|i| *i < hotspots.len());
-        let Some(index) = index else { return Err(WorkflowError::NotFound(hotspot_id)) };
+        let mut hotspots = self
+            .hotspots
+            .lock()
+            .map_err(|e| StorageError(e.to_string()))?;
+        let index = usize::try_from(hotspot_id - 1)
+            .ok()
+            .filter(|i| *i < hotspots.len());
+        let Some(index) = index else {
+            return Err(WorkflowError::NotFound(hotspot_id));
+        };
         hotspots[index].review(status);
-        Ok(StoredHotspot { id: hotspot_id, hotspot: hotspots[index].clone() })
+        Ok(StoredHotspot {
+            id: hotspot_id,
+            hotspot: hotspots[index].clone(),
+        })
     }
 }
 
@@ -195,9 +260,16 @@ impl IssueWorkflow for InMemoryIssueStorage {
         transition: IssueTransition,
     ) -> Result<StoredIssue, WorkflowError> {
         let from = {
-            let mut issues = self.issues.lock().map_err(|e| StorageError(e.to_string()))?;
-            let index = usize::try_from(issue_id - 1).ok().filter(|i| *i < issues.len());
-            let Some(index) = index else { return Err(WorkflowError::NotFound(issue_id)) };
+            let mut issues = self
+                .issues
+                .lock()
+                .map_err(|e| StorageError(e.to_string()))?;
+            let index = usize::try_from(issue_id - 1)
+                .ok()
+                .filter(|i| *i < issues.len());
+            let Some(index) = index else {
+                return Err(WorkflowError::NotFound(issue_id));
+            };
             let from = issues[index].status();
             issues[index].apply(transition)?;
             from
@@ -207,8 +279,14 @@ impl IssueWorkflow for InMemoryIssueStorage {
             action: ChangelogAction::Transitioned { from, transition },
             at: self.next_tick(),
         });
-        let issues = self.issues.lock().map_err(|e| StorageError(e.to_string()))?;
-        Ok(StoredIssue { id: issue_id, issue: issues[(issue_id - 1) as usize].clone() })
+        let issues = self
+            .issues
+            .lock()
+            .map_err(|e| StorageError(e.to_string()))?;
+        Ok(StoredIssue {
+            id: issue_id,
+            issue: issues[(issue_id - 1) as usize].clone(),
+        })
     }
 
     async fn set_assignee(
@@ -217,9 +295,16 @@ impl IssueWorkflow for InMemoryIssueStorage {
         assignee: Option<String>,
     ) -> Result<StoredIssue, WorkflowError> {
         {
-            let mut issues = self.issues.lock().map_err(|e| StorageError(e.to_string()))?;
-            let index = usize::try_from(issue_id - 1).ok().filter(|i| *i < issues.len());
-            let Some(index) = index else { return Err(WorkflowError::NotFound(issue_id)) };
+            let mut issues = self
+                .issues
+                .lock()
+                .map_err(|e| StorageError(e.to_string()))?;
+            let index = usize::try_from(issue_id - 1)
+                .ok()
+                .filter(|i| *i < issues.len());
+            let Some(index) = index else {
+                return Err(WorkflowError::NotFound(issue_id));
+            };
             match &assignee {
                 Some(user) => issues[index].assign(user.clone()),
                 None => issues[index].unassign(),
@@ -230,8 +315,14 @@ impl IssueWorkflow for InMemoryIssueStorage {
             action: ChangelogAction::Assigned { assignee },
             at: self.next_tick(),
         });
-        let issues = self.issues.lock().map_err(|e| StorageError(e.to_string()))?;
-        Ok(StoredIssue { id: issue_id, issue: issues[(issue_id - 1) as usize].clone() })
+        let issues = self
+            .issues
+            .lock()
+            .map_err(|e| StorageError(e.to_string()))?;
+        Ok(StoredIssue {
+            id: issue_id,
+            issue: issues[(issue_id - 1) as usize].clone(),
+        })
     }
 }
 
@@ -282,7 +373,10 @@ mod tests {
         // Every successful mutation left a changelog trail.
         let log = futures::executor::block_on(storage.changelog(1)).unwrap();
         assert_eq!(log.len(), 2);
-        assert!(matches!(log[0].action, ChangelogAction::Transitioned { .. }));
+        assert!(matches!(
+            log[0].action,
+            ChangelogAction::Transitioned { .. }
+        ));
         assert!(matches!(log[1].action, ChangelogAction::Assigned { .. }));
     }
 
@@ -290,26 +384,47 @@ mod tests {
     fn bulk_transition_reports_per_issue_outcomes() {
         let storage = InMemoryIssueStorage::new();
         let issue = |file: &str| {
-            Issue::new(RuleId::new("test:rule").unwrap(), Severity::Major, "m", file, Span::new(1, 1, 1, 2))
+            Issue::new(
+                RuleId::new("test:rule").unwrap(),
+                Severity::Major,
+                "m",
+                file,
+                Span::new(1, 1, 1, 2),
+            )
         };
-        futures::executor::block_on(storage.save_issues(&[issue("a.rs"), issue("b.rs")], IssueScope::default()))
-            .unwrap();
+        futures::executor::block_on(
+            storage.save_issues(&[issue("a.rs"), issue("b.rs")], IssueScope::default()),
+        )
+        .unwrap();
 
         let outcomes = futures::executor::block_on(
             storage.bulk_transition(&[1, 2, 99], IssueTransition::Confirm),
         )
         .unwrap();
         assert_eq!(outcomes.len(), 3);
-        assert!(matches!(&outcomes[0], BulkOutcome::Applied(s) if s.issue.status() == IssueStatus::Confirmed));
-        assert!(matches!(&outcomes[1], BulkOutcome::Applied(s) if s.issue.status() == IssueStatus::Confirmed));
-        assert!(matches!(&outcomes[2], BulkOutcome::Failed { issue_id: 99, .. }));
+        assert!(
+            matches!(&outcomes[0], BulkOutcome::Applied(s) if s.issue.status() == IssueStatus::Confirmed)
+        );
+        assert!(
+            matches!(&outcomes[1], BulkOutcome::Applied(s) if s.issue.status() == IssueStatus::Confirmed)
+        );
+        assert!(matches!(
+            &outcomes[2],
+            BulkOutcome::Failed { issue_id: 99, .. }
+        ));
     }
 
     #[test]
     fn facets_exclude_their_own_dimension() {
         let storage = InMemoryIssueStorage::new();
         let issue = |rule: &str, severity: Severity| {
-            Issue::new(RuleId::new(rule).unwrap(), severity, "m", "a.rs", Span::new(1, 1, 1, 2))
+            Issue::new(
+                RuleId::new(rule).unwrap(),
+                severity,
+                "m",
+                "a.rs",
+                Span::new(1, 1, 1, 2),
+            )
         };
         futures::executor::block_on(storage.save_issues(
             &[
@@ -325,12 +440,18 @@ mod tests {
         // (2 blocker + 1 minor), since severity excludes itself — but the
         // rule facet is computed WITH the severity filter applied, so it
         // only reflects the two blocker issues.
-        let query = IssueQuery { severity: Some(Severity::Blocker), ..Default::default() };
+        let query = IssueQuery {
+            severity: Some(Severity::Blocker),
+            ..Default::default()
+        };
         let facets = futures::executor::block_on(storage.facets(&query)).unwrap();
         assert_eq!(facets.by_severity.get(&Severity::Blocker), Some(&2));
         assert_eq!(facets.by_severity.get(&Severity::Minor), Some(&1));
-        let rule_counts: std::collections::HashMap<_, _> =
-            facets.by_rule.iter().map(|(r, c)| (r.as_str().to_string(), *c)).collect();
+        let rule_counts: std::collections::HashMap<_, _> = facets
+            .by_rule
+            .iter()
+            .map(|(r, c)| (r.as_str().to_string(), *c))
+            .collect();
         assert_eq!(rule_counts.get("owasp:a"), Some(&1));
         assert_eq!(rule_counts.get("smells:b"), Some(&1));
     }
@@ -339,7 +460,13 @@ mod tests {
     fn search_filters_and_paginates() {
         let storage = InMemoryIssueStorage::new();
         let issue = |rule: &str, severity: Severity, file: &str| {
-            Issue::new(RuleId::new(rule).unwrap(), severity, "m", file, Span::new(1, 1, 1, 2))
+            Issue::new(
+                RuleId::new(rule).unwrap(),
+                severity,
+                "m",
+                file,
+                Span::new(1, 1, 1, 2),
+            )
         };
         futures::executor::block_on(storage.save_issues(
             &[
@@ -352,15 +479,25 @@ mod tests {
         ))
         .unwrap();
 
-        let by_severity = IssueQuery { severity: Some(Severity::Blocker), ..Default::default() };
+        let by_severity = IssueQuery {
+            severity: Some(Severity::Blocker),
+            ..Default::default()
+        };
         let page = futures::executor::block_on(storage.search_issues(&by_severity)).unwrap();
         assert_eq!(page.total, 2);
 
-        let by_file = IssueQuery { file: Some("auth".into()), ..Default::default() };
+        let by_file = IssueQuery {
+            file: Some("auth".into()),
+            ..Default::default()
+        };
         let page = futures::executor::block_on(storage.search_issues(&by_file)).unwrap();
         assert_eq!(page.total, 2);
 
-        let paged = IssueQuery { page: 2, page_size: 3, ..Default::default() };
+        let paged = IssueQuery {
+            page: 2,
+            page_size: 3,
+            ..Default::default()
+        };
         let page = futures::executor::block_on(storage.search_issues(&paged)).unwrap();
         assert_eq!(page.total, 4);
         assert_eq!(page.items.len(), 1);
@@ -376,7 +513,8 @@ mod tests {
             "a.rs",
             Span::new(3, 1, 3, 10),
         );
-        futures::executor::block_on(storage.save_hotspots(&[hotspot], IssueScope::default())).unwrap();
+        futures::executor::block_on(storage.save_hotspots(&[hotspot], IssueScope::default()))
+            .unwrap();
 
         let listed = futures::executor::block_on(storage.recent_hotspots(10)).unwrap();
         assert_eq!(listed.len(), 1);
@@ -433,7 +571,10 @@ impl InMemorySandbox {
     pub fn with_file(path: impl Into<std::path::PathBuf>, content: impl Into<String>) -> Self {
         let mut files = BTreeMap::new();
         files.insert(path.into(), content.into());
-        Self { files: Mutex::new(files), originals: Mutex::new(BTreeMap::new()) }
+        Self {
+            files: Mutex::new(files),
+            originals: Mutex::new(BTreeMap::new()),
+        }
     }
 }
 
@@ -447,7 +588,10 @@ impl yunq_remediation::Sandbox for InMemorySandbox {
                 "proposal snippet must not be empty".to_string(),
             ));
         }
-        let mut files = self.files.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut files = self
+            .files
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let source = files.get(&proposal.file_path).cloned().ok_or_else(|| {
             yunq_remediation::RemediationError::SandboxError(format!(
                 "no sandboxed content for {}",
@@ -488,9 +632,16 @@ impl yunq_remediation::Sandbox for InMemorySandbox {
     }
 
     fn rollback(&self) -> Result<(), yunq_remediation::RemediationError> {
-        let originals =
-            std::mem::take(&mut *self.originals.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
-        let mut files = self.files.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let originals = std::mem::take(
+            &mut *self
+                .originals
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
+        let mut files = self
+            .files
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         for (path, content) in originals {
             files.insert(path, content);
         }
@@ -519,16 +670,25 @@ mod in_memory_sandbox_tests {
     fn applies_reads_and_rolls_back() {
         let sandbox = InMemorySandbox::with_file("src/lib.rs", "let value = 1;\n");
         sandbox.apply_proposal(&proposal("1", "2")).unwrap();
-        assert_eq!(sandbox.read_source(&PathBuf::from("src/lib.rs")).unwrap(), "let value = 2;\n");
+        assert_eq!(
+            sandbox.read_source(&PathBuf::from("src/lib.rs")).unwrap(),
+            "let value = 2;\n"
+        );
 
         sandbox.rollback().unwrap();
-        assert_eq!(sandbox.read_source(&PathBuf::from("src/lib.rs")).unwrap(), "let value = 1;\n");
+        assert_eq!(
+            sandbox.read_source(&PathBuf::from("src/lib.rs")).unwrap(),
+            "let value = 1;\n"
+        );
     }
 
     #[test]
     fn rejects_ambiguous_snippet() {
         let sandbox = InMemorySandbox::with_file("src/lib.rs", "let a = 1;\nlet b = 1;\n");
         let err = sandbox.apply_proposal(&proposal("1", "2")).unwrap_err();
-        assert!(matches!(err, yunq_remediation::RemediationError::SandboxError(_)));
+        assert!(matches!(
+            err,
+            yunq_remediation::RemediationError::SandboxError(_)
+        ));
     }
 }

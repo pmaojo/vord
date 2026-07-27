@@ -47,7 +47,11 @@ impl ActivityLogQuery {
     }
 
     pub fn normalized_page_size(&self) -> usize {
-        if self.page_size == 0 { 50 } else { self.page_size.clamp(1, 500) }
+        if self.page_size == 0 {
+            50
+        } else {
+            self.page_size.clamp(1, 500)
+        }
     }
 
     pub fn offset(&self) -> usize {
@@ -109,10 +113,15 @@ impl PgIssueStorage {
         );
         count.push_bind(project_key);
         if let Some(event_type) = &query.event_type {
-            count.push(" AND al.event_type = ").push_bind(event_type.as_str());
+            count
+                .push(" AND al.event_type = ")
+                .push_bind(event_type.as_str());
         }
-        let total: i64 =
-            count.build_query_scalar().fetch_one(&self.pool).await.map_err(storage_err)?;
+        let total: i64 = count
+            .build_query_scalar()
+            .fetch_one(&self.pool)
+            .await
+            .map_err(storage_err)?;
 
         let mut select = QueryBuilder::<Postgres>::new(
             "SELECT al.id, al.event_type, al.message, al.metadata,
@@ -123,17 +132,26 @@ impl PgIssueStorage {
         );
         select.push_bind(project_key);
         if let Some(event_type) = &query.event_type {
-            select.push(" AND al.event_type = ").push_bind(event_type.as_str());
+            select
+                .push(" AND al.event_type = ")
+                .push_bind(event_type.as_str());
         }
         select
             .push(" ORDER BY al.id DESC LIMIT ")
             .push_bind(query.normalized_page_size() as i64)
             .push(" OFFSET ")
             .push_bind(query.offset() as i64);
-        let rows = select.build().fetch_all(&self.pool).await.map_err(storage_err)?;
+        let rows = select
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_err)?;
 
         Ok(Page {
-            items: rows.iter().map(activity_entry_from_row).collect::<Result<_, _>>()?,
+            items: rows
+                .iter()
+                .map(activity_entry_from_row)
+                .collect::<Result<_, _>>()?,
             page: query.normalized_page(),
             page_size: query.normalized_page_size(),
             total: total as usize,
@@ -155,13 +173,20 @@ mod tests {
 
     #[test]
     fn page_size_is_capped_at_five_hundred() {
-        let query = ActivityLogQuery { page_size: 10_000, ..Default::default() };
+        let query = ActivityLogQuery {
+            page_size: 10_000,
+            ..Default::default()
+        };
         assert_eq!(query.normalized_page_size(), 500);
     }
 
     #[test]
     fn offset_advances_by_page_size() {
-        let query = ActivityLogQuery { page: 3, page_size: 20, ..Default::default() };
+        let query = ActivityLogQuery {
+            page: 3,
+            page_size: 20,
+            ..Default::default()
+        };
         assert_eq!(query.offset(), 40);
     }
 }
@@ -187,10 +212,16 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let key = format!(
             "activity-test-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
 
-        storage.record_activity(&key, "scan.started", "scan started", None).await.unwrap();
+        storage
+            .record_activity(&key, "scan.started", "scan started", None)
+            .await
+            .unwrap();
         storage
             .record_activity(
                 &key,
@@ -201,16 +232,25 @@ mod live_db_tests {
             .await
             .unwrap();
 
-        let page = storage.list_activity(&key, &ActivityLogQuery::default()).await.unwrap();
+        let page = storage
+            .list_activity(&key, &ActivityLogQuery::default())
+            .await
+            .unwrap();
         assert_eq!(page.total, 2);
         assert_eq!(page.items[0].event_type, "scan.failed");
-        assert_eq!(page.items[0].metadata, Some(serde_json::json!({"error": "boom"})));
+        assert_eq!(
+            page.items[0].metadata,
+            Some(serde_json::json!({"error": "boom"}))
+        );
         assert_eq!(page.items[1].event_type, "scan.started");
 
         let filtered = storage
             .list_activity(
                 &key,
-                &ActivityLogQuery { event_type: Some("scan.failed".to_string()), ..Default::default() },
+                &ActivityLogQuery {
+                    event_type: Some("scan.failed".to_string()),
+                    ..Default::default()
+                },
             )
             .await
             .unwrap();

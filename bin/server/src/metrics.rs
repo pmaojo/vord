@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::{MatchedPath, State};
-use axum::http::{header, Request, StatusCode};
+use axum::http::{Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use utoipa::ToSchema;
@@ -107,12 +107,21 @@ impl Metrics {
     }
 
     pub(crate) fn webhook_queue_error(&self) {
-        self.inner.webhook_queue_errors.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .webhook_queue_errors
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     fn record_http(&self, method: String, route: String, status: StatusCode, elapsed: Duration) {
-        let mut http = self.inner.http.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        *http.requests.entry((method.clone(), route.clone(), status.as_u16())).or_default() += 1;
+        let mut http = self
+            .inner
+            .http
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *http
+            .requests
+            .entry((method.clone(), route.clone(), status.as_u16()))
+            .or_default() += 1;
         let histogram = http.latency.entry((method, route)).or_default();
         let seconds = elapsed.as_secs_f64();
         histogram.count += 1;
@@ -125,15 +134,42 @@ impl Metrics {
     }
 
     fn render_process_metrics(&self, output: &mut String) {
-        metric_header(output, "yunq_process_uptime_seconds", "Seconds since the server started", "gauge");
-        let _ = writeln!(output, "yunq_process_uptime_seconds {}", self.inner.started.elapsed().as_secs_f64());
-        metric_header(output, "yunq_http_active_requests", "HTTP requests currently being served", "gauge");
-        let _ = writeln!(output, "yunq_http_active_requests {}", self.inner.active_requests.load(Ordering::Relaxed));
+        metric_header(
+            output,
+            "yunq_process_uptime_seconds",
+            "Seconds since the server started",
+            "gauge",
+        );
+        let _ = writeln!(
+            output,
+            "yunq_process_uptime_seconds {}",
+            self.inner.started.elapsed().as_secs_f64()
+        );
+        metric_header(
+            output,
+            "yunq_http_active_requests",
+            "HTTP requests currently being served",
+            "gauge",
+        );
+        let _ = writeln!(
+            output,
+            "yunq_http_active_requests {}",
+            self.inner.active_requests.load(Ordering::Relaxed)
+        );
     }
 
     fn render_http_metrics(&self, output: &mut String) {
-        let http = self.inner.http.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        metric_header(output, "yunq_http_requests_total", "Completed HTTP requests", "counter");
+        let http = self
+            .inner
+            .http
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        metric_header(
+            output,
+            "yunq_http_requests_total",
+            "Completed HTTP requests",
+            "counter",
+        );
         for ((method, route, status), count) in &http.requests {
             let _ = writeln!(
                 output,
@@ -144,7 +180,12 @@ impl Metrics {
                 count
             );
         }
-        metric_header(output, "yunq_http_request_duration_seconds", "HTTP request latency in seconds", "histogram");
+        metric_header(
+            output,
+            "yunq_http_request_duration_seconds",
+            "HTTP request latency in seconds",
+            "histogram",
+        );
         for ((method, route), histogram) in &http.latency {
             for (index, upper_bound) in LATENCY_BUCKETS.iter().enumerate() {
                 let _ = writeln!(
@@ -156,30 +197,74 @@ impl Metrics {
                     histogram.buckets[index]
                 );
             }
-            let labels = format!("method=\"{}\",route=\"{}\"", escape_label(method), escape_label(route));
+            let labels = format!(
+                "method=\"{}\",route=\"{}\"",
+                escape_label(method),
+                escape_label(route)
+            );
             let _ = writeln!(
                 output,
                 "yunq_http_request_duration_seconds_bucket{{{labels},le=\"+Inf\"}} {}",
                 histogram.count
             );
-            let _ = writeln!(output, "yunq_http_request_duration_seconds_sum{{{labels}}} {}", histogram.sum_seconds);
-            let _ = writeln!(output, "yunq_http_request_duration_seconds_count{{{labels}}} {}", histogram.count);
+            let _ = writeln!(
+                output,
+                "yunq_http_request_duration_seconds_sum{{{labels}}} {}",
+                histogram.sum_seconds
+            );
+            let _ = writeln!(
+                output,
+                "yunq_http_request_duration_seconds_count{{{labels}}} {}",
+                histogram.count
+            );
         }
     }
 
     fn render_oauth_and_webhook_metrics(&self, output: &mut String) {
-        atomic_counter(output, "yunq_oauth_logins_total", "Completed OAuth logins", "result", [
-            ("success", &self.inner.oauth_successes),
-            ("failure", &self.inner.oauth_failures),
-        ]);
-        simple_atomic(output, "yunq_webhook_deliveries_queued_total", "Webhook deliveries accepted by the dispatcher", &self.inner.webhook_queued);
-        simple_atomic(output, "yunq_webhook_delivery_attempts_total", "Webhook HTTP delivery attempts", &self.inner.webhook_attempts);
-        atomic_counter(output, "yunq_webhook_deliveries_total", "Completed webhook deliveries", "result", [
-            ("success", &self.inner.webhook_successes),
-            ("failure", &self.inner.webhook_failures),
-        ]);
-        simple_atomic(output, "yunq_webhook_retries_total", "Webhook retries scheduled", &self.inner.webhook_retries);
-        simple_atomic(output, "yunq_webhook_queue_errors_total", "Webhook deliveries rejected because the queue was unavailable", &self.inner.webhook_queue_errors);
+        atomic_counter(
+            output,
+            "yunq_oauth_logins_total",
+            "Completed OAuth logins",
+            "result",
+            [
+                ("success", &self.inner.oauth_successes),
+                ("failure", &self.inner.oauth_failures),
+            ],
+        );
+        simple_atomic(
+            output,
+            "yunq_webhook_deliveries_queued_total",
+            "Webhook deliveries accepted by the dispatcher",
+            &self.inner.webhook_queued,
+        );
+        simple_atomic(
+            output,
+            "yunq_webhook_delivery_attempts_total",
+            "Webhook HTTP delivery attempts",
+            &self.inner.webhook_attempts,
+        );
+        atomic_counter(
+            output,
+            "yunq_webhook_deliveries_total",
+            "Completed webhook deliveries",
+            "result",
+            [
+                ("success", &self.inner.webhook_successes),
+                ("failure", &self.inner.webhook_failures),
+            ],
+        );
+        simple_atomic(
+            output,
+            "yunq_webhook_retries_total",
+            "Webhook retries scheduled",
+            &self.inner.webhook_retries,
+        );
+        simple_atomic(
+            output,
+            "yunq_webhook_queue_errors_total",
+            "Webhook deliveries rejected because the queue was unavailable",
+            &self.inner.webhook_queue_errors,
+        );
     }
 
     fn render(&self) -> String {
@@ -210,12 +295,19 @@ fn atomic_counter<const N: usize>(
 ) {
     metric_header(output, name, help, "counter");
     for (label, value) in values {
-        let _ = writeln!(output, "{name}{{{label_name}=\"{label}\"}} {}", value.load(Ordering::Relaxed));
+        let _ = writeln!(
+            output,
+            "{name}{{{label_name}=\"{label}\"}} {}",
+            value.load(Ordering::Relaxed)
+        );
     }
 }
 
 fn escape_label(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\n', "\\n").replace('"', "\\\"")
+    value
+        .replace('\\', "\\\\")
+        .replace('\n', "\\n")
+        .replace('"', "\\\"")
 }
 
 pub(crate) async fn track_request(
@@ -230,7 +322,10 @@ pub(crate) async fn track_request(
         .map(MatchedPath::as_str)
         .unwrap_or_else(|| request.uri().path())
         .to_owned();
-    metrics.inner.active_requests.fetch_add(1, Ordering::Relaxed);
+    metrics
+        .inner
+        .active_requests
+        .fetch_add(1, Ordering::Relaxed);
     let _active_guard = ActiveRequestGuard(&metrics.inner.active_requests);
     let started = Instant::now();
     let response = next.run(request).await;
@@ -254,7 +349,10 @@ pub(crate) async fn prometheus_metrics(
     State(state): State<Arc<crate::AppState>>,
 ) -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
         state.metrics.render(),
     )
 }
@@ -277,7 +375,9 @@ mod tests {
 
         let rendered = metrics.render();
 
-        assert!(rendered.contains("yunq_http_requests_total{method=\"GET\",route=\"/api/test\",status=\"200\"} 1"));
+        assert!(rendered.contains(
+            "yunq_http_requests_total{method=\"GET\",route=\"/api/test\",status=\"200\"} 1"
+        ));
         assert!(rendered.contains("le=\"0.01\"} 1"));
         assert!(rendered.contains("le=\"+Inf\"} 1"));
         assert!(rendered.contains("yunq_oauth_logins_total{result=\"success\"} 1"));
@@ -289,6 +389,9 @@ mod tests {
         let metrics = Metrics::new();
         let uptime = metrics.uptime_seconds();
         assert!(uptime >= 0.0);
-        assert!(uptime < 5.0, "expected a freshly created Metrics to report a tiny uptime, got {uptime}");
+        assert!(
+            uptime < 5.0,
+            "expected a freshly created Metrics to report a tiny uptime, got {uptime}"
+        );
     }
 }

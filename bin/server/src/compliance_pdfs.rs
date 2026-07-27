@@ -139,11 +139,24 @@ impl ComplianceReportGenerator {
 
         // Build text stream
         let mut text = String::new();
-        text.push_str("BT /F1 16 Tf 50 750 Td (CWE Top 25 - Most Dangerous Software Weaknesses) Tj ET\n");
-        text.push_str(&format!("BT /F1 12 Tf 50 720 Td (Report generated for: {}) Tj ET\n", self.institution));
-        text.push_str("BT /F1 10 Tf 50 690 Td (------------------------------------------------) Tj ET\n");
-        text.push_str(&format!("BT /F1 10 Tf 50 670 Td (Total Issues: {}) Tj ET\n", report.issues().len()));
-        text.push_str(&format!("BT /F1 10 Tf 50 650 Td (Total Hotspots: {}) Tj ET\n", report.hotspots().len()));
+        text.push_str(
+            "BT /F1 16 Tf 50 750 Td (CWE Top 25 - Most Dangerous Software Weaknesses) Tj ET\n",
+        );
+        text.push_str(&format!(
+            "BT /F1 12 Tf 50 720 Td (Report generated for: {}) Tj ET\n",
+            self.institution
+        ));
+        text.push_str(
+            "BT /F1 10 Tf 50 690 Td (------------------------------------------------) Tj ET\n",
+        );
+        text.push_str(&format!(
+            "BT /F1 10 Tf 50 670 Td (Total Issues: {}) Tj ET\n",
+            report.issues().len()
+        ));
+        text.push_str(&format!(
+            "BT /F1 10 Tf 50 650 Td (Total Hotspots: {}) Tj ET\n",
+            report.hotspots().len()
+        ));
 
         let mut y: i32 = 620;
         for issue in report.issues().iter().take(25) {
@@ -154,14 +167,21 @@ impl ComplianceReportGenerator {
                 yunq_rules_engine::Severity::Minor => "Minor",
                 yunq_rules_engine::Severity::Info => "Info",
             };
-            let line = format!("[{severity}] {} in {}:{}",
-                issue.rule().as_str(), issue.file(), issue.span().start_line);
+            let line = format!(
+                "[{severity}] {} in {}:{}",
+                issue.rule().as_str(),
+                issue.file(),
+                issue.span().start_line
+            );
             let escaped = line.replace('(', "\\(").replace(')', "\\)");
-            let _ = std::fmt::Write::write_fmt(&mut text, format_args!(
-                "BT /F1 9 Tf 50 {y} Td ({escaped}) Tj ET\n"
-            ));
+            let _ = std::fmt::Write::write_fmt(
+                &mut text,
+                format_args!("BT /F1 9 Tf 50 {y} Td ({escaped}) Tj ET\n"),
+            );
             y = y.saturating_sub(15);
-            if y < 50 { break; }
+            if y < 50 {
+                break;
+            }
         }
 
         let stream_bytes = text.as_bytes();
@@ -176,24 +196,35 @@ impl ComplianceReportGenerator {
 
         let mut text = String::new();
         text.push_str("BT /F1 16 Tf 50 750 Td (PCI DSS v4.0 Compliance Evidence Report) Tj ET\n");
-        text.push_str(&format!("BT /F1 12 Tf 50 720 Td (Institution: {}) Tj ET\n", self.institution));
+        text.push_str(&format!(
+            "BT /F1 12 Tf 50 720 Td (Institution: {}) Tj ET\n",
+            self.institution
+        ));
         text.push_str("BT /F1 10 Tf 50 690 Td (Security requirements mapping) Tj ET\n");
-        text.push_str(&format!("BT /F1 10 Tf 50 670 Td (Findings mapped to PCI requirements: {}) Tj ET\n", report.issues().len()));
+        text.push_str(&format!(
+            "BT /F1 10 Tf 50 670 Td (Findings mapped to PCI requirements: {}) Tj ET\n",
+            report.issues().len()
+        ));
 
         let mut y: i32 = 640;
         for issue in report.issues().iter().take(20) {
             let req = match issue.severity() {
-                yunq_rules_engine::Severity::Blocker | yunq_rules_engine::Severity::Critical => "Req 6.2.4",
+                yunq_rules_engine::Severity::Blocker | yunq_rules_engine::Severity::Critical => {
+                    "Req 6.2.4"
+                }
                 yunq_rules_engine::Severity::Major => "Req 6.2.3",
                 _ => "Req 6.2.1",
             };
             let line = format!("{req}: {} in {}", issue.rule().as_str(), issue.file());
             let escaped = line.replace('(', "\\(").replace(')', "\\)");
-            let _ = std::fmt::Write::write_fmt(&mut text, format_args!(
-                "BT /F1 9 Tf 50 {y} Td ({escaped}) Tj ET\n"
-            ));
+            let _ = std::fmt::Write::write_fmt(
+                &mut text,
+                format_args!("BT /F1 9 Tf 50 {y} Td ({escaped}) Tj ET\n"),
+            );
             y = y.saturating_sub(15);
-            if y < 50 { break; }
+            if y < 50 {
+                break;
+            }
         }
 
         let stream_bytes = text.as_bytes();
@@ -207,21 +238,36 @@ impl ComplianceReportGenerator {
         pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
 
         let mut text = String::new();
-        text.push_str("BT /F1 16 Tf 50 750 Td (SOC 2 Type II Change-Management Evidence Report) Tj ET\n");
-        text.push_str(&format!("BT /F1 12 Tf 50 720 Td (Institution: {}) Tj ET\n", self.institution));
+        text.push_str(
+            "BT /F1 16 Tf 50 750 Td (SOC 2 Type II Change-Management Evidence Report) Tj ET\n",
+        );
+        text.push_str(&format!(
+            "BT /F1 12 Tf 50 720 Td (Institution: {}) Tj ET\n",
+            self.institution
+        ));
         text.push_str("BT /F1 10 Tf 50 690 Td (Audit trail: findings mapped to commits) Tj ET\n");
-        text.push_str(&format!("BT /F1 10 Tf 50 670 Td (Total findings documented: {}) Tj ET\n", report.issues().len()));
+        text.push_str(&format!(
+            "BT /F1 10 Tf 50 670 Td (Total findings documented: {}) Tj ET\n",
+            report.issues().len()
+        ));
 
         let mut y: i32 = 640;
         for issue in report.issues().iter().take(20) {
-            let line = format!("commit:unknown | {} | {}:{}",
-                issue.rule().as_str(), issue.file(), issue.span().start_line);
+            let line = format!(
+                "commit:unknown | {} | {}:{}",
+                issue.rule().as_str(),
+                issue.file(),
+                issue.span().start_line
+            );
             let escaped = line.replace('(', "\\(").replace(')', "\\)");
-            let _ = std::fmt::Write::write_fmt(&mut text, format_args!(
-                "BT /F1 9 Tf 50 {y} Td ({escaped}) Tj ET\n"
-            ));
+            let _ = std::fmt::Write::write_fmt(
+                &mut text,
+                format_args!("BT /F1 9 Tf 50 {y} Td ({escaped}) Tj ET\n"),
+            );
             y = y.saturating_sub(15);
-            if y < 50 { break; }
+            if y < 50 {
+                break;
+            }
         }
 
         let stream_bytes = text.as_bytes();
@@ -242,22 +288,35 @@ impl ComplianceReportGenerator {
         pdf.extend_from_slice(b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n");
 
         offsets.push(pdf.len());
-        pdf.extend_from_slice(format!("4 0 obj\n<< /Length {} >>\nstream\n", stream_bytes.len()).as_bytes());
+        pdf.extend_from_slice(
+            format!("4 0 obj\n<< /Length {} >>\nstream\n", stream_bytes.len()).as_bytes(),
+        );
         pdf.extend_from_slice(stream_bytes);
         pdf.extend_from_slice(b"\nendstream\nendobj\n");
 
         offsets.push(pdf.len());
-        pdf.extend_from_slice(b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
+        pdf.extend_from_slice(
+            b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        );
         offsets
     }
 
     fn write_xref_trailer(&self, pdf: &mut Vec<u8>, offsets: &[usize]) {
         let xref_offset = pdf.len();
-        pdf.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes());
+        pdf.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes(),
+        );
         for offset in offsets {
             pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
         }
-        pdf.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n", offsets.len() + 1, xref_offset).as_bytes());
+        pdf.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                offsets.len() + 1,
+                xref_offset
+            )
+            .as_bytes(),
+        );
     }
 }
 
@@ -270,7 +329,10 @@ pub enum ComplianceError {
     #[error("analysis report is empty; nothing to render")]
     EmptyReport,
     #[error("rule {rule_id} has no metadata for {kind:?}")]
-    UnknownRule { rule_id: String, kind: ComplianceReportKind },
+    UnknownRule {
+        rule_id: String,
+        kind: ComplianceReportKind,
+    },
     #[error("PDF encoding failed: {0}")]
     Encoding(String),
 }
@@ -399,8 +461,13 @@ mod tests {
     fn pdf_output_starts_with_magic_header() {
         let cg = ComplianceReportGenerator::new("Acme Corp");
         let report = one_finding_report("owasp:sqli", Severity::Critical);
-        let bytes = cg.generate(&report, ComplianceReportKind::CweTop25).unwrap();
-        assert!(bytes.starts_with(b"%PDF-1.4"), "must be a valid PDF 1.4 header");
+        let bytes = cg
+            .generate(&report, ComplianceReportKind::CweTop25)
+            .unwrap();
+        assert!(
+            bytes.starts_with(b"%PDF-1.4"),
+            "must be a valid PDF 1.4 header"
+        );
     }
 
     #[test]
@@ -408,7 +475,10 @@ mod tests {
         let cg = ComplianceReportGenerator::new("Acme Corp");
         let report = one_finding_report("owasp:sqli", Severity::Critical);
         let bytes = cg.generate(&report, ComplianceReportKind::PciDss).unwrap();
-        assert!(bytes.windows(5).any(|w| w == b"%%EOF"), "PDF must end with %%EOF");
+        assert!(
+            bytes.windows(5).any(|w| w == b"%%EOF"),
+            "PDF must end with %%EOF"
+        );
     }
 
     #[test]

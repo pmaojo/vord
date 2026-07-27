@@ -111,25 +111,37 @@ mod tests {
     #[test]
     fn detects_cobertura() {
         let content = r#"<?xml version="1.0"?><coverage line-rate="1.0"></coverage>"#;
-        assert_eq!(detect_coverage_format(content), Some(CoverageFormat::Cobertura));
+        assert_eq!(
+            detect_coverage_format(content),
+            Some(CoverageFormat::Cobertura)
+        );
     }
 
     #[test]
     fn detects_jacoco() {
         let content = r#"<?xml version="1.0"?><report name="x"></report>"#;
-        assert_eq!(detect_coverage_format(content), Some(CoverageFormat::Jacoco));
+        assert_eq!(
+            detect_coverage_format(content),
+            Some(CoverageFormat::Jacoco)
+        );
     }
 
     #[test]
     fn detects_llvm_cov() {
         let content = r#"{"data":[{"files":[]}]}"#;
-        assert_eq!(detect_coverage_format(content), Some(CoverageFormat::LlvmCov));
+        assert_eq!(
+            detect_coverage_format(content),
+            Some(CoverageFormat::LlvmCov)
+        );
     }
 
     #[test]
     fn detects_istanbul() {
         let content = r#"{"/a.js":{"path":"/a.js","statementMap":{},"s":{}}}"#;
-        assert_eq!(detect_coverage_format(content), Some(CoverageFormat::Istanbul));
+        assert_eq!(
+            detect_coverage_format(content),
+            Some(CoverageFormat::Istanbul)
+        );
     }
 
     #[test]

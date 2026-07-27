@@ -20,13 +20,28 @@ pub struct AppError {
 
 impl AppError {
     pub fn bad_request(message: impl Into<String>) -> Self {
-        Self { status: StatusCode::BAD_REQUEST, body: AppErrorBody { error: message.into() } }
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            body: AppErrorBody {
+                error: message.into(),
+            },
+        }
     }
     pub fn not_found(message: impl Into<String>) -> Self {
-        Self { status: StatusCode::NOT_FOUND, body: AppErrorBody { error: message.into() } }
+        Self {
+            status: StatusCode::NOT_FOUND,
+            body: AppErrorBody {
+                error: message.into(),
+            },
+        }
     }
     pub fn internal(message: impl Into<String>) -> Self {
-        Self { status: StatusCode::INTERNAL_SERVER_ERROR, body: AppErrorBody { error: message.into() } }
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            body: AppErrorBody {
+                error: message.into(),
+            },
+        }
     }
 }
 

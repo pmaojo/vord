@@ -84,7 +84,11 @@ pub const DEFAULT_DEV_COST_MINUTES_PER_LINE: f64 = 30.0;
 /// `MaintainabilityMeasuresVisitor.computeDensity`.
 pub fn debt_ratio(remediation_minutes: f64, lines_of_code: f64, dev_cost_per_line: f64) -> f64 {
     let development_cost = lines_of_code * dev_cost_per_line;
-    if development_cost <= 0.0 { 0.0 } else { remediation_minutes / development_cost }
+    if development_cost <= 0.0 {
+        0.0
+    } else {
+        remediation_minutes / development_cost
+    }
 }
 
 /// The four upper bounds separating A/B/C/D/E, mirroring
@@ -97,7 +101,9 @@ pub struct DebtRatingGrid {
 
 impl Default for DebtRatingGrid {
     fn default() -> Self {
-        Self { thresholds: [0.05, 0.1, 0.2, 0.5] }
+        Self {
+            thresholds: [0.05, 0.1, 0.2, 0.5],
+        }
     }
 }
 
@@ -187,7 +193,10 @@ pub fn reliability_and_security_ratings(
             IssueType::CodeSmell => {}
         }
     }
-    ReliabilitySecurityRatings { reliability, security }
+    ReliabilitySecurityRatings {
+        reliability,
+        security,
+    }
 }
 
 /// Cumulative remediation effort (minutes), grouped by rule and by
@@ -209,7 +218,10 @@ pub fn aggregate_remediation_effort<'a>(
     let mut summary = RemediationEffortSummary::default();
     for (rule, component, minutes) in issues {
         *summary.by_rule.entry(rule).or_insert(0) += minutes;
-        *summary.by_component.entry(component.to_string()).or_insert(0) += minutes;
+        *summary
+            .by_component
+            .entry(component.to_string())
+            .or_insert(0) += minutes;
     }
     summary
 }
@@ -239,7 +251,10 @@ mod tests {
 
     #[test]
     fn no_lines_of_code_means_no_debt_ratio() {
-        assert_eq!(debt_ratio(100.0, 0.0, DEFAULT_DEV_COST_MINUTES_PER_LINE), 0.0);
+        assert_eq!(
+            debt_ratio(100.0, 0.0, DEFAULT_DEV_COST_MINUTES_PER_LINE),
+            0.0
+        );
     }
 
     #[test]
@@ -273,7 +288,11 @@ mod tests {
 
     #[test]
     fn issue_type_parses_and_displays_round_trip() {
-        for issue_type in [IssueType::Bug, IssueType::Vulnerability, IssueType::CodeSmell] {
+        for issue_type in [
+            IssueType::Bug,
+            IssueType::Vulnerability,
+            IssueType::CodeSmell,
+        ] {
             assert_eq!(IssueType::parse(&issue_type.to_string()), Some(issue_type));
         }
         assert_eq!(IssueType::parse("code-smell"), Some(IssueType::CodeSmell));
@@ -290,13 +309,22 @@ mod tests {
             (IssueType::CodeSmell, Severity::Blocker),
             (IssueType::Bug, Severity::Blocker),
         ]);
-        assert_eq!(ratings.security, Rating::A, "no vulnerability present, security must stay A");
-        assert_eq!(ratings.reliability, Rating::E, "the blocker bug must still drive reliability");
+        assert_eq!(
+            ratings.security,
+            Rating::A,
+            "no vulnerability present, security must stay A"
+        );
+        assert_eq!(
+            ratings.reliability,
+            Rating::E,
+            "the blocker bug must still drive reliability"
+        );
     }
 
     #[test]
     fn no_bugs_or_vulnerabilities_means_both_ratings_are_a() {
-        let ratings = reliability_and_security_ratings([(IssueType::CodeSmell, Severity::Blocker); 5]);
+        let ratings =
+            reliability_and_security_ratings([(IssueType::CodeSmell, Severity::Blocker); 5]);
         assert_eq!(ratings.reliability, Rating::A);
         assert_eq!(ratings.security, Rating::A);
     }

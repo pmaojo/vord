@@ -11,10 +11,26 @@ use yunq_profiles::{ComparisonOperator, Condition, MetricKey, QualityGate};
 pub fn default_gate() -> QualityGate {
     let metric = |raw: &str| MetricKey::new(raw).expect("valid metric key");
     QualityGate::new("yunq-default")
-        .with_condition(Condition::new(metric("blocker_issues"), ComparisonOperator::GreaterThan, 0.0))
-        .with_condition(Condition::new(metric("critical_issues"), ComparisonOperator::GreaterThan, 0.0))
-        .with_condition(Condition::new(metric("parse_failures"), ComparisonOperator::GreaterThan, 0.0))
-        .with_condition(Condition::new(metric("coverage"), ComparisonOperator::LessThan, 80.0))
+        .with_condition(Condition::new(
+            metric("blocker_issues"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
+        .with_condition(Condition::new(
+            metric("critical_issues"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
+        .with_condition(Condition::new(
+            metric("parse_failures"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
+        .with_condition(Condition::new(
+            metric("coverage"),
+            ComparisonOperator::LessThan,
+            80.0,
+        ))
 }
 
 #[cfg(test)]

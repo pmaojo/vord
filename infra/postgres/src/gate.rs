@@ -4,12 +4,12 @@
 //! database) but in its own module since none of this is on the hot path of
 //! issue search/workflow.
 
-use sqlx::postgres::PgRow;
 use sqlx::Row;
+use sqlx::postgres::PgRow;
 use yunq_rules_engine::{
-    default_gate, BranchName, ComparisonOperator, Condition, ConditionStatus, GateEvaluation,
-    GateResultReader, GateResultSummary, GateStatus, MetricKey, NewCodeDefinition, QualityGate,
-    StorageError,
+    BranchName, ComparisonOperator, Condition, ConditionStatus, GateEvaluation, GateResultReader,
+    GateResultSummary, GateStatus, MetricKey, NewCodeDefinition, QualityGate, StorageError,
+    default_gate,
 };
 
 use crate::PgIssueStorage;
@@ -29,7 +29,9 @@ fn operator_from_column(raw: &str) -> Result<ComparisonOperator, StorageError> {
     match raw {
         "gt" => Ok(ComparisonOperator::GreaterThan),
         "lt" => Ok(ComparisonOperator::LessThan),
-        other => Err(StorageError(format!("invalid comparison operator {other:?}"))),
+        other => Err(StorageError(format!(
+            "invalid comparison operator {other:?}"
+        ))),
     }
 }
 
@@ -72,9 +74,11 @@ fn new_code_definition_from_row(
     match kind {
         "previous_analysis" => Ok(NewCodeDefinition::PreviousAnalysis),
         "number_of_days" => {
-            let raw = param.ok_or_else(|| StorageError("number_of_days requires a param".into()))?;
-            let days: u32 =
-                raw.parse().map_err(|e| StorageError(format!("invalid day count {raw:?}: {e}")))?;
+            let raw =
+                param.ok_or_else(|| StorageError("number_of_days requires a param".into()))?;
+            let days: u32 = raw
+                .parse()
+                .map_err(|e| StorageError(format!("invalid day count {raw:?}: {e}")))?;
             Ok(NewCodeDefinition::NumberOfDays(days))
         }
         "reference_branch" => {
@@ -88,7 +92,9 @@ fn new_code_definition_from_row(
                 param.ok_or_else(|| StorageError("specific_analysis requires a param".into()))?;
             Ok(NewCodeDefinition::SpecificAnalysis(raw.to_string()))
         }
-        other => Err(StorageError(format!("invalid new code definition kind {other:?}"))),
+        other => Err(StorageError(format!(
+            "invalid new code definition kind {other:?}"
+        ))),
     }
 }
 
@@ -117,16 +123,15 @@ impl PgIssueStorage {
     /// the instance-wide default gate's id, or `None` if neither row exists
     /// (a fresh database with migrations not yet seeded).
     async fn resolved_gate_id(&self, project_id: i64) -> Result<Option<i64>, StorageError> {
-        let assigned: Option<i64> =
-            sqlx::query("SELECT gate_id FROM projects WHERE id = $1")
-                .bind(project_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(storage_err)?
-                .map(|row: PgRow| row.try_get::<Option<i64>, _>("gate_id"))
-                .transpose()
-                .map_err(storage_err)?
-                .flatten();
+        let assigned: Option<i64> = sqlx::query("SELECT gate_id FROM projects WHERE id = $1")
+            .bind(project_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(storage_err)?
+            .map(|row: PgRow| row.try_get::<Option<i64>, _>("gate_id"))
+            .transpose()
+            .map_err(storage_err)?
+            .flatten();
 
         match assigned {
             Some(id) => Ok(Some(id)),
@@ -327,7 +332,9 @@ impl PgIssueStorage {
     }
 }
 
-fn rows_to_conditions(rows: &[PgRow]) -> Result<Vec<(String, ComparisonOperator, f64)>, StorageError> {
+fn rows_to_conditions(
+    rows: &[PgRow],
+) -> Result<Vec<(String, ComparisonOperator, f64)>, StorageError> {
     let mut conditions = Vec::with_capacity(rows.len());
     for row in rows {
         let metric: String = row.try_get("metric").map_err(storage_err)?;
@@ -376,8 +383,13 @@ impl PgIssueStorage {
         &self,
         name: &str,
         conditions: &[(String, ComparisonOperator, f64)],
-    ) -> Result<(Vec<(String, ComparisonOperator, f64)>, Vec<(String, ComparisonOperator, f64)>), StorageError>
-    {
+    ) -> Result<
+        (
+            Vec<(String, ComparisonOperator, f64)>,
+            Vec<(String, ComparisonOperator, f64)>,
+        ),
+        StorageError,
+    > {
         let mut tx = self.pool.begin().await.map_err(storage_err)?;
 
         let gate_id: i64 = sqlx::query(
@@ -431,7 +443,10 @@ impl GateResultReader for PgIssueStorage {
         let Some(row) = row else { return Ok(None) };
         let status_raw: String = row.try_get("status").map_err(storage_err)?;
         let evaluated_at: String = row.try_get("evaluated_at").map_err(storage_err)?;
-        Ok(Some(GateResultSummary { status: gate_status_from_column(&status_raw)?, evaluated_at }))
+        Ok(Some(GateResultSummary {
+            status: gate_status_from_column(&status_raw)?,
+            evaluated_at,
+        }))
     }
 }
 

@@ -26,7 +26,11 @@ fn is_other(node: &AstNode, kind: &str) -> bool {
 /// one is written. `None` for an untyped binding (e.g. plain JS `let x = 1`,
 /// or a Rust/Python name with no annotation).
 pub fn declared_type(node: &AstNode) -> Option<String> {
-    if let Some(annotation) = node.children().iter().find(|c| is_other(c, "type_annotation")) {
+    if let Some(annotation) = node
+        .children()
+        .iter()
+        .find(|c| is_other(c, "type_annotation"))
+    {
         return annotation
             .first_child()
             .map(|inner| inner.text().to_string())
@@ -48,7 +52,9 @@ pub fn constructor_type(expr: &AstNode) -> Option<String> {
     if *expr.kind() != NodeKind::Call || !expr.text().trim_start().starts_with("new ") {
         return None;
     }
-    expr.first_child().filter(|c| *c.kind() == NodeKind::Identifier).map(|c| c.text().to_string())
+    expr.first_child()
+        .filter(|c| *c.kind() == NodeKind::Identifier)
+        .map(|c| c.text().to_string())
 }
 
 #[cfg(test)]
@@ -59,7 +65,9 @@ mod tests {
 
     fn parse_ts(code: &str) -> AstNode {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     fn parse_rust(code: &str) -> AstNode {
@@ -69,7 +77,9 @@ mod tests {
 
     fn parse_py(code: &str) -> AstNode {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+        yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     #[test]

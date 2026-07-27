@@ -20,7 +20,9 @@ pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura, parse_cobertura_report};
 pub use config::YunqConfig;
-pub use coverage::{CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report};
+pub use coverage::{
+    CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report,
+};
 pub use diff::changed_lines_from_unified_diff;
 pub use istanbul::{IstanbulError, parse_istanbul, parse_istanbul_report};
 pub use jacoco::{JacocoError, parse_jacoco, parse_jacoco_report};
@@ -103,8 +105,10 @@ fn load_source_entry(
         return Ok(None);
     }
     let path = entry.path();
-    let Some(language) =
-        path.extension().and_then(|e| e.to_str()).and_then(LanguageIdentifier::from_extension)
+    let Some(language) = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .and_then(LanguageIdentifier::from_extension)
     else {
         return Ok(None);
     };
@@ -145,7 +149,9 @@ fn build_globset(patterns: &[String]) -> Result<GlobSet, SourceLoadError> {
             .map_err(|e| SourceLoadError::InvalidExclusion(pattern.clone(), e))?;
         builder.add(glob);
     }
-    builder.build().map_err(|e| SourceLoadError::InvalidExclusion(String::new(), e))
+    builder
+        .build()
+        .map_err(|e| SourceLoadError::InvalidExclusion(String::new(), e))
 }
 
 #[cfg(test)]
@@ -169,7 +175,11 @@ mod tests {
         let sources = collect_sources(&absolute).unwrap();
 
         assert_eq!(sources.len(), 1, "expected the single file to be scanned");
-        assert!(!sources[0].path().starts_with('/'), "path must not be absolute: {}", sources[0].path());
+        assert!(
+            !sources[0].path().starts_with('/'),
+            "path must not be absolute: {}",
+            sources[0].path()
+        );
         assert_eq!(sources[0].content(), "eval(x);\n");
 
         std::fs::remove_dir_all(&dir).unwrap();

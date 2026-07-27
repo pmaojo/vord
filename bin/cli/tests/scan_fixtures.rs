@@ -9,8 +9,11 @@ fn scans_fixtures_and_finds_every_rule_family() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
     let report = futures::executor::block_on(yunq_cli::scan(&fixtures)).unwrap();
 
-    let fired: BTreeSet<String> =
-        report.issues().iter().map(|i| i.rule().to_string()).collect();
+    let fired: BTreeSet<String> = report
+        .issues()
+        .iter()
+        .map(|i| i.rule().to_string())
+        .collect();
     for expected in [
         "owasp:hardcoded-secret",
         "owasp:eval-usage",
@@ -27,7 +30,10 @@ fn scans_fixtures_and_finds_every_rule_family() {
         "react:unsafe-target-blank",
         "react:inline-prop-function-in-component",
     ] {
-        assert!(fired.contains(expected), "rule {expected} did not fire; fired: {fired:?}");
+        assert!(
+            fired.contains(expected),
+            "rule {expected} did not fire; fired: {fired:?}"
+        );
     }
 
     assert_eq!(report.metrics().files_scanned(), 8);
@@ -63,10 +69,9 @@ fn scans_fixtures_and_finds_every_rule_family() {
             .any(|i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:eval-usage")
     );
     assert!(
-        report
-            .issues()
-            .iter()
-            .any(|i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:hardcoded-secret")
+        report.issues().iter().any(
+            |i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:hardcoded-secret"
+        )
     );
 
     // Every issue carries a real location inside the fixtures.

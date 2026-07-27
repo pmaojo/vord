@@ -28,7 +28,9 @@ impl PgIssueStorage {
         let database_connected = postgres_version.is_some();
 
         let issues_total = self.scalar_count("SELECT COUNT(*) AS n FROM issues").await;
-        let hotspots_total = self.scalar_count("SELECT COUNT(*) AS n FROM hotspots").await;
+        let hotspots_total = self
+            .scalar_count("SELECT COUNT(*) AS n FROM hotspots")
+            .await;
         let pending_scan_jobs = self
             .scalar_count("SELECT COUNT(*) AS n FROM scan_jobs WHERE status = 'pending'")
             .await;

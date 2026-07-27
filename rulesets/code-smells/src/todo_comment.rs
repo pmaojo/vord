@@ -8,7 +8,9 @@ pub struct TodoCommentRule {
 
 impl TodoCommentRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:todo-comment").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:todo-comment").expect("valid rule id"),
+        }
     }
 }
 
@@ -35,8 +37,13 @@ impl Rule for TodoCommentRule {
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Comment)
             .filter_map(|comment| {
-                let marker = ["TODO", "FIXME"].into_iter().find(|m| comment.text().contains(m))?;
-                Some(Finding::new(format!("unresolved {marker} comment"), comment.span()))
+                let marker = ["TODO", "FIXME"]
+                    .into_iter()
+                    .find(|m| comment.text().contains(m))?;
+                Some(Finding::new(
+                    format!("unresolved {marker} comment"),
+                    comment.span(),
+                ))
             })
             .collect()
     }

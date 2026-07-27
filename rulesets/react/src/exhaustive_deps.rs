@@ -30,18 +30,29 @@ fn stable_names(component: &AstNode) -> BTreeSet<String> {
         .into_iter()
         .filter(|n| *n.kind() == NodeKind::VariableDecl)
     {
-        let Some(call) = decl.children().iter().find(|c| *c.kind() == NodeKind::Call) else { continue };
-        let Some(hook) = hook_call_name(call) else { continue };
+        let Some(call) = decl.children().iter().find(|c| *c.kind() == NodeKind::Call) else {
+            continue;
+        };
+        let Some(hook) = hook_call_name(call) else {
+            continue;
+        };
         match hook {
             "useState" | "useReducer" => {
                 if let Some(pattern) = decl.first_child().filter(|c| is_other(c, "array_pattern")) {
-                    if let Some(setter) = pattern.children().get(1).filter(|n| *n.kind() == NodeKind::Identifier) {
+                    if let Some(setter) = pattern
+                        .children()
+                        .get(1)
+                        .filter(|n| *n.kind() == NodeKind::Identifier)
+                    {
                         stable.insert(setter.text().to_string());
                     }
                 }
             }
             "useRef" => {
-                if let Some(name) = decl.first_child().filter(|n| *n.kind() == NodeKind::Identifier) {
+                if let Some(name) = decl
+                    .first_child()
+                    .filter(|n| *n.kind() == NodeKind::Identifier)
+                {
                     stable.insert(name.text().to_string());
                 }
             }
@@ -57,13 +68,22 @@ fn stable_names(component: &AstNode) -> BTreeSet<String> {
 /// unparsed complex entry never causes a false positive, only a potential
 /// false negative on that one entry.
 fn listed_deps(deps_array: &AstNode) -> BTreeSet<&str> {
-    deps_array.children().iter().filter(|c| *c.kind() == NodeKind::Identifier).map(|c| c.text()).collect()
+    deps_array
+        .children()
+        .iter()
+        .filter(|c| *c.kind() == NodeKind::Identifier)
+        .map(|c| c.text())
+        .collect()
 }
 
 fn check_hook_call(call: &AstNode, component: &AstNode, hook: &str, findings: &mut Vec<Finding>) {
     let args = call_arguments(call);
-    let Some(callback) = args.first().filter(|a| *a.kind() == NodeKind::FunctionDef) else { return };
-    let Some(deps_array) = args.get(1).filter(|a| is_other(a, "array")) else { return };
+    let Some(callback) = args.first().filter(|a| *a.kind() == NodeKind::FunctionDef) else {
+        return;
+    };
+    let Some(deps_array) = args.get(1).filter(|a| is_other(a, "array")) else {
+        return;
+    };
 
     let listed = listed_deps(deps_array);
     let free = free_identifiers(callback);
@@ -81,7 +101,11 @@ fn check_hook_call(call: &AstNode, component: &AstNode, hook: &str, findings: &m
         return;
     }
     missing.sort_unstable();
-    let names = missing.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ");
+    let names = missing
+        .iter()
+        .map(|n| format!("`{n}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
     findings.push(Finding::new(
         format!(
             "`{hook}` is missing {names} from its dependency array — referenced in the effect body but not listed, so a stale value is captured until something else happens to trigger a re-run"
@@ -106,7 +130,11 @@ fn walk<'a>(node: &'a AstNode, enclosing: Option<&'a AstNode>, findings: &mut Ve
             }
         }
     }
-    let next_enclosing = if *node.kind() == NodeKind::FunctionDef { Some(node) } else { enclosing };
+    let next_enclosing = if *node.kind() == NodeKind::FunctionDef {
+        Some(node)
+    } else {
+        enclosing
+    };
     for child in node.children() {
         walk(child, next_enclosing, findings);
     }
@@ -118,7 +146,9 @@ pub struct ExhaustiveDepsRule {
 
 impl ExhaustiveDepsRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:exhaustive-deps").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:exhaustive-deps").expect("valid rule id"),
+        }
     }
 }
 
@@ -168,13 +198,17 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         ExhaustiveDepsRule::new().check(&file, &ast)
     }
 
     #[test]
     fn flags_missing_prop_dependency() {
-        let findings = check("function Comp({ id }) {\n  useEffect(() => {\n    fetchData(id);\n  }, []);\n}\n");
+        let findings = check(
+            "function Comp({ id }) {\n  useEffect(() => {\n    fetchData(id);\n  }, []);\n}\n",
+        );
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("`id`"));
         assert!(findings[0].message.contains("useEffect"));
@@ -182,7 +216,9 @@ mod tests {
 
     #[test]
     fn allows_prop_listed_in_deps() {
-        let findings = check("function Comp({ id }) {\n  useEffect(() => {\n    fetchData(id);\n  }, [id]);\n}\n");
+        let findings = check(
+            "function Comp({ id }) {\n  useEffect(() => {\n    fetchData(id);\n  }, [id]);\n}\n",
+        );
         assert!(findings.is_empty());
     }
 

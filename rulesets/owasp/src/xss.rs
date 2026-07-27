@@ -25,7 +25,10 @@ impl XssRule {
             .with_sanitizer("sanitize")
             .with_sanitizer("escapeHtml")
             .with_sanitizer("encodeURIComponent");
-        Self { id: RuleId::new("owasp:xss").expect("valid rule id"), analysis: TaintAnalysis::new(config) }
+        Self {
+            id: RuleId::new("owasp:xss").expect("valid rule id"),
+            analysis: TaintAnalysis::new(config),
+        }
     }
 }
 
@@ -80,7 +83,9 @@ mod tests {
     fn flags_direct_flow_into_document_write() {
         let code = "const name = req.query;\ndocument.write(name);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
 
         let findings = XssRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
@@ -91,7 +96,9 @@ mod tests {
     fn allows_untainted_dom_write() {
         let code = "const name = 'safe';\ndocument.write(name);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
 
         let findings = XssRule::new().check(&file, &ast);
         assert!(findings.is_empty());
@@ -101,7 +108,9 @@ mod tests {
     fn allows_dom_write_of_a_sanitized_value() {
         let code = "const name = DOMPurify.sanitize(req.query);\ndocument.write(name);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
 
         let findings = XssRule::new().check(&file, &ast);
         assert!(findings.is_empty());

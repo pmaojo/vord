@@ -38,9 +38,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use yunq_rules_engine::{BlameLineInfo, IssueQuery};
@@ -133,15 +133,21 @@ pub(crate) struct SourcesDto {
 /// on the exact file (the underlying `IssueQuery::file` filter is a
 /// substring match, same as `GET /api/issues`, so this narrows it back to
 /// an exact match for `sources`' single-file view).
-fn issues_by_line(issues: &[yunq_rules_engine::StoredIssue], file: &str) -> BTreeMap<u32, Vec<SourceIssueDto>> {
+fn issues_by_line(
+    issues: &[yunq_rules_engine::StoredIssue],
+    file: &str,
+) -> BTreeMap<u32, Vec<SourceIssueDto>> {
     let mut by_line: BTreeMap<u32, Vec<SourceIssueDto>> = BTreeMap::new();
     for stored in issues.iter().filter(|s| s.issue.file() == file) {
-        by_line.entry(stored.issue.span().start_line).or_default().push(SourceIssueDto {
-            id: stored.id,
-            rule: stored.issue.rule().to_string(),
-            severity: stored.issue.severity().to_string(),
-            message: stored.issue.message().to_string(),
-        });
+        by_line
+            .entry(stored.issue.span().start_line)
+            .or_default()
+            .push(SourceIssueDto {
+                id: stored.id,
+                rule: stored.issue.rule().to_string(),
+                severity: stored.issue.severity().to_string(),
+                message: stored.issue.message().to_string(),
+            });
     }
     by_line
 }
@@ -186,8 +192,11 @@ pub(crate) async fn sources(
     Path(key): Path<String>,
     Query(query): Query<SourcesQuery>,
 ) -> Result<Json<SourcesDto>, (StatusCode, String)> {
-    let issue_query =
-        IssueQuery { file: Some(query.file.clone()), page_size: MAX_ISSUES_PER_FILE, ..Default::default() };
+    let issue_query = IssueQuery {
+        file: Some(query.file.clone()),
+        page_size: MAX_ISSUES_PER_FILE,
+        ..Default::default()
+    };
     let issues_page = state
         .reader
         .search_issues(&issue_query)
@@ -212,7 +221,11 @@ pub(crate) async fn sources(
 
     let lines = merge_lines(by_line, &hits_by_line, blame_by_line);
 
-    Ok(Json(SourcesDto { file: query.file, coverage_available, lines }))
+    Ok(Json(SourcesDto {
+        file: query.file,
+        coverage_available,
+        lines,
+    }))
 }
 
 #[cfg(test)]
@@ -225,7 +238,13 @@ mod tests {
     fn stored(id: i64, file: &str, line: u32, severity: Severity) -> StoredIssue {
         StoredIssue {
             id,
-            issue: Issue::new(RuleId::new("owasp:x").unwrap(), severity, "boom", file, Span::new(line, 0, line, 1)),
+            issue: Issue::new(
+                RuleId::new("owasp:x").unwrap(),
+                severity,
+                "boom",
+                file,
+                Span::new(line, 0, line, 1),
+            ),
         }
     }
 
@@ -254,7 +273,12 @@ mod tests {
         let mut issues_by_line = BTreeMap::new();
         issues_by_line.insert(
             3u32,
-            vec![SourceIssueDto { id: 1, rule: "r".to_string(), severity: "major".to_string(), message: "m".to_string() }],
+            vec![SourceIssueDto {
+                id: 1,
+                rule: "r".to_string(),
+                severity: "major".to_string(),
+                message: "m".to_string(),
+            }],
         );
         let mut hits_by_line = BTreeMap::new();
         hits_by_line.insert(3u32, 1usize);

@@ -22,9 +22,9 @@ const BRANCH_KINDS: &[&str] = &[
     "ternary_expression",
     "boolean_operator",
     "enhanced_for_statement", // Groovy/Java-family for-each
-    "switch_label", // Groovy's per-case switch marker
-    "repeat_statement", // Lua's `repeat ... until`
-    "elseif_statement", // Lua's `elseif` (no wrapping `elif_clause` node)
+    "switch_label",           // Groovy's per-case switch marker
+    "repeat_statement",       // Lua's `repeat ... until`
+    "elseif_statement",       // Lua's `elseif` (no wrapping `elif_clause` node)
 ];
 
 /// Flags functions whose cyclomatic complexity exceeds a threshold.
@@ -37,7 +37,10 @@ pub struct ComplexityRule {
 
 impl ComplexityRule {
     pub fn new(max: u32) -> Self {
-        Self { id: RuleId::new("smells:high-complexity").expect("valid rule id"), max }
+        Self {
+            id: RuleId::new("smells:high-complexity").expect("valid rule id"),
+            max,
+        }
     }
 }
 
@@ -139,7 +142,8 @@ mod tests {
 
     #[test]
     fn nested_functions_do_not_inflate_the_parent() {
-        let code = "fn outer() {\n    let inner = |x: i32| { if x > 0 { () } };\n    inner(1);\n}\n";
+        let code =
+            "fn outer() {\n    let inner = |x: i32| { if x > 0 { () } };\n    inner(1);\n}\n";
         // Only the closure (complexity 2) exceeds max 1 — the outer function
         // is not inflated by its nested function's branches.
         let findings = check_rust(code, 1);

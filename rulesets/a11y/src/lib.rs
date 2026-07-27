@@ -12,5 +12,8 @@ use yunq_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
-    vec![Box::new(ImgMissingAltRule::new()), Box::new(MissingLangAttributeRule::new())]
+    vec![
+        Box::new(ImgMissingAltRule::new()),
+        Box::new(MissingLangAttributeRule::new()),
+    ]
 }

@@ -19,7 +19,9 @@ pub enum CoberturaError {
 }
 
 pub fn parse_cobertura(content: &str) -> Result<CoverageSummary, CoberturaError> {
-    parse_cobertura_report(content)?.summary().map_err(|e| CoberturaError::Malformed(e.to_string()))
+    parse_cobertura_report(content)?
+        .summary()
+        .map_err(|e| CoberturaError::Malformed(e.to_string()))
 }
 
 /// State accumulated while scanning the XML line-by-line: the finished
@@ -57,9 +59,10 @@ impl Accumulator {
     }
 
     fn handle_line_tag(&mut self, trimmed: &str) {
-        let (Some(hits_str), Some(num_str)) =
-            (extract_attr(trimmed, "hits"), extract_attr(trimmed, "number"))
-        else {
+        let (Some(hits_str), Some(num_str)) = (
+            extract_attr(trimmed, "hits"),
+            extract_attr(trimmed, "number"),
+        ) else {
             return;
         };
         let hits: usize = hits_str.parse().unwrap_or(0);
@@ -80,15 +83,17 @@ impl Accumulator {
     }
 
     fn handle_coverage_tag(&mut self, trimmed: &str) {
-        if let (Some(c_str), Some(v_str)) =
-            (extract_attr(trimmed, "lines-covered"), extract_attr(trimmed, "lines-valid"))
-            && let (Ok(c), Ok(v)) = (c_str.parse::<usize>(), v_str.parse::<usize>())
+        if let (Some(c_str), Some(v_str)) = (
+            extract_attr(trimmed, "lines-covered"),
+            extract_attr(trimmed, "lines-valid"),
+        ) && let (Ok(c), Ok(v)) = (c_str.parse::<usize>(), v_str.parse::<usize>())
         {
             self.root_lines = Some((c, v));
         }
-        if let (Some(c_str), Some(v_str)) =
-            (extract_attr(trimmed, "branches-covered"), extract_attr(trimmed, "branches-valid"))
-            && let (Ok(c), Ok(v)) = (c_str.parse::<usize>(), v_str.parse::<usize>())
+        if let (Some(c_str), Some(v_str)) = (
+            extract_attr(trimmed, "branches-covered"),
+            extract_attr(trimmed, "branches-valid"),
+        ) && let (Ok(c), Ok(v)) = (c_str.parse::<usize>(), v_str.parse::<usize>())
         {
             self.root_branches = Some((c, v));
         }
@@ -110,11 +115,19 @@ impl Accumulator {
         if self.files.is_empty() && self.counted_lines_total == 0 && self.root_lines.is_none() {
             return Err(CoberturaError::Empty);
         }
-        let (lines_covered, lines_total) =
-            self.root_lines.unwrap_or((self.counted_lines_covered, self.counted_lines_total));
-        let (branches_covered, branches_total) =
-            self.root_branches.unwrap_or((self.counted_branches_covered, self.counted_branches_total));
-        Ok(CoverageReport::new(self.files, lines_covered, lines_total, branches_covered, branches_total))
+        let (lines_covered, lines_total) = self
+            .root_lines
+            .unwrap_or((self.counted_lines_covered, self.counted_lines_total));
+        let (branches_covered, branches_total) = self
+            .root_branches
+            .unwrap_or((self.counted_branches_covered, self.counted_branches_total));
+        Ok(CoverageReport::new(
+            self.files,
+            lines_covered,
+            lines_total,
+            branches_covered,
+            branches_total,
+        ))
     }
 }
 
@@ -256,6 +269,9 @@ mod tests {
 
     #[test]
     fn empty_input_is_an_error() {
-        assert!(matches!(parse_cobertura("<coverage></coverage>"), Err(CoberturaError::Empty)));
+        assert!(matches!(
+            parse_cobertura("<coverage></coverage>"),
+            Err(CoberturaError::Empty)
+        ));
     }
 }

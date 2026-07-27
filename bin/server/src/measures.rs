@@ -23,9 +23,9 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use yunq_rules_engine::ComponentMeasures;
@@ -40,8 +40,14 @@ fn default_branch() -> String {
 /// trimmed, non-empty keys. Empty/absent input means "every persisted
 /// metric" (the storage layer treats an empty key list as no filter).
 fn parse_metric_keys(raw: Option<&str>) -> Vec<String> {
-    raw.map(|raw| raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect())
-        .unwrap_or_default()
+    raw.map(|raw| {
+        raw.split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -112,7 +118,14 @@ pub(crate) async fn measure_history(
 
     let points = state
         .coverage
-        .measure_history(key, query.branch, query.component, metric_keys, query.from, query.to)
+        .measure_history(
+            key,
+            query.branch,
+            query.component,
+            metric_keys,
+            query.from,
+            query.to,
+        )
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
@@ -129,7 +142,10 @@ pub(crate) async fn measure_history(
         })
         .collect();
 
-    Ok(Json(MeasureHistoryDto { component: label, history }))
+    Ok(Json(MeasureHistoryDto {
+        component: label,
+        history,
+    }))
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -172,11 +188,15 @@ pub(crate) struct ComponentTreeDto {
 
 /// Filters components to those whose path contains `q` (a no-op when `q`
 /// is absent).
-fn filter_components(components: Vec<ComponentMeasures>, q: Option<&str>) -> Vec<ComponentMeasures> {
+fn filter_components(
+    components: Vec<ComponentMeasures>,
+    q: Option<&str>,
+) -> Vec<ComponentMeasures> {
     match q {
-        Some(needle) if !needle.is_empty() => {
-            components.into_iter().filter(|c| c.path.contains(needle)).collect()
-        }
+        Some(needle) if !needle.is_empty() => components
+            .into_iter()
+            .filter(|c| c.path.contains(needle))
+            .collect(),
         _ => components,
     }
 }
@@ -187,14 +207,20 @@ fn filter_components(components: Vec<ComponentMeasures>, q: Option<&str>) -> Vec
 /// has no issues" and "this file was never measured for X" are both
 /// legitimately representable as absence). Reverses the whole ordering for
 /// `descending`.
-fn sort_components(mut components: Vec<ComponentMeasures>, sort: &str, descending: bool) -> Vec<ComponentMeasures> {
+fn sort_components(
+    mut components: Vec<ComponentMeasures>,
+    sort: &str,
+    descending: bool,
+) -> Vec<ComponentMeasures> {
     if sort == "name" {
         components.sort_by(|a, b| a.path.cmp(&b.path));
     } else {
         components.sort_by(|a, b| {
             let a_value = a.measures.get(sort).copied().unwrap_or(0.0);
             let b_value = b.measures.get(sort).copied().unwrap_or(0.0);
-            a_value.partial_cmp(&b_value).unwrap_or(std::cmp::Ordering::Equal)
+            a_value
+                .partial_cmp(&b_value)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
     if descending {
@@ -227,7 +253,10 @@ pub(crate) async fn component_tree(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?
         .ok_or_else(|| {
-            (StatusCode::NOT_FOUND, "no analysis exists yet for this project/branch".to_string())
+            (
+                StatusCode::NOT_FOUND,
+                "no analysis exists yet for this project/branch".to_string(),
+            )
         })?;
 
     let components = filter_components(tree.components, query.q.as_deref());
@@ -239,11 +268,19 @@ pub(crate) async fn component_tree(
         .into_iter()
         .map(|c| ComponentDto {
             path: c.path,
-            measures: c.measures.into_iter().map(|(metric, value)| MeasureValueDto { metric, value }).collect(),
+            measures: c
+                .measures
+                .into_iter()
+                .map(|(metric, value)| MeasureValueDto { metric, value })
+                .collect(),
         })
         .collect();
 
-    Ok(Json(ComponentTreeDto { analysis_id: tree.analysis_id, total, components }))
+    Ok(Json(ComponentTreeDto {
+        analysis_id: tree.analysis_id,
+        total,
+        components,
+    }))
 }
 
 #[cfg(test)]
@@ -255,12 +292,18 @@ mod tests {
     fn component(path: &str, issue_total: f64) -> ComponentMeasures {
         let mut measures = BTreeMap::new();
         measures.insert("issue_total".to_string(), issue_total);
-        ComponentMeasures { path: path.to_string(), measures }
+        ComponentMeasures {
+            path: path.to_string(),
+            measures,
+        }
     }
 
     #[test]
     fn parse_metric_keys_splits_trims_and_drops_empties() {
-        assert_eq!(parse_metric_keys(Some(" coverage, issue_total ,,")), vec!["coverage", "issue_total"]);
+        assert_eq!(
+            parse_metric_keys(Some(" coverage, issue_total ,,")),
+            vec!["coverage", "issue_total"]
+        );
         assert_eq!(parse_metric_keys(None), Vec::<String>::new());
         assert_eq!(parse_metric_keys(Some("")), Vec::<String>::new());
     }
@@ -306,7 +349,10 @@ mod tests {
     #[test]
     fn sort_components_treats_a_missing_measure_as_zero() {
         let mut with_measure = component("a.rs", 3.0);
-        let without_measure = ComponentMeasures { path: "b.rs".to_string(), measures: BTreeMap::new() };
+        let without_measure = ComponentMeasures {
+            path: "b.rs".to_string(),
+            measures: BTreeMap::new(),
+        };
         with_measure.measures.insert("coverage".to_string(), 90.0);
         let components = vec![with_measure, without_measure];
         let sorted = sort_components(components, "coverage", false);

@@ -25,7 +25,7 @@ pub struct SpMetadata {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SamlContact {
-    pub contact_type: String,  // "support" | "technical" | "administrative"
+    pub contact_type: String, // "support" | "technical" | "administrative"
     pub email: String,
 }
 
@@ -57,7 +57,10 @@ pub fn audience_matches(assertion: &SamlAssertion, expected: &str) -> bool {
 
 /// Read a single attribute value (first occurrence), or `None`.
 pub fn first_attribute(assertion: &SamlAssertion, name: &str) -> Option<String> {
-    assertion.attributes.get(name).and_then(|v| v.first().cloned())
+    assertion
+        .attributes
+        .get(name)
+        .and_then(|v| v.first().cloned())
 }
 
 /// Generate the IdP-facing SP metadata XML. Pure — the IdP picks this up
@@ -95,8 +98,8 @@ pub fn render_metadata_xml(metadata: &SpMetadata) -> String {
 /// - Verifies the assertion contains a signed XML payload (non-empty)
 /// - Checks the validity window
 /// - Verifies the issuer is present and non-empty    ///   Full cryptographic signature verification will be added when xmlsec/xmldsig
-    ///   bindings are integrated.
-    pub fn verify_signature(assertion: &SamlAssertion) -> Result<(), String> {
+///   bindings are integrated.
+pub fn verify_signature(assertion: &SamlAssertion) -> Result<(), String> {
     // Verify there is a signed XML payload
     if assertion.signed_xml_b64.is_empty() {
         return Err("SAML assertion has no signed XML payload".to_string());
@@ -124,7 +127,10 @@ mod tests {
             single_logout_service_url: Some("https://yunq.example/api/auth/saml/slo".to_string()),
             name_id_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress".to_string(),
             signing_cert_pem: Some("MIIDazCC...snip...==".to_string()),
-            contacts: vec![SamlContact { contact_type: "support".to_string(), email: "support@yunq.example".to_string() }],
+            contacts: vec![SamlContact {
+                contact_type: "support".to_string(),
+                email: "support@yunq.example".to_string(),
+            }],
         }
     }
 
@@ -139,10 +145,10 @@ mod tests {
             attributes: Default::default(),
             signed_xml_b64: String::new(),
         };
-        assert!(!is_within_validity_window(&a, 50));   // too early
-        assert!(is_within_validity_window(&a, 150));  // inside
-        assert!(!is_within_validity_window(&a, 200));  // on the boundary (excluded)
-        assert!(!is_within_validity_window(&a, 300));  // expired
+        assert!(!is_within_validity_window(&a, 50)); // too early
+        assert!(is_within_validity_window(&a, 150)); // inside
+        assert!(!is_within_validity_window(&a, 200)); // on the boundary (excluded)
+        assert!(!is_within_validity_window(&a, 300)); // expired
     }
 
     #[test]
@@ -163,9 +169,20 @@ mod tests {
     #[test]
     fn first_attribute_returns_first_value_or_none() {
         let mut attrs = std::collections::HashMap::new();
-        attrs.insert("role".to_string(), vec!["developer".to_string(), "viewer".to_string()]);
+        attrs.insert(
+            "role".to_string(),
+            vec!["developer".to_string(), "viewer".to_string()],
+        );
         attrs.insert("email".to_string(), vec!["alice@x".to_string()]);
-        let a = SamlAssertion { issuer: "idp".to_string(), subject_name_id: "alice".to_string(), audience: "x".to_string(), not_before: 0, not_on_or_after: 100, attributes: attrs, signed_xml_b64: String::new() };
+        let a = SamlAssertion {
+            issuer: "idp".to_string(),
+            subject_name_id: "alice".to_string(),
+            audience: "x".to_string(),
+            not_before: 0,
+            not_on_or_after: 100,
+            attributes: attrs,
+            signed_xml_b64: String::new(),
+        };
         assert_eq!(first_attribute(&a, "role"), Some("developer".to_string()));
         assert_eq!(first_attribute(&a, "email"), Some("alice@x".to_string()));
         assert_eq!(first_attribute(&a, "missing"), None);

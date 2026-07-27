@@ -3,9 +3,9 @@
 //! Skeleton: DTOs + validation + aggregator dispatch in place; storage and
 //! axum route wiring land in following iterations.
 
+use axum::Json;
 use axum::extract::Path;
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use yunq_rules_engine::portfolios::{PortfolioNode, PortfolioRollup, ProjectRollupInput};
 
@@ -44,23 +44,36 @@ static PORTFOLIO_STORE: std::sync::LazyLock<Mutex<Vec<PortfolioDto>>> =
 
 #[allow(dead_code)]
 pub async fn list_portfolios() -> Result<Json<Vec<PortfolioDto>>, AppError> {
-    let store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
+    let store = PORTFOLIO_STORE
+        .lock()
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(store.clone()))
 }
 
 #[allow(dead_code)]
 pub async fn get_portfolio(Path(id): Path<String>) -> Result<Json<PortfolioDto>, AppError> {
-    let store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
-    let node = store.iter().find(|p| p.id == id)
+    let store = PORTFOLIO_STORE
+        .lock()
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    let node = store
+        .iter()
+        .find(|p| p.id == id)
         .ok_or_else(|| AppError::not_found(format!("portfolio {id}")))?;
     Ok(Json(node.clone()))
 }
 
 #[allow(dead_code)]
-pub async fn create_portfolio(Json(dto): Json<PortfolioDto>) -> Result<(StatusCode, Json<PortfolioDto>), AppError> {
-    let mut store = PORTFOLIO_STORE.lock().map_err(|e| AppError::internal(e.to_string()))?;
+pub async fn create_portfolio(
+    Json(dto): Json<PortfolioDto>,
+) -> Result<(StatusCode, Json<PortfolioDto>), AppError> {
+    let mut store = PORTFOLIO_STORE
+        .lock()
+        .map_err(|e| AppError::internal(e.to_string()))?;
     if store.iter().any(|p| p.id == dto.id) {
-        return Err(AppError::bad_request(format!("portfolio '{}' already exists", dto.id)));
+        return Err(AppError::bad_request(format!(
+            "portfolio '{}' already exists",
+            dto.id
+        )));
     }
     store.push(dto.clone());
     Ok((StatusCode::CREATED, Json(dto)))
@@ -69,10 +82,7 @@ pub async fn create_portfolio(Json(dto): Json<PortfolioDto>) -> Result<(StatusCo
 /// Executive view: aggregated rollup across the whole tree. The HTTP
 /// handler fetches the tree, flattens to leaves, joins each leaf to the
 /// latest per-project rollup inputs, then calls `PortfolioRollup::worst_of`.
-pub fn rollup_for(
-    tree: &PortfolioNode,
-    inputs: &[ProjectRollupInput],
-) -> PortfolioRollup {
+pub fn rollup_for(tree: &PortfolioNode, inputs: &[ProjectRollupInput]) -> PortfolioRollup {
     let leaves = PortfolioRollup::flatten_projects(tree);
     let leaf_ids: Vec<&str> = leaves.iter().map(|n| n.id.as_str()).collect();
     let filtered: Vec<ProjectRollupInput> = inputs
@@ -90,7 +100,11 @@ mod tests {
     use super::*;
 
     fn leaf(id: &str) -> PortfolioNode {
-        PortfolioNode { id: id.to_string(), name: id.to_string(), children: vec![] }
+        PortfolioNode {
+            id: id.to_string(),
+            name: id.to_string(),
+            children: vec![],
+        }
     }
 
     #[test]
@@ -116,18 +130,30 @@ mod tests {
         let inputs = vec![
             ProjectRollupInput {
                 project_id: "a".to_string(),
-                reliability_rating: 1.0, security_rating: 1.0, maintainability_rating: 1.0,
-                bug_total: 1, vulnerability_total: 1, code_smell_total: 1,
+                reliability_rating: 1.0,
+                security_rating: 1.0,
+                maintainability_rating: 1.0,
+                bug_total: 1,
+                vulnerability_total: 1,
+                code_smell_total: 1,
             },
             ProjectRollupInput {
                 project_id: "b".to_string(),
-                reliability_rating: 4.0, security_rating: 5.0, maintainability_rating: 3.0,
-                bug_total: 10, vulnerability_total: 10, code_smell_total: 10,
+                reliability_rating: 4.0,
+                security_rating: 5.0,
+                maintainability_rating: 3.0,
+                bug_total: 10,
+                vulnerability_total: 10,
+                code_smell_total: 10,
             },
             ProjectRollupInput {
                 project_id: "not_in_tree".to_string(),
-                reliability_rating: 5.0, security_rating: 5.0, maintainability_rating: 5.0,
-                bug_total: 999, vulnerability_total: 999, code_smell_total: 999,
+                reliability_rating: 5.0,
+                security_rating: 5.0,
+                maintainability_rating: 5.0,
+                bug_total: 999,
+                vulnerability_total: 999,
+                code_smell_total: 999,
             },
         ];
         let r = rollup_for(&tree, &inputs);
@@ -136,7 +162,7 @@ mod tests {
         assert_eq!(r.bug_total, 11);
         assert_eq!(r.reliability_rating, 4.0);
         // the "not_in_tree" project with rating 5 must NOT count
-        assert_eq!(r.security_rating, 5.0);  // b contributes 5.0 — equal to not_in_tree but excluded
-        assert_eq!(r.vulnerability_total, 11);  // 1 + 10, not 1 + 10 + 999
+        assert_eq!(r.security_rating, 5.0); // b contributes 5.0 — equal to not_in_tree but excluded
+        assert_eq!(r.vulnerability_total, 11); // 1 + 10, not 1 + 10 + 999
     }
 }

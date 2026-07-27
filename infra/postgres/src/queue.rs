@@ -67,8 +67,9 @@ impl PgJobConsumer {
         F: FnMut(ScanJob) -> Fut,
         Fut: Future<Output = Result<(), QueueError>>,
     {
-        let mut listener =
-            PgListener::connect_with(&self.pool).await.map_err(queue_err)?;
+        let mut listener = PgListener::connect_with(&self.pool)
+            .await
+            .map_err(queue_err)?;
         listener.listen(NOTIFY_CHANNEL).await.map_err(queue_err)?;
 
         loop {
@@ -129,7 +130,11 @@ impl PgJobConsumer {
     /// — dead-letters it so it stops being retried and shows up in
     /// `queue_status`'s failure diagnostics instead.
     async fn fail(&self, id: i64, attempts: i32, error: &str) -> Result<(), QueueError> {
-        let status = if attempts >= DEFAULT_MAX_ATTEMPTS { "dead" } else { "pending" };
+        let status = if attempts >= DEFAULT_MAX_ATTEMPTS {
+            "dead"
+        } else {
+            "pending"
+        };
         sqlx::query(
             "UPDATE scan_jobs SET status = $1, last_error = $2, updated_at = now() WHERE id = $3",
         )
@@ -272,12 +277,22 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let project = format!(
             "queue-test-claim-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
-        storage.enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap()).await.unwrap();
+        storage
+            .enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap())
+            .await
+            .unwrap();
         let consumer = PgJobConsumer::new(storage.pool().clone());
 
-        let (id, job, attempts) = consumer.claim_one().await.unwrap().expect("job was just enqueued");
+        let (id, job, attempts) = consumer
+            .claim_one()
+            .await
+            .unwrap()
+            .expect("job was just enqueued");
         assert_eq!(job.project(), project);
         assert_eq!(job.path(), "/src");
         assert_eq!(attempts, 1);
@@ -300,14 +315,23 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let project = format!(
             "queue-test-release-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
-        storage.enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap()).await.unwrap();
+        storage
+            .enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap())
+            .await
+            .unwrap();
         let consumer = PgJobConsumer::new(storage.pool().clone());
 
         let (id, _job, attempts) = consumer.claim_one().await.unwrap().unwrap();
         assert_eq!(attempts, 1);
-        consumer.fail(id, attempts, "parse error: unexpected token").await.unwrap();
+        consumer
+            .fail(id, attempts, "parse error: unexpected token")
+            .await
+            .unwrap();
 
         let row = sqlx::query("SELECT status, last_error FROM scan_jobs WHERE id = $1")
             .bind(id)
@@ -328,15 +352,25 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let project = format!(
             "queue-test-deadletter-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
-        storage.enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap()).await.unwrap();
+        storage
+            .enqueue_scan(ScanJob::new(project.clone(), "/src").unwrap())
+            .await
+            .unwrap();
         let consumer = PgJobConsumer::new(storage.pool().clone());
 
         // Claim and fail repeatedly until the retry budget is exhausted.
         let mut id = 0i64;
         for _ in 0..DEFAULT_MAX_ATTEMPTS {
-            let (claimed_id, _job, attempts) = consumer.claim_one().await.unwrap().expect("job still pending");
+            let (claimed_id, _job, attempts) = consumer
+                .claim_one()
+                .await
+                .unwrap()
+                .expect("job still pending");
             id = claimed_id;
             consumer.fail(id, attempts, "boom").await.unwrap();
         }
@@ -362,10 +396,19 @@ mod live_db_tests {
         let storage = connected_storage().await;
         let project = format!(
             "queue-test-status-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
-        storage.enqueue_scan(ScanJob::new(project.clone(), "/src-a").unwrap()).await.unwrap();
-        storage.enqueue_scan(ScanJob::new(project.clone(), "/src-b").unwrap()).await.unwrap();
+        storage
+            .enqueue_scan(ScanJob::new(project.clone(), "/src-a").unwrap())
+            .await
+            .unwrap();
+        storage
+            .enqueue_scan(ScanJob::new(project.clone(), "/src-b").unwrap())
+            .await
+            .unwrap();
         let consumer = PgJobConsumer::new(storage.pool().clone());
 
         // `claim_one` always claims the lowest-id pending row, and a failed

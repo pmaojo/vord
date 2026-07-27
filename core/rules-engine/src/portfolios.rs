@@ -87,10 +87,22 @@ mod tests {
     use super::*;
 
     fn leaf(id: &str, _rel: f32, _sec: f32, _maint: f32) -> PortfolioNode {
-        PortfolioNode { id: id.to_string(), name: id.to_string(), children: vec![] }
+        PortfolioNode {
+            id: id.to_string(),
+            name: id.to_string(),
+            children: vec![],
+        }
     }
 
-    fn project_input(id: &str, rel: f32, sec: f32, maint: f32, bugs: i64, vulns: i64, smells: i64) -> ProjectRollupInput {
+    fn project_input(
+        id: &str,
+        rel: f32,
+        sec: f32,
+        maint: f32,
+        bugs: i64,
+        vulns: i64,
+        smells: i64,
+    ) -> ProjectRollupInput {
         ProjectRollupInput {
             project_id: id.to_string(),
             reliability_rating: rel,
@@ -116,7 +128,10 @@ mod tests {
                 },
             ],
         };
-        let ids: Vec<_> = PortfolioRollup::flatten_projects(&tree).into_iter().map(|n| n.id.clone()).collect();
+        let ids: Vec<_> = PortfolioRollup::flatten_projects(&tree)
+            .into_iter()
+            .map(|n| n.id.clone())
+            .collect();
         assert_eq!(ids, vec!["root", "a", "sub", "b", "c"]);
     }
 

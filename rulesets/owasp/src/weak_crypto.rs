@@ -64,7 +64,13 @@ impl Rule for WeakCryptoRule {
             }
 
             for pattern in weak_patterns {
-                if line.contains(pattern) && (line.contains("hash") || line.contains("cipher") || line.contains("digest") || line.contains("crypto") || line.contains("createHash")) {
+                if line.contains(pattern)
+                    && (line.contains("hash")
+                        || line.contains("cipher")
+                        || line.contains("digest")
+                        || line.contains("crypto")
+                        || line.contains("createHash"))
+                {
                     findings.push(Finding::new(
                         format!("Use of weak cryptographic algorithm '{pattern}'; prefer SHA-256 or AES-GCM"),
                         yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
@@ -85,7 +91,12 @@ mod tests {
     fn flags_md5_crypto_usage() {
         let code = "const hash = crypto.createHash('md5');\n";
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let rule = WeakCryptoRule::new();
 
         let findings = rule.check(&file, &ast);

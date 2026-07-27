@@ -16,7 +16,9 @@ pub struct SelectStarRule {
 
 impl SelectStarRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:select-star").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:select-star").expect("valid rule id"),
+        }
     }
 }
 
@@ -47,7 +49,9 @@ impl Rule for SelectStarRule {
 
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::StringLiteral)
-            .filter(|literal| !yunq_rules_engine::in_ranges(&test_ranges, literal.span().start_line))
+            .filter(|literal| {
+                !yunq_rules_engine::in_ranges(&test_ranges, literal.span().start_line)
+            })
             .filter(|literal| contains_select_star(literal.text()))
             .map(|literal| {
                 Finding::new(
@@ -64,7 +68,12 @@ mod tests {
     use super::*;
 
     fn string_literal(text: &str) -> AstNode {
-        AstNode::new(NodeKind::StringLiteral, yunq_ast::Span::new(1, 1, 1, text.len() as u32), text, vec![])
+        AstNode::new(
+            NodeKind::StringLiteral,
+            yunq_ast::Span::new(1, 1, 1, text.len() as u32),
+            text,
+            vec![],
+        )
     }
 
     #[test]

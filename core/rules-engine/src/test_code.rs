@@ -9,7 +9,9 @@
 /// line is far more likely to be an assertion-heavy test fixture than real
 /// production code.
 pub fn is_test_only_path(path: &str) -> bool {
-    std::path::Path::new(path).components().any(|c| c.as_os_str() == "tests")
+    std::path::Path::new(path)
+        .components()
+        .any(|c| c.as_os_str() == "tests")
 }
 
 /// A half-open `[start, end)` line range (1-based, matching `Span`).
@@ -17,7 +19,9 @@ pub type LineRange = (u32, u32);
 
 /// True when `line` falls inside any of `ranges`.
 pub fn in_ranges(ranges: &[LineRange], line: u32) -> bool {
-    ranges.iter().any(|&(start, end)| line >= start && line < end)
+    ranges
+        .iter()
+        .any(|&(start, end)| line >= start && line < end)
 }
 
 /// Finds every `#[cfg(test)] mod ... { ... }` block in `content` and returns
@@ -140,7 +144,10 @@ fn skip_raw_string(bytes: &[u8], r_idx: usize) -> Option<usize> {
     loop {
         let quote = bytes[i..].iter().position(|&b| b == b'"')?;
         let candidate = i + quote;
-        let closes = bytes[candidate + 1..].iter().take(hashes).all(|&b| b == b'#');
+        let closes = bytes[candidate + 1..]
+            .iter()
+            .take(hashes)
+            .all(|&b| b == b'#');
         if closes {
             return Some(candidate + 1 + hashes);
         }

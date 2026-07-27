@@ -8,7 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 
-
 /// One group record. A group has a name and a set of members; per-project
 /// grants are derived from `PermissionTemplate` instances assigned to the
 /// group, not stored on the group itself.
@@ -55,7 +54,7 @@ impl Group {
 pub struct PermissionTemplate {
     pub id: String,
     pub name: String,
-    pub project_key_pattern: String,  // glob: "team-foo-*"
+    pub project_key_pattern: String, // glob: "team-foo-*"
     pub group_grants: Vec<GroupGrant>,
 }
 
@@ -88,7 +87,7 @@ mod tests {
         let mut g = Group::new("g1", "platform");
         g.add_member("alice");
         g.add_member("bob");
-        g.add_member("alice");  // duplicate add is a no-op
+        g.add_member("alice"); // duplicate add is a no-op
         assert_eq!(g.member_user_ids, vec!["alice", "bob"]);
         g.remove_member("alice");
         assert_eq!(g.member_user_ids, vec!["bob"]);
@@ -103,8 +102,14 @@ mod tests {
             name: "team-foo default".to_string(),
             project_key_pattern: "team-foo-*".to_string(),
             group_grants: vec![
-                GroupGrant { group_id: "g1".to_string(), role: GroupRole::Admin },
-                GroupGrant { group_id: "g2".to_string(), role: GroupRole::Viewer },
+                GroupGrant {
+                    group_id: "g1".to_string(),
+                    role: GroupRole::Admin,
+                },
+                GroupGrant {
+                    group_id: "g2".to_string(),
+                    role: GroupRole::Viewer,
+                },
             ],
         };
         assert_eq!(t.project_key_pattern, "team-foo-*");
@@ -114,9 +119,18 @@ mod tests {
 
     #[test]
     fn group_role_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&GroupRole::Admin).unwrap(), "\"admin\"");
-        assert_eq!(serde_json::to_string(&GroupRole::Editor).unwrap(), "\"editor\"");
-        assert_eq!(serde_json::to_string(&GroupRole::Viewer).unwrap(), "\"viewer\"");
+        assert_eq!(
+            serde_json::to_string(&GroupRole::Admin).unwrap(),
+            "\"admin\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GroupRole::Editor).unwrap(),
+            "\"editor\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GroupRole::Viewer).unwrap(),
+            "\"viewer\""
+        );
     }
 
     #[test]

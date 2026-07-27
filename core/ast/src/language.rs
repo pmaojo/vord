@@ -15,9 +15,11 @@ impl LanguageIdentifier {
     pub fn new(raw: &str) -> Result<Self, UnsupportedLanguageError> {
         let normalized = raw.to_ascii_lowercase();
         match normalized.as_str() {
-            "rust" | "typescript" | "python" | "go" | "java" | "c" | "cpp" | "php" | "dockerfile"
-            | "yaml" | "json" | "csharp" | "ruby" | "kotlin" | "swift" | "scala" | "html"
-            | "css" | "xml" | "hcl" | "bash" | "groovy" | "lua" | "elixir" => Ok(Self(normalized)),
+            "rust" | "typescript" | "python" | "go" | "java" | "c" | "cpp" | "php"
+            | "dockerfile" | "yaml" | "json" | "csharp" | "ruby" | "kotlin" | "swift" | "scala"
+            | "html" | "css" | "xml" | "hcl" | "bash" | "groovy" | "lua" | "elixir" => {
+                Ok(Self(normalized))
+            }
             _ => Err(UnsupportedLanguageError(raw.to_string())),
         }
     }
@@ -167,7 +169,10 @@ impl LanguageIdentifier {
             ("exs", LanguageIdentifier::elixir),
         ];
         let normalized = extension.to_ascii_lowercase();
-        EXTENSION_TABLE.iter().find(|(ext, _)| *ext == normalized).map(|(_, ctor)| ctor())
+        EXTENSION_TABLE
+            .iter()
+            .find(|(ext, _)| *ext == normalized)
+            .map(|(_, ctor)| ctor())
     }
 
     pub fn as_str(&self) -> &str {
@@ -187,7 +192,10 @@ mod tests {
 
     #[test]
     fn accepts_supported_languages_case_insensitively() {
-        assert_eq!(LanguageIdentifier::new("Rust").unwrap(), LanguageIdentifier::rust());
+        assert_eq!(
+            LanguageIdentifier::new("Rust").unwrap(),
+            LanguageIdentifier::rust()
+        );
         assert_eq!(
             LanguageIdentifier::new("TYPESCRIPT").unwrap(),
             LanguageIdentifier::typescript()
@@ -201,27 +209,78 @@ mod tests {
 
     #[test]
     fn maps_extensions() {
-        assert_eq!(LanguageIdentifier::from_extension("rs"), Some(LanguageIdentifier::rust()));
+        assert_eq!(
+            LanguageIdentifier::from_extension("rs"),
+            Some(LanguageIdentifier::rust())
+        );
         assert_eq!(
             LanguageIdentifier::from_extension("tsx"),
             Some(LanguageIdentifier::typescript())
         );
-        assert_eq!(LanguageIdentifier::from_extension("py"), Some(LanguageIdentifier::python()));
-        assert_eq!(LanguageIdentifier::from_extension("go"), Some(LanguageIdentifier::go()));
-        assert_eq!(LanguageIdentifier::from_extension("rb"), Some(LanguageIdentifier::ruby()));
-        assert_eq!(LanguageIdentifier::from_extension("cs"), Some(LanguageIdentifier::csharp()));
-        assert_eq!(LanguageIdentifier::from_extension("kt"), Some(LanguageIdentifier::kotlin()));
-        assert_eq!(LanguageIdentifier::from_extension("swift"), Some(LanguageIdentifier::swift()));
-        assert_eq!(LanguageIdentifier::from_extension("scala"), Some(LanguageIdentifier::scala()));
-        assert_eq!(LanguageIdentifier::from_extension("html"), Some(LanguageIdentifier::html()));
-        assert_eq!(LanguageIdentifier::from_extension("css"), Some(LanguageIdentifier::css()));
-        assert_eq!(LanguageIdentifier::from_extension("xml"), Some(LanguageIdentifier::xml()));
-        assert_eq!(LanguageIdentifier::from_extension("tf"), Some(LanguageIdentifier::hcl()));
-        assert_eq!(LanguageIdentifier::from_extension("sh"), Some(LanguageIdentifier::bash()));
-        assert_eq!(LanguageIdentifier::from_extension("groovy"), Some(LanguageIdentifier::groovy()));
-        assert_eq!(LanguageIdentifier::from_extension("lua"), Some(LanguageIdentifier::lua()));
-        assert_eq!(LanguageIdentifier::from_extension("ex"), Some(LanguageIdentifier::elixir()));
-        assert_eq!(LanguageIdentifier::from_extension("exs"), Some(LanguageIdentifier::elixir()));
+        assert_eq!(
+            LanguageIdentifier::from_extension("py"),
+            Some(LanguageIdentifier::python())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("go"),
+            Some(LanguageIdentifier::go())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("rb"),
+            Some(LanguageIdentifier::ruby())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("cs"),
+            Some(LanguageIdentifier::csharp())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("kt"),
+            Some(LanguageIdentifier::kotlin())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("swift"),
+            Some(LanguageIdentifier::swift())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("scala"),
+            Some(LanguageIdentifier::scala())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("html"),
+            Some(LanguageIdentifier::html())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("css"),
+            Some(LanguageIdentifier::css())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("xml"),
+            Some(LanguageIdentifier::xml())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("tf"),
+            Some(LanguageIdentifier::hcl())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("sh"),
+            Some(LanguageIdentifier::bash())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("groovy"),
+            Some(LanguageIdentifier::groovy())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("lua"),
+            Some(LanguageIdentifier::lua())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("ex"),
+            Some(LanguageIdentifier::elixir())
+        );
+        assert_eq!(
+            LanguageIdentifier::from_extension("exs"),
+            Some(LanguageIdentifier::elixir())
+        );
         assert_eq!(LanguageIdentifier::from_extension("cobol"), None);
     }
 }
