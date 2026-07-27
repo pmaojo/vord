@@ -1,23 +1,7 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-/// Whether the contiguous run of comment lines directly above `start_line`
-/// (1-based) mentions `SAFETY`. Stops at the first line that is neither a
-/// `//` comment nor blank, so an unrelated `SAFETY` comment documenting an
-/// earlier, different `unsafe` block doesn't count for this one.
-fn has_safety_comment_directly_above(lines: &[&str], start_line: u32) -> bool {
-    let mut found = false;
-    for line in lines[..start_line.saturating_sub(1) as usize].iter().rev() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("//") {
-            break;
-        }
-        if trimmed.to_ascii_lowercase().contains("safety") {
-            found = true;
-        }
-    }
-    found
-}
+use crate::common::has_safety_comment_directly_above;
 
 /// Security hotspot: an `unsafe` block with no nearby `SAFETY` comment
 /// explaining why the invariants it relies on actually hold. Mirrors the
