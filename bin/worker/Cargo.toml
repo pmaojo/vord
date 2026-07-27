@@ -22,6 +22,7 @@ yunq-rules-rust = { workspace = true }
 yunq-rules-python = { workspace = true }
 yunq-rules-architecture = { workspace = true }
 yunq-rules-reactive = { workspace = true }
+yunq-rules-typescript = { workspace = true }
 yunq-infra-postgres = { workspace = true }
 yunq-infra-fs = { workspace = true }
 anyhow = { workspace = true }

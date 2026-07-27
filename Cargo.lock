@@ -3788,6 +3788,7 @@ dependencies = [
  "yunq-rules-rust",
  "yunq-rules-secrets",
  "yunq-rules-smells",
+ "yunq-rules-typescript",
  "yunq-taint",
 ]
 
@@ -4359,6 +4360,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-rules-typescript"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-typescript",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-server"
 version = "0.1.1"
 dependencies = [
@@ -4400,6 +4410,7 @@ dependencies = [
  "yunq-rules-rust",
  "yunq-rules-secrets",
  "yunq-rules-smells",
+ "yunq-rules-typescript",
 ]
 
 [[package]]
@@ -4455,6 +4466,7 @@ dependencies = [
  "yunq-rules-rust",
  "yunq-rules-secrets",
  "yunq-rules-smells",
+ "yunq-rules-typescript",
 ]
 
 [[package]]

@@ -133,6 +133,19 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         // rulesets/reactive — applies_to typescript (RxJS).
         (rule("reactive:missing-unsubscribe"), Severity::Major),
         (rule("reactive:subject-never-completed"), Severity::Minor),
+        // rulesets/typescript — all applies_to typescript only.
+        (rule("typescript:loose-equality"), Severity::Minor),
+        (rule("typescript:var-declaration"), Severity::Minor),
+        (rule("typescript:leftover-debug-statement"), Severity::Minor),
+        (rule("typescript:promise-then-without-catch"), Severity::Major),
+        (rule("typescript:math-random-for-token"), Severity::Critical),
+        (rule("typescript:dynamic-regexp-source"), Severity::Major),
+        (rule("typescript:redos-nested-quantifier"), Severity::Major),
+        (rule("typescript:json-parse-unguarded"), Severity::Major),
+        (rule("typescript:open-redirect-location-assignment"), Severity::Critical),
+        (rule("typescript:sensitive-data-in-web-storage"), Severity::Critical),
+        (rule("typescript:mass-assignment-from-request-body"), Severity::Critical),
+        (rule("typescript:innerhtml-assignment"), Severity::Critical),
     ]);
     activations
 }
