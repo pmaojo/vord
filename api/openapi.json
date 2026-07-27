@@ -915,6 +915,132 @@
         }
       }
     },
+    "/api/projects/{key}/ai-provider": {
+      "get": {
+        "summary": "Reads a project's BYOK LLM provider config, if any. The API key is\nmasked — this endpoint confirms *that* a key is set, not what it is.",
+        "operationId": "get_ai_provider",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project's BYOK config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderConfigDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
+          },
+          "404": {
+            "description": "Project has no BYOK override (uses the platform default provider)"
+          },
+          "502": {
+            "description": "Storage backend unavailable, or YUNQ_SECRETS_KEY misconfigured"
+          }
+        }
+      },
+      "put": {
+        "summary": "Sets (or replaces) a project's BYOK LLM provider config; audit-logged as\n`ai_provider.updated`. Requires `AdminAccess` since this handles a\ntenant secret, not just a project setting.",
+        "operationId": "set_ai_provider",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmProviderConfigRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The config that was stored (API key masked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderConfigDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown provider, or an empty model/api_key"
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
+          },
+          "502": {
+            "description": "Storage backend unavailable, or YUNQ_SECRETS_KEY misconfigured"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Clears a project's BYOK override, reverting it to the platform-wide\ndefault provider; audit-logged as `ai_provider.cleared`.",
+        "operationId": "clear_ai_provider",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Project key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether an override was removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProviderClearedDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token"
+          },
+          "403": {
+            "description": "Caller lacks AdminAccess"
+          },
+          "502": {
+            "description": "Storage backend unavailable"
+          }
+        }
+      }
+    },
     "/api/projects/{key}/badge.svg": {
       "get": {
         "summary": "Generate SVG status badge for a project, reflecting the real outcome of\nthe last persisted quality gate evaluation (green \"passed\", red \"failed\",\ngrey \"no analysis\" for a project that hasn't been scanned yet).",
@@ -2175,6 +2301,22 @@
           }
         }
       },
+      "AiProviderClearedDto": {
+        "type": "object",
+        "required": [
+          "project_key",
+          "removed"
+        ],
+        "properties": {
+          "project_key": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean",
+            "description": "Whether a BYOK override actually existed to remove."
+          }
+        }
+      },
       "AssigneeRequestDto": {
         "type": "object",
         "properties": {
@@ -2419,7 +2561,8 @@
         "required": [
           "analysis_id",
           "total",
-          "components"
+          "components",
+          "tree"
         ],
         "properties": {
           "analysis_id": {
@@ -2435,6 +2578,46 @@
           "total": {
             "type": "integer",
             "minimum": 0
+          },
+          "tree": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComponentTreeNodeDto"
+            }
+          }
+        }
+      },
+      "ComponentTreeNodeDto": {
+        "type": "object",
+        "description": "One node of the nested `tree` view: a directory (`qualifier: \"DIR\"`,\n`children` populated, `measures` empty) or a file (`qualifier: \"FIL\"`,\n`measures` populated, no children) — SonarQube's own DIR/FIL qualifier\nvocabulary, so existing SonarQube-shaped tooling recognizes the field.",
+        "required": [
+          "name",
+          "path",
+          "qualifier"
+        ],
+        "properties": {
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComponentTreeNodeDto"
+            }
+          },
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeasureValueDto"
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "Final path segment (directory or file name)."
+          },
+          "path": {
+            "type": "string",
+            "description": "Full path from the project root."
+          },
+          "qualifier": {
+            "type": "string"
           }
         }
       },
@@ -2882,6 +3065,66 @@
           "total": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "LlmProviderConfigDto": {
+        "type": "object",
+        "required": [
+          "project_key",
+          "provider",
+          "model",
+          "api_key_last4"
+        ],
+        "properties": {
+          "api_key_last4": {
+            "type": "string",
+            "description": "Last 4 characters of the configured API key, e.g. `********ab12` —\nenough to confirm which key is set without exposing it."
+          },
+          "base_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "project_key": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "description": "One of: openai_compatible, anthropic."
+          }
+        }
+      },
+      "LlmProviderConfigRequestDto": {
+        "type": "object",
+        "required": [
+          "provider",
+          "model",
+          "api_key"
+        ],
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "description": "The project's own API key for this provider. Encrypted at rest;\nnever returned by `GET`."
+          },
+          "base_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Override the provider's default endpoint (e.g. a self-hosted LiteLLM\nproxy, or an Anthropic-compatible gateway). `null` uses the\nprovider's own default."
+          },
+          "model": {
+            "type": "string",
+            "description": "Model name/id to request, e.g. `gpt-4o`, `claude-sonnet-4-5-20250929`."
+          },
+          "provider": {
+            "type": "string",
+            "description": "One of: openai_compatible, anthropic."
           }
         }
       },

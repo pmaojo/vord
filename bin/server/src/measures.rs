@@ -8,18 +8,22 @@
 //! `component`, one of its files' — analyses.
 //!
 //! `GET /api/projects/{key}/components/tree` returns the project's known
-//! files (a **flat list, not a nested directory tree**) with their latest
-//! measures as of the most recent analysis, sortable/filterable in the
-//! SonarQube style. Scoped down from a real nested tree deliberately: the
-//! persisted data is a flat `(analysis_id, file, metric, value)` table with
-//! no notion of directories, and building one on the fly from file paths
-//! would be presentation logic with no server-side test value beyond a
-//! string split — better done client-side if/when a real tree UI needs it.
-//! A flat, correctly project/analysis-scoped file list is the honest v1
-//! here (see the module docs on `analysis_measures` in migration `0017` for
-//! why "project/analysis-scoped" specifically mattered: the existing
-//! `issues` table has no project linkage at all, so it could not have been
-//! the source of a safe per-project file list).
+//! files with their latest measures as of the most recent analysis, in two
+//! shapes at once: `components`, a flat list sortable/filterable in the
+//! SonarQube style (unchanged from the original v1), and `tree`, the same
+//! filtered file set nested into directories by splitting each path on `/`
+//! (issue #26's remaining ask — the persisted data is still just a flat
+//! `(analysis_id, file, metric, value)` table with no notion of
+//! directories; the nesting is pure presentation logic built in this DTO
+//! layer, not a new storage concept). `tree` is always name-sorted
+//! (directories and files interleaved alphabetically per level via a
+//! `BTreeMap`) since `sort`/`direction` describe a flat ordering that has
+//! no single meaning once nodes are grouped by parent — `components` is
+//! still the place to ask for e.g. "worst coverage first". See the module
+//! docs on `analysis_measures` in migration `0017` for why
+//! "project/analysis-scoped" specifically mattered: the existing `issues`
+//! table has no project linkage at all, so it could not have been the
+//! source of a safe per-project file list.
 
 use std::sync::Arc;
 
@@ -62,7 +66,7 @@ pub(crate) struct MeasureHistoryQuery {
     to: Option<String>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Debug, PartialEq)]
 pub(crate) struct MeasureValueDto {
     metric: String,
     value: f64,
@@ -168,6 +172,80 @@ pub(crate) struct ComponentTreeDto {
     analysis_id: i64,
     total: usize,
     components: Vec<ComponentDto>,
+    tree: Vec<ComponentTreeNodeDto>,
+}
+
+/// One node of the nested `tree` view: a directory (`qualifier: "DIR"`,
+/// `children` populated, `measures` empty) or a file (`qualifier: "FIL"`,
+/// `measures` populated, no children) — SonarQube's own DIR/FIL qualifier
+/// vocabulary, so existing SonarQube-shaped tooling recognizes the field.
+#[derive(Serialize, ToSchema)]
+pub(crate) struct ComponentTreeNodeDto {
+    /// Final path segment (directory or file name).
+    name: String,
+    /// Full path from the project root.
+    path: String,
+    qualifier: &'static str,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    measures: Vec<MeasureValueDto>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schema(no_recursion)]
+    children: Vec<ComponentTreeNodeDto>,
+}
+
+/// Intermediate, mutable tree used while inserting flat component paths —
+/// `BTreeMap` keeps each level's children name-sorted for free.
+#[derive(Default)]
+struct TreeBuilderNode {
+    children: std::collections::BTreeMap<String, TreeBuilderNode>,
+    /// `Some` exactly when this node is a file (holds its measures);
+    /// `None` for directories. A path that is simultaneously an ancestor of
+    /// other paths and a leaf itself (e.g. both `"src"` and `"src/foo.rs"`
+    /// present) is not a real filesystem shape and isn't disambiguated here
+    /// — the directory children win and the file's own measures are
+    /// dropped, since source trees never actually produce this.
+    measures: Option<Vec<MeasureValueDto>>,
+}
+
+/// Nests a flat component (file) list into a directory tree by splitting
+/// each path on `/`. Empty segments (leading/trailing/doubled slashes) are
+/// skipped rather than producing empty-named nodes.
+fn build_tree(components: Vec<ComponentMeasures>) -> Vec<ComponentTreeNodeDto> {
+    let mut root = TreeBuilderNode::default();
+    for component in components {
+        let segments: Vec<&str> = component.path.split('/').filter(|s| !s.is_empty()).collect();
+        let Some((last, ancestors)) = segments.split_last() else { continue };
+        let mut cursor = &mut root;
+        for segment in ancestors {
+            cursor = cursor.children.entry((*segment).to_string()).or_default();
+        }
+        let leaf = cursor.children.entry((*last).to_string()).or_default();
+        leaf.measures = Some(
+            component.measures.into_iter().map(|(metric, value)| MeasureValueDto { metric, value }).collect(),
+        );
+    }
+
+    fn into_dto(name: String, path: String, node: TreeBuilderNode) -> ComponentTreeNodeDto {
+        if node.children.is_empty() {
+            let measures = node.measures.unwrap_or_default();
+            ComponentTreeNodeDto { name, path, qualifier: "FIL", measures, children: vec![] }
+        } else {
+            let children = node
+                .children
+                .into_iter()
+                .map(|(segment, child)| {
+                    let child_path = if path.is_empty() { segment.clone() } else { format!("{path}/{segment}") };
+                    into_dto(segment, child_path, child)
+                })
+                .collect();
+            ComponentTreeNodeDto { name, path, qualifier: "DIR", measures: vec![], children }
+        }
+    }
+
+    root.children
+        .into_iter()
+        .map(|(segment, node)| into_dto(segment.clone(), segment, node))
+        .collect()
 }
 
 /// Filters components to those whose path contains `q` (a no-op when `q`
@@ -230,12 +308,14 @@ pub(crate) async fn component_tree(
             (StatusCode::NOT_FOUND, "no analysis exists yet for this project/branch".to_string())
         })?;
 
-    let components = filter_components(tree.components, query.q.as_deref());
-    let descending = query.direction.eq_ignore_ascii_case("desc");
-    let components = sort_components(components, &query.sort, descending);
+    let filtered = filter_components(tree.components, query.q.as_deref());
+    let nested = build_tree(filtered.clone());
 
-    let total = components.len();
-    let components = components
+    let descending = query.direction.eq_ignore_ascii_case("desc");
+    let sorted = sort_components(filtered, &query.sort, descending);
+
+    let total = sorted.len();
+    let components = sorted
         .into_iter()
         .map(|c| ComponentDto {
             path: c.path,
@@ -243,7 +323,7 @@ pub(crate) async fn component_tree(
         })
         .collect();
 
-    Ok(Json(ComponentTreeDto { analysis_id: tree.analysis_id, total, components }))
+    Ok(Json(ComponentTreeDto { analysis_id: tree.analysis_id, total, components, tree: nested }))
 }
 
 #[cfg(test)]
@@ -312,5 +392,49 @@ mod tests {
         let sorted = sort_components(components, "coverage", false);
         assert_eq!(sorted[0].path, "b.rs");
         assert_eq!(sorted[1].path, "a.rs");
+    }
+
+    #[test]
+    fn build_tree_nests_files_under_shared_directories() {
+        let components = vec![
+            component("src/foo/a.rs", 1.0),
+            component("src/foo/b.rs", 2.0),
+            component("src/bar.rs", 3.0),
+        ];
+        let tree = build_tree(components);
+
+        // Top level: "src" only (BTreeMap-sorted; only one root here).
+        assert_eq!(tree.len(), 1);
+        let src = &tree[0];
+        assert_eq!(src.name, "src");
+        assert_eq!(src.path, "src");
+        assert_eq!(src.qualifier, "DIR");
+        assert!(src.measures.is_empty());
+
+        // "bar.rs" sorts before "foo" (BTreeMap key order).
+        assert_eq!(src.children.len(), 2);
+        assert_eq!(src.children[0].name, "bar.rs");
+        assert_eq!(src.children[0].qualifier, "FIL");
+        assert_eq!(src.children[0].path, "src/bar.rs");
+        assert_eq!(src.children[0].measures, vec![MeasureValueDto { metric: "issue_total".into(), value: 3.0 }]);
+
+        let foo = &src.children[1];
+        assert_eq!(foo.name, "foo");
+        assert_eq!(foo.qualifier, "DIR");
+        assert_eq!(foo.path, "src/foo");
+        assert_eq!(foo.children.len(), 2);
+        assert_eq!(foo.children[0].path, "src/foo/a.rs");
+        assert_eq!(foo.children[1].path, "src/foo/b.rs");
+    }
+
+    #[test]
+    fn build_tree_handles_root_level_files_and_empty_input() {
+        let tree = build_tree(vec![component("README.md", 0.0)]);
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "README.md");
+        assert_eq!(tree[0].qualifier, "FIL");
+        assert!(tree[0].children.is_empty());
+
+        assert!(build_tree(vec![]).is_empty());
     }
 }
