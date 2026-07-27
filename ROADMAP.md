@@ -331,6 +331,39 @@ re-analysis on typical PRs.
   `owasp:xss` (`sanitize`/`escapeHtml`/`encodeURIComponent`) and
   `owasp:injection`/`owasp:cross-file-injection` (`escape`/`escapeShellArg`).
   Usually a paid-tier category; yunq ships it open.
+- **Language-specific ruleset: Python** ✅ **(this session)** — a new
+  `rulesets/python` crate (`yunq-rules-python`), the same shape as
+  `rulesets/rust`: idioms that only make sense for this language, as
+  opposed to the neutral-AST checks in `rulesets/code-smells` that merely
+  happen to apply to Python too. 12 rules, each grounded in the real
+  tree-sitter-python grammar shapes (verified with a throwaway AST-dump
+  example before writing detection logic, not guessed) rather than raw
+  line/text scanning: `python:mutable-default-argument` (a `[]`/`{}`/`set()`
+  literal or `list()`/`dict()`/`set()` call as a parameter default, shared
+  and mutated across every call site that doesn't override it),
+  `python:bare-except` (catches `SystemExit`/`KeyboardInterrupt` too),
+  `python:broad-exception-swallowed` (`except Exception`/`BaseException`
+  whose body is only `pass`), `python:assert-used-in-production` (a
+  security hotspot — `assert` is stripped under `-O`; test-file paths are
+  exempted via the existing `is_test_only_path` helper),
+  `python:subprocess-shell-true`, `python:unsafe-yaml-load` (`yaml.load`
+  missing an explicit `Loader`), `python:xml-xxe-hotspot` (the stdlib's
+  `xml.etree`/`minidom`/`sax` parsers resolve external entities by
+  default), `python:insecure-tempfile` (`tempfile.mktemp`'s TOCTOU race),
+  `python:wildcard-import`, `python:type-comparison` (`type(x) ==` instead
+  of `isinstance`), `python:global-statement-usage`, and
+  `python:eager-logging-interpolation` (an f-string or `%`/`+` built before
+  a `logging.*` call always pays the formatting cost, even when the level
+  is disabled). All 12 carry both classic `IssueType` and MQR impacts,
+  ship with unit tests per rule (37 total), are wired into all three
+  composition roots (`bin/cli`, `bin/server`'s rule catalog, `bin/worker`),
+  and are activated by default in `python_activations()`
+  (`core/profiles/src/builtin.rs`) with severities cross-checked against
+  each rule's `default_severity()`. First installment of the rule-catalog
+  scale-out below — the language roster is complete, but per-language rule
+  depth (lever 0, informally: hand-written idiom rules, the cheapest lever
+  when a language has real idioms and none are covered yet) had been
+  sitting at zero for every non-Rust language.
 
 ### Rule-coverage levers, ranked by rules-per-LOC
 

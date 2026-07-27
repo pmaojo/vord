@@ -150,6 +150,19 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("smells:god-class"), Severity::Major),
         (rule("smells:feature-envy"), Severity::Minor),
         (rule("smells:refused-bequest"), Severity::Minor),
+        // rulesets/python — all applies_to python only.
+        (rule("python:mutable-default-argument"), Severity::Major),
+        (rule("python:bare-except"), Severity::Major),
+        (rule("python:broad-exception-swallowed"), Severity::Major),
+        (rule("python:assert-used-in-production"), Severity::Minor),
+        (rule("python:subprocess-shell-true"), Severity::Critical),
+        (rule("python:unsafe-yaml-load"), Severity::Critical),
+        (rule("python:xml-xxe-hotspot"), Severity::Major),
+        (rule("python:insecure-tempfile"), Severity::Major),
+        (rule("python:wildcard-import"), Severity::Minor),
+        (rule("python:type-comparison"), Severity::Minor),
+        (rule("python:global-statement-usage"), Severity::Minor),
+        (rule("python:eager-logging-interpolation"), Severity::Minor),
     ]);
     activations
 }

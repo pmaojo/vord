@@ -106,6 +106,7 @@ where
         .chain(yunq_rules_secrets::all_rules())
         .chain(yunq_rules_rust::all_rules())
         .chain(yunq_rules_reactive::all_rules())
+        .chain(yunq_rules_python::all_rules())
         .collect();
     let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> = yunq_rules_owasp::all_cross_rules()
         .into_iter()
