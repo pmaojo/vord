@@ -33,8 +33,8 @@ pub use domain::{
     CoverageSummary, ExternalIssue, FileBlame, FileCoverage, Hotspot, HotspotStatus,
     InvalidCoverageError, InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError,
     Issue, IssueFacets,
-    IssueStatus, IssueTransition, Metrics, Resolution, ScanJob, StoredHotspot, StoredIssue,
-    TestReportSummary, TestSuiteSummary,
+    IssueStatus, IssueTransition, Metrics, MutationSummary, Resolution, ScanJob, StoredHotspot,
+    StoredIssue, TestReportSummary, TestSuiteSummary,
 };
 pub use gate_defaults::default_gate;
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};

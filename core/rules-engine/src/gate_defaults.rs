@@ -6,8 +6,9 @@
 
 use yunq_profiles::{ComparisonOperator, Condition, MetricKey, QualityGate};
 
-/// No blocker or critical issues, every file must parse, and (when a
-/// coverage report was ingested) coverage stays at or above 80%.
+/// No blocker or critical issues, every file must parse, and (when the
+/// report was ingested) coverage stays at or above 80% and mutation score
+/// at or above 60%.
 pub fn default_gate() -> QualityGate {
     let metric = |raw: &str| MetricKey::new(raw).expect("valid metric key");
     QualityGate::new("yunq-default")
@@ -15,6 +16,7 @@ pub fn default_gate() -> QualityGate {
         .with_condition(Condition::new(metric("critical_issues"), ComparisonOperator::GreaterThan, 0.0))
         .with_condition(Condition::new(metric("parse_failures"), ComparisonOperator::GreaterThan, 0.0))
         .with_condition(Condition::new(metric("coverage"), ComparisonOperator::LessThan, 80.0))
+        .with_condition(Condition::new(metric("mutation_score"), ComparisonOperator::LessThan, 60.0))
 }
 
 #[cfg(test)]
@@ -26,7 +28,7 @@ mod tests {
     fn default_gate_has_the_documented_conditions() {
         let gate = default_gate();
         assert_eq!(gate.name(), "yunq-default");
-        assert_eq!(gate.conditions().len(), 4);
+        assert_eq!(gate.conditions().len(), 5);
     }
 
     #[test]

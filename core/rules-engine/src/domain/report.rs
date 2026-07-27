@@ -474,6 +474,41 @@ impl TestReportSummary {
     }
 }
 
+/// Per-status mutant counts ingested from an external mutation-testing
+/// report (the Stryker "Mutation Testing Elements" JSON schema — StrykerJS,
+/// Stryker.NET, and Infection via its Stryker-format exporter all emit it).
+/// yunq runs no mutants itself; this only aggregates another tool's
+/// verdicts, the same relationship [`CoverageReport`] has to LCOV/Cobertura.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MutationSummary {
+    pub total_mutants: usize,
+    pub killed_mutants: usize,
+    pub survived_mutants: usize,
+    pub timeout_mutants: usize,
+    pub no_coverage_mutants: usize,
+    pub ignored_mutants: usize,
+    /// `CompileError` + `RuntimeError` mutants — broken, not undetected.
+    pub error_mutants: usize,
+    pub pending_mutants: usize,
+}
+
+impl MutationSummary {
+    /// Stryker's own formula: detected (`killed` + `timeout`) over valid
+    /// (`killed` + `timeout` + `survived` + `no_coverage`). `ignored`,
+    /// `error` and `pending` mutants count toward neither side — an agent
+    /// cannot raise the score by causing compile errors, and a project with
+    /// no un-ignored mutants reports no score rather than a fabricated 100%.
+    pub fn mutation_score(&self) -> Option<f64> {
+        let detected = self.killed_mutants + self.timeout_mutants;
+        let valid = detected + self.survived_mutants + self.no_coverage_mutants;
+        if valid == 0 {
+            None
+        } else {
+            Some(detected as f64 * 100.0 / valid as f64)
+        }
+    }
+}
+
 /// An issue produced outside the rule engine — imported from another
 /// analyzer's report rather than detected by a [`crate::Rule`].
 ///
@@ -508,6 +543,7 @@ pub struct AnalysisReport {
     duplications: Vec<DuplicateBlock>,
     metrics: Metrics,
     test_report: Option<TestReportSummary>,
+    mutation: Option<MutationSummary>,
 }
 
 impl AnalysisReport {
@@ -520,6 +556,7 @@ impl AnalysisReport {
             duplications: Vec::new(),
             metrics,
             test_report: None,
+            mutation: None,
         }
     }
 
@@ -541,6 +578,15 @@ impl AnalysisReport {
     /// `test_execution_time` measures (see [`AnalysisReport::measure`]).
     pub fn set_test_report(&mut self, test_report: TestReportSummary) {
         self.test_report = Some(test_report);
+    }
+
+    /// Ingest a mutation-testing report: its per-status mutant counts
+    /// become available as `mutants`/`mutants_killed`/`mutants_survived`/
+    /// `mutants_timeout`/`mutants_no_coverage`/`mutation_score` measures
+    /// (see [`AnalysisReport::measure`]), so a mutation-testing gate
+    /// condition works the same way a coverage one does.
+    pub fn set_mutation(&mut self, mutation: MutationSummary) {
+        self.mutation = Some(mutation);
     }
 
     pub fn set_duplications(&mut self, duplications: Vec<DuplicateBlock>) {
@@ -608,6 +654,10 @@ impl AnalysisReport {
 
     pub fn test_report(&self) -> Option<&TestReportSummary> {
         self.test_report.as_ref()
+    }
+
+    pub fn mutation(&self) -> Option<&MutationSummary> {
+        self.mutation.as_ref()
     }
 
     pub fn duplications(&self) -> &[DuplicateBlock] {
@@ -741,6 +791,12 @@ const MEASURE_TABLE: &[(&str, MeasureFn)] = &[
     ("test_skipped", |r| r.test_report.as_ref().map(|t| t.skipped_tests as f64)),
     ("test_execution_time", |r| r.test_report.as_ref().map(|t| t.time_seconds)),
     ("test_success_density", |r| r.test_report.as_ref().and_then(|t| t.pass_rate())),
+    ("mutants", |r| r.mutation.map(|m| m.total_mutants as f64)),
+    ("mutants_killed", |r| r.mutation.map(|m| m.killed_mutants as f64)),
+    ("mutants_survived", |r| r.mutation.map(|m| m.survived_mutants as f64)),
+    ("mutants_timeout", |r| r.mutation.map(|m| m.timeout_mutants as f64)),
+    ("mutants_no_coverage", |r| r.mutation.map(|m| m.no_coverage_mutants as f64)),
+    ("mutation_score", |r| r.mutation.and_then(|m| m.mutation_score())),
     ("hotspots_to_review", |r| {
         Some(r.hotspots.iter().filter(|h| h.status() == HotspotStatus::ToReview).count() as f64)
     }),
@@ -771,9 +827,46 @@ mod tests {
             "test_skipped",
             "test_execution_time",
             "test_success_density",
+            "mutants",
+            "mutants_killed",
+            "mutants_survived",
+            "mutants_timeout",
+            "mutants_no_coverage",
+            "mutation_score",
         ] {
             assert_eq!(report.measure(&yunq_profiles::MetricKey::new(key).unwrap()), None);
         }
+    }
+
+    #[test]
+    fn mutation_measures_expose_the_ingested_counts() {
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        report.set_mutation(MutationSummary {
+            total_mutants: 12,
+            killed_mutants: 6,
+            survived_mutants: 2,
+            timeout_mutants: 1,
+            no_coverage_mutants: 1,
+            ignored_mutants: 1,
+            error_mutants: 1,
+            pending_mutants: 0,
+        });
+
+        let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
+        assert_eq!(measure("mutants"), Some(12.0));
+        assert_eq!(measure("mutants_killed"), Some(6.0));
+        assert_eq!(measure("mutants_survived"), Some(2.0));
+        assert_eq!(measure("mutants_timeout"), Some(1.0));
+        assert_eq!(measure("mutants_no_coverage"), Some(1.0));
+        // detected = killed(6) + timeout(1) = 7; valid = 7 + survived(2) + no_coverage(1) = 10.
+        assert_eq!(measure("mutation_score"), Some(70.0));
+        assert_eq!(report.mutation().unwrap().total_mutants, 12);
+    }
+
+    #[test]
+    fn mutation_score_is_none_with_no_valid_mutants() {
+        let summary = MutationSummary { ignored_mutants: 3, ..Default::default() };
+        assert_eq!(summary.mutation_score(), None);
     }
 
     #[test]

@@ -156,6 +156,13 @@ struct ScanArgs {
     /// JUnit XML test report to ingest (printed as a test summary).
     #[arg(long)]
     junit: Option<PathBuf>,
+    /// Mutation-testing report to ingest (Stryker's Mutation Testing
+    /// Elements JSON schema — StrykerJS, Stryker.NET, or Infection exported
+    /// in that format). Enables the `mutation_score` measure and gate
+    /// condition; yunq runs no mutants itself, it only aggregates the
+    /// verdicts another tool already produced.
+    #[arg(long = "mutation-report")]
+    mutation_report: Option<PathBuf>,
     /// SARIF 2.x report from another analyzer (ruff, ESLint, clippy, gosec,
     /// bandit, semgrep, CodeQL, …) whose findings are merged into this
     /// scan's issues — they count toward the severity totals and the
@@ -505,6 +512,14 @@ fn load_test_report(junit: Option<PathBuf>) -> anyhow::Result<Option<yunq_rules_
         .transpose()
 }
 
+fn load_mutation_report(
+    mutation_report: Option<PathBuf>,
+) -> anyhow::Result<Option<yunq_rules_engine::MutationSummary>> {
+    mutation_report
+        .map(|path| yunq_infra_fs::parse_mutation_report(&read_report_file(&path)?).map_err(anyhow::Error::from))
+        .transpose()
+}
+
 /// New Code (previous-analysis mode): classifies against the stored
 /// baseline, then advances the baseline to this analysis. Line hashes are
 /// read from the real source tree so tracking survives a message that
@@ -703,6 +718,9 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let test_report = load_test_report(args.junit.clone())?;
     if let Some(summary) = &test_report {
         report.set_test_report(summary.clone());
+    }
+    if let Some(mutation) = load_mutation_report(args.mutation_report.clone())? {
+        report.set_mutation(mutation);
     }
     if let Some(cache) = &cache
         && let Err(e) = cache.persist()

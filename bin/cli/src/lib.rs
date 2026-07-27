@@ -133,6 +133,9 @@ pub fn default_quality_gate() -> QualityGate {
         .with_condition(Condition::new(metric("parse_failures"), ComparisonOperator::GreaterThan, 0.0))
         // NoValue (ignored) unless a coverage report was ingested.
         .with_condition(Condition::new(metric("coverage"), ComparisonOperator::LessThan, 80.0))
+        // NoValue (ignored) unless a mutation-testing report was ingested
+        // (`--mutation-report`). 60 mirrors Stryker's own conventional "low" threshold.
+        .with_condition(Condition::new(metric("mutation_score"), ComparisonOperator::LessThan, 60.0))
 }
 
 /// Resolves an issue's `(file, line)` to that source line's content hash for
