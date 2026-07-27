@@ -3,6 +3,7 @@
 mod cognitive_complexity;
 mod commented_out_code;
 mod complexity;
+mod db_call_in_loop;
 mod feature_envy;
 mod god_class;
 mod long_function;
@@ -14,6 +15,7 @@ mod unwrap_usage;
 pub use cognitive_complexity::CognitiveComplexityRule;
 pub use commented_out_code::CommentedOutCodeRule;
 pub use complexity::ComplexityRule;
+pub use db_call_in_loop::DbCallInLoopRule;
 pub use feature_envy::FeatureEnvyRule;
 pub use god_class::GodClassRule;
 pub use long_function::LongFunctionRule;
@@ -34,6 +36,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(CognitiveComplexityRule::default()),
         Box::new(CommentedOutCodeRule::new()),
         Box::new(SelectStarRule::new()),
+        Box::new(DbCallInLoopRule::new()),
     ]
 }
 

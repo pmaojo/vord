@@ -74,6 +74,7 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("smells:cognitive-complexity"), Severity::Major),
         (rule("smells:commented-out-code"), Severity::Minor),
         (rule("smells:select-star"), Severity::Minor),
+        (rule("smells:db-call-in-loop"), Severity::Major),
     ]
 }
 
@@ -164,6 +165,9 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("typescript:sensitive-data-in-web-storage"), Severity::Critical),
         (rule("typescript:mass-assignment-from-request-body"), Severity::Critical),
         (rule("typescript:innerhtml-assignment"), Severity::Critical),
+        (rule("typescript:swallowed-exception"), Severity::Major),
+        // rulesets/ai-agent — applies_to typescript/python.
+        (rule("ai:llm-output-injection"), Severity::Blocker),
     ]);
     activations
 }
@@ -210,6 +214,8 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("python:raise-generic-exception"), Severity::Minor),
         (rule("python:raise-without-from-in-except"), Severity::Minor),
         (rule("python:unused-loop-variable"), Severity::Minor),
+        // rulesets/ai-agent — applies_to typescript/python.
+        (rule("ai:llm-output-injection"), Severity::Blocker),
     ]);
     activations
 }
@@ -230,6 +236,7 @@ fn php_activations() -> Vec<(RuleId, Severity)> {
         (rule("php:dynamic-function-call-from-superglobal"), Severity::Blocker),
         (rule("php:variable-variable"), Severity::Major),
         (rule("php:weak-random-token"), Severity::Critical),
+        (rule("php:swallowed-exception"), Severity::Major),
     ]);
     activations
 }
