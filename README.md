@@ -211,6 +211,22 @@ denied — whether because it was fixed or because the agent moved on to
 something else. `yunq hook reset-circuit-breaker` clears it after a human has
 reviewed the stuck finding.
 
+**Supply-chain: new dependencies.** No `Rule` in `core/rules-engine` can see
+"this write adds a dependency that was not here before" — that trait analyses
+one file's current content, with no concept of a prior version. `yunq hook`
+diffs `package.json`/`requirements.txt` against the on-disk version at
+`PreToolUse` time and turns any newly added dependency into an ordinary
+`supply-chain:new-dependency` finding, which flows through the same
+`blocking_rules`/`advisory_rules`/`block_at_or_above` policy as any AST
+finding. It reports nothing by default (most new dependencies are
+legitimate) — opt in per repository via `yunq-policy.toml`'s
+`advisory_rules` or `blocking_rules`. This is intentionally *not* branded as
+a sandbox: a WASM/WASI sandbox isolates code compiled to WASM, and cannot
+meaningfully "sandbox-test" an arbitrary already-compiled shell command or
+native npm/pip package before it runs, so this guardrail instead surfaces
+the dependency for human review rather than claiming to have executed it
+safely.
+
 **Why a hook and not an MCP tool.** An MCP tool or an LSP is *consulted*: the
 agent chooses whether to ask, and an agent optimising for task completion
 learns not to ask. A host hook is *invoked* by the runtime on every matching

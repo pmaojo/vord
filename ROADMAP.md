@@ -1056,6 +1056,31 @@ before being leaned on; that verification has not been done.
   not exist yet — the hook remains the only mechanism that can actually deny
   a write.
 
+  **6f Supply-chain: new-dependency guard** ✅ **(2026-07-27)**. FR-04 of the
+  "2027 guardrail" proposal asked for a WASM/WASI sandbox validating
+  agent-suggested tools/dependencies before they reach execution sinks. That
+  does not hold up technically: WASM/WASI isolates code *compiled to WASM* —
+  it has no way to "sandbox-test" an arbitrary already-compiled shell command
+  or a native npm/pip package before it runs, so a literal implementation
+  would be theatre, not a control. What ships instead is the real, narrower
+  problem it was reaching for: no `Rule` in `core/rules-engine` can see "this
+  write adds a dependency that was not here before" (the trait analyses one
+  file's current content only, no concept of a prior version), so an agent
+  quietly introducing a typosquatted or unreviewed package was invisible to
+  every existing check. `bin/cli/src/hook.rs::new_dependency_findings` diffs
+  `package.json`/`requirements.txt` (dependency-name sets, not full content)
+  against the on-disk version at `PreToolUse` time — silent when the
+  manifest is brand new (bootstrapping a project's first dependency set is
+  not drift) — and emits an ordinary `supply-chain:new-dependency` `Finding`
+  that flows through `AgentPolicy::evaluate` exactly like an AST finding,
+  which is the reuse `core/agent-policy`'s own doc comment anticipates ("a
+  policy can equally judge findings that never came from the engine").
+  Reports nothing under the default policy (most new dependencies are
+  legitimate); a repository opts in per rule id via `yunq-policy.toml`'s
+  `advisory_rules`/`blocking_rules`, same as any other rule — visible and
+  editable, never a silent new default. Extending to Cargo.toml/go.mod/Gemfile
+  is another `match` arm and parser, not a new concept.
+
 ## Phase 7 — Enterprise platform
 
 - **Portfolios**: hierarchical aggregation across projects with rollup

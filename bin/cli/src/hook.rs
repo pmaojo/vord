@@ -316,6 +316,71 @@ pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Ve
         .collect())
 }
 
+/// Names every dependency a manifest file declares, keyed by ecosystem
+/// format. Only the two highest-risk, highest-volume ecosystems for
+/// typosquatting are covered; extending this to Cargo.toml/go.mod/Gemfile
+/// is a matter of adding another `match` arm and parser, not a new concept.
+fn manifest_dependency_names(file_name: &str, raw: &str) -> Option<std::collections::HashSet<String>> {
+    match file_name {
+        "package.json" => {
+            let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+            let mut names = std::collections::HashSet::new();
+            for section in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] {
+                if let Some(obj) = value.get(section).and_then(|v| v.as_object()) {
+                    names.extend(obj.keys().cloned());
+                }
+            }
+            Some(names)
+        }
+        "requirements.txt" => Some(
+            raw.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with('-'))
+                .filter_map(|line| {
+                    let name = line.split(['=', '>', '<', '~', '!', ';', '[', ' ']).next()?.trim();
+                    (!name.is_empty()).then(|| name.to_ascii_lowercase())
+                })
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+/// Findings for dependencies a proposed write adds to a manifest that did not
+/// have them before — an agent introducing `left-pad-plus` is a supply-chain
+/// risk (typosquatting, an unreviewed transitive tree) categorically
+/// different from the AST vulnerabilities the rest of this module looks for,
+/// and no `Rule` in `core/rules-engine` sees it: that trait analyses one
+/// file's *current* content, with no concept of "before this write". Silent
+/// (rather than flagging every dependency) when the manifest did not
+/// previously exist — bootstrapping a new project's dependency set is
+/// normal, not drift in an established one. Not in the default policy's
+/// `blocking_rules`/`advisory_rules` — see `yunq-policy.toml`'s template for
+/// how to opt in.
+fn new_dependency_findings(relative: &str, old_content: Option<&str>, new_content: &str) -> Vec<Finding> {
+    let Some(old_content) = old_content else { return Vec::new() };
+    let file_name = Path::new(relative).file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let Some(old_names) = manifest_dependency_names(file_name, old_content) else { return Vec::new() };
+    let Some(new_names) = manifest_dependency_names(file_name, new_content) else { return Vec::new() };
+
+    let mut added: Vec<&String> = new_names.difference(&old_names).collect();
+    added.sort();
+
+    let rule = RuleId::new("supply-chain:new-dependency").expect("valid rule id");
+    added
+        .into_iter()
+        .map(|name| Finding {
+            rule: rule.clone(),
+            severity: yunq_rules_engine::Severity::Major,
+            message: format!(
+                "agent introduced new dependency `{name}` in {relative} — review provenance and check for \
+                 typosquatting before this lands"
+            ),
+            line: 1,
+        })
+        .collect()
+}
+
 /// Judges one proposed write end to end: policy, path, and (when content is
 /// available and parseable) findings.
 pub async fn judge(
@@ -325,10 +390,17 @@ pub async fn judge(
     content: Option<&str>,
 ) -> anyhow::Result<Verdict> {
     let relative = relative_to(root, file);
-    let findings = match content {
+    let mut findings = match content {
         Some(content) => analyze_content(&relative, content).await?,
         None => Vec::new(),
     };
+    // Only meaningful `PreToolUse`-side, where disk still holds the
+    // pre-write content: by the time a write has landed (`PostToolUse`,
+    // `hook check`), disk already matches `content` and the diff is empty.
+    if let Some(content) = content {
+        let old_content = std::fs::read_to_string(file).ok();
+        findings.extend(new_dependency_findings(&relative, old_content.as_deref(), content));
+    }
     let evaluation = policy.evaluate(&relative, &findings);
     Ok(Verdict::from_evaluation(relative, evaluation))
 }
@@ -859,6 +931,65 @@ mod tests {
         track_circuit_breaker(&dir, &Verdict::Silent);
         let third = track_circuit_breaker(&dir, &denied);
         assert!(!third.is_tripped(), "the silent write in between broke the streak");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_new_dependency_in_package_json_is_flagged() {
+        let old = r#"{"dependencies": {"left-pad": "1.0.0"}}"#;
+        let new = r#"{"dependencies": {"left-pad": "1.0.0", "left-pad-plus": "0.0.1"}}"#;
+        let findings = new_dependency_findings("package.json", Some(old), new);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "supply-chain:new-dependency");
+        assert!(findings[0].message.contains("left-pad-plus"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn removing_or_pinning_a_dependency_in_package_json_flags_nothing() {
+        let old = r#"{"dependencies": {"left-pad": "1.0.0"}}"#;
+        let same_set = r#"{"dependencies": {"left-pad": "1.0.1"}}"#;
+        assert!(new_dependency_findings("package.json", Some(old), same_set).is_empty());
+    }
+
+    #[test]
+    fn a_brand_new_package_json_flags_nothing() {
+        let new = r#"{"dependencies": {"left-pad": "1.0.0"}}"#;
+        assert!(
+            new_dependency_findings("package.json", None, new).is_empty(),
+            "bootstrapping a project's first dependency set is not drift"
+        );
+    }
+
+    #[test]
+    fn a_new_dependency_in_requirements_txt_is_flagged() {
+        let old = "flask==2.0.0\n# a comment\n";
+        let new = "flask==2.0.0\nrequests>=2.31.0\n";
+        let findings = new_dependency_findings("requirements.txt", Some(old), new);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("requests"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn an_unrelated_file_is_never_diffed_for_dependencies() {
+        assert!(new_dependency_findings("src/app.py", Some("x = 1"), "x = 2").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_new_dependency_is_wired_into_the_full_judge_pipeline() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-manifest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let manifest = dir.join("package.json");
+        std::fs::write(&manifest, r#"{"dependencies": {"left-pad": "1.0.0"}}"#).expect("write");
+
+        // Not blocked by the *default* policy (Major is below the default
+        // `critical` threshold) — an install opts in explicitly, exactly as
+        // it would for any other rule id.
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"supply-chain:new-dependency\"]\n")
+            .expect("parses");
+        let new_content = r#"{"dependencies": {"left-pad": "1.0.0", "left-pad-plus": "0.0.1"}}"#;
+        let verdict = judge(&policy, &dir, &manifest, Some(new_content)).await.expect("judged");
+        assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
 
         std::fs::remove_dir_all(&dir).ok();
     }
