@@ -100,6 +100,11 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("rust:panic-in-drop"), Severity::Critical),
         (rule("rust:from-over-into"), Severity::Minor),
         (rule("rust:dbg-macro"), Severity::Minor),
+        (rule("rust:drop-on-reference"), Severity::Major),
+        (rule("rust:self-comparison"), Severity::Major),
+        (rule("rust:float-literal-eq"), Severity::Major),
+        (rule("rust:derive-hash-manual-partial-eq"), Severity::Major),
+        (rule("rust:blocking-sleep-in-async"), Severity::Major),
         // rulesets/code-smells — applies_to rust only.
         (rule("smells:unwrap-usage"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/python/rust.

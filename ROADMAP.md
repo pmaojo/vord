@@ -138,8 +138,8 @@ re-analysis on typical PRs.
 - **Rule catalog at scale**: build out the high-value rules per language;
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.
-  33 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
-  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 11 in
+  38 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
+  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 16 in
   `rulesets/rust`) plus duplication and taint. The dedicated `rulesets/rust`
   crate (2026-07-23) is the first language-specific ruleset (as opposed to
   the neutral-AST checks in `rulesets/code-smells` that merely happen to
@@ -168,7 +168,37 @@ re-analysis on typical PRs.
   `SAFETY`-comment lookup (shared with `unsafe-undocumented`) that would
   otherwise have been duplicated across rule files. All 7 wired into the
   built-in yunq way profile (`core/profiles/src/builtin.rs`) at their real
-  default severities. Latest additions (2026-07-22) unblock two
+  default severities. ✅ **(2026-07-27, same session)** gap analysis against
+  Clippy/SonarQube's Rust coverage — the honest read is that neither is
+  close to being outmatched on raw rule *count* (Clippy alone ships ~600
+  lints), so the second `rulesets/rust` pass targeted specific
+  high-confidence categories rather than trying to race that number: five
+  more rules, taking the ruleset to 16. Two are correctness checks Clippy
+  itself deny-by-defaults on: `rust:drop-on-reference` (`drop(&x)`/
+  `drop(&mut x)` drops the reference, not the referent — a syntactic,
+  zero-type-inference no-op-bug check, mirrors `clippy::drop_ref`/
+  `forget_ref`) and `rust:derive-hash-manual-partial-eq` (a type derives
+  `Hash` but hand-writes `PartialEq`, risking a silent `Hash`/`Eq` contract
+  break that corrupts `HashMap`/`HashSet` lookups; same-file only —
+  mirrors `clippy::derived_hash_with_manual_eq`). Two more catch
+  comparison bugs syntactically, without needing symbol/type resolution:
+  `rust:self-comparison` (`x == x`/`x != x`, mirrors `clippy::eq_op`) and
+  `rust:float-literal-eq` (a float compared to a literal with `==`/`!=`,
+  mirrors `clippy::float_cmp_const`) — both share a new
+  `common::operator_between` helper that recovers the (grammar-anonymous,
+  not present as an AST node) operator token from the raw source between
+  the two operand spans, since tree-sitter-rust's `binary_expression` only
+  exposes its two operands as named children. The fifth,
+  `rust:blocking-sleep-in-async`, is a category neither Clippy nor Sonar
+  covers at all: `std::thread::sleep` called directly in an `async fn`'s
+  own body blocks the executor thread instead of yielding it, stalling
+  every other task scheduled on it — detected by walking the async fn's
+  body while skipping any nested closure/fn (so a sleep intentionally
+  wrapped in `spawn_blocking(|| ...)` is correctly not flagged). `common.rs`
+  also grew a shared `self_type_of_impl` (alongside the existing
+  `trait_of_impl`) so `derive-hash-manual-partial-eq` didn't have to
+  re-derive `impl_item`'s positional-children shape a third time. All five
+  wired into the built-in yunq way profile. Latest additions (2026-07-22) unblock two
   categories the earlier catalog audit (`specs/rule-catalog-gap-closure`)
   had marked "viable but blocked on a missing parser" — now that the
   HTML/CSS/HCL/YAML parsers exist, those categories are open:
