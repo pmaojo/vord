@@ -3,4 +3,5 @@
 .env
 .yunq-cache.json
 .yunq-baseline.json
+.yunq-circuit-breaker.json
 .claude/

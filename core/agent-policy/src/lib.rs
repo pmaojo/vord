@@ -14,6 +14,8 @@
 //! supplies the already-parsed policy text, the target path and the findings;
 //! everything here is a deterministic function of those three.
 
+use std::collections::{HashMap, HashSet};
+
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 use yunq_profiles::{RuleId, Severity};
@@ -104,6 +106,71 @@ impl Evaluation {
 
     pub fn is_empty(&self) -> bool {
         self.violations.is_empty()
+    }
+}
+
+/// How many times in a row the same rule has denied an agent's write.
+///
+/// Distinguishes a real, fixable finding — which usually clears within a retry or two — from an
+/// agent stuck relitigating a false positive or a vulnerability it cannot resolve, which would
+/// otherwise burn the agent's tokens (and the human's patience) indefinitely. Each `yunq hook`
+/// invocation is a fresh process, so this type only knows how to fold one evaluation into a
+/// running count; persisting that count between invocations is the caller's concern (see
+/// `bin/cli`'s circuit-breaker store), which is why this stays as I/O-free as the rest of the crate.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CircuitBreakerState {
+    consecutive_denials: HashMap<RuleId, u32>,
+}
+
+impl CircuitBreakerState {
+    /// Denied three times in a row trips the breaker. Low enough to catch a stuck loop before it
+    /// does real damage to the token budget, high enough that an agent correcting a genuine
+    /// mistake on the second try never sees it.
+    pub const TRIP_THRESHOLD: u32 = 3;
+
+    /// Rebuilds state from a caller-supplied snapshot (e.g. deserialized from a state file). Not
+    /// `Deserialize` itself: the wire format is the caller's DTO to own, per this crate's
+    /// domain-types-stay-serde-free rule.
+    pub fn from_counts(counts: impl IntoIterator<Item = (RuleId, u32)>) -> Self {
+        Self { consecutive_denials: counts.into_iter().collect() }
+    }
+
+    /// Every rule with a nonzero streak, for the caller to persist.
+    pub fn counts(&self) -> impl Iterator<Item = (&RuleId, u32)> {
+        self.consecutive_denials.iter().map(|(rule, count)| (rule, *count))
+    }
+
+    pub fn count_for(&self, rule: &RuleId) -> u32 {
+        self.consecutive_denials.get(rule).copied().unwrap_or(0)
+    }
+
+    pub fn is_tripped(&self, rule: &RuleId) -> bool {
+        self.count_for(rule) >= Self::TRIP_THRESHOLD
+    }
+
+    /// Folds one write's outcome into the running counts and reports which rules just tripped
+    /// (reached the threshold on this call).
+    ///
+    /// A rule not denied this round resets to zero rather than merely pausing — "consecutive"
+    /// means uninterrupted, so a rule the agent stops triggering (whether by fixing it, or by
+    /// moving on to something else entirely) stops counting. A `ProtectedPath` denial carries no
+    /// rule and never participates: there is no finding a retry could fix, so there is nothing for
+    /// a circuit breaker to track.
+    pub fn record(&mut self, evaluation: &Evaluation) -> Vec<RuleId> {
+        let denied_rules: HashSet<RuleId> =
+            evaluation.denials().filter_map(|violation| violation.finding.as_ref().map(|f| f.rule.clone())).collect();
+
+        self.consecutive_denials.retain(|rule, _| denied_rules.contains(rule));
+
+        let mut tripped = Vec::new();
+        for rule in &denied_rules {
+            let count = self.consecutive_denials.entry(rule.clone()).or_insert(0);
+            *count += 1;
+            if *count >= Self::TRIP_THRESHOLD {
+                tripped.push(rule.clone());
+            }
+        }
+        tripped
     }
 }
 
@@ -464,5 +531,96 @@ reason = "Terraform."
         assert!(described.contains("owasp:xss"), "{described}");
         assert!(described.contains("line 7"), "{described}");
         assert!(described.contains("blocker"), "{described}");
+    }
+
+    fn denied_evaluation(rule_id: &str) -> Evaluation {
+        AgentPolicy::default().evaluate("a.py", &[finding(rule_id, Severity::Blocker)])
+    }
+
+    #[test]
+    fn a_fresh_breaker_has_no_counts() {
+        let breaker = CircuitBreakerState::default();
+        assert_eq!(breaker.count_for(&rule("owasp:eval-usage")), 0);
+        assert!(!breaker.is_tripped(&rule("owasp:eval-usage")));
+    }
+
+    #[test]
+    fn two_consecutive_denials_do_not_trip_the_breaker() {
+        let mut breaker = CircuitBreakerState::default();
+        assert!(breaker.record(&denied_evaluation("owasp:eval-usage")).is_empty());
+        assert!(breaker.record(&denied_evaluation("owasp:eval-usage")).is_empty());
+        assert_eq!(breaker.count_for(&rule("owasp:eval-usage")), 2);
+    }
+
+    #[test]
+    fn three_consecutive_denials_of_the_same_rule_trip_the_breaker() {
+        let mut breaker = CircuitBreakerState::default();
+        breaker.record(&denied_evaluation("owasp:eval-usage"));
+        breaker.record(&denied_evaluation("owasp:eval-usage"));
+        let tripped = breaker.record(&denied_evaluation("owasp:eval-usage"));
+        assert_eq!(tripped, vec![rule("owasp:eval-usage")]);
+        assert!(breaker.is_tripped(&rule("owasp:eval-usage")));
+    }
+
+    #[test]
+    fn a_rule_that_stops_being_denied_resets_its_streak() {
+        let mut breaker = CircuitBreakerState::default();
+        breaker.record(&denied_evaluation("owasp:eval-usage"));
+        breaker.record(&denied_evaluation("owasp:eval-usage"));
+        // A clean write (no denials at all) breaks the streak.
+        breaker.record(&Evaluation::default());
+        assert_eq!(breaker.count_for(&rule("owasp:eval-usage")), 0);
+
+        breaker.record(&denied_evaluation("owasp:eval-usage"));
+        breaker.record(&denied_evaluation("owasp:eval-usage"));
+        assert_eq!(breaker.count_for(&rule("owasp:eval-usage")), 2, "not consecutive with the earlier pair");
+    }
+
+    #[test]
+    fn distinct_rules_are_tracked_independently() {
+        let policy = AgentPolicy::default();
+        // One write attempt triggering both rules at once.
+        let both = policy.evaluate(
+            "a.py",
+            &[finding("owasp:eval-usage", Severity::Blocker), finding("owasp:command-execution", Severity::Blocker)],
+        );
+        // A later attempt where `command-execution` no longer reproduces.
+        let eval_usage_only = policy.evaluate("a.py", &[finding("owasp:eval-usage", Severity::Blocker)]);
+
+        let mut breaker = CircuitBreakerState::default();
+        breaker.record(&both);
+        breaker.record(&both);
+        let tripped = breaker.record(&eval_usage_only);
+
+        assert_eq!(tripped, vec![rule("owasp:eval-usage")], "only the rule still failing trips");
+        assert_eq!(
+            breaker.count_for(&rule("owasp:command-execution")),
+            0,
+            "a rule that stops reproducing clears independently of its sibling's streak"
+        );
+    }
+
+    #[test]
+    fn a_protected_path_denial_never_participates_in_the_breaker() {
+        let raw = r#"
+[[protected_path]]
+pattern = ".github/workflows/**"
+reason = "CI changes need a human reviewer."
+"#;
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let evaluation = policy.evaluate(".github/workflows/ci.yml", &[]);
+        let mut breaker = CircuitBreakerState::default();
+        for _ in 0..5 {
+            assert!(breaker.record(&evaluation).is_empty());
+        }
+        assert!(breaker.counts().next().is_none(), "a path-only denial has no rule to track");
+    }
+
+    #[test]
+    fn from_counts_and_counts_round_trip() {
+        let breaker = CircuitBreakerState::from_counts([(rule("owasp:eval-usage"), 2)]);
+        assert_eq!(breaker.count_for(&rule("owasp:eval-usage")), 2);
+        let restored: Vec<_> = breaker.counts().map(|(r, c)| (r.clone(), c)).collect();
+        assert_eq!(restored, vec![(rule("owasp:eval-usage"), 2)]);
     }
 }

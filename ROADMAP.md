@@ -998,6 +998,89 @@ before being leaned on; that verification has not been done.
   replacement for the hook, precisely because it would be consulted rather
   than invoked.
 
+  **6d Structured, machine-readable denials** ✅ **(2026-07-27)**. Prose
+  denial text is written for a model to read and act on, but a caller that
+  wants to parse a verdict deterministically (rule id, line, the exact
+  condition that must clear) previously had to pattern-match it.
+  `bin/cli/src/hook.rs::structured_report` builds that as a DTO the same way
+  `bin/cli/src/output.rs::ReportDto` does for `scan --format json` — an
+  edge-owned translation of `agent-policy`'s `Violation`/`Cause` into JSON,
+  never a `Serialize` derive on the domain types themselves (`core/agent-policy`
+  stays as serde-free as `core/rules-engine`). It is embedded as a fenced
+  block appended to the existing `denial_text`/`claude_code_output` prose
+  (additive — the Claude Code hook's JSON *shape* is unchanged, since altering
+  a host contract we cannot test live against the real runtime is riskier
+  than embedding structure inside the string field the host already reads),
+  and it is also the sole payload of the new `hook check --format json`,
+  which speaks nothing but that JSON on stdout for tooling that never wants
+  prose. This is the "Category 12" feedback loop closed: the guardrail's
+  output is now something an agent (or a second script) can act on without
+  an LLM re-reading English.
+
+  **6e Circuit breaker** ✅ **(2026-07-27)**. An agent stuck relitigating a
+  false positive, or a vulnerability it cannot resolve, would otherwise retry
+  the identical denied write forever — the guardrail catching the mistake
+  every time without the loop ever terminating. `yunq_agent_policy::
+  CircuitBreakerState` (pure, in `core/agent-policy`, deps unchanged) folds
+  one write's `Evaluation` into a per-`RuleId` consecutive-denial count and
+  reports which rules just reached `TRIP_THRESHOLD = 3`; a rule not denied
+  in a given round resets to zero rather than pausing, since "consecutive"
+  means uninterrupted, whether the interruption was a fix or the agent
+  moving on to something else. `ProtectedPath` denials never participate —
+  there is no rule behind them for a retry to fix. Persistence between the
+  separate process invocations a hook loop makes (each `yunq hook` call is a
+  fresh process) is `bin/cli`'s concern, not the pure crate's:
+  `.yunq-circuit-breaker.json` at the repository root (gitignored), loaded
+  and saved fail-open (a corrupt or missing state file only forgets a streak,
+  never bypasses the policy). On the third consecutive denial, both
+  `denial_text` and `hook check --format json` change from "rewrite and try
+  again" to an explicit stop-and-rollback instruction naming the human
+  intervention step; `yunq hook reset-circuit-breaker` deletes the persisted
+  state once a human has reviewed the stuck finding. This is the literal
+  "stopping condition" a fully autonomous edit loop needs to avoid burning an
+  unbounded token budget against the same wall.
+
+  **On MCP.** The "invoked vs consulted" distinction above is the answer to
+  a live question, not a historical one: whether yunq should additionally
+  ship an MCP server as a way for an agent to query its policy. The answer
+  stays no for anything that has to *stop* a write — an MCP tool is opt-in
+  from the agent's side, and a model optimising for task completion learns
+  not to call a tool that might refuse it, which is exactly the failure mode
+  a guardrail exists to prevent. The one place MCP earns its keep is
+  strictly upstream of that: a read-only resource (e.g. `yunq://rules/current`)
+  an agent's system prompt ingests once, before planning a single edit — the
+  active policy and the architecture blueprint, so the agent starts from
+  "this repo blocks `eval`, don't reach for it" rather than discovering the
+  same fact by being denied. That is real value (fewer wasted PreToolUse
+  round-trips), but it is planning-time context, not enforcement, and it does
+  not exist yet — the hook remains the only mechanism that can actually deny
+  a write.
+
+  **6f Supply-chain: new-dependency guard** ✅ **(2026-07-27)**. FR-04 of the
+  "2027 guardrail" proposal asked for a WASM/WASI sandbox validating
+  agent-suggested tools/dependencies before they reach execution sinks. That
+  does not hold up technically: WASM/WASI isolates code *compiled to WASM* —
+  it has no way to "sandbox-test" an arbitrary already-compiled shell command
+  or a native npm/pip package before it runs, so a literal implementation
+  would be theatre, not a control. What ships instead is the real, narrower
+  problem it was reaching for: no `Rule` in `core/rules-engine` can see "this
+  write adds a dependency that was not here before" (the trait analyses one
+  file's current content only, no concept of a prior version), so an agent
+  quietly introducing a typosquatted or unreviewed package was invisible to
+  every existing check. `bin/cli/src/hook.rs::new_dependency_findings` diffs
+  `package.json`/`requirements.txt` (dependency-name sets, not full content)
+  against the on-disk version at `PreToolUse` time — silent when the
+  manifest is brand new (bootstrapping a project's first dependency set is
+  not drift) — and emits an ordinary `supply-chain:new-dependency` `Finding`
+  that flows through `AgentPolicy::evaluate` exactly like an AST finding,
+  which is the reuse `core/agent-policy`'s own doc comment anticipates ("a
+  policy can equally judge findings that never came from the engine").
+  Reports nothing under the default policy (most new dependencies are
+  legitimate); a repository opts in per rule id via `yunq-policy.toml`'s
+  `advisory_rules`/`blocking_rules`, same as any other rule — visible and
+  editable, never a silent new default. Extending to Cargo.toml/go.mod/Gemfile
+  is another `match` arm and parser, not a new concept.
+
 ## Phase 7 — Enterprise platform
 
 - **Portfolios**: hierarchical aggregation across projects with rollup

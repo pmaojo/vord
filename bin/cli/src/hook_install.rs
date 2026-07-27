@@ -59,6 +59,10 @@ blocking_rules = [
 
 # Rules that report but never deny. The escape hatch for a rule that is noisy
 # in this repository — outranks both the blocking list and the threshold.
+# Also where to opt into rules that are not AST findings, e.g.
+# "supply-chain:new-dependency" (flags a package.json/requirements.txt
+# dependency an agent's write adds that was not there before — never denies
+# by default, since most new dependencies are legitimate).
 advisory_rules = []
 
 # Paths an agent may not touch at all, with no finding required. Delete any
