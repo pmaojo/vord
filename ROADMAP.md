@@ -139,7 +139,7 @@ re-analysis on typical PRs.
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.
   47 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
-  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 16 in
+  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 22 in
   `rulesets/rust`, 9 in `rulesets/php`) plus duplication and taint. The dedicated `rulesets/rust`
   crate (2026-07-23) is the first language-specific ruleset (as opposed to
   the neutral-AST checks in `rulesets/code-smells` that merely happen to
@@ -241,7 +241,44 @@ re-analysis on typical PRs.
   php's actual parse shapes (not guessed) and wired into the built-in yunq
   way profile. This is phase one of a multi-session build-out, not
   parity yet — TS, Python, and Rust all still need further rounds to
-  close the gap against Sonar's real catalog sizes. Latest additions (2026-07-22) unblock two
+  close the gap against Sonar's real catalog sizes. ✅ **(2026-07-27, next
+  session)** Rust round three, this time explicitly aiming to *surpass*
+  SonarQube's Rust coverage rather than just match it — since Sonar-Rust's
+  own catalog leans on 85 first-party Clippy rules rather than a large
+  native one, the bar to clear is lower than TS/Python/PHP's, and the
+  90-rule gap analysis is tractable by hand. `rulesets/rust` grew from 16
+  to 22, all verified against real tree-sitter-rust `node-types.json`
+  shapes via a scratch AST-dump binary before writing any check (per-
+  session methodology, not skipped). Four fill confirmed Clippy
+  correctness/suspicious gaps: `rust:modulo-one` (`x % 1` is always `0`,
+  mirrors `clippy::modulo_one`, deny-by-default correctness), `rust:almost-
+  swapped` (`a = b; b = a;` back-to-back loses `a`'s original value instead
+  of swapping — mirrors `clippy::almost_swapped`), `rust:absurd-extreme-
+  comparison` (an unsigned parameter compared against `0` with `<`/`>=` is
+  always false/true — mirrors `clippy::absurd_extreme_comparisons`, scoped
+  to parameter-declared types only so it needs no real type inference), and
+  `rust:suspicious-arithmetic-impl` (an `impl Add`/`Sub`/`Mul`/`Div`/`Rem`/
+  bitwise-op-trait body that never uses its own trait's operator but does
+  use a different one — mirrors `clippy::suspicious_arithmetic_impl`;
+  reuses the existing `impl_trait_is`/`operator_between` helpers directly).
+  One closes a real-world gap Clippy only covers behind its
+  pedantic/nursery lint groups (off by default in most projects, so this is
+  a genuine differentiator even though the category exists upstream):
+  `rust:mutex-atomic-candidate` (`Mutex<bool>`/`Mutex<u32>`/etc. pays for
+  locking to guard a value `std::sync::atomic` could update lock-free —
+  mirrors `clippy::mutex_atomic`, nursery-only in real Clippy). The last is
+  original — a category neither Clippy's default lints nor Sonar's catalog
+  reach at all: `rust:lock-held-across-await` (a `let g = m.lock()...`
+  guard still alive across a later `.await` in the same block keeps the
+  lock held for the whole time the task is suspended, stalling every other
+  task waiting on it — tracked via a straight-line statement walk per
+  block: which locals a block's own `let` statements bind from a `.lock(`
+  call, minus whatever `drop(..)` explicitly releases before the `.await`,
+  skipping nested closures/fns the same way `blocking-sleep-in-async`
+  does). All six wired into the built-in yunq way profile
+  (`core/profiles/src/builtin.rs`) at their real default severities; 103
+  tests total in `rulesets/rust`, `cargo clippy -p yunq-rules-rust
+  --all-targets` clean. Latest additions (2026-07-22) unblock two
   categories the earlier catalog audit (`specs/rule-catalog-gap-closure`)
   had marked "viable but blocked on a missing parser" — now that the
   HTML/CSS/HCL/YAML parsers exist, those categories are open:
