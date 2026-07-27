@@ -30,8 +30,9 @@ pub use branches::{Branch, BranchRef, PullRequest};
 
 pub use domain::{
     AnalysisReport, BlameLineInfo, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageReport,
-    CoverageSummary, FileBlame, FileCoverage, Hotspot, HotspotStatus, InvalidCoverageError,
-    InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError, Issue, IssueFacets,
+    CoverageSummary, ExternalIssue, FileBlame, FileCoverage, Hotspot, HotspotStatus,
+    InvalidCoverageError, InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError,
+    Issue, IssueFacets,
     IssueStatus, IssueTransition, Metrics, Resolution, ScanJob, StoredHotspot, StoredIssue,
     TestReportSummary, TestSuiteSummary,
 };

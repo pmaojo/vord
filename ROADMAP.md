@@ -219,6 +219,32 @@ re-analysis on typical PRs.
   (module system doesn't map 1:1 to files) and TS path aliases (only
   relative specifiers resolve); `exhaustive-deps` only recognizes the four
   literal hook names, not custom wrapper hooks.
+- **External analyzer import (SARIF)**: ✅ **(this session)** `--sarif`
+  (repeatable) merges any SARIF 2.x report into the scan —
+  `infra/fs/src/sarif.rs` parses the log, `AnalysisReport::add_external_issues`
+  (+ the new `ExternalIssue` domain type) folds the findings into the same
+  severity counters, debt total and Reliability/Security ratings the engine's
+  own rules feed, so from that point on an imported finding is an ordinary
+  `Issue`: rendered, measured, and able to fail the quality gate. This is the
+  highest rules-per-LOC lever available — ~600 LOC buys the catalogs of ruff,
+  ESLint, clippy, gosec, bandit, semgrep and CodeQL without yunq
+  reimplementing one of their checks, and it is why SonarQube ships ~30
+  external-report importers. Design decisions worth keeping: rule ids are
+  namespaced by emitting tool (`ruff:e501`, `codeql:js-sql-injection`) so
+  imported rules never masquerade as native ones; severity prefers
+  `properties.security-severity` (CVSS) and otherwise maps `level` *down*
+  (`error` → `major`, not `critical`) because a linter's "error" is its own
+  default failure level, not a project-critical finding; classification is
+  `Vulnerability` only on a real security signal (`security-severity`, or a
+  `security`/`cwe-*`/`owasp-*` tag) with **no** `Bug` inference, since SARIF
+  carries no field that distinguishes a bug from a smell and guessing
+  corrupts the Reliability rating; and imported issues add zero debt and zero
+  LOC unless an importer genuinely knows the effort, keeping the debt ratio
+  honest. Non-`fail` kinds, tool-suppressed results and location-less results
+  are dropped with a reported count rather than silently swallowed. Still
+  open: only the CLI ingests SARIF (no server-side upload endpoint), and
+  `--monorepo` skips it for the same reason it skips coverage/JUnit — one
+  report rarely maps cleanly onto several independent projects.
 - **Issue types & classification**: ✅ every rule declares a classic
   `IssueType` (bug / vulnerability / code smell, `Rule::issue_type`,
   `core/rules-engine/src/rule.rs`) alongside MQR-style software-quality
@@ -305,6 +331,57 @@ re-analysis on typical PRs.
   `owasp:xss` (`sanitize`/`escapeHtml`/`encodeURIComponent`) and
   `owasp:injection`/`owasp:cross-file-injection` (`escape`/`escapeShellArg`).
   SonarQube sells the category commercially; yunq ships it open.
+
+### Rule-coverage levers, ranked by rules-per-LOC
+
+Hand-writing one `Rule` impl per check does not scale to SonarQube's
+catalog size. Four levers change the ratio; they are listed in the order
+their return arrives, not their ambition.
+
+1. **External report import** — ✅ **done** (SARIF, above). The only lever
+   with immediate return and no engine change.
+2. **Declarative rules — rules as data, not code.** The structural lever:
+   a Semgrep-style pattern model (AST patterns with metavariables and
+   unification) turns a rule into ~10 lines of YAML instead of a crate, so
+   a ~3–5k-LOC engine plausibly enables on the order of a thousand
+   syntactic rules. This is the one that changes the slope of the curve.
+   **Design constraint found while landing the SARIF importer:** tree-sitter
+   types never escape the `parsers/treesitter-*` crates — every parser
+   converts to the neutral `AstNode` and drops the tree (`convert()` in each
+   crate; `AstParser::parse` returns `AstNode`). So "just reuse tree-sitter's
+   S-expression query language" is not free here: it needs a *new* port
+   exposing queries (or the tree) alongside `AstParser`, which is a real
+   architectural decision, not a detail. The alternative — a pattern engine
+   over the neutral AST — keeps the current encapsulation and works across
+   all 23 grammars uniformly, at the cost of expressing patterns in yunq's
+   own vocabulary rather than each grammar's. Prototype both far enough to
+   count *real rules produced per unit of effort* before committing.
+   Datalog-style fact extraction (Doop/Soufflé, CodeQL's QL) is the other
+   shape of "rules as data", and is the stronger one for whole-program
+   rules.
+3. **Deepen the semantic model.** Whole families of rules are impossible
+   today, not merely pending: anything needing types. `core/symbols` exists
+   (same-file scope, declared-type extraction, `ClassRegistry`); extending
+   it to a cross-file symbol table plus lightweight type inference unblocks
+   hundreds of rules at once. One investment, many rules.
+4. **Symbolic execution over the CFG.** `sonar-java-symbolic-execution` is
+   the existence proof: one engine yields null-deref, resource leaks,
+   always-true conditions, division by zero — dozens of high-value rules
+   from a single piece. Reading: Cousot (abstract interpretation), Calcagno
+   & Distefano (Infer, separation logic).
+
+Also relevant to lever 3/4: IFDS/IDE (Reps, Horwitz & Sagiv 1995, *Precise
+interprocedural dataflow analysis via graph reachability*) — `core/taint/
+cross.rs` already implements an ad-hoc version of function summaries; IFDS
+is the framework that generalizes it and makes it context-sensitive.
+
+**Sourcing, and what is off-limits.** The catalogs are free and are the
+right source for *what* to detect: CWE (MITRE), OWASP Top 10 and ASVS, CERT
+Coding Standards. SonarSource's own analyzer repositories are not usable —
+the SSAL license explicitly excludes building substantially similar
+functionality, and excludes AI ingestion of that code. Other catalogs
+(ESLint, Clippy, Semgrep rules) each need their license checked per project
+before being leaned on; that verification has not been done.
 
 ## Phase 3 — Project & quality model (Clean as You Code)
 

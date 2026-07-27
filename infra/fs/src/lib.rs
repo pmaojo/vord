@@ -14,6 +14,7 @@ mod junit;
 mod lcov;
 mod llvm_cov;
 mod monorepo;
+mod sarif;
 mod worktree;
 
 pub use baseline::BaselineStore;
@@ -28,6 +29,7 @@ pub use junit::{JunitError, parse_junit};
 pub use lcov::{LcovError, parse_lcov, parse_lcov_report};
 pub use llvm_cov::{LlvmCovError, parse_llvm_cov, parse_llvm_cov_report};
 pub use monorepo::discover_projects;
+pub use sarif::{SarifError, SarifImport, parse_sarif, parse_sarif_relative_to};
 pub use worktree::WorktreeSandbox;
 
 use std::io::ErrorKind;

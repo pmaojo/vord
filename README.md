@@ -124,6 +124,8 @@ cargo run -p yunq-cli -- scan fixtures --cobertura report.xml # ingest Cobertura
 cargo run -p yunq-cli -- scan fixtures --jacoco report.xml    # ingest JaCoCo XML coverage
 cargo run -p yunq-cli -- scan fixtures --llvm-cov report.json # ingest llvm-cov JSON coverage
 cargo run -p yunq-cli -- scan fixtures --junit report.xml     # ingest JUnit test report
+cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
+cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif --sarif eslint.sarif  # repeatable
 cargo run -p yunq-cli -- init --yes                            # write .github/workflows/yunq.yml
 ```
 
@@ -152,6 +154,36 @@ The server publishes its contract as **OpenAPI 3.1** at `GET /api-docs/openapi.j
 ```sh
 cargo run -p yunq-server -- openapi > api/openapi.json
 ```
+
+## Importing another analyzer's findings (SARIF)
+
+`--sarif` merges a SARIF 2.x report into the scan. Every mainstream analyzer
+emits it — ruff, ESLint, clippy, gosec, bandit, semgrep, CodeQL — so one
+importer buys their whole rule catalogs without yunq reimplementing a single
+check. Imported findings are ordinary issues from that point on: they render
+in the output, count toward the severity measures, and can fail the quality
+gate.
+
+```bash
+ruff check --output-format sarif . > ruff.sarif
+cargo run -p yunq-cli -- scan . --sarif ruff.sarif --enforce-gate
+```
+
+- **Rule ids** are namespaced by the emitting tool (`ruff:e501`,
+  `eslint:no-eval`, `codeql:js-sql-injection`) so imported rules stay
+  visibly distinct from yunq's own.
+- **Severity**: `properties.security-severity` (CVSS 0–10) wins when
+  present; otherwise the SARIF `level` maps conservatively — `error` →
+  `major`, not `critical`. A linter's "error" is its own default failure
+  level, not a project-critical finding, and mapping it to `critical` would
+  drown the gate.
+- **Classification**: `vulnerability` when the rule carries a security
+  signal (`security-severity`, or a `security`/`cwe-*`/`owasp-*` tag),
+  `code smell` otherwise. There is no `bug` inference — SARIF has no field
+  that distinguishes one, and guessing corrupts the Reliability rating.
+- **Dropped**: results whose `kind` is not `fail`, results the tool already
+  suppressed, and results with no location. The count is reported, not
+  silently swallowed.
 
 ## Adding a rule
 

@@ -32,9 +32,9 @@ impl ProjectScanResult {
 /// independently, reusing the same scan/baseline/gate machinery a
 /// single-project `yunq scan` uses — just looped per project directory —
 /// rather than flattening every project's issues into one incoherent
-/// report. Coverage/JUnit ingestion is intentionally out of scope here: a
-/// single coverage/test report rarely maps cleanly onto several
-/// independent projects in one invocation, so those flags are a
+/// report. Coverage/JUnit/SARIF ingestion is intentionally out of scope
+/// here: a single coverage/test/analysis report rarely maps cleanly onto
+/// several independent projects in one invocation, so those flags are a
 /// single-project-only feature for now.
 pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCode> {
     let root = &args.path;
