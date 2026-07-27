@@ -774,6 +774,7 @@ fn rule_catalog() -> Vec<Box<dyn yunq_rules_engine::Rule>> {
         .chain(yunq_rules_rust::all_rules())
         .chain(yunq_rules_python::all_rules())
         .chain(yunq_rules_typescript::all_rules())
+        .chain(yunq_rules_php::all_rules())
         .collect()
 }
 

@@ -53,6 +53,7 @@ yunq-rules-python = { path = "rulesets/python" }
 yunq-rules-architecture = { path = "rulesets/architecture" }
 yunq-rules-reactive = { path = "rulesets/reactive" }
 yunq-rules-typescript = { path = "rulesets/typescript" }
+yunq-rules-php = { path = "rulesets/php" }
 yunq-infra-memory = { path = "infra/memory" }
 yunq-cli = { path = "bin/cli" }
 yunq-infra-fs = { path = "infra/fs" }
