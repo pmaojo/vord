@@ -403,6 +403,51 @@ re-analysis on typical PRs.
   files (root `Cargo.toml`, the three `bin/*/Cargo.toml`s, the
   `.chain(...)` composition-root lists, `builtin.rs`), so they don't
   collide with a Python batch running in parallel.
+  sitting at zero for every non-Rust language.
+- **Language-specific ruleset: TypeScript/JavaScript** ✅ **(this session)** —
+  a new `rulesets/typescript` crate (`yunq-rules-typescript`), same shape as
+  `rulesets/rust`/`rulesets/python`: vanilla TS/JS idioms and DOM/browser
+  anti-patterns, as opposed to JSX/React (`rulesets/react`, already 10
+  rules) or the generic OWASP checks already covering TypeScript
+  (`owasp:xss`, `owasp:eval-usage`, `owasp:injection`,
+  `owasp:disabled-cert-validation`, ...). 12 rules, each grounded in the
+  real tree-sitter-typescript grammar shapes (verified with a throwaway
+  AST-dump example before writing detection logic, then discarded) rather
+  than guessed: `typescript:loose-equality` (`==`/`!=`, recovering the
+  dropped operator token from the source gap between operands, the same
+  technique `smells:cognitive-complexity` uses for `&&`/`||`),
+  `typescript:var-declaration` (`var`'s own grammar node,
+  `variable_declaration`, distinct from `let`/`const`'s
+  `lexical_declaration`), `typescript:leftover-debug-statement`
+  (`console.log`/`console.debug` and `debugger`, test paths exempted via
+  `is_test_only_path`), `typescript:promise-then-without-catch` (a bare
+  `.then(cb)` statement — the sole child of its `expression_statement` —
+  with no `.catch`, second rejection handler, `await`, or `return`),
+  `typescript:math-random-for-token` (`Math.random()` feeding a
+  token/password/secret/session-id-named declaration or assignment),
+  `typescript:dynamic-regexp-source` (`RegExp(...)`/`new RegExp(...)` built
+  from a non-literal source), `typescript:redos-nested-quantifier` (a
+  hand-rolled scan over the opaque `regex_pattern` leaf tree-sitter hands
+  back, catching the classic `(a+)+`/`(.*)*` catastrophic-backtracking
+  shape), `typescript:json-parse-unguarded` (`JSON.parse` of a non-literal
+  value with no enclosing `try`, via a small ancestor-tracking recursive
+  descent), `typescript:open-redirect-location-assignment`
+  (`window.location`/`document.location`/`location` assigned a non-literal
+  value, matched against a finite exact-text target list so an unrelated
+  `job.location` field is never mistaken for navigation),
+  `typescript:sensitive-data-in-web-storage`
+  (`localStorage`/`sessionStorage.setItem` with a token/password/secret-
+  named key), `typescript:mass-assignment-from-request-body`
+  (`Object.assign`/object-spread merging `req.body`/`req.query`/`req.params`
+  with no allowlist — mass assignment / prototype pollution), and
+  `typescript:innerhtml-assignment` (`.innerHTML =` outside JSX — the
+  vanilla-DOM counterpart to `react:dangerously-set-inner-html`, which
+  `owasp:xss`'s sink list doesn't cover). All 12 carry both classic
+  `IssueType` and MQR impacts, ship with unit tests per rule (58 total), are
+  wired into all three composition roots (`bin/cli`, `bin/server`'s rule
+  catalog, `bin/worker`), and are activated by default in
+  `typescript_activations()` (`core/profiles/src/builtin.rs`) with
+  severities cross-checked against each rule's `default_severity()`.
 
 ### Rule-coverage levers, ranked by rules-per-LOC
 
