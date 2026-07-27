@@ -4,7 +4,8 @@
 use serde::Serialize;
 use yunq_rules_engine::{
     AnalysisReport, ConditionStatus, CoverageSummary, DuplicateBlock, GateEvaluation, GateStatus,
-    Hotspot, Issue, Metrics, NewCodeAnalysis, RemediationEffortSummary, TestReportSummary,
+    Hotspot, Issue, Metrics, MutationSummary, NewCodeAnalysis, RemediationEffortSummary,
+    TestReportSummary,
 };
 
 #[derive(Serialize)]
@@ -23,6 +24,8 @@ pub struct ReportDto {
     pub coverage: Option<CoverageDto>,
     /// Present when a JUnit test report was ingested.
     pub test_report: Option<TestReportDto>,
+    /// Present when a mutation-testing report (`--mutation-report`) was ingested.
+    pub mutation: Option<MutationDto>,
     /// Coverage restricted to the lines a supplied unified diff marks as
     /// added/modified (see `--coverage-diff`); `None` when no diff was
     /// supplied or it touched no instrumented line.
@@ -101,6 +104,35 @@ impl From<&TestReportSummary> for TestReportDto {
                     time_seconds: s.time_seconds,
                 })
                 .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct MutationDto {
+    pub total_mutants: usize,
+    pub killed_mutants: usize,
+    pub survived_mutants: usize,
+    pub timeout_mutants: usize,
+    pub no_coverage_mutants: usize,
+    pub ignored_mutants: usize,
+    pub error_mutants: usize,
+    pub pending_mutants: usize,
+    pub mutation_score: Option<f64>,
+}
+
+impl From<&MutationSummary> for MutationDto {
+    fn from(m: &MutationSummary) -> Self {
+        Self {
+            total_mutants: m.total_mutants,
+            killed_mutants: m.killed_mutants,
+            survived_mutants: m.survived_mutants,
+            timeout_mutants: m.timeout_mutants,
+            no_coverage_mutants: m.no_coverage_mutants,
+            ignored_mutants: m.ignored_mutants,
+            error_mutants: m.error_mutants,
+            pending_mutants: m.pending_mutants,
+            mutation_score: m.mutation_score(),
         }
     }
 }
@@ -323,6 +355,7 @@ impl ReportDto {
             new_issue_total: new_code.map(|nc| nc.new_issues().len()),
             coverage: report.coverage().map(CoverageDto::from),
             test_report: test_report.map(TestReportDto::from),
+            mutation: report.mutation().map(MutationDto::from),
             coverage_new_code,
             duplications: report.duplications().iter().map(DuplicationDto::from).collect(),
             metrics: MetricsDto::from(report.metrics()),
@@ -467,6 +500,20 @@ fn render_test_report_text(out: &mut String, test_report: Option<&TestReportSumm
     }
 }
 
+fn render_mutation_text(out: &mut String, report: &AnalysisReport) {
+    let Some(mutation) = report.mutation() else { return };
+    out.push_str(&format!(
+        "Mutation score: {} ({} killed, {} survived, {} timeout, {} no coverage, {} of {} mutants total)\n",
+        mutation.mutation_score().map(|s| format!("{s:.1}%")).unwrap_or_else(|| "n/a".to_string()),
+        mutation.killed_mutants,
+        mutation.survived_mutants,
+        mutation.timeout_mutants,
+        mutation.no_coverage_mutants,
+        mutation.total_mutants - mutation.ignored_mutants - mutation.error_mutants - mutation.pending_mutants,
+        mutation.total_mutants,
+    ));
+}
+
 fn render_gate_text(out: &mut String, gate: &GateEvaluation) {
     out.push_str(&format!("Quality gate: {}\n", gate.status()));
     if gate.status() == GateStatus::Failed {
@@ -520,6 +567,7 @@ pub fn render_text(
         out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
     }
     render_test_report_text(&mut out, test_report);
+    render_mutation_text(&mut out, report);
     out.push_str(&format!("Health score: {}/100\n", report.health_score()));
     out.push_str(&format!(
         "Ratings: maintainability {}, reliability {}, security {}\n",

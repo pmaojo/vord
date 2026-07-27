@@ -125,6 +125,7 @@ cargo run -p yunq-cli -- scan fixtures --cobertura report.xml # ingest Cobertura
 cargo run -p yunq-cli -- scan fixtures --jacoco report.xml    # ingest JaCoCo XML coverage
 cargo run -p yunq-cli -- scan fixtures --llvm-cov report.json # ingest llvm-cov JSON coverage
 cargo run -p yunq-cli -- scan fixtures --junit report.xml     # ingest JUnit test report
+cargo run -p yunq-cli -- scan fixtures --mutation-report mutation.json  # ingest a Stryker-schema mutation report
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif --sarif eslint.sarif  # repeatable
 cargo run -p yunq-cli -- init --yes                            # write .github/workflows/yunq.yml
@@ -265,6 +266,29 @@ cargo run -p yunq-cli -- scan . --sarif ruff.sarif --enforce-gate
 - **Dropped**: results whose `kind` is not `fail`, results the tool already
   suppressed, and results with no location. The count is reported, not
   silently swallowed.
+
+## Mutation testing
+
+yunq runs no mutants itself — `--mutation-report` ingests the result of a
+tool that already did, the same relationship `--sarif` has to a linter.
+Bring your own mutation-testing run (`cargo-mutants`, StrykerJS,
+Stryker.NET, Infection, …) exported to Stryker's **Mutation Testing
+Elements** JSON schema, and yunq folds every mutant's status into a
+`mutation_score` measure — `killed`/`timeout` mutants count as detected,
+`survived`/`no coverage` count as undetected, `ignored`/`compile error`/
+`runtime error`/`pending` mutants count toward neither, mirroring Stryker's
+own formula. The default quality gate fails when `mutation_score < 60`,
+same treatment `coverage < 80` already gets — both conditions are `NoValue`
+(ignored) until the matching report is actually supplied.
+
+```bash
+cargo run -p yunq-cli -- scan . --mutation-report mutation.json --enforce-gate
+```
+
+This is deliberately the same posture as coverage/JUnit ingestion: yunq is
+the gate that decides whether a build passes, not the tool that runs the
+tests or the mutants — a test runner (or `cargo test`/`pytest`/mutation
+tool) still has to produce the report yunq consumes.
 
 ## Adding a rule
 
