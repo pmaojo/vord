@@ -69,6 +69,10 @@ enum HookAction {
     Check {
         /// File to judge, as the agent would write it.
         file: PathBuf,
+        /// `text` prints prose to stderr (the default); `json` prints the structured verdict to
+        /// stdout for automated callers.
+        #[arg(long, value_enum, default_value = "text")]
+        format: Format,
     },
     /// Wire the guardrail into this repository: write `yunq-policy.toml` and
     /// merge the hooks into `.claude/settings.json`.
@@ -78,6 +82,10 @@ enum HookAction {
         #[arg(long)]
         command: Option<String>,
     },
+    /// Clear the circuit breaker's persisted per-rule failure counts — the human-intervention
+    /// step after a trip. Review what the agent could not resolve, then run this before letting
+    /// it continue.
+    ResetCircuitBreaker,
 }
 
 #[derive(clap::Args)]
@@ -229,11 +237,23 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
 async fn run_hook(action: HookAction) -> anyhow::Result<ExitCode> {
     match action {
         HookAction::ClaudeCode => yunq_cli::hook::run_claude_code().await,
-        HookAction::Check { file } => yunq_cli::hook::run_check(file).await,
+        HookAction::Check { file, format } => {
+            let format = match format {
+                Format::Text => yunq_cli::hook::HookOutputFormat::Text,
+                Format::Json => yunq_cli::hook::HookOutputFormat::Json,
+            };
+            yunq_cli::hook::run_check(file, format).await
+        }
         HookAction::Install { command } => {
             let root = std::env::current_dir()?;
             let command = command.unwrap_or_else(|| hook_install::DEFAULT_HOOK_COMMAND.to_string());
             hook_install::install(&root, &command)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        HookAction::ResetCircuitBreaker => {
+            let root = std::env::current_dir()?;
+            yunq_cli::hook::reset_circuit_breaker(&root)?;
+            println!("yunq: circuit breaker state cleared.");
             Ok(ExitCode::SUCCESS)
         }
     }

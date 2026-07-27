@@ -167,6 +167,8 @@ autonomous agent's edit loop, before the bytes reach disk.
 ```sh
 cargo run -p yunq-cli -- hook install        # write yunq-policy.toml + .claude/settings.json
 cargo run -p yunq-cli -- hook check file.py  # judge one file: exit 0 / 2 (denied) / 1 (yunq failed)
+cargo run -p yunq-cli -- hook check file.py --format json  # structured verdict on stdout, for tooling
+cargo run -p yunq-cli -- hook reset-circuit-breaker        # clear a tripped breaker after review
 ```
 
 Once installed, an agent that tries to write a shell-injection sink gets its
@@ -186,13 +188,40 @@ occur, then write it again.
 
 The file never existed — the content judged was reconstructed from the tool
 call's own arguments. Measured cost: **~7ms p50 per write**, process start
-included.
+included (the circuit breaker below adds one small JSON file read/write per
+denial on top of that, not yet independently re-measured).
+
+Every denial also carries a machine-readable form — the same violations as a
+JSON object naming the exact rule, line and the deterministic condition that
+must hold for it to clear — appended after the prose so an agent that wants
+exact parsing does not have to pattern-match text. `hook check --format json`
+speaks nothing but that JSON on stdout, for callers that never want prose at
+all.
+
+**Circuit breaker.** An agent that cannot resolve a finding — a false
+positive, or a vulnerability it does not know how to fix — will otherwise
+retry the same write indefinitely, burning tokens against a wall. `yunq hook`
+tracks how many times in a row the *same rule* has denied a write; the third
+consecutive denial trips a breaker, and the denial text changes from "rewrite
+and try again" to an explicit stop instruction: revert the change and get a
+human to look at it. The count is per rule, persists across the separate
+process invocations a hook loop makes (`.yunq-circuit-breaker.json` at the
+repository root, gitignored), and resets the moment that rule stops being
+denied — whether because it was fixed or because the agent moved on to
+something else. `yunq hook reset-circuit-breaker` clears it after a human has
+reviewed the stuck finding.
 
 **Why a hook and not an MCP tool.** An MCP tool or an LSP is *consulted*: the
 agent chooses whether to ask, and an agent optimising for task completion
 learns not to ask. A host hook is *invoked* by the runtime on every matching
 tool call and cannot be routed around. That is the difference between a
-guardrail and a linter the model may consult.
+guardrail and a linter the model may consult — and it is why yunq does not
+ship an MCP server as an alternative enforcement path. The one place MCP
+could add value is *planning-time*, before the agent has even proposed an
+edit — a read-only resource an agent's system prompt ingests up front (the
+active policy, the architecture blueprint) — but that is a complement to the
+hook, never a substitute for it: anything that must actually stop a write
+stays on `PreToolUse`. See [ROADMAP.md](ROADMAP.md) Phase 6c.
 
 ### The Agent Permission Policy
 
