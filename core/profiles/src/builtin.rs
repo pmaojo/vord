@@ -93,6 +93,13 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("rust:mem-transmute"), Severity::Critical),
         (rule("rust:process-exit"), Severity::Minor),
         (rule("rust:unsafe-undocumented"), Severity::Major),
+        (rule("rust:static-mut"), Severity::Major),
+        (rule("rust:mem-uninit-or-zeroed"), Severity::Critical),
+        (rule("rust:box-leak"), Severity::Major),
+        (rule("rust:unsafe-send-sync-impl"), Severity::Critical),
+        (rule("rust:panic-in-drop"), Severity::Critical),
+        (rule("rust:from-over-into"), Severity::Minor),
+        (rule("rust:dbg-macro"), Severity::Minor),
         // rulesets/code-smells — applies_to rust only.
         (rule("smells:unwrap-usage"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/python/rust.

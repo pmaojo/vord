@@ -138,8 +138,8 @@ re-analysis on typical PRs.
 - **Rule catalog at scale**: build out the high-value rules per language;
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.
-  26 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
-  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 4 in
+  33 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
+  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 11 in
   `rulesets/rust`) plus duplication and taint. The dedicated `rulesets/rust`
   crate (2026-07-23) is the first language-specific ruleset (as opposed to
   the neutral-AST checks in `rulesets/code-smells` that merely happen to
@@ -148,7 +148,27 @@ re-analysis on typical PRs.
   `rust:mem-forget` (hotspots on the two classic ways to break soundness or
   leak without `unsafe` itself), and `rust:process-exit`
   (`process::exit`/`process::abort` skip `Drop` cleanup) — on top of the
-  existing `smells:unwrap-usage`. Latest additions (2026-07-22) unblock two
+  existing `smells:unwrap-usage`. ✅ **(2026-07-27)** `rulesets/rust` grown
+  from 4 rules to 11: `rust:static-mut` (unsynchronized global mutable
+  state), `rust:mem-uninit-or-zeroed` (`mem::uninitialized`/`mem::zeroed`
+  conjuring a value with no validity check — the same soundness-hotspot
+  shape as the existing `mem-transmute`/`mem-forget`), `rust:box-leak`
+  (`Box::leak`, the allocator-API way to reach the same intentional-leak
+  hotspot `mem-forget` covers via `mem`), `rust:unsafe-send-sync-impl` (a
+  manual `unsafe impl Send`/`Sync` with no `SAFETY` comment justifying the
+  thread-safety invariant it asserts — reuses the same adjacent-comment
+  convention as `unsafe-undocumented`), `rust:panic-in-drop` (a
+  panic/`unwrap`/`expect`/`assert!` inside `Drop::drop`, which aborts the
+  process instead of unwinding if it fires during another unwind),
+  `rust:from-over-into` (a manual `impl Into<B> for A` where `impl From<A>
+  for B` would give `Into` for free, mirrors `clippy::from_over_into`), and
+  `rust:dbg-macro` (a `dbg!` debug leftover). A new `rulesets/rust::common`
+  module factors out the `impl`-trait-name extraction
+  (`trait_of_impl`/`impl_trait_is`, used by three of the new rules) and the
+  `SAFETY`-comment lookup (shared with `unsafe-undocumented`) that would
+  otherwise have been duplicated across rule files. All 7 wired into the
+  built-in yunq way profile (`core/profiles/src/builtin.rs`) at their real
+  default severities. Latest additions (2026-07-22) unblock two
   categories the earlier catalog audit (`specs/rule-catalog-gap-closure`)
   had marked "viable but blocked on a missing parser" — now that the
   HTML/CSS/HCL/YAML parsers exist, those categories are open:
