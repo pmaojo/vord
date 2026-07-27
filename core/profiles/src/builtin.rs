@@ -173,6 +173,12 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("python:sql-injection-string-building"), Severity::Blocker),
         (rule("python:debugger-left-in-code"), Severity::Major),
         (rule("python:open-without-encoding"), Severity::Minor),
+        (rule("python:datetime-utcnow-naive"), Severity::Minor),
+        (rule("python:mutable-class-attribute"), Severity::Major),
+        (rule("python:nested-comprehension-too-deep"), Severity::Minor),
+        (rule("python:raise-generic-exception"), Severity::Minor),
+        (rule("python:raise-without-from-in-except"), Severity::Minor),
+        (rule("python:unused-loop-variable"), Severity::Minor),
     ]);
     activations
 }

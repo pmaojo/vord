@@ -372,21 +372,37 @@ re-analysis on typical PRs.
   the first non-interactive run that reaches it), and
   `python:open-without-encoding` (text-mode `open()` with no `encoding=`
   depends on the platform's locale-preferred encoding). All 22 carry both
-  classic `IssueType` and MQR impacts, ship with unit tests per rule (71
-  total), are wired into all three composition roots (`bin/cli`,
-  `bin/server`'s rule catalog, `bin/worker`), and are activated by default
-  in `python_activations()` (`core/profiles/src/builtin.rs`) with
-  severities cross-checked against each rule's `default_severity()`.
-  First installment of the rule-catalog scale-out below — the language
-  roster is complete, but per-language rule depth (lever 0, informally:
-  hand-written idiom rules, the cheapest lever when a language has real
-  idioms and none are covered yet) had been sitting at zero for every
-  non-Rust language. Same batch process handed off as a standalone prompt
-  for TypeScript in a follow-up session — new-language batches are additive
-  edits to the same handful of wiring files (root `Cargo.toml`, the three
-  `bin/*/Cargo.toml`s, the `.chain(...)` composition-root lists,
-  `builtin.rs`), so they don't collide with a Python batch running in
-  parallel.
+  classic `IssueType` and MQR impacts, ship with unit tests per rule, and
+  are wired into all three composition roots (`bin/cli`, `bin/server`'s
+  rule catalog, `bin/worker`) and `python_activations()`
+  (`core/profiles/src/builtin.rs`) with severities cross-checked against
+  each rule's `default_severity()`. Batch 3 (6 more) rounds out
+  correctness/maintainability idioms: `python:datetime-utcnow-naive`
+  (naive + deprecated since 3.12), `python:mutable-class-attribute` (the
+  class-body twin of the mutable-default-argument trap — one object
+  shared by every instance, detected by walking each `class_definition`'s
+  own body block without descending into nested `FunctionDef`s, so an
+  instance attribute set in `__init__` is correctly left alone),
+  `python:nested-comprehension-too-deep` (2+ `for` clauses in one
+  list/dict/set/generator comprehension), `python:raise-generic-exception`
+  (`raise Exception(...)`/`BaseException(...)` gives callers no specific
+  type to match on), `python:raise-without-from-in-except` (a new
+  exception raised inside an `except` block with no `from` clause —
+  detected via `raise_statement` child count: 0 children is a bare
+  re-raise, 1 is a new exception with no `from`, 2 is `from`-chained, so
+  only the 1-child case is flagged), and `python:unused-loop-variable`
+  (a single-name `for` target never referenced in the body; tuple targets
+  are left alone to keep it false-positive-free). 28 rules total in
+  `rulesets/python`, 90 unit tests. First installment of the rule-catalog
+  scale-out below — the language roster is complete, but per-language rule
+  depth (lever 0, informally: hand-written idiom rules, the cheapest lever
+  when a language has real idioms and none are covered yet) had been
+  sitting at zero for every non-Rust language. Same batch process handed
+  off as a standalone prompt for TypeScript in a follow-up session —
+  new-language batches are additive edits to the same handful of wiring
+  files (root `Cargo.toml`, the three `bin/*/Cargo.toml`s, the
+  `.chain(...)` composition-root lists, `builtin.rs`), so they don't
+  collide with a Python batch running in parallel.
 
 ### Rule-coverage levers, ranked by rules-per-LOC
 
