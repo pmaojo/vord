@@ -126,6 +126,12 @@ struct ScanArgs {
     /// JUnit XML test report to ingest (printed as a test summary).
     #[arg(long)]
     junit: Option<PathBuf>,
+    /// SARIF 2.x report from another analyzer (ruff, ESLint, clippy, gosec,
+    /// bandit, semgrep, CodeQL, …) whose findings are merged into this
+    /// scan's issues — they count toward the severity totals and the
+    /// quality gate exactly like yunq's own. Repeatable.
+    #[arg(long, value_name = "PATH")]
+    sarif: Vec<PathBuf>,
     #[command(flatten)]
     github: GithubArgs,
     /// Print a ready-to-paste prompt handing the findings to an AI coding agent.
@@ -398,6 +404,53 @@ fn coverage_new_code_measure(
         .and_then(|changed| report.coverage_on_new_code(&changed)))
 }
 
+/// `--sarif`: merges another analyzer's findings into this scan's report.
+/// One importer, every tool that speaks SARIF — the coverage of ruff,
+/// ESLint, clippy, gosec, bandit, semgrep and CodeQL without yunq
+/// implementing any of their rules.
+///
+/// Paths in the report are re-based onto the scan root so imported issues
+/// key by the same relative path yunq's own issues do (`Issue::file()`),
+/// which is what lets the two sets coexist in one report, one gate and one
+/// New Code baseline.
+fn ingest_sarif(args: &ScanArgs, report: &mut yunq_rules_engine::AnalysisReport) -> anyhow::Result<()> {
+    if args.sarif.is_empty() {
+        return Ok(());
+    }
+
+    // Report URIs are relative to the project root, which for a single-file
+    // scan is the file's directory rather than the file itself.
+    let root = if args.path.is_dir() {
+        args.path.clone()
+    } else {
+        args.path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf()
+    };
+
+    let (mut imported, mut skipped) = (0usize, 0usize);
+    let mut tools: Vec<String> = Vec::new();
+    for path in &args.sarif {
+        let raw = read_report_file(path)?;
+        let import = yunq_infra_fs::parse_sarif_relative_to(&raw, &root)
+            .map_err(|e| anyhow::anyhow!("cannot import SARIF from {}: {e}", path.display()))?;
+        imported += import.issues.len();
+        skipped += import.skipped;
+        for tool in import.tools {
+            if !tools.contains(&tool) {
+                tools.push(tool);
+            }
+        }
+        report.add_external_issues(import.issues);
+    }
+
+    let tools = if tools.is_empty() { "unknown tool".to_string() } else { tools.join(", ") };
+    println!(
+        "📥 Imported {imported} issue(s) from {} SARIF report(s) [{tools}]{}",
+        args.sarif.len(),
+        if skipped > 0 { format!(" — {skipped} result(s) skipped (passing, suppressed or location-less)") } else { String::new() }
+    );
+    Ok(())
+}
+
 fn load_test_report(junit: Option<PathBuf>) -> anyhow::Result<Option<yunq_rules_engine::TestReportSummary>> {
     junit
         .map(|path| yunq_infra_fs::parse_junit(&read_report_file(&path)?).map_err(anyhow::Error::from))
@@ -593,6 +646,9 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let mut report =
         yunq_cli::scan_with_project_config(&args.path, cache.clone(), &source_dirs, &exclusions).await?;
 
+    // Before the gate and the New Code baseline: imported findings are
+    // ordinary issues from here on, so both must see them.
+    ingest_sarif(&args, &mut report)?;
     ingest_coverage(&args)?.apply_to(&mut report);
     let coverage_new_code = coverage_new_code_measure(args.coverage.coverage_diff.clone(), &report)?;
 

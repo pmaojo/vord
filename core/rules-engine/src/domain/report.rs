@@ -474,6 +474,30 @@ impl TestReportSummary {
     }
 }
 
+/// An issue produced outside the rule engine — imported from another
+/// analyzer's report rather than detected by a [`crate::Rule`].
+///
+/// It carries the two facts the engine would otherwise read off the `Rule`
+/// trait object (`issue_type`, `remediation_effort_minutes`) so an imported
+/// finding folds into ratings and debt exactly like a native one. Importers
+/// that have no basis for an effort estimate should pass `0` rather than
+/// invent a number — a fabricated effort silently moves the maintainability
+/// rating.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalIssue {
+    pub issue: Issue,
+    pub issue_type: IssueType,
+    pub remediation_effort_minutes: u32,
+}
+
+impl ExternalIssue {
+    /// An imported issue with no effort estimate — the common case, since
+    /// no mainstream interchange format carries remediation cost.
+    pub fn new(issue: Issue, issue_type: IssueType) -> Self {
+        Self { issue, issue_type, remediation_effort_minutes: 0 }
+    }
+}
+
 /// The complete output of one analysis run.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisReport {
@@ -525,6 +549,34 @@ impl AnalysisReport {
             duplications.len(),
         );
         self.duplications = duplications;
+    }
+
+    /// Merges issues detected by a *different* analyzer (imported from its
+    /// report — SARIF today) into this one, folding them into the same
+    /// severity counters, debt total and Reliability/Security ratings the
+    /// engine's own rules feed. Deliberately the identical treatment: once
+    /// imported, an external finding is an ordinary [`Issue`] — it shows up
+    /// in the rendered output, counts toward `blocker_issues` and friends,
+    /// and can fail the quality gate.
+    ///
+    /// Imported issues never touch `lines_of_code`: the scan's own file walk
+    /// is the single source of truth for size, and an external report may
+    /// well cover files yunq did not scan. That keeps the debt *ratio*
+    /// (and so the maintainability rating) honest when an importer does
+    /// supply a non-zero effort.
+    pub fn add_external_issues(&mut self, imported: Vec<ExternalIssue>) {
+        for ExternalIssue { issue, issue_type, remediation_effort_minutes } in imported {
+            self.metrics.count_issue(issue.severity());
+            self.metrics.add_debt(remediation_effort_minutes as usize);
+            self.metrics.record_issue_type_and_effort(
+                issue_type,
+                issue.severity(),
+                issue.rule().clone(),
+                issue.file(),
+                remediation_effort_minutes,
+            );
+            self.issues.push(issue);
+        }
     }
 
     pub fn issues(&self) -> &[Issue] {
@@ -958,5 +1010,47 @@ mod tests {
         assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
         assert_eq!(report.measure(&key("security_rating")), Some(2.0));
         assert_eq!(report.measure(&key("maintainability_rating")), Some(1.0));
+    }
+
+    #[test]
+    fn external_issues_fold_into_severity_counts_debt_and_the_security_rating() {
+        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let issue = |rule: &str, severity| {
+            Issue::new(RuleId::new(rule).unwrap(), severity, "imported", "src/app.py", yunq_ast::Span::new(1, 1, 1, 1))
+        };
+
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        report.add_external_issues(vec![
+            ExternalIssue::new(issue("ruff:e501", Severity::Major), IssueType::CodeSmell),
+            ExternalIssue::new(issue("codeql:js-sql-injection", Severity::Blocker), IssueType::Vulnerability),
+        ]);
+
+        // Imported issues are ordinary issues: they show up in the report,
+        // in the severity facets the gate reads, and in the ratings.
+        assert_eq!(report.issues().len(), 2);
+        assert_eq!(report.measure(&key("blocker_issues")), Some(1.0));
+        assert_eq!(report.measure(&key("major_issues")), Some(1.0));
+        assert_eq!(report.security_rating(), Rating::from_severity(Severity::Blocker));
+        // Only the vulnerability moved Security; nothing claimed to be a Bug,
+        // so Reliability stays at its unblemished default.
+        assert_eq!(report.reliability_rating(), Rating::default());
+        // No effort was supplied, so no debt was invented.
+        assert_eq!(report.metrics().debt_minutes(), 0);
+        assert_eq!(report.metrics().lines_of_code(), 0);
+    }
+
+    #[test]
+    fn an_external_issue_with_an_effort_estimate_adds_debt_and_per_rule_effort() {
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        let rule = RuleId::new("gosec:g401").unwrap();
+        report.add_external_issues(vec![ExternalIssue {
+            issue: Issue::new(rule.clone(), Severity::Major, "weak hash", "hash.go", yunq_ast::Span::new(3, 1, 3, 9)),
+            issue_type: IssueType::Vulnerability,
+            remediation_effort_minutes: 15,
+        }]);
+
+        assert_eq!(report.metrics().debt_minutes(), 15);
+        assert_eq!(report.remediation_effort().by_rule.get(&rule), Some(&15));
+        assert_eq!(report.remediation_effort().by_component.get("hash.go"), Some(&15));
     }
 }
