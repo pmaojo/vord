@@ -335,7 +335,7 @@ re-analysis on typical PRs.
   `rulesets/python` crate (`yunq-rules-python`), the same shape as
   `rulesets/rust`: idioms that only make sense for this language, as
   opposed to the neutral-AST checks in `rulesets/code-smells` that merely
-  happen to apply to Python too. 12 rules, each grounded in the real
+  happen to apply to Python too. 22 rules, each grounded in the real
   tree-sitter-python grammar shapes (verified with a throwaway AST-dump
   example before writing detection logic, not guessed) rather than raw
   line/text scanning: `python:mutable-default-argument` (a `[]`/`{}`/`set()`
@@ -354,16 +354,39 @@ re-analysis on typical PRs.
   of `isinstance`), `python:global-statement-usage`, and
   `python:eager-logging-interpolation` (an f-string or `%`/`+` built before
   a `logging.*` call always pays the formatting cost, even when the level
-  is disabled). All 12 carry both classic `IssueType` and MQR impacts,
-  ship with unit tests per rule (37 total), are wired into all three
-  composition roots (`bin/cli`, `bin/server`'s rule catalog, `bin/worker`),
-  and are activated by default in `python_activations()`
-  (`core/profiles/src/builtin.rs`) with severities cross-checked against
-  each rule's `default_severity()`. First installment of the rule-catalog
-  scale-out below — the language roster is complete, but per-language rule
-  depth (lever 0, informally: hand-written idiom rules, the cheapest lever
-  when a language has real idioms and none are covered yet) had been
-  sitting at zero for every non-Rust language.
+  is disabled). Batch 2 added ten more, same grounding discipline:
+  `python:none-comparison-with-equality` / `python:bool-comparison-with-equality`
+  (`== None`/`== True`/`== False` instead of `is`/direct truthiness),
+  `python:literal-identity-comparison` (`x is 5`/`x is 'foo'` — relies on
+  CPython's small-int/string interning, an implementation detail),
+  `python:len-as-condition` (`len(x) == 0` instead of `if not x:`),
+  `python:requests-missing-timeout` (a `requests.*` call with no
+  `timeout=` hangs forever on a dead remote host), `python:flask-debug-true`
+  (Werkzeug's interactive debugger is remote code execution if it ships to
+  production), `python:bind-all-interfaces` (a `0.0.0.0` bind host, hotspot),
+  `python:sql-injection-string-building` (a `.execute()`/`.executemany()`
+  call whose query is an f-string or `%`/`+`-built string instead of a
+  parameterized query — Python had no SQL-injection rule at all before
+  this; `owasp:injection`'s taint analysis is TypeScript-only),
+  `python:debugger-left-in-code` (`pdb.set_trace()`/`breakpoint()` hangs
+  the first non-interactive run that reaches it), and
+  `python:open-without-encoding` (text-mode `open()` with no `encoding=`
+  depends on the platform's locale-preferred encoding). All 22 carry both
+  classic `IssueType` and MQR impacts, ship with unit tests per rule (71
+  total), are wired into all three composition roots (`bin/cli`,
+  `bin/server`'s rule catalog, `bin/worker`), and are activated by default
+  in `python_activations()` (`core/profiles/src/builtin.rs`) with
+  severities cross-checked against each rule's `default_severity()`.
+  First installment of the rule-catalog scale-out below — the language
+  roster is complete, but per-language rule depth (lever 0, informally:
+  hand-written idiom rules, the cheapest lever when a language has real
+  idioms and none are covered yet) had been sitting at zero for every
+  non-Rust language. Same batch process handed off as a standalone prompt
+  for TypeScript in a follow-up session — new-language batches are additive
+  edits to the same handful of wiring files (root `Cargo.toml`, the three
+  `bin/*/Cargo.toml`s, the `.chain(...)` composition-root lists,
+  `builtin.rs`), so they don't collide with a Python batch running in
+  parallel.
 
 ### Rule-coverage levers, ranked by rules-per-LOC
 
