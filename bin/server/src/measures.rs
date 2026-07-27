@@ -1,5 +1,4 @@
-//! Measure history and component-tree navigation (issue #26): SonarQube-style
-//! `api/measures/search_history` and `api/components/tree`, over the
+//! Measure history and component-tree navigation (issue #26), over the
 //! `analysis_measures` rows persisted per analysis by `bin/worker`
 //! (`MeasureStorage::save_measures`, called from `persist_gate_result`).
 //!
@@ -9,8 +8,8 @@
 //!
 //! `GET /api/projects/{key}/components/tree` returns the project's known
 //! files with their latest measures as of the most recent analysis, in two
-//! shapes at once: `components`, a flat list sortable/filterable in the
-//! SonarQube style (unchanged from the original v1), and `tree`, the same
+//! shapes at once: `components`, a flat sortable/filterable list
+//! (unchanged from the original v1), and `tree`, the same
 //! filtered file set nested into directories by splitting each path on `/`
 //! (issue #26's remaining ask — the persisted data is still just a flat
 //! `(analysis_id, file, metric, value)` table with no notion of
@@ -96,7 +95,7 @@ fn component_label(project_key: &str, component: Option<&str>) -> String {
 }
 
 /// Time series of a project's (or one of its files') measures across its
-/// analyses — mirrors SonarQube's `api/measures/search_history`.
+/// analyses.
 #[utoipa::path(
     get,
     path = "/api/projects/{key}/measures/history",
@@ -177,8 +176,8 @@ pub(crate) struct ComponentTreeDto {
 
 /// One node of the nested `tree` view: a directory (`qualifier: "DIR"`,
 /// `children` populated, `measures` empty) or a file (`qualifier: "FIL"`,
-/// `measures` populated, no children) — SonarQube's own DIR/FIL qualifier
-/// vocabulary, so existing SonarQube-shaped tooling recognizes the field.
+/// `measures` populated, no children). The DIR/FIL qualifier vocabulary is
+/// the conventional one, so existing tooling recognizes the field.
 #[derive(Serialize, ToSchema)]
 pub(crate) struct ComponentTreeNodeDto {
     /// Final path segment (directory or file name).
@@ -282,8 +281,8 @@ fn sort_components(mut components: Vec<ComponentMeasures>, sort: &str, descendin
 }
 
 /// A project's components (currently: files only — see module docs) with
-/// their latest measures, as of the most recent analysis — mirrors
-/// SonarQube's `api/components/tree` navigation, minus directory nesting.
+/// their latest measures, as of the most recent analysis. Flat navigation,
+/// minus directory nesting.
 #[utoipa::path(
     get,
     path = "/api/projects/{key}/components/tree",

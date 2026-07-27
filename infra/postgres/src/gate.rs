@@ -275,7 +275,7 @@ impl PgIssueStorage {
 
     /// The New Code definition that applies to a project's branch: a
     /// branch-specific override if one is stored, else the project-wide
-    /// default, else SonarQube's own default (`PreviousAnalysis`).
+    /// default, else the built-in default (`PreviousAnalysis`).
     pub async fn resolve_new_code_definition(
         &self,
         project_id: i64,

@@ -1,17 +1,15 @@
-//! Copy-paste detection (CPD), replicating SonarQube's `sonar-duplications`
-//! algorithm (`BlockChunker` + `CloneIndex`):
+//! Copy-paste detection (CPD) by block hashing:
 //!
 //! 1. Runs of consecutive statements with identical content are collapsed to
 //!    their first and last occurrence, so e.g. fifty blank `println();`
-//!    lines in a row don't themselves register as one giant duplicate
-//!    (`BlockChunker`'s statement-repetition filter).
+//!    lines in a row don't themselves register as one giant duplicate.
 //! 2. Statements are grouped into fixed-size blocks (`block_size`, default
-//!    5 — SonarQube's default) hashed with an incremental Rabin-Karp rolling
-//!    hash using prime base 31 (`s[0]*31^(n-1) + ... + s[n-1]`), computed in
-//!    O(1) per block rather than re-hashing each window from scratch.
-//! 3. Blocks are indexed by hash across *all* files at once (`CloneIndex`):
-//!    a duplicate is found by hash lookup, never by comparing every pair of
-//!    files against each other.
+//!    5) hashed with an incremental Rabin-Karp rolling hash using prime
+//!    base 31 (`s[0]*31^(n-1) + ... + s[n-1]`), computed in O(1) per block
+//!    rather than re-hashing each window from scratch.
+//! 3. Blocks are indexed by hash across *all* files at once: a duplicate is
+//!    found by hash lookup, never by comparing every pair of files against
+//!    each other.
 //! 4. Runs of adjacent matching blocks are merged into maximal duplicated
 //!    line ranges.
 //!
@@ -20,9 +18,8 @@
 //! tree-sitter walk in `yunq-treesitter-tokens`: literal values collapsed
 //! to placeholders, comments dropped, intra-line whitespace insignificant —
 //! see `parsers/treesitter-tokens`). Languages without a registered parser
-//! fall back to [`fallback_tokenize`]'s trimmed-line behavior. Either way,
-//! the chunking, hashing and index-driven matching below are SonarQube's
-//! actual algorithm. Pure core — std only, no tree-sitter dependency.
+//! fall back to [`fallback_tokenize`]'s trimmed-line behavior. Pure core —
+//! std only, no tree-sitter dependency.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -59,8 +56,7 @@ pub fn fallback_tokenize(file: &SourceFile) -> Vec<(u32, String)> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct DuplicationConfig {
-    /// Number of consecutive statements per hashed block — SonarQube's
-    /// `BlockChunker` block size (default 5).
+    /// Number of consecutive statements per hashed block (default 5).
     pub block_size: usize,
 }
 
@@ -169,9 +165,9 @@ fn chunk_blocks(statements: &[Statement], block_size: usize) -> Vec<Block> {
     blocks
 }
 
-/// Hash -> every (file, block index) that produced it, across all files:
-/// SonarQube's CloneIndex — duplicates are found by hash lookup, not by
-/// comparing every pair of files against each other.
+/// Hash -> every (file, block index) that produced it, across all files —
+/// duplicates are found by hash lookup, not by comparing every pair of
+/// files against each other.
 fn build_hash_index(per_file_blocks: &[Vec<Block>]) -> HashMap<u64, Vec<(usize, usize)>> {
     let mut index: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
     for (file_index, blocks) in per_file_blocks.iter().enumerate() {

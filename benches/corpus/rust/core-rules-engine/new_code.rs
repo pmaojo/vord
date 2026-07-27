@@ -26,8 +26,8 @@ pub enum NewCodePeriod {
 
 /// Location-tolerant identity of an issue: rule + file + message. Moving
 /// code within a file does not make its old issues "new". This is the
-/// weakest signal in the tracking cascade below (SonarQube uses it only as
-/// a last resort) because a message carrying a computed value (e.g.
+/// weakest signal in the tracking cascade below — a last resort — because
+/// a message carrying a computed value (e.g.
 /// "Cognitive Complexity of this function is 7, decrease it") changes text
 /// on every trivial edit even though it is the same issue persisting.
 pub fn issue_fingerprint(issue: &Issue) -> u64 {
@@ -38,8 +38,7 @@ pub fn issue_fingerprint(issue: &Issue) -> u64 {
     hasher.finish()
 }
 
-/// Content hash of a source line, the primary signal in SonarQube's issue
-/// tracker (`org.sonar.core.issue.tracking.Tracker` / `LineHashSequence`):
+/// Content hash of a source line, the primary signal in issue tracking:
 /// two lines with the same rule and the same normalized content are the same
 /// issue, regardless of what the rule's message says or which line number it
 /// now sits on (covers both "untouched" and "line moved within the file").
@@ -71,7 +70,7 @@ struct BaselineEntry {
 }
 
 /// The tracked issues from a previous analysis, matched against the current
-/// one through SonarQube's cascade: content hash first (immune to message
+/// one through the tracking cascade: content hash first (immune to message
 /// text drift), (rule, file, message) fingerprint as the last-resort
 /// fallback when no content hash is available on either side.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -282,7 +281,7 @@ mod tests {
     }
 
     /// Reproduces the confirmed gap: a rule whose message embeds a computed
-    /// value (SonarQube's own messages do this constantly, e.g. "Cognitive
+    /// value (rule messages do this constantly, e.g. "Cognitive
     /// Complexity of this function is 7, decrease it") must not be
     /// reclassified as a brand-new issue just because a trivial, unrelated
     /// edit elsewhere in the function nudged that number — as long as the

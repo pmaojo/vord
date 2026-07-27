@@ -103,8 +103,8 @@ impl AnalysisContext {
     }
 }
 
-/// How the "new code" baseline is chosen for a project or branch —
-/// SonarQube's four modes.
+/// How the "new code" baseline is chosen for a project or branch — four
+/// modes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NewCodeDefinition {
     /// New code is everything since the previous analysis.

@@ -1,25 +1,24 @@
 //! MQR ("Maintainability, Reliability, Security") issue classification —
-//! modern SonarQube's second classification axis, layered on top of the
-//! classic [`IssueType`] × [`Severity`] model rather than replacing it. An
+//! a second classification axis, layered on top of the classic
+//! [`IssueType`] × [`Severity`] model rather than replacing it. An
 //! issue is still a Bug/Vulnerability/CodeSmell for backward compatibility,
 //! but it also carries one or more [`SoftwareQualityImpact`]s so the same
 //! finding can answer both "what kind of issue is this" and "which
 //! software qualities does it hurt, and how badly".
 //!
-//! [`default_impact`] derives the MQR view from the classic one exactly the
-//! way SonarQube's own one-time migration did: each classic type maps to
-//! exactly one quality (`Bug` -> Reliability, `Vulnerability` -> Security,
-//! `CodeSmell` -> Maintainability), and [`ImpactSeverity::from_severity`]
-//! carries the severity across on SonarQube's documented conversion table.
-//! Rules that genuinely affect more than one quality can report additional
-//! impacts beyond this default.
+//! [`default_impact`] derives the MQR view from the classic one: each
+//! classic type maps to exactly one quality (`Bug` -> Reliability,
+//! `Vulnerability` -> Security, `CodeSmell` -> Maintainability), and
+//! [`ImpactSeverity::from_severity`] carries the severity across. Rules that
+//! genuinely affect more than one quality can report additional impacts
+//! beyond this default.
 
 use std::fmt;
 
 use crate::{IssueType, Severity};
 
-/// One of the three software qualities modern SonarQube rates issues
-/// against, independently of the classic Bug/Vulnerability/CodeSmell type.
+/// One of the three software qualities an issue is rated against,
+/// independently of the classic Bug/Vulnerability/CodeSmell type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SoftwareQuality {
     Maintainability,
@@ -53,7 +52,7 @@ impl fmt::Display for SoftwareQuality {
 }
 
 /// MQR's own severity scale, ordered from least to most severe. Distinct
-/// from the classic per-issue [`Severity`] wheel — SonarQube introduced it
+/// from the classic per-issue [`Severity`] wheel — this scale exists
 /// specifically for impacts — but every classic severity has exactly one
 /// MQR equivalent via [`ImpactSeverity::from_severity`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -87,8 +86,8 @@ impl ImpactSeverity {
         }
     }
 
-    /// SonarQube's documented classic-to-MQR severity migration: `INFO ->
-    /// INFO`, `MINOR -> LOW`, `MAJOR -> MEDIUM`, `CRITICAL -> HIGH`,
+    /// The classic-to-MQR severity mapping: `INFO -> INFO`,
+    /// `MINOR -> LOW`, `MAJOR -> MEDIUM`, `CRITICAL -> HIGH`,
     /// `BLOCKER -> BLOCKER`.
     pub fn from_severity(severity: Severity) -> Self {
         match severity {
@@ -117,8 +116,7 @@ pub struct SoftwareQualityImpact {
     pub severity: ImpactSeverity,
 }
 
-/// The MQR impact SonarQube's classic-to-MQR migration derives from a
-/// classic `(IssueType, Severity)` pair: `Bug` -> Reliability, `Vulnerability`
+/// The MQR impact derived from a classic `(IssueType, Severity)` pair: `Bug` -> Reliability, `Vulnerability`
 /// -> Security, `CodeSmell` -> Maintainability, with the severity carried
 /// across via [`ImpactSeverity::from_severity`]. This is a *default* — rules
 /// that affect more than one quality report additional impacts beyond it.
@@ -136,7 +134,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn severity_migration_matches_sonarqube_table() {
+    fn severity_maps_onto_its_mqr_equivalent() {
         assert_eq!(ImpactSeverity::from_severity(Severity::Info), ImpactSeverity::Info);
         assert_eq!(ImpactSeverity::from_severity(Severity::Minor), ImpactSeverity::Low);
         assert_eq!(ImpactSeverity::from_severity(Severity::Major), ImpactSeverity::Medium);

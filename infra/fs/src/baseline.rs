@@ -4,7 +4,7 @@
 //!
 //! The schema carries a content hash per issue (`line_hash`) alongside the
 //! legacy `(rule, file, message)` fingerprint, so `NewCodeAnalysis` can run
-//! SonarQube's content-hash-first tracking cascade instead of only the
+//! the content-hash-first tracking cascade instead of only the
 //! message-fingerprint fallback. Baseline files written by older yunq
 //! versions (a bare `Vec<u64>` of fingerprints) are still read — the load
 //! path tries the current schema first and falls back to the legacy one,

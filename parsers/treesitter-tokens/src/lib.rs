@@ -6,15 +6,15 @@
 //! (named and anonymous — punctuation and operators included, unlike the
 //! neutral-AST `convert` step each parser also has, which keeps only named
 //! children for rule structural contracts). Two normalizations happen along
-//! the way, matching what SonarQube's own CPD tokenizer does:
+//! the way:
 //!
 //! - Any node whose grammar kind name looks like a string/char/template or
 //!   numeric literal (a name-based heuristic — tree-sitter grammars name
 //!   these consistently, e.g. `string_literal`, `integer_literal`,
 //!   `template_string`) is collapsed to one placeholder token and its
 //!   subtree is not descended into. This is what makes `x = 1;` and
-//!   `x = 2;` hash as the same statement, the way SonarQube's does, instead
-//!   of differing on literal text.
+//!   `x = 2;` hash as the same statement instead of differing on literal
+//!   text.
 //! - Any node whose kind name contains "comment" is dropped entirely, so
 //!   comment-only lines never register as duplicated statements.
 //!

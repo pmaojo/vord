@@ -6,8 +6,8 @@
 // sides MUST agree on the same permission keys — drift is an integration bug,
 // not a frontend/UI choice.
 
-// SonarQube-aligned, deliberately small. Add a new role + map before using it
-// anywhere; do not introduce permissions ad-hoc in components.
+// Deliberately small. Add a new role + map before using it anywhere; do not
+// introduce permissions ad-hoc in components.
 export type Role = 'admin' | 'developer' | 'viewer' | 'scanner';
 
 export const ROLES: readonly Role[] = ['admin', 'developer', 'viewer', 'scanner'] as const;

@@ -1,6 +1,6 @@
 # yunq
 
-A SonarQube-alternative static analysis platform in Rust.
+A static analysis platform in Rust.
 
 ## Topology
 
@@ -195,4 +195,4 @@ The engine, storage and parsers remain untouched.
 
 ## Roadmap
 
-Full SonarQube feature parity — more languages, duplication detection, quality gates/profiles, issue lifecycle, GitHub PR decoration — plus an AI **Remediation Agent** with a verify-before-suggest loop. See [ROADMAP.md](ROADMAP.md).
+More languages, deeper duplication detection, quality gates/profiles, issue lifecycle, GitHub PR decoration — plus an AI **Remediation Agent** with a verify-before-suggest loop. See [ROADMAP.md](ROADMAP.md).

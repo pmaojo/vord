@@ -18,7 +18,7 @@ pub struct PortfolioNode {
 }
 
 /// Aggregated health/quality roll-up over a portfolio subtree. The ratings
-/// are SonarQube's `1.0`–`5.0` encoding (A..E); the worst wins for the
+/// use the numeric `1.0`–`5.0` encoding (A..E); the worst wins for the
 /// reliability/security/maintainability rating per node.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PortfolioRollup {

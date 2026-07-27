@@ -18,11 +18,7 @@ pub struct Metrics {
     duplicated_lines: usize,
     duplicated_blocks: usize,
     by_severity: BTreeMap<Severity, usize>,
-    functions: usize,
-    classes: usize,
-    statements: usize,
-    comment_lines: usize,
-    max_nesting_depth: usize,
+    structural: StructuralCounts,
     reliability_rating: Rating,
     security_rating: Rating,
     remediation_effort: RemediationEffortSummary,
@@ -63,11 +59,11 @@ impl Metrics {
     /// `max_nesting_depth` aggregates as a max, not a sum — it is a depth,
     /// not a count.
     pub fn add_structural(&mut self, structural: StructuralCounts) {
-        self.functions += structural.functions;
-        self.classes += structural.classes;
-        self.statements += structural.statements;
-        self.comment_lines += structural.comment_lines;
-        self.max_nesting_depth = self.max_nesting_depth.max(structural.max_nesting_depth);
+        self.structural.functions += structural.functions;
+        self.structural.classes += structural.classes;
+        self.structural.statements += structural.statements;
+        self.structural.comment_lines += structural.comment_lines;
+        self.structural.max_nesting_depth = self.structural.max_nesting_depth.max(structural.max_nesting_depth);
     }
 
     pub fn count_issue(&mut self, severity: Severity) {
@@ -147,23 +143,23 @@ impl Metrics {
     }
 
     pub fn functions(&self) -> usize {
-        self.functions
+        self.structural.functions
     }
 
     pub fn classes(&self) -> usize {
-        self.classes
+        self.structural.classes
     }
 
     pub fn statements(&self) -> usize {
-        self.statements
+        self.structural.statements
     }
 
     pub fn comment_lines(&self) -> usize {
-        self.comment_lines
+        self.structural.comment_lines
     }
 
     pub fn max_nesting_depth(&self) -> usize {
-        self.max_nesting_depth
+        self.structural.max_nesting_depth
     }
 
     /// Worst [`Rating::from_severity`] among open `Bug` issues (`A` if
@@ -185,13 +181,13 @@ impl Metrics {
         &self.remediation_effort
     }
 
-    /// SonarQube's formula: comments as a share of comments + code lines.
+    /// Comments as a share of comments + code lines.
     pub fn comment_lines_density(&self) -> f64 {
-        let denominator = self.lines_of_code + self.comment_lines;
+        let denominator = self.lines_of_code + self.structural.comment_lines;
         if denominator == 0 {
             0.0
         } else {
-            self.comment_lines as f64 * 100.0 / denominator as f64
+            self.structural.comment_lines as f64 * 100.0 / denominator as f64
         }
     }
 }
@@ -319,6 +315,47 @@ impl FileCoverage {
     }
 }
 
+/// One source line's SCM blame: which commit last touched it and who
+/// authored that commit. Field-for-field the same shape as the CLI's
+/// `blame::BlameLine` (`bin/cli/src/blame.rs`, issue #33) so a
+/// `--blame-output` JSON file can be POSTed to `/api/projects/{key}/blame`
+/// without any reshaping.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BlameLineInfo {
+    pub commit: String,
+    pub author: String,
+    pub author_mail: String,
+    /// Unix timestamp (seconds) from the commit's `author-time`.
+    pub author_time: i64,
+    pub summary: String,
+}
+
+/// Per-file line-blame detail: every line's SCM attribution, keyed by
+/// 1-based line number. Analogous to [`FileCoverage`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileBlame {
+    path: String,
+    lines: BTreeMap<u32, BlameLineInfo>,
+}
+
+impl FileBlame {
+    pub fn new(path: impl Into<String>) -> Self {
+        Self { path: path.into(), lines: BTreeMap::new() }
+    }
+
+    pub fn record_line(&mut self, line: u32, info: BlameLineInfo) {
+        self.lines.insert(line, info);
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub fn lines(&self) -> &BTreeMap<u32, BlameLineInfo> {
+        &self.lines
+    }
+}
+
 /// Per-file coverage detail for one ingested report, plus the report-wide
 /// line/branch totals. The totals are carried explicitly rather than derived
 /// by re-summing `files` because several formats have their own authoritative
@@ -437,6 +474,30 @@ impl TestReportSummary {
     }
 }
 
+/// An issue produced outside the rule engine — imported from another
+/// analyzer's report rather than detected by a [`crate::Rule`].
+///
+/// It carries the two facts the engine would otherwise read off the `Rule`
+/// trait object (`issue_type`, `remediation_effort_minutes`) so an imported
+/// finding folds into ratings and debt exactly like a native one. Importers
+/// that have no basis for an effort estimate should pass `0` rather than
+/// invent a number — a fabricated effort silently moves the maintainability
+/// rating.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalIssue {
+    pub issue: Issue,
+    pub issue_type: IssueType,
+    pub remediation_effort_minutes: u32,
+}
+
+impl ExternalIssue {
+    /// An imported issue with no effort estimate — the common case, since
+    /// no mainstream interchange format carries remediation cost.
+    pub fn new(issue: Issue, issue_type: IssueType) -> Self {
+        Self { issue, issue_type, remediation_effort_minutes: 0 }
+    }
+}
+
 /// The complete output of one analysis run.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisReport {
@@ -490,6 +551,34 @@ impl AnalysisReport {
         self.duplications = duplications;
     }
 
+    /// Merges issues detected by a *different* analyzer (imported from its
+    /// report — SARIF today) into this one, folding them into the same
+    /// severity counters, debt total and Reliability/Security ratings the
+    /// engine's own rules feed. Deliberately the identical treatment: once
+    /// imported, an external finding is an ordinary [`Issue`] — it shows up
+    /// in the rendered output, counts toward `blocker_issues` and friends,
+    /// and can fail the quality gate.
+    ///
+    /// Imported issues never touch `lines_of_code`: the scan's own file walk
+    /// is the single source of truth for size, and an external report may
+    /// well cover files yunq did not scan. That keeps the debt *ratio*
+    /// (and so the maintainability rating) honest when an importer does
+    /// supply a non-zero effort.
+    pub fn add_external_issues(&mut self, imported: Vec<ExternalIssue>) {
+        for ExternalIssue { issue, issue_type, remediation_effort_minutes } in imported {
+            self.metrics.count_issue(issue.severity());
+            self.metrics.add_debt(remediation_effort_minutes as usize);
+            self.metrics.record_issue_type_and_effort(
+                issue_type,
+                issue.severity(),
+                issue.rule().clone(),
+                issue.file(),
+                remediation_effort_minutes,
+            );
+            self.issues.push(issue);
+        }
+    }
+
     pub fn issues(&self) -> &[Issue] {
         &self.issues
     }
@@ -533,8 +622,8 @@ impl AnalysisReport {
         self.issues.iter().map(Issue::severity).max()
     }
 
-    /// Maintainability rating (A–E) from the technical debt ratio —
-    /// SonarQube's SQALE model, not the worst severity present.
+    /// Maintainability rating (A–E) from the technical debt ratio, not
+    /// from the worst severity present.
     pub fn rating(&self) -> Rating {
         let ratio = yunq_profiles::debt_ratio(
             self.metrics.debt_minutes() as f64,
@@ -546,8 +635,7 @@ impl AnalysisReport {
 
     /// Reliability rating (A–E): worst severity among open `Bug` issues.
     /// A different algorithm from [`Self::rating`] — a worst-severity
-    /// lookup, not a cost ratio — per SonarQube's
-    /// `ReliabilityAndSecurityRatingMeasuresVisitor`.
+    /// lookup, not a cost ratio.
     pub fn reliability_rating(&self) -> Rating {
         self.metrics.reliability_rating()
     }
@@ -578,13 +666,41 @@ impl AnalysisReport {
     pub fn measure(&self, key: &MetricKey) -> Option<f64> {
         MEASURE_TABLE.iter().find(|(k, _)| *k == key.as_str()).and_then(|(_, f)| f(self))
     }
+
+    /// Every measure this report can currently produce, keyed by metric key
+    /// — the full project-level row persisted per analysis for measure
+    /// history / component tree queries (issue #26). A measure absent from
+    /// this report (e.g. `coverage` before any report is ingested) is
+    /// omitted rather than persisted as a fabricated zero.
+    pub fn all_measures(&self) -> Vec<(String, f64)> {
+        MEASURE_TABLE.iter().filter_map(|(key, f)| f(self).map(|v| (key.to_string(), v))).collect()
+    }
+
+    /// Per-file issue counts (total plus one count per severity), derived
+    /// from this report's issues by their `file` field — the only per-file
+    /// breakdown available today without persisting per-file structural
+    /// metrics (`Metrics` only tracks run-wide totals, not per file). Files
+    /// with zero issues are simply absent, not zeroed; keys match the
+    /// project-level names in [`MEASURE_TABLE`] (`issue_total`,
+    /// `blocker_issues`, ...) so callers can treat project- and file-level
+    /// measures uniformly.
+    pub fn file_issue_measures(&self) -> BTreeMap<String, BTreeMap<String, f64>> {
+        let mut per_file: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
+        for issue in &self.issues {
+            let entry = per_file.entry(issue.file().to_string()).or_default();
+            *entry.entry("issue_total".to_string()).or_insert(0.0) += 1.0;
+            let severity_key = format!("{}_issues", issue.severity().as_str());
+            *entry.entry(severity_key).or_insert(0.0) += 1.0;
+        }
+        per_file
+    }
 }
 
 fn severity_measure(report: &AnalysisReport, severity: Severity) -> Option<f64> {
     Some(*report.metrics.issues_by_severity().get(&severity).unwrap_or(&0) as f64)
 }
 
-/// SonarQube's numeric encoding for the A–E letter ratings (`1.0`..`5.0`),
+/// Numeric encoding for the A–E letter ratings (`1.0`..`5.0`),
 /// so ratings can drive quality gate conditions like any other measure
 /// (e.g. `reliability_rating > 1.0` fails the gate on any open bug).
 fn rating_measure(rating: Rating) -> f64 {
@@ -813,6 +929,74 @@ mod tests {
     }
 
     #[test]
+    fn all_measures_omits_measures_absent_from_the_report() {
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        let measures = report.all_measures();
+        let keys: Vec<&str> = measures.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(!keys.contains(&"coverage"));
+        assert!(!keys.contains(&"tests"));
+        // Always-present counters (defaulted to 0 by `Metrics::default`) are there.
+        assert!(keys.contains(&"lines_of_code"));
+        assert!(keys.contains(&"issue_total"));
+    }
+
+    #[test]
+    fn all_measures_includes_ingested_coverage() {
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        let mut summary = CoverageSummary::default();
+        summary.add(8, 10).unwrap();
+        report.set_coverage(summary);
+        let measures: BTreeMap<String, f64> = report.all_measures().into_iter().collect();
+        assert_eq!(measures.get("coverage"), Some(&80.0));
+    }
+
+    #[test]
+    fn file_issue_measures_groups_by_file_and_severity() {
+        let issues = vec![
+            Issue::new(
+                RuleId::new("owasp:sql-injection").unwrap(),
+                Severity::Blocker,
+                "boom",
+                "src/a.rs",
+                yunq_ast::Span::new(1, 0, 1, 1),
+            ),
+            Issue::new(
+                RuleId::new("owasp:sql-injection").unwrap(),
+                Severity::Blocker,
+                "boom again",
+                "src/a.rs",
+                yunq_ast::Span::new(2, 0, 2, 1),
+            ),
+            Issue::new(
+                RuleId::new("smells:x").unwrap(),
+                Severity::Minor,
+                "smell",
+                "src/b.rs",
+                yunq_ast::Span::new(1, 0, 1, 1),
+            ),
+        ];
+        let report = AnalysisReport::new(issues, Vec::new(), Metrics::new());
+        let per_file = report.file_issue_measures();
+
+        let a = &per_file["src/a.rs"];
+        assert_eq!(a["issue_total"], 2.0);
+        assert_eq!(a["blocker_issues"], 2.0);
+        assert!(!a.contains_key("minor_issues"));
+
+        let b = &per_file["src/b.rs"];
+        assert_eq!(b["issue_total"], 1.0);
+        assert_eq!(b["minor_issues"], 1.0);
+
+        assert_eq!(per_file.len(), 2);
+    }
+
+    #[test]
+    fn file_issue_measures_is_empty_without_issues() {
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        assert!(report.file_issue_measures().is_empty());
+    }
+
+    #[test]
     fn rating_measures_are_exposed_on_the_report() {
         let mut metrics = Metrics::new();
         metrics.record_issue_type_and_effort(IssueType::Bug, Severity::Blocker, rule("bugs:a"), "a.rs", 5);
@@ -825,5 +1009,47 @@ mod tests {
         assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
         assert_eq!(report.measure(&key("security_rating")), Some(2.0));
         assert_eq!(report.measure(&key("maintainability_rating")), Some(1.0));
+    }
+
+    #[test]
+    fn external_issues_fold_into_severity_counts_debt_and_the_security_rating() {
+        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let issue = |rule: &str, severity| {
+            Issue::new(RuleId::new(rule).unwrap(), severity, "imported", "src/app.py", yunq_ast::Span::new(1, 1, 1, 1))
+        };
+
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        report.add_external_issues(vec![
+            ExternalIssue::new(issue("ruff:e501", Severity::Major), IssueType::CodeSmell),
+            ExternalIssue::new(issue("codeql:js-sql-injection", Severity::Blocker), IssueType::Vulnerability),
+        ]);
+
+        // Imported issues are ordinary issues: they show up in the report,
+        // in the severity facets the gate reads, and in the ratings.
+        assert_eq!(report.issues().len(), 2);
+        assert_eq!(report.measure(&key("blocker_issues")), Some(1.0));
+        assert_eq!(report.measure(&key("major_issues")), Some(1.0));
+        assert_eq!(report.security_rating(), Rating::from_severity(Severity::Blocker));
+        // Only the vulnerability moved Security; nothing claimed to be a Bug,
+        // so Reliability stays at its unblemished default.
+        assert_eq!(report.reliability_rating(), Rating::default());
+        // No effort was supplied, so no debt was invented.
+        assert_eq!(report.metrics().debt_minutes(), 0);
+        assert_eq!(report.metrics().lines_of_code(), 0);
+    }
+
+    #[test]
+    fn an_external_issue_with_an_effort_estimate_adds_debt_and_per_rule_effort() {
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        let rule = RuleId::new("gosec:g401").unwrap();
+        report.add_external_issues(vec![ExternalIssue {
+            issue: Issue::new(rule.clone(), Severity::Major, "weak hash", "hash.go", yunq_ast::Span::new(3, 1, 3, 9)),
+            issue_type: IssueType::Vulnerability,
+            remediation_effort_minutes: 15,
+        }]);
+
+        assert_eq!(report.metrics().debt_minutes(), 15);
+        assert_eq!(report.remediation_effort().by_rule.get(&rule), Some(&15));
+        assert_eq!(report.remediation_effort().by_component.get("hash.go"), Some(&15));
     }
 }

@@ -1,6 +1,6 @@
--- Per-analysis measure history (issue #26): SonarQube-style
--- `api/measures/search_history` and `api/components/tree` need a time
--- series of scalar measures per analysis, which nothing before this
+-- Per-analysis measure history (issue #26): the measure-history and
+-- component-tree endpoints need a time series of scalar
+-- measures per analysis, which nothing before this
 -- migration persisted — `analyses` only ever carried a couple of summary
 -- columns (`lines_of_code`, `issue_total`).
 --

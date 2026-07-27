@@ -522,7 +522,7 @@ impl From<&SoftwareQualityImpact> for ImpactDto {
 }
 
 /// A rule's classic type and MQR impacts, indexed by rule id — the same
-/// dual classification SonarQube exposes on `GET /rules`, looked up here so
+/// dual classification `GET /rules` exposes, looked up here so
 /// `GET /issues` can carry it on every issue too without a schema change:
 /// an issue's classification is entirely determined by which rule raised it.
 static RULE_CLASSIFICATIONS: LazyLock<HashMap<String, (IssueType, Vec<SoftwareQualityImpact>)>> =

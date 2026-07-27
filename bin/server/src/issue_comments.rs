@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn body_validation_rules_match_sonarqube_conventions() {
+    fn body_validation_rejects_empty_and_whitespace_only_bodies() {
         assert!(IssueComment::is_valid_body("ok"));
         assert!(!IssueComment::is_valid_body(""));
         assert!(!IssueComment::is_valid_body("   "));

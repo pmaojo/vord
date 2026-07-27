@@ -6,4 +6,4 @@ version = "0.1.1"
 [analysis]
 sources = ["bin", "core", "infra", "parsers", "rulesets"]
 exclusions = ["**/fixtures/**", "**/target/**"]
-profile = "Sonar way"
+profile = "yunq way"

@@ -74,14 +74,14 @@ fn all_default_parsers() -> Vec<Box<dyn yunq_rules_engine::AstParser>> {
 }
 
 /// Builds the default analyzer: both parsers, every shipped rule, and the
-/// built-in "Sonar way" profile (`yunq_profiles::sonar_way`) — a curated
+/// built-in "yunq way" profile (`yunq_profiles::default_profile`) — a curated
 /// per-language activation baseline, not merely "every registered rule at
 /// its default severity". This is what a project with no explicit profile
 /// assignment gets (see issue #22): there is currently no per-project
 /// profile assignment mechanism in this codebase (mirroring the note in
 /// `bin/server/src/ops.rs` that per-project *gate* assignment exists but
-/// per-project *profile* assignment is still "Fase 3 territory"), so Sonar
-/// way is the sole default every scan uses today.
+/// per-project *profile* assignment is still "Fase 3 territory"), so the
+/// yunq way profile is the sole default every scan uses today.
 pub fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
 where
     S: IssueStorage + HotspotStorage,
@@ -102,7 +102,7 @@ where
         .chain(yunq_rules_architecture::all_cross_rules())
         .chain(yunq_rules_smells::all_cross_rules())
         .collect();
-    let profile = yunq_rules_engine::sonar_way();
+    let profile = yunq_rules_engine::default_profile();
 
     let mut service = AnalyzerService::new(profile, storage, metrics);
     for parser in all_default_parsers() {

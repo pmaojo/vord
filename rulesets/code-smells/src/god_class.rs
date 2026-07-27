@@ -29,9 +29,9 @@ impl GodClassRule {
 }
 
 impl Default for GodClassRule {
-    /// SonarQube's own "Too Many Methods"/"Too Many Fields" family of
-    /// checks defaults in this range; picked here as a single combined
-    /// threshold rather than two separate rules.
+    /// "Too many methods"/"too many fields" checks conventionally default in
+    /// this range; picked here as a single combined threshold rather than
+    /// two separate rules.
     fn default() -> Self {
         Self::new(20, 15)
     }

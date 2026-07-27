@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 /// SLA windows by severity — how long a hotspot can sit in `ToReview`
-/// before being considered breached. Maps roughly to SonarQube's default.
+/// before being considered breached.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HotspotSlaPolicy {
     pub blocker_hours: u32,

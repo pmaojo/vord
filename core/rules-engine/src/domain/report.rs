@@ -181,7 +181,7 @@ impl Metrics {
         &self.remediation_effort
     }
 
-    /// SonarQube's formula: comments as a share of comments + code lines.
+    /// Comments as a share of comments + code lines.
     pub fn comment_lines_density(&self) -> f64 {
         let denominator = self.lines_of_code + self.structural.comment_lines;
         if denominator == 0 {
@@ -622,8 +622,8 @@ impl AnalysisReport {
         self.issues.iter().map(Issue::severity).max()
     }
 
-    /// Maintainability rating (A–E) from the technical debt ratio —
-    /// SonarQube's SQALE model, not the worst severity present.
+    /// Maintainability rating (A–E) from the technical debt ratio, not
+    /// from the worst severity present.
     pub fn rating(&self) -> Rating {
         let ratio = yunq_profiles::debt_ratio(
             self.metrics.debt_minutes() as f64,
@@ -635,8 +635,7 @@ impl AnalysisReport {
 
     /// Reliability rating (A–E): worst severity among open `Bug` issues.
     /// A different algorithm from [`Self::rating`] — a worst-severity
-    /// lookup, not a cost ratio — per SonarQube's
-    /// `ReliabilityAndSecurityRatingMeasuresVisitor`.
+    /// lookup, not a cost ratio.
     pub fn reliability_rating(&self) -> Rating {
         self.metrics.reliability_rating()
     }
@@ -701,7 +700,7 @@ fn severity_measure(report: &AnalysisReport, severity: Severity) -> Option<f64> 
     Some(*report.metrics.issues_by_severity().get(&severity).unwrap_or(&0) as f64)
 }
 
-/// SonarQube's numeric encoding for the A–E letter ratings (`1.0`..`5.0`),
+/// Numeric encoding for the A–E letter ratings (`1.0`..`5.0`),
 /// so ratings can drive quality gate conditions like any other measure
 /// (e.g. `reliability_rating > 1.0` fails the gate on any open bug).
 fn rating_measure(rating: Rating) -> f64 {

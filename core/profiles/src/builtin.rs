@@ -1,7 +1,6 @@
-//! The built-in "Sonar way" profile — issue #22's equivalent of
-//! SonarQube's default profile: a curated, sensible rule-activation
-//! baseline per language, active for any project with no explicit profile
-//! assignment.
+//! The built-in "yunq way" profile (issue #22): a curated, sensible
+//! rule-activation baseline per language, active for any project with no
+//! explicit profile assignment.
 //!
 //! This crate can't depend on the ruleset crates (`rulesets/*`) or
 //! `core/rules-engine` without creating a dependency cycle — they depend on
@@ -18,11 +17,11 @@
 //! here (not `yunq_ast::LanguageIdentifier`) to keep this crate
 //! dependency-free — pass `LanguageIdentifier::as_str()` at the call site.
 //!
-//! `sonar_way_for_language` gives the per-language profile (Rust,
+//! `default_profile_for_language` gives the per-language profile (Rust,
 //! TypeScript/JavaScript and Python are curated in full detail per the
 //! issue; every other language `LanguageIdentifier` supports gets at least
 //! the language-agnostic baseline plus whatever language-specific rules
-//! exist for it). `sonar_way` is the combined profile across every
+//! exist for it). `default_profile` is the combined profile across every
 //! supported language — what a polyglot repo's analyzer run actually uses
 //! when no project-specific profile is configured, since a single scan
 //! sees many languages at once and rules already self-filter per file via
@@ -32,8 +31,8 @@ use std::collections::HashMap;
 
 use crate::{QualityProfile, RuleId, Severity};
 
-/// The built-in profile's name, matching SonarQube's own "Sonar way".
-pub const SONAR_WAY_NAME: &str = "Sonar way";
+/// The built-in profile's name.
+pub const DEFAULT_PROFILE_NAME: &str = "yunq way";
 
 fn rule(raw: &str) -> RuleId {
     RuleId::new(raw).expect("builtin rule id is valid namespace:code")
@@ -43,7 +42,7 @@ fn rule(raw: &str) -> RuleId {
 /// for every language, or the rule is a whole-program cross-file rule run
 /// once per scan regardless of language): secrets detection, generic OWASP
 /// checks, and generic maintainability smells. Baseline for every
-/// language's Sonar way profile.
+/// language's yunq way profile.
 fn generic_activations() -> Vec<(RuleId, Severity)> {
     vec![
         // rulesets/secrets — provider-pattern rules, all Severity::Blocker.
@@ -209,7 +208,7 @@ fn iac_activations() -> Vec<(RuleId, Severity)> {
 
 /// Every other `LanguageIdentifier` (C, C++, PHP, C#, Kotlin, Swift, Scala,
 /// CSS, XML, Bash, Groovy, Lua, Elixir): no curated language-specific
-/// ruleset exists yet, so Sonar way falls back to the language-agnostic
+/// ruleset exists yet, so yunq way falls back to the language-agnostic
 /// baseline plus the one OWASP rule (`permissive-cors`) that applies to
 /// every non-Rust language.
 fn generic_language_activations() -> Vec<(RuleId, Severity)> {
@@ -218,7 +217,7 @@ fn generic_language_activations() -> Vec<(RuleId, Severity)> {
     activations
 }
 
-/// The curated Sonar way activation set for one language, keyed by
+/// The curated yunq way activation set for one language, keyed by
 /// `LanguageIdentifier::as_str()`. Unrecognized language strings still get
 /// the safe generic baseline rather than an empty profile.
 fn activations_for(language: &str) -> Vec<(RuleId, Severity)> {
@@ -237,7 +236,7 @@ fn activations_for(language: &str) -> Vec<(RuleId, Severity)> {
 }
 
 /// Every language `LanguageIdentifier` supports, used to build the
-/// combined [`sonar_way`] profile. Kept in sync with
+/// combined [`default_profile`] profile. Kept in sync with
 /// `yunq_ast::LanguageIdentifier::new`'s match arms by hand (this crate
 /// can't depend on `yunq-ast` — see module docs).
 const ALL_LANGUAGES: &[&str] = &[
@@ -246,31 +245,31 @@ const ALL_LANGUAGES: &[&str] = &[
     "lua", "elixir",
 ];
 
-/// The Sonar way profile curated for a single language — e.g. what a
+/// The yunq way profile curated for a single language — e.g. what a
 /// project pinned to one language would use, or what a "compare my profile
-/// against Sonar way for Python" admin view would diff against.
-pub fn sonar_way_for_language(language: &str) -> QualityProfile {
+/// against yunq way for Python" admin view would diff against.
+pub fn default_profile_for_language(language: &str) -> QualityProfile {
     QualityProfile::from_activations(
-        format!("{SONAR_WAY_NAME} ({language})"),
+        format!("{DEFAULT_PROFILE_NAME} ({language})"),
         activations_for(language),
     )
 }
 
-/// The combined, instance-wide Sonar way profile: the union of every
+/// The combined, instance-wide yunq way profile: the union of every
 /// supported language's curated activations. This is what a polyglot
 /// repo's analyzer run uses when a project has no explicit profile
 /// assignment — a single scan can see files in several languages, and each
 /// rule already self-filters to the languages it applies to via
 /// `Rule::applies_to`, so one combined profile is equivalent to picking the
 /// right per-language one for every file.
-pub fn sonar_way() -> QualityProfile {
+pub fn default_profile() -> QualityProfile {
     let mut merged: HashMap<RuleId, Severity> = HashMap::new();
     for language in ALL_LANGUAGES {
         for (rule, severity) in activations_for(language) {
             merged.insert(rule, severity);
         }
     }
-    QualityProfile::from_activations(SONAR_WAY_NAME, merged)
+    QualityProfile::from_activations(DEFAULT_PROFILE_NAME, merged)
 }
 
 #[cfg(test)]
@@ -278,13 +277,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sonar_way_name_is_stable() {
-        assert_eq!(sonar_way().name(), "Sonar way");
+    fn default_profile_name_is_stable() {
+        assert_eq!(default_profile().name(), "yunq way");
     }
 
     #[test]
     fn rust_profile_activates_rust_specific_rules_at_their_real_default_severity() {
-        let profile = sonar_way_for_language("rust");
+        let profile = default_profile_for_language("rust");
         assert_eq!(
             profile.severity_of(&RuleId::new("rust:mem-transmute").unwrap()),
             Some(Severity::Critical)
@@ -299,14 +298,14 @@ mod tests {
 
     #[test]
     fn rust_profile_does_not_activate_typescript_or_react_rules() {
-        let profile = sonar_way_for_language("rust");
+        let profile = default_profile_for_language("rust");
         assert!(!profile.is_active(&RuleId::new("owasp:xss").unwrap()));
         assert!(!profile.is_active(&RuleId::new("react:missing-list-key").unwrap()));
     }
 
     #[test]
     fn typescript_profile_activates_xss_and_react_rules() {
-        let profile = sonar_way_for_language("typescript");
+        let profile = default_profile_for_language("typescript");
         assert_eq!(profile.severity_of(&RuleId::new("owasp:xss").unwrap()), Some(Severity::Blocker));
         assert_eq!(
             profile.severity_of(&RuleId::new("react:direct-state-mutation").unwrap()),
@@ -317,7 +316,7 @@ mod tests {
 
     #[test]
     fn python_profile_activates_insecure_deserialization() {
-        let profile = sonar_way_for_language("python");
+        let profile = default_profile_for_language("python");
         assert_eq!(
             profile.severity_of(&RuleId::new("owasp:insecure-deserialization").unwrap()),
             Some(Severity::Critical)
@@ -328,7 +327,7 @@ mod tests {
     #[test]
     fn every_language_activates_the_generic_baseline() {
         for language in ALL_LANGUAGES {
-            let profile = sonar_way_for_language(language);
+            let profile = default_profile_for_language(language);
             assert!(
                 profile.is_active(&RuleId::new("owasp:hardcoded-secret").unwrap()),
                 "{language} should activate the generic hardcoded-secret rule"
@@ -342,15 +341,15 @@ mod tests {
 
     #[test]
     fn unrecognized_language_falls_back_to_the_generic_baseline() {
-        let profile = sonar_way_for_language("cobol");
+        let profile = default_profile_for_language("cobol");
         assert!(profile.is_active(&RuleId::new("owasp:hardcoded-secret").unwrap()));
         assert!(profile.is_active(&RuleId::new("owasp:permissive-cors").unwrap()));
         assert!(!profile.is_active(&RuleId::new("rust:mem-forget").unwrap()));
     }
 
     #[test]
-    fn combined_sonar_way_is_the_union_of_every_language() {
-        let combined = sonar_way();
+    fn combined_default_profile_is_the_union_of_every_language() {
+        let combined = default_profile();
         assert!(combined.is_active(&RuleId::new("rust:mem-transmute").unwrap()));
         assert!(combined.is_active(&RuleId::new("owasp:xss").unwrap()));
         assert!(combined.is_active(&RuleId::new("owasp:insecure-deserialization").unwrap()));

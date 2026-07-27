@@ -26,7 +26,7 @@ impl IssueTag {
     }
 
     /// Reject empty / whitespace-only tags, tags with control chars, and
-    /// tags longer than 64 chars. Mirrors SonarQube's tag naming rules.
+    /// tags longer than 64 chars.
     pub fn is_valid_label(tag: &str) -> bool {
         if tag.is_empty() || tag.len() > 64 { return false; }
         tag.chars().all(|c| !c.is_control() && c != ' ' && c != '\n')

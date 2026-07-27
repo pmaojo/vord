@@ -65,8 +65,8 @@ pub trait Rule: Send + Sync {
         RuleMetadata::default()
     }
 
-    /// The classic SonarQube classification: which of Bug/Vulnerability/
-    /// CodeSmell this rule's findings are. Defaults to `CodeSmell`, the
+    /// The classic classification: which of Bug/Vulnerability/CodeSmell
+    /// this rule's findings are. Defaults to `CodeSmell`, the
     /// common case — override for rules that detect a Bug or Vulnerability.
     fn issue_type(&self) -> IssueType {
         IssueType::CodeSmell
@@ -74,11 +74,11 @@ pub trait Rule: Send + Sync {
 
     /// MQR software-quality impacts (reliability/security/maintainability ×
     /// severity) this rule's findings carry, alongside [`Rule::issue_type`] —
-    /// modern SonarQube classifies every issue both ways at once rather than
-    /// picking one. Defaults to the single impact SonarQube's own
-    /// classic-to-MQR migration derives from `issue_type` and
-    /// `default_severity`; override for rules that affect more than one
-    /// quality (e.g. a vulnerability that's also a reliability risk).
+    /// every issue is classified both ways at once rather than one or the
+    /// other. Defaults to the single impact `default_impact` derives from
+    /// `issue_type` and `default_severity`; override for rules that affect
+    /// more than one quality (e.g. a vulnerability that's also a
+    /// reliability risk).
     fn software_quality_impacts(&self) -> Vec<SoftwareQualityImpact> {
         vec![default_impact(self.issue_type(), self.default_severity())]
     }

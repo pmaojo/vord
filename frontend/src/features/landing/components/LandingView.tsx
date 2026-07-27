@@ -74,11 +74,11 @@ export const LandingView: React.FC = () => {
     {
       id: 'api',
       title: 'API & Web Platform',
-      subtitle: 'SonarQube Parity & REST Services',
+      subtitle: 'REST Services & OpenAPI Contract',
       icon: Globe,
       color: 'text-teal-600 bg-teal-50 border-teal-200',
       features: [
-        'REST API with complete SonarQube v10 endpoint parity',
+        'Complete REST API, generated OpenAPI 3.1 contract',
         'Faceted search, component trees & line-level source blame annotations',
         'Token-based authentication & OAuth integration (GitHub/GitLab)',
         'Webhooks engine with exponential backoff retry logic',

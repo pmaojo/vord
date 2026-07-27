@@ -1,8 +1,7 @@
 //! Line-level source annotations (issue #26): `GET
 //! /api/projects/{key}/sources` returns, per line of one file, the issues
-//! raised on it, its coverage hit count and its SCM blame — mirrors
-//! SonarQube's `api/sources/lines`, with two deliberate, documented scope
-//! cuts:
+//! raised on it, its coverage hit count and its SCM blame, with two
+//! deliberate, documented scope cuts:
 //!
 //! - **No source line text.** yunq's server never persists checked-out
 //!   source content — the worker analyzes a transient filesystem checkout
@@ -169,9 +168,8 @@ fn merge_lines(
         .collect()
 }
 
-/// Per-line issue and coverage annotations for one file — mirrors
-/// SonarQube's `api/sources/lines`; see module docs for what's deliberately
-/// out of scope (source text, duplication, blame).
+/// Per-line issue and coverage annotations for one file; see module docs
+/// for what's deliberately out of scope (source text, duplication, blame).
 #[utoipa::path(
     get,
     path = "/api/projects/{key}/sources",

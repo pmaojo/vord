@@ -1129,7 +1129,7 @@
     },
     "/api/projects/{key}/components/tree": {
       "get": {
-        "summary": "A project's components (currently: files only — see module docs) with\ntheir latest measures, as of the most recent analysis — mirrors\nSonarQube's `api/components/tree` navigation, minus directory nesting.",
+        "summary": "A project's components (currently: files only — see module docs) with\ntheir latest measures, as of the most recent analysis. Flat navigation,\nminus directory nesting.",
         "operationId": "component_tree",
         "parameters": [
           {
@@ -1300,7 +1300,7 @@
     },
     "/api/projects/{key}/measures/history": {
       "get": {
-        "summary": "Time series of a project's (or one of its files') measures across its\nanalyses — mirrors SonarQube's `api/measures/search_history`.",
+        "summary": "Time series of a project's (or one of its files') measures across its\nanalyses.",
         "operationId": "measure_history",
         "parameters": [
           {
@@ -1530,7 +1530,7 @@
     },
     "/api/projects/{key}/sources": {
       "get": {
-        "summary": "Per-line issue and coverage annotations for one file — mirrors\nSonarQube's `api/sources/lines`; see module docs for what's deliberately\nout of scope (source text, duplication, blame).",
+        "summary": "Per-line issue and coverage annotations for one file; see module docs\nfor what's deliberately out of scope (source text, duplication, blame).",
         "operationId": "sources",
         "parameters": [
           {
@@ -2589,7 +2589,7 @@
       },
       "ComponentTreeNodeDto": {
         "type": "object",
-        "description": "One node of the nested `tree` view: a directory (`qualifier: \"DIR\"`,\n`children` populated, `measures` empty) or a file (`qualifier: \"FIL\"`,\n`measures` populated, no children) — SonarQube's own DIR/FIL qualifier\nvocabulary, so existing SonarQube-shaped tooling recognizes the field.",
+        "description": "One node of the nested `tree` view: a directory (`qualifier: \"DIR\"`,\n`children` populated, `measures` empty) or a file (`qualifier: \"FIL\"`,\n`measures` populated, no children). The DIR/FIL qualifier vocabulary is\nthe conventional one, so existing tooling recognizes the field.",
         "required": [
           "name",
           "path",

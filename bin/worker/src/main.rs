@@ -86,7 +86,7 @@ async fn run_housekeeping_loop(storage: PgIssueStorage) {
     }
 }
 
-/// Built-in "Sonar way" profile as the default rule-activation set (issue
+/// Built-in "yunq way" profile as the default rule-activation set (issue
 /// #22) — replaces the old ad-hoc "every registered rule at its default
 /// severity" profile. There's no per-project profile assignment mechanism
 /// in this codebase yet (see the note in `bin/server/src/ops.rs` — that's
@@ -112,7 +112,7 @@ where
         .chain(yunq_rules_architecture::all_cross_rules())
         .chain(yunq_rules_smells::all_cross_rules())
         .collect();
-    let profile = yunq_rules_engine::sonar_way();
+    let profile = yunq_rules_engine::default_profile();
     let mut service = AnalyzerService::new(profile, storage, metrics)
         .register_parser(Box::new(TypeScriptParser::new()))
         .register_parser(Box::new(RustParser::new()))

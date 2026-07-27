@@ -12,6 +12,6 @@ pub use issue::{
 };
 pub use job::{InvalidScanJobError, ScanJob};
 pub use report::{
-    AnalysisReport, CoverageReport, CoverageSummary, FileCoverage, InvalidCoverageError, Metrics,
-    TestReportSummary, TestSuiteSummary,
+    AnalysisReport, BlameLineInfo, CoverageReport, CoverageSummary, ExternalIssue, FileBlame,
+    FileCoverage, InvalidCoverageError, Metrics, TestReportSummary, TestSuiteSummary,
 };

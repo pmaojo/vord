@@ -1,18 +1,16 @@
-//! A–E maintainability rating, replicating SonarQube's SQALE model
-//! (`DebtRatingGrid` + `MaintainabilityMeasuresVisitor`): the rating is
-//! looked up from the *technical debt ratio* — remediation effort as a
-//! fraction of what it would cost to write the code from scratch — not from
-//! the worst issue severity present. A file with a thousand trivial-effort
-//! minor issues can rate worse than one with a single quick-fix blocker.
+//! A–E maintainability rating, derived from a *technical debt ratio* —
+//! remediation effort as a fraction of what it would cost to write the code
+//! from scratch — rather than from the worst issue severity present. A file
+//! with a thousand trivial-effort minor issues can rate worse than one with
+//! a single quick-fix blocker.
 //!
 //! Reliability and Security ratings are a *different* algorithm from
-//! Maintainability, not the same grid applied twice: SonarQube's
-//! `ReliabilityAndSecurityRatingMeasuresVisitor` looks up each issue's rating
-//! via `Rating.RATING_BY_SEVERITY` (`server/sonar-server-common/.../Rating.java`)
-//! and folds it into the metric for the issue's own type — bugs into
-//! Reliability, vulnerabilities into Security — taking the worst rating
-//! present in each bucket (A if the bucket is empty). Code smells (the only
-//! type Maintainability cares about) contribute to neither.
+//! Maintainability, not the same grid applied twice: each issue's severity
+//! maps directly to a rating, which is folded into the metric for the
+//! issue's own type — bugs into Reliability, vulnerabilities into Security —
+//! taking the worst rating present in each bucket (A if the bucket is
+//! empty). Code smells (the only type Maintainability cares about)
+//! contribute to neither.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -39,17 +37,16 @@ impl Rating {
         }
     }
 
-    /// Rating from a technical debt ratio using SonarQube's default grid
-    /// (`sonar.technicalDebt.ratingGrid` = `0.05,0.1,0.2,0.5`): A ≤ 5%,
-    /// B ≤ 10%, C ≤ 20%, D ≤ 50%, otherwise E.
+    /// Rating from a technical debt ratio using the default grid
+    /// (`0.05,0.1,0.2,0.5`): A ≤ 5%, B ≤ 10%, C ≤ 20%, D ≤ 50%, otherwise E.
     pub fn from_debt_ratio(ratio: f64) -> Self {
         DebtRatingGrid::default().rating_for_ratio(ratio)
     }
 
-    /// Rating from a single issue's severity, mirroring SonarQube's
-    /// `Rating.RATING_BY_SEVERITY`: `BLOCKER -> E`, `CRITICAL -> D`,
-    /// `MAJOR -> C`, `MINOR -> B`, `INFO -> A`. This is the Reliability/
-    /// Security algorithm — worst severity present, not a cost ratio.
+    /// Rating from a single issue's severity: `BLOCKER -> E`,
+    /// `CRITICAL -> D`, `MAJOR -> C`, `MINOR -> B`, `INFO -> A`. This is the
+    /// Reliability/Security algorithm — worst severity present, not a cost
+    /// ratio.
     pub fn from_severity(severity: Severity) -> Self {
         match severity {
             Severity::Blocker => Rating::E,
@@ -75,21 +72,19 @@ impl Default for Rating {
     }
 }
 
-/// Minutes to develop one line of code from scratch — SonarQube's
-/// `sonar.technicalDebt.developmentCost`, default 30.
+/// Minutes to develop one line of code from scratch — the denominator of
+/// the debt ratio, default 30.
 pub const DEFAULT_DEV_COST_MINUTES_PER_LINE: f64 = 30.0;
 
 /// Technical debt ratio = remediation effort / development cost, where
-/// development cost = lines of code × cost per line. Mirrors
-/// `MaintainabilityMeasuresVisitor.computeDensity`.
+/// development cost = lines of code × cost per line.
 pub fn debt_ratio(remediation_minutes: f64, lines_of_code: f64, dev_cost_per_line: f64) -> f64 {
     let development_cost = lines_of_code * dev_cost_per_line;
     if development_cost <= 0.0 { 0.0 } else { remediation_minutes / development_cost }
 }
 
-/// The four upper bounds separating A/B/C/D/E, mirroring
-/// SonarQube's `DebtRatingGrid`: `A = [0, grid[0]]`, `B = (grid[0], grid[1]]`,
-/// … `E = (grid[3], +inf)`.
+/// The four upper bounds separating A/B/C/D/E: `A = [0, grid[0]]`,
+/// `B = (grid[0], grid[1]]`, … `E = (grid[3], +inf)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DebtRatingGrid {
     thresholds: [f64; 4],
@@ -122,8 +117,8 @@ impl DebtRatingGrid {
     }
 }
 
-/// SonarQube's three issue types — which of the three ratings an issue
-/// counts toward. Code smells feed Maintainability (the debt-ratio grid
+/// The three issue types — which of the three ratings an issue counts
+/// toward. Code smells feed Maintainability (the debt-ratio grid
 /// above); bugs and vulnerabilities each get their own worst-severity
 /// rating via [`reliability_and_security_ratings`] instead, and never mix
 /// with each other or with Maintainability.
@@ -219,7 +214,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn debt_ratio_from_sonarqube_docs_example() {
+    fn debt_ratio_is_effort_over_development_cost() {
         // 24,000 minutes of debt over 2,500 LOC at 30 min/line = 32% -> D.
         let ratio = debt_ratio(24_000.0, 2_500.0, DEFAULT_DEV_COST_MINUTES_PER_LINE);
         assert!((ratio - 0.32).abs() < 1e-9);
@@ -248,9 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn rating_by_severity_matches_sonarqube_table() {
-        // Verified against `Rating.RATING_BY_SEVERITY` in
-        // server/sonar-server-common/.../Rating.java.
+    fn rating_by_severity_maps_each_step_of_the_wheel() {
         assert_eq!(Rating::from_severity(Severity::Blocker), Rating::E);
         assert_eq!(Rating::from_severity(Severity::Critical), Rating::D);
         assert_eq!(Rating::from_severity(Severity::Major), Rating::C);

@@ -137,7 +137,7 @@ mod tests {
             language: "rust".to_string(),
             tags: vec!["team/platform".to_string(), "team/infra".to_string()],
             quality_gate_name: Some("yunq-default".to_string()),
-            quality_profile_name: Some("Sonar way".to_string()),
+            quality_profile_name: Some("yunq way".to_string()),
             new_code_override: Some("{\"Days\":7}".to_string()),
             retention_days: Some(90),
         };

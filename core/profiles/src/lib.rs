@@ -11,7 +11,7 @@ mod impact;
 mod rating;
 
 pub use backup::{backup, restore, ProfileBackup, RestoreError, RestorePolicy};
-pub use builtin::{sonar_way, sonar_way_for_language, SONAR_WAY_NAME};
+pub use builtin::{default_profile, default_profile_for_language, DEFAULT_PROFILE_NAME};
 pub use compare::{compare, ProfileDiff, SeverityDifference};
 pub use copy::copy_profile;
 pub use gate::{

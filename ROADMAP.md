@@ -1,16 +1,16 @@
 # yunq Roadmap — the ultraperformant ultimate code analysis platform
 
-Mission: **copy every feature SonarQube provides, then beat it** — on
+Mission: **a complete code-quality platform that beats the incumbents** — on
 performance, on architecture, on developer experience, and on agent-native
 automation. Phase 1 (hexagonal workspace, working analyzer, CLI, SQS/Postgres
 pipeline, OpenAPI contract) is **done**.
 
 **Where yunq wins by design:**
 
-- 100% pure, unit-testable analysis core — SonarQube couples analysis to a
-  JVM platform monolith.
-- OpenAPI 3.1 generated from code as a first-class contract; SonarQube's Web
-  API has no complete formal spec.
+- 100% pure, unit-testable analysis core — the established tools in this
+  space couple analysis to a JVM platform monolith.
+- OpenAPI 3.1 generated from code as a first-class contract; the incumbent
+  web APIs have no complete formal spec.
 - Local-first: full analysis with no server. The server adds persistence,
   history and collaboration — it is never a gatekeeper.
 - Agent-native: the Remediation Agent's verify-before-suggest loop reuses the
@@ -135,7 +135,7 @@ re-analysis on typical PRs.
   today; `def`/`defmodule` detection and everything else works. Roster
   stays open-ended for further user-demand additions (e.g. Dart, Haskell,
   Erlang).
-- **Rule catalog at scale**: port the high-value Sonar rules per language;
+- **Rule catalog at scale**: build out the high-value rules per language;
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.
   26 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
@@ -183,7 +183,7 @@ re-analysis on typical PRs.
   `rulesets/reactive`'s `reactive:missing-unsubscribe` and
   `reactive:subject-never-completed`. All 8 new rules carry both classic
   `IssueType` and MQR impacts and are active by default in the built-in
-  Sonar way profile (`core/profiles/src/builtin.rs`). ✅ **(this session)**
+  yunq way profile (`core/profiles/src/builtin.rs`). ✅ **(this session)**
   the OOP-smell rules (`smells:god-class`, `smells:feature-envy`,
   `smells:refused-bequest`) are now whole-program: converted from `Rule` to
   `CrossFileRule` (`core/rules-engine::CrossFileRule`, same wiring pattern as
@@ -228,8 +228,8 @@ re-analysis on typical PRs.
   `Issue`: rendered, measured, and able to fail the quality gate. This is the
   highest rules-per-LOC lever available — ~600 LOC buys the catalogs of ruff,
   ESLint, clippy, gosec, bandit, semgrep and CodeQL without yunq
-  reimplementing one of their checks, and it is why SonarQube ships ~30
-  external-report importers. Design decisions worth keeping: rule ids are
+  reimplementing one of their checks, and it is why every mature platform in
+  this space ships a shelf of external-report importers. Design decisions worth keeping: rule ids are
   namespaced by emitting tool (`ruff:e501`, `codeql:js-sql-injection`) so
   imported rules never masquerade as native ones; severity prefers
   `properties.security-severity` (CVSS) and otherwise maps `level` *down*
@@ -253,14 +253,14 @@ re-analysis on typical PRs.
   `core/profiles/src/impact.rs`), derived by default from the classic type
   via `default_impact` and overridable per rule. Both classification modes
   are exposed simultaneously on `GET /api/rules` and `GET /api/issues`
-  (`type` + `impacts` fields), matching modern SonarQube.
+  (`type` + `impacts` fields).
 - **Secrets detection**: ✅ dedicated `rulesets/secrets` crate — entropy
   detection (`entropy.rs`), provider patterns for AWS/GCP/Azure/Stripe/
   private-key blocks (`provider_patterns.rs`), and custom-pattern support for
   private/self-hosted services (`custom_pattern.rs`); wired into all three
   composition roots (CLI, server, worker).
 - **Duplication detection (CPD)**: ✅ core algorithm ported from
-  `sonar-duplications`' `BlockChunker`/`CloneIndex` — statement-repetition
+  block hashing — statement-repetition
   collapsing, incremental Rabin-Karp rolling hash (base 31, default block
   size 5), cross-file hash-indexed matching (`core/duplication`). ✅
   Tokenizer gap closed: statements are now real per-language tokens, not
@@ -330,12 +330,12 @@ re-analysis on typical PRs.
   intra-file (`core/taint/src/lib.rs`) and cross-file engines. Wired into
   `owasp:xss` (`sanitize`/`escapeHtml`/`encodeURIComponent`) and
   `owasp:injection`/`owasp:cross-file-injection` (`escape`/`escapeShellArg`).
-  SonarQube sells the category commercially; yunq ships it open.
+  Usually a paid-tier category; yunq ships it open.
 
 ### Rule-coverage levers, ranked by rules-per-LOC
 
-Hand-writing one `Rule` impl per check does not scale to SonarQube's
-catalog size. Four levers change the ratio; they are listed in the order
+Hand-writing one `Rule` impl per check does not scale to a catalog of
+thousands. Four levers change the ratio; they are listed in the order
 their return arrives, not their ambition.
 
 1. **External report import** — ✅ **done** (SARIF, above). The only lever
@@ -364,8 +364,8 @@ their return arrives, not their ambition.
    (same-file scope, declared-type extraction, `ClassRegistry`); extending
    it to a cross-file symbol table plus lightweight type inference unblocks
    hundreds of rules at once. One investment, many rules.
-4. **Symbolic execution over the CFG.** `sonar-java-symbolic-execution` is
-   the existence proof: one engine yields null-deref, resource leaks,
+4. **Symbolic execution over the CFG.** The category is well-proven
+   elsewhere: one engine yields null-deref, resource leaks,
    always-true conditions, division by zero — dozens of high-value rules
    from a single piece. Reading: Cousot (abstract interpretation), Calcagno
    & Distefano (Infer, separation logic).
@@ -377,10 +377,11 @@ is the framework that generalizes it and makes it context-sensitive.
 
 **Sourcing, and what is off-limits.** The catalogs are free and are the
 right source for *what* to detect: CWE (MITRE), OWASP Top 10 and ASVS, CERT
-Coding Standards. SonarSource's own analyzer repositories are not usable —
-the SSAL license explicitly excludes building substantially similar
-functionality, and excludes AI ingestion of that code. Other catalogs
-(ESLint, Clippy, Semgrep rules) each need their license checked per project
+Coding Standards. Analyzer repositories under source-available (non-open)
+licenses are off-limits: those licenses typically forbid building
+substantially similar functionality and forbid AI ingestion of the code, so
+they are not a source for this work at all. Genuinely open catalogs (ESLint,
+Clippy, Semgrep rules) each still need their license checked per project
 before being leaned on; that verification has not been done.
 
 ## Phase 3 — Project & quality model (Clean as You Code)
@@ -398,7 +399,7 @@ before being leaned on; that verification has not been done.
   overrides, inheritance chains (`QualityProfile::with_parent`), and now
   persisted as such (migration `0018` adds a self-referencing `parent_id` —
   inheritance previously existed only in the pure core, never durable). A
-  built-in "Sonar way" equivalent (`core/profiles/src/builtin.rs`) — curated
+  built-in "yunq way" equivalent (`core/profiles/src/builtin.rs`) — curated
   per-language activation baselines hand-verified against every rule's real
   `RuleId`/`default_severity()`, wired as the actual default `AnalyzerService`
   profile in both the CLI and worker (no per-project profile assignment
@@ -409,8 +410,7 @@ before being leaned on; that verification has not been done.
   serde-free portable `ProfileBackup` value with a reject/overwrite
   collision policy — never silently clobbers) — all exposed via
   `bin/server/src/profiles_admin.rs`.
-- **Ratings & debt**: ✅ maintainability rating ported from SonarQube's SQALE
-  model (`DebtRatingGrid` + `MaintainabilityMeasuresVisitor`) —
+- **Ratings & debt**: ✅ maintainability rating from a debt-ratio grid —
   `Rating::from_debt_ratio` in `core/profiles` uses the real
   remediation-effort ÷ development-cost ratio (30 min/LOC, grid
   `0.05/0.1/0.2/0.5`), not a worst-severity shortcut. ✅ Reliability and
@@ -420,7 +420,7 @@ before being leaned on; that verification has not been done.
   (`AnalyzerService::analyze_files`, both the per-file and cross-file rule
   paths), exposed as `AnalysisReport::reliability_rating`/`security_rating`
   and as `reliability_rating`/`security_rating`/`maintainability_rating`
-  measures (`1.0`–`5.0`, SonarQube's own encoding) usable in quality gate
+  measures (numerically encoded `1.0`–`5.0`) usable in quality gate
   conditions. ✅ Remediation effort aggregation by rule and by component
   (`RemediationEffortSummary`) accumulates alongside, every issue counted
   regardless of type; surfaced in the CLI's JSON output
@@ -476,7 +476,7 @@ before being leaned on; that verification has not been done.
   (`bin/server/src/measures.rs::build_tree`; the underlying
   `analysis_measures` storage stays a flat per-file table, no schema change
   needed) since directory nesting has no server-side meaning beyond
-  presentation. Nodes use SonarQube's own DIR/FIL qualifier vocabulary.
+  presentation. Nodes use the conventional DIR/FIL qualifier vocabulary.
   `tree` is always name-sorted (a `BTreeMap` per level) since `sort`/
   `direction` describe a flat ordering that stops making sense once nodes
   are grouped by parent — `components` remains the place to ask for e.g.
@@ -542,10 +542,10 @@ before being leaned on; that verification has not been done.
   `bin/cli/src/monorepo_scan.rs`): discovers every `yunq.toml` under the
   scan root, treats each as an independent project boundary, and aggregates
   per-project results instead of flattening them into one report.
-- **IDE integration (SonarLint equivalent)**: `yunq-lsp` — an LSP server
-  over the same core, with connected mode syncing the server's profile and
-  issue suppressions. In-editor analysis in any LSP-capable editor beats
-  SonarLint's per-IDE plugins.
+- **IDE integration**: `yunq-lsp` — an LSP server over the same core, with
+  connected mode syncing the server's profile and issue suppressions.
+  In-editor analysis in any LSP-capable editor, with no per-IDE plugin to
+  build or maintain.
 
 ## Phase 6 — AI: Remediation Agent & AI code governance
 
@@ -591,14 +591,14 @@ before being leaned on; that verification has not been done.
   for large teams** (the worker fleet + per-core parallelism from the
   performance pillar).
 
-## Enterprise-edition parity checklist
+## Enterprise feature checklist
 
-Every SonarQube Enterprise selling point, mapped — and everything ships
-open in yunq, not behind an edition wall:
+The capabilities usually reserved for a paid enterprise tier, mapped — and
+everything ships open in yunq, not behind an edition wall:
 
-| SonarQube Enterprise feature | yunq phase |
+| Enterprise-tier capability | yunq phase |
 |---|---|
-| Everything in Developer edition | Phases 2–5 (branch/PR analysis, taint, ALM decoration) |
+| Branch/PR analysis, taint analysis, ALM decoration | Phases 2–5 |
 | AI coded fix suggestions at the click of a button | Phase 6a/6b (Remediation Agent, "Assign to Agent") |
 | Executive views: projects, applications, portfolios | Phase 7 (portfolios + executive dashboards) |
 | Govern standards across teams on different DevOps platforms | Phase 3 (gates/profiles) + Phase 5 (`AlmGateway`) + Phase 7 |
@@ -607,20 +607,21 @@ open in yunq, not behind an edition wall:
 | Enterprise-grade IAM | Phase 4 (tokens, OAuth, permissions) → Phase 7 (SAML/OIDC, SCIM, LDAP) |
 | ~80% more issue types, +6 languages, private-service secrets | Phase 2 (open language roster, rule catalog, multi-provider secrets incl. self-hosted/private services) |
 
-## Algorithm parity against upstream SonarQube
+## Algorithm notes
 
-Tracks specific algorithms audited against a clone of `SonarSource/sonarqube`
-to confirm yunq replicates the actual logic rather than a shortcut that
-merely looks similar on the happy path.
+Records the load-bearing algorithm choices — where a naive implementation
+would look right on the happy path and be wrong in practice, and what yunq
+does instead.
 
-| Algorithm | Upstream source | Status |
-|---|---|---|
-| Duplication detection (CPD) | `sonar-duplications/.../block/BlockChunker.java`, `index/` | ✅ Ported: statement-repetition collapsing, Rabin-Karp rolling hash (base 31, block size 5), cross-file hash index (`core/duplication`). Previously a raw per-line sliding-window hash with no repetition collapsing or shared index — fixed. |
-| Maintainability rating (A–E) | `server/sonar-server-common/.../DebtRatingGrid.java`, `MaintainabilityMeasuresVisitor.java` | ✅ Ported: rating from technical debt ratio (remediation effort ÷ (LOC × 30 min)) against grid `[0.05, 0.1, 0.2, 0.5]` (`core/profiles::Rating::from_debt_ratio`). Previously derived from worst issue severity present, which is not SonarQube's algorithm at all — fixed. |
-| Cognitive complexity | `sonar-java/.../ast/visitors/CognitiveComplexityVisitor.java`, `eslint-plugin-sonarjs/src/rules/cognitive-complexity.ts` (no local vendored clone; fetched directly from `SonarSource/sonar-java` and `SonarSource/eslint-plugin-sonarjs` on GitHub) | ⚠️ Re-verified against the real upstream source (not just the marketing white paper, which is bot-blocked from automated fetch). **Confirmed matching**: the nesting-weight formula (`1 + current nesting` for `if`/loops/`switch`/ternary/`catch`), the flat `+1` for `else`/`else if` without extra nesting, the else-if chain not compounding nesting per link, the single flat cost for a switch regardless of case count, the flat `+1` for a *labeled* `break`/`continue` only, and the boolean-operator-sequence rule (`+1` on the first operator and again only when the operator changes, parens transparent) — all verified against `CognitiveComplexityVisitor.java`'s actual logic and against `rulesets/code-smells/src/cognitive_complexity.rs`'s existing test suite, which already ports SonarSource's own `sonar-java` fixture files (`CognitiveComplexityMethodCheckMax0.java` et al.) and matches their documented totals exactly. **Recursion rule**: ✅ direct self-recursion now ported — a flat `+1` (not nesting-weighted; recursion is a "meta-loop", charged like a labeled jump) for a call within a `FunctionDef` whose callee resolves to that same function's own declared name, covering both plain `foo()` calls and method-style `self.foo()`/`this.foo()` calls (`fn_name`/`is_recursive_call` in `rulesets/code-smells/src/cognitive_complexity.rs`, regression-tested against SonarSource's own whitepaper `Sum` recursion example). Indirect/mutual recursion across functions remains out of scope — it needs a whole-file call graph, which this same-file rule intentionally doesn't build (a cross-function heuristic would silently under- or over-fire across 18 wired grammars); tracked as a follow-up, not a gap in what was scoped here. **Documented, not fixed**: SonarSource's own plugins disagree on nested function/lambda treatment — `sonar-java`'s `visitLambdaExpression` folds a lambda body into the *enclosing* method's score (nesting++ only, no isolation) and `sonar-dotnet` does the same for C# local functions, while `eslint-plugin-sonarjs` pushes a fresh isolated scope for every `:function` (declarations and arrow functions alike) and legacy `sonar-python` skips nested `FUNCDEF`s from the outer scan entirely. yunq isolates every `NodeKind::FunctionDef` (closures included) as its own independently-scored unit, matching the actively-maintained JS/TS reference implementation rather than the Java/C# quirk — a deliberate choice, not a bug, kept as-is. |
-| New Code / issue tracking across analyses | `org.sonar.core.issue.tracking.Tracker`/`LineHashSequence` (scanner-engine, separate repo) | ✅ Ported the content-hash-first cascade: `core/rules-engine/src/new_code.rs::Baseline` now hashes the real source line at each issue's span (whitespace-normalized, mirrors `LineHashSequence`) and matches on (rule, file, line-hash) — immune to a message drifting on trivial edits (e.g. "cognitive complexity 7" → "8") and tolerant of the line moving elsewhere in the file — falling back to the old (rule, file, message) fingerprint only when no source text is available (legacy baseline files, or a caller with no filesystem access), same as SonarQube's own last-resort pass. `bin/cli::FileLineHashes` plumbs real file content in; `infra/fs::BaselineStore` persists per-issue hashes with fail-open migration for baseline files written by older yunq versions. Previously a bare (rule, file, message) fingerprint with no source access at all — fixed and verified live via the CLI (same line, message-only drift → `new_issue_total` stays 0). |
-| Quality gate evaluation | Sonar's condition-set model (generic, no single algorithm file) | Structurally equivalent (named conditions over metrics, fail-if-any-breached, fail-open on missing measure) — no changes needed. |
-| Reliability/Security ratings + remediation effort by rule/component | `server/sonar-server-common/.../Rating.java`, `.../ReliabilityAndSecurityRatingMeasuresVisitor.java` (fetched from `SonarSource/sonarqube` on GitHub; no local vendored clone) | ✅ Ported the actual (different-from-Maintainability) algorithm: `Rating::from_severity` mirrors `RATING_BY_SEVERITY` exactly (`BLOCKER→E, CRITICAL→D, MAJOR→C, MINOR→B, INFO→A`), and `reliability_and_security_ratings` (`core/profiles::rating`) takes the worst rating within each issue type independently — Bug issues drive Reliability, Vulnerability issues drive Security, Code smells and the other type never touch either — instead of one shared debt-ratio grid or a single worst-severity-across-everything number. `aggregate_remediation_effort` sums minutes by rule and by component/file for drill-down reporting. Tests pin the exact severity table and a case a naive "one grid for everything" implementation would get wrong (a Blocker code smell must not move Reliability/Security; a Blocker bug must not move Security). ✅ **Wired to real analysis**: every `Rule`/`CrossFileRule` now declares a real `issue_type` (`953ff6d`), so `AnalyzerService::analyze_files` folds each produced issue's type + severity into `Metrics` via `record_issue_type_and_effort`, exposed as `AnalysisReport::reliability_rating`/`security_rating`/`remediation_effort` and as gate-condition-ready measures — no longer isolated to `core/profiles` unit tests. |
+| Algorithm | Implementation |
+|---|---|
+| Duplication detection (CPD) | Statement-repetition collapsing, Rabin-Karp rolling hash (base 31, block size 5), cross-file hash index (`core/duplication`). Previously a raw per-line sliding-window hash with no repetition collapsing or shared index — fixed. |
+| Maintainability rating (A–E) | Rating from the technical debt ratio (remediation effort ÷ (LOC × 30 min)) against grid `[0.05, 0.1, 0.2, 0.5]` (`core/profiles::Rating::from_debt_ratio`). Previously derived from the worst issue severity present, which conflates cost with severity — fixed. |
+| Cognitive complexity | Nesting-weight formula (`1 + current nesting` for `if`/loops/`switch`/ternary/`catch`); flat `+1` for `else`/`else if` with no extra nesting; an else-if chain does not compound nesting per link; a `switch` costs the same regardless of case count; flat `+1` for a *labeled* `break`/`continue` only; boolean-operator sequences cost `+1` on the first operator and again only when the operator changes, with parentheses transparent. **Recursion**: direct self-recursion costs a flat `+1` (not nesting-weighted — recursion is a "meta-loop", charged like a labeled jump) for a call inside a `FunctionDef` whose callee resolves to that function's own name, covering plain `foo()` and method-style `self.foo()`/`this.foo()` (`fn_name`/`is_recursive_call`, `rulesets/code-smells/src/cognitive_complexity.rs`). Indirect/mutual recursion is out of scope: it needs a whole-file call graph this same-file rule intentionally doesn't build, and a cross-function heuristic would silently under- or over-fire across 18 wired grammars. **Nested functions/lambdas**: yunq isolates every `NodeKind::FunctionDef` (closures included) as its own independently-scored unit, rather than folding a lambda body into the enclosing function's score. A deliberate choice — isolation is what makes the per-function threshold mean the same thing in every language. |
+| New Code / issue tracking across analyses | Content-hash-first cascade: `core/rules-engine/src/new_code.rs::Baseline` hashes the real source line at each issue's span (whitespace-normalized) and matches on (rule, file, line-hash) — immune to a message drifting on trivial edits (e.g. "cognitive complexity 7" → "8") and tolerant of the line moving elsewhere in the file — falling back to a (rule, file, message) fingerprint only when no source text is available (legacy baseline files, or a caller with no filesystem access). `bin/cli::FileLineHashes` plumbs real file content in; `infra/fs::BaselineStore` persists per-issue hashes with fail-open migration for baseline files written by older yunq versions. Previously a bare (rule, file, message) fingerprint with no source access at all — fixed and verified live via the CLI (same line, message-only drift → `new_issue_total` stays 0). |
+| Quality gate evaluation | Named conditions over metrics, fail-if-any-breached, fail-open on a missing measure. |
+| Reliability/Security ratings + remediation effort by rule/component | A *different* algorithm from Maintainability, not the same grid twice: `Rating::from_severity` maps severity directly (`BLOCKER→E, CRITICAL→D, MAJOR→C, MINOR→B, INFO→A`), and `reliability_and_security_ratings` (`core/profiles::rating`) takes the worst rating within each issue type independently — Bug issues drive Reliability, Vulnerability issues drive Security, code smells touch neither — instead of one shared debt-ratio grid or a single worst-severity-across-everything number. `aggregate_remediation_effort` sums minutes by rule and by component/file for drill-down reporting. Tests pin the exact severity table and the cases a naive "one grid for everything" implementation gets wrong (a Blocker code smell must not move Reliability/Security; a Blocker bug must not move Security). ✅ **Wired to real analysis**: every `Rule`/`CrossFileRule` declares a real `issue_type` (`953ff6d`), so `AnalyzerService::analyze_files` folds each produced issue's type + severity into `Metrics` via `record_issue_type_and_effort`, exposed as `AnalysisReport::reliability_rating`/`security_rating`/`remediation_effort` and as gate-condition-ready measures — no longer isolated to `core/profiles` unit tests. |
+
 
 ## Sequencing
 

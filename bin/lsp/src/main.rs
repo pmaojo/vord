@@ -1,5 +1,5 @@
 //! Composition root: an LSP server exposing yunq's analyzers to any
-//! LSP-capable editor, in place of a per-IDE plugin (the SonarLint model).
+//! LSP-capable editor, in place of a per-IDE plugin.
 //! `main` only wires transport + handlers; all analysis logic lives in
 //! [`analysis`], reused unchanged from `yunq-cli`'s composition.
 

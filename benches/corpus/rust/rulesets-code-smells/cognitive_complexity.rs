@@ -2,7 +2,7 @@ use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
 
 /// `if`/`else if` chain roots. Handled separately from [`NESTING_KINDS`]
-/// (via [`score_if_chain`]) because SonarSource charges every link after
+/// (via [`score_if_chain`]) because the metric charges every link after
 /// the first a flat `+1` instead of the nesting-weighted cost an ordinary
 /// nested structure pays — see [`chained_if`].
 const IF_KINDS: &[&str] = &["if_statement", "if_expression"];
@@ -12,7 +12,7 @@ const IF_KINDS: &[&str] = &["if_statement", "if_expression"];
 /// complexity punish deeply nested code harder than cyclomatic complexity
 /// does. The switch/match statement itself is the sole cost source here;
 /// its cases/arms are plain pass-through wrappers around already-nested
-/// content, matching SonarSource (a 20-case switch costs the same as a
+/// content (a 20-case switch costs the same as a
 /// 2-case one).
 const NESTING_KINDS: &[&str] = &[
     "while_statement",
@@ -56,7 +56,7 @@ const JUMP_KINDS: &[&str] = &["break_expression", "continue_expression", "break_
 const LABEL_KINDS: &[&str] = &["label", "statement_identifier"];
 
 /// True when `node` is a `break`/`continue` that names an explicit label —
-/// SonarSource charges this a flat +1 (no nesting weighting: jumping to an
+/// This costs a flat +1 (no nesting weighting: jumping to an
 /// enclosing label doesn't itself nest anything new).
 fn is_labeled_jump(node: &AstNode) -> bool {
     matches!(node.kind(), NodeKind::Other(kind) if JUMP_KINDS.contains(&kind.as_ref()))
@@ -66,11 +66,11 @@ fn is_labeled_jump(node: &AstNode) -> bool {
             .any(|c| matches!(c.kind(), NodeKind::Other(kind) if LABEL_KINDS.contains(&kind.as_ref())))
 }
 
-/// Cognitive Complexity (SonarSource's metric): unlike cyclomatic
+/// Cognitive Complexity: unlike cyclomatic
 /// complexity, nested control flow costs more than sequential control flow,
 /// which tracks how hard a human finds a function to read.
 ///
-/// Covers both dominant terms of the SonarSource formula — structural
+/// Covers both dominant terms of the formula — structural
 /// nesting weighting, and the boolean-operator-sequence increment (a chain
 /// of binary logical operators costs +1 per contiguous run of the same
 /// operator, plus +1 each time the operator changes — `a && b && c` costs 1,
@@ -113,7 +113,7 @@ enum LogicalOp {
 }
 
 /// Follows a chain of `parenthesized_expression` wrappers down to the
-/// underlying expression. SonarSource's boolean-sequence rule treats
+/// underlying expression. The boolean-sequence rule treats
 /// parentheses as fully transparent — `a && (b || c)` is one continuous
 /// sequence, not a nested chain with its own separate +1 — so anything
 /// inspecting an operand's shape needs to see through them first.
@@ -165,7 +165,7 @@ fn logical_sequence(node: &AstNode) -> Vec<LogicalOp> {
     sequence
 }
 
-/// SonarSource's boolean-sequence rule: +1 for the first operator, +1 again
+/// The boolean-sequence rule: +1 for the first operator, +1 again
 /// each time it changes — repeats of the same operator in a row are free.
 fn logical_chain_cost(sequence: &[LogicalOp]) -> u32 {
     let mut cost = 0;
@@ -231,7 +231,7 @@ fn is_recursive_call(call: &AstNode, fn_name: &str) -> bool {
 /// independently (contribute 0 here), labeled `break`/`continue` are a flat
 /// +1, boolean-operator chains follow their own flat, non-nesting-weighted
 /// rule, and a direct self-recursive call is a flat +1 (recursion is a
-/// "meta-loop" in SonarSource's model, so it's charged like a jump, not
+/// "meta-loop", so it's charged like a jump, not
 /// nesting-weighted like a real loop). Returns `None` for anything else, so
 /// the caller applies its own nesting-aware fallback.
 fn score_common(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> Option<u32> {
@@ -285,7 +285,7 @@ fn score_branch_body(clause: &AstNode, nesting: u32, fn_name: Option<&str>) -> u
 }
 
 /// Scores one `if`/`else if`/`else` chain rooted at `if_node`, anchored at
-/// nesting level `nesting`. SonarSource charges only the first link
+/// nesting level `nesting`. Only the first link is charged
 /// `1 + nesting`; every later link in the same chain (`is_link: true`) is a
 /// flat +1 with no extra nesting, and the chain's own nesting level does not
 /// compound per link — only the *body* of each link (its `then` branch, or
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn homogeneous_boolean_chain_costs_once() {
         // `a && b && c` is one contiguous run of the same operator: +1 total,
-        // not +1 per `&&` (SonarSource doesn't penalize repeating the same
+        // not +1 per `&&` (repeating the same operator is not penalized
         // logical operator in a row).
         let code = "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b && c\n}\n";
         let findings = check_rust(code, 0);
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn direct_recursion_is_a_flat_increment_not_nesting_weighted() {
-        // SonarSource's own whitepaper worked example (`Sum`): the `if`
+        // Worked example (`Sum`): the `if`
         // costs `1+0`, and the recursive call costs a flat `+1` — recursion
         // is charged like a jump, not weighted by how deep the call site
         // sits.
@@ -545,9 +545,7 @@ mod tests {
 
     #[test]
     fn else_if_chain_is_flat_and_does_not_compound_nesting() {
-        // Direct translation of SonarSource's own test fixture
-        // (sonar-java's CognitiveComplexityMethodCheckMax0.java,
-        // `noNestingForIfElseIf`), which documents an expected total of 21:
+        // Expected total of 21:
         // the `else if`/`else` links in the chain cost flat +1 each and
         // don't get progressively deeper just for being further down the
         // chain — only the terminal `else`'s nested `if` sits one level
@@ -560,9 +558,8 @@ mod tests {
 
     #[test]
     fn switch_arms_share_the_switch_statements_single_cost() {
-        // SonarSource costs a switch/match statement `1 + nesting` once,
-        // regardless of how many cases/arms it has (sonar-java's own
-        // `toProtocolType` fixture: a 4-branch switch costs exactly 1).
+        // A switch/match statement costs `1 + nesting` once, regardless of
+        // how many cases/arms it has: a 4-branch switch costs exactly 1.
         let code = "fn f(x: i32) -> i32 {\n    match x {\n        0 => 1,\n        1 => 2,\n        2 => 3,\n        _ => 4,\n    }\n}\n";
         assert!(check_rust(code, 1).is_empty());
         let findings = check_rust(code, 0);
@@ -570,37 +567,35 @@ mod tests {
         assert!(findings[0].message.contains("complexity 1"), "{}", findings[0].message);
     }
 
-    /// Regression suite ported from SonarSource's own sonar-java test
-    /// fixtures (`CognitiveComplexity.java`,
-    /// `CognitiveComplexityMethodCheckMax0.java`), rewritten in Rust/Python
-    /// and pinned to the exact complexity values those fixtures document.
-    /// Kept as one table (rather than one `#[test]` per case) so a fixture
-    /// name shows up directly in the failure message.
+    /// Regression table covering the metric's scoring rules across
+    /// realistic function shapes, each pinned to its expected score. Kept as
+    /// one table (rather than one `#[test]` per case) so a case name shows
+    /// up directly in the failure message.
     #[test]
-    fn matches_sonarqube_reference_fixtures() {
+    fn scores_match_the_expected_value_for_every_case() {
         let rust_cases: &[(&str, &str, u32)] = &[
-            ("extra_conditions", "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b || foo(b && c)\n}\n", 3),
-            ("extra_conditions2", "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {\n    a && (b || c) || d\n}\n", 2),
-            ("extra_conditions3", "fn f(a: bool, b: bool, c: bool, d: bool) {\n    if a && b || c || d {}\n}\n", 3),
-            ("extra_conditions4", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b || c && d || e {}\n}\n", 5),
-            ("extra_conditions5", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b && c || d && e {}\n}\n", 5),
-            ("extra_conditions6", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c || d || e {}\n}\n", 3),
-            ("extra_conditions7", "fn f(a: bool) {\n    if a {}\n}\n", 1),
-            ("extra_conditions8", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c && d && e {}\n}\n", 2),
-            ("extra_conditions9", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b || c || d || e {}\n}\n", 2),
-            ("extra_condition10", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool) {\n    if a && b && c || d || e && f {}\n}\n", 4),
-            ("extra_condition11", "fn f(a: bool, b: bool, c: bool) {\n    if a || (b || c) {}\n}\n", 2),
-            ("extra_conditions12", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool, g: bool, h: bool, i: bool, j: bool, k: bool, l: bool, m: bool) {\n    if a && b && c || d || e && f && g || (h || (i && j || k)) || l || m {}\n}\n", 7),
-            ("switch2", "fn f(foo: i32, lhs_is_identifier: bool, a: bool, b: bool, c: bool, d: bool, element_is_assignment: bool) {\n    match foo {\n        1 => {}\n        2 => {\n            if lhs_is_identifier {\n                if a && b && c || d {}\n                if element_is_assignment {\n                } else {\n                }\n            }\n        }\n        _ => {}\n    }\n}\n", 12),
-            ("break_with_label", "fn f(objects: &[bool]) {\n    'outer: for o in objects {\n        break 'outer;\n    }\n}\n", 2),
-            ("to_method", "fn f(args: &[String], chain: &[i32], foo: bool) {\n    for ctr in 0..args.len() {\n        if args[ctr] == \"-debug\" {\n        }\n    }\n    for i in (0..chain.len()).rev() {\n    }\n    if foo {\n        for i in 0..10 {\n        }\n    }\n}\n", 7),
-            ("get_value_to_eval", "fn f(alert_level: i32, foo: i32) -> i32 {\n    if alert_level == 1 && foo == 2 {\n        1\n    } else if alert_level == 3 {\n        2\n    } else {\n        while true {\n        }\n        3\n    }\n}\n", 6),
-            ("get_weight", "fn f(i: i32) -> i32 {\n    if i <= 0 {\n        return 1;\n    }\n    if i < 10 {\n        return 2;\n    }\n    if i < 20 {\n        return 3;\n    }\n    if i < 30 {\n        return 4;\n    }\n    5\n}\n", 4),
-            ("sum_of_non_primes", "fn f(limit: i32) -> i32 {\n    let mut sum = 0;\n    'outer: for i in 0..limit {\n        if i <= 2 {\n            continue;\n        }\n        for j in 2..1 {\n            if i % j == 0 {\n                continue 'outer;\n            }\n        }\n        sum += i;\n    }\n    sum\n}\n", 9),
+            ("and_or_mixed_with_a_nested_call", "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b || foo(b && c)\n}\n", 3),
+            ("parenthesized_or_inside_and", "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {\n    a && (b || c) || d\n}\n", 2),
+            ("if_with_and_then_two_ors", "fn f(a: bool, b: bool, c: bool, d: bool) {\n    if a && b || c || d {}\n}\n", 3),
+            ("if_alternating_and_or_and_or", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b || c && d || e {}\n}\n", 5),
+            ("if_or_and_or_and", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b && c || d && e {}\n}\n", 5),
+            ("if_three_ands_then_two_ors", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c || d || e {}\n}\n", 3),
+            ("if_single_condition", "fn f(a: bool) {\n    if a {}\n}\n", 1),
+            ("if_five_ands_one_sequence", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c && d && e {}\n}\n", 2),
+            ("if_five_ors_one_sequence", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b || c || d || e {}\n}\n", 2),
+            ("if_ands_then_ors_then_ands", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool) {\n    if a && b && c || d || e && f {}\n}\n", 4),
+            ("if_or_with_parenthesized_or", "fn f(a: bool, b: bool, c: bool) {\n    if a || (b || c) {}\n}\n", 2),
+            ("if_deeply_mixed_boolean_sequences", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool, g: bool, h: bool, i: bool, j: bool, k: bool, l: bool, m: bool) {\n    if a && b && c || d || e && f && g || (h || (i && j || k)) || l || m {}\n}\n", 7),
+            ("match_arm_containing_nested_ifs", "fn f(foo: i32, lhs_is_identifier: bool, a: bool, b: bool, c: bool, d: bool, element_is_assignment: bool) {\n    match foo {\n        1 => {}\n        2 => {\n            if lhs_is_identifier {\n                if a && b && c || d {}\n                if element_is_assignment {\n                } else {\n                }\n            }\n        }\n        _ => {}\n    }\n}\n", 12),
+            ("labelled_break_out_of_a_loop", "fn f(objects: &[bool]) {\n    'outer: for o in objects {\n        break 'outer;\n    }\n}\n", 2),
+            ("three_loops_one_of_them_nested", "fn f(args: &[String], chain: &[i32], foo: bool) {\n    for ctr in 0..args.len() {\n        if args[ctr] == \"-debug\" {\n        }\n    }\n    for i in (0..chain.len()).rev() {\n    }\n    if foo {\n        for i in 0..10 {\n        }\n    }\n}\n", 7),
+            ("if_else_if_else_with_a_nested_while", "fn f(alert_level: i32, foo: i32) -> i32 {\n    if alert_level == 1 && foo == 2 {\n        1\n    } else if alert_level == 3 {\n        2\n    } else {\n        while true {\n        }\n        3\n    }\n}\n", 6),
+            ("four_sequential_guard_ifs", "fn f(i: i32) -> i32 {\n    if i <= 0 {\n        return 1;\n    }\n    if i < 10 {\n        return 2;\n    }\n    if i < 20 {\n        return 3;\n    }\n    if i < 30 {\n        return 4;\n    }\n    5\n}\n", 4),
+            ("nested_loops_with_labelled_continue", "fn f(limit: i32) -> i32 {\n    let mut sum = 0;\n    'outer: for i in 0..limit {\n        if i <= 2 {\n            continue;\n        }\n        for j in 2..1 {\n            if i % j == 0 {\n                continue 'outer;\n            }\n        }\n        sum += i;\n    }\n    sum\n}\n", 9),
         ];
         let python_cases: &[(&str, &str, u32)] = &[
-            ("do_filter", "def f(consumed, redirected, not_set, has_other, is_wrapper, external, is_set, chain):\n    if consumed:\n        return\n    try:\n        pass\n    except HaltException:\n        pass\n    except Exception:\n        pass\n    if not_set and redirected:\n        pass\n    if not_set and has_other:\n        if is_wrapper:\n            pass\n    if not_set and not external:\n        pass\n    if is_set:\n        pass\n    elif chain is not None:\n        pass\n", 13),
-            ("bulk_activate", "def f(rules, changes, condition):\n    try:\n        while rules.has_next():\n            try:\n                if not changes.is_empty():\n                    pass\n            except BadRequestException:\n                pass\n    finally:\n        if condition:\n            pass\n    return 0\n", 6),
+            ("guard_clause_try_except_and_if_elif_chain", "def f(consumed, redirected, not_set, has_other, is_wrapper, external, is_set, chain):\n    if consumed:\n        return\n    try:\n        pass\n    except HaltException:\n        pass\n    except Exception:\n        pass\n    if not_set and redirected:\n        pass\n    if not_set and has_other:\n        if is_wrapper:\n            pass\n    if not_set and not external:\n        pass\n    if is_set:\n        pass\n    elif chain is not None:\n        pass\n", 13),
+            ("try_finally_wrapping_a_while_with_nested_if", "def f(rules, changes, condition):\n    try:\n        while rules.has_next():\n            try:\n                if not changes.is_empty():\n                    pass\n            except BadRequestException:\n                pass\n    finally:\n        if condition:\n            pass\n    return 0\n", 6),
         ];
 
         let mut mismatches = Vec::new();
