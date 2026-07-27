@@ -176,6 +176,22 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("python:type-comparison"), Severity::Minor),
         (rule("python:global-statement-usage"), Severity::Minor),
         (rule("python:eager-logging-interpolation"), Severity::Minor),
+        (rule("python:none-comparison-with-equality"), Severity::Minor),
+        (rule("python:bool-comparison-with-equality"), Severity::Minor),
+        (rule("python:literal-identity-comparison"), Severity::Major),
+        (rule("python:len-as-condition"), Severity::Minor),
+        (rule("python:requests-missing-timeout"), Severity::Major),
+        (rule("python:flask-debug-true"), Severity::Blocker),
+        (rule("python:bind-all-interfaces"), Severity::Minor),
+        (rule("python:sql-injection-string-building"), Severity::Blocker),
+        (rule("python:debugger-left-in-code"), Severity::Major),
+        (rule("python:open-without-encoding"), Severity::Minor),
+        (rule("python:datetime-utcnow-naive"), Severity::Minor),
+        (rule("python:mutable-class-attribute"), Severity::Major),
+        (rule("python:nested-comprehension-too-deep"), Severity::Minor),
+        (rule("python:raise-generic-exception"), Severity::Minor),
+        (rule("python:raise-without-from-in-except"), Severity::Minor),
+        (rule("python:unused-loop-variable"), Severity::Minor),
     ]);
     activations
 }
