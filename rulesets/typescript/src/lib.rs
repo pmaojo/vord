@@ -17,6 +17,7 @@ mod open_redirect_location_assignment;
 mod promise_then_without_catch;
 mod redos_nested_quantifier;
 mod sensitive_data_in_web_storage;
+mod swallowed_exception;
 mod var_declaration;
 
 pub use dynamic_regexp_source::DynamicRegexpSourceRule;
@@ -30,6 +31,7 @@ pub use open_redirect_location_assignment::OpenRedirectLocationAssignmentRule;
 pub use promise_then_without_catch::PromiseThenWithoutCatchRule;
 pub use redos_nested_quantifier::RedosNestedQuantifierRule;
 pub use sensitive_data_in_web_storage::SensitiveDataInWebStorageRule;
+pub use swallowed_exception::SwallowedExceptionRule;
 pub use var_declaration::VarDeclarationRule;
 
 use yunq_rules_engine::Rule;
@@ -49,5 +51,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(SensitiveDataInWebStorageRule::new()),
         Box::new(MassAssignmentFromRequestBodyRule::new()),
         Box::new(InnerHtmlAssignmentRule::new()),
+        Box::new(SwallowedExceptionRule::new()),
     ]
 }

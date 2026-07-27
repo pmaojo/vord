@@ -19,6 +19,7 @@ mod eval_usage;
 mod extract_usage;
 mod loose_hash_comparison;
 mod sql_injection_concat;
+mod swallowed_exception;
 mod variable_variable;
 mod weak_random_token;
 
@@ -29,6 +30,7 @@ pub use eval_usage::EvalUsageRule;
 pub use extract_usage::ExtractUsageRule;
 pub use loose_hash_comparison::LooseHashComparisonRule;
 pub use sql_injection_concat::SqlInjectionConcatRule;
+pub use swallowed_exception::SwallowedExceptionRule;
 pub use variable_variable::VariableVariableRule;
 pub use weak_random_token::WeakRandomTokenRule;
 
@@ -46,5 +48,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(DynamicFunctionCallRule::new()),
         Box::new(VariableVariableRule::new()),
         Box::new(WeakRandomTokenRule::new()),
+        Box::new(SwallowedExceptionRule::new()),
     ]
 }

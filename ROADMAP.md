@@ -348,7 +348,94 @@ re-analysis on typical PRs.
   limitations, not attempted here: dependency-cycle detection skips Rust
   (module system doesn't map 1:1 to files) and TS path aliases (only
   relative specifiers resolve); `exhaustive-deps` only recognizes the four
-  literal hook names, not custom wrapper hooks.
+  literal hook names, not custom wrapper hooks. ✅ **(2026-07-27, this
+  session)** New category, not just new rules: **`rulesets/ai-agent`**, the
+  first crate in the catalog aimed squarely at AI-generated and AI-agent
+  code rather than a language. Positioning matters here — this is the first
+  concrete step toward yunq as "the SonarQube of AI-agent-generated code":
+  live, on-every-change audit of the two risk classes industry research
+  itself flags as uncovered by generic SAST (Semgrep, CodeQL, Bandit).
+  arXiv:2605.02741 ("AI-Generated Smells") and arXiv:2603.22853 ("Agent
+  Audit") both call out that no generic SAST tool models an LLM's own
+  output as a taint source, or a `@tool`/MCP boundary; Trend Micro/Mend.io's
+  slopsquatting research puts ~20% of AI-generated code samples referencing
+  a hallucinated package. `ai:llm-output-injection` (TypeScript + Python)
+  closes the first gap: it reuses the existing generic taint engine
+  (`core/taint::TaintAnalysis`/`TaintConfig`, unmodified — same
+  `with_source_marker`/`with_sink`/`with_sanitizer` shape
+  `owasp:injection`/`owasp:cross-file-injection` already use) but points it
+  at LLM SDK response shapes as *sources* instead of user-input shapes:
+  OpenAI-style `.choices[0].message.content` and Anthropic-style
+  `.content[0].text` (grounded in this repo's own `infra/llm::
+  openai_compatible`/`anthropic` adapters — `ChatCompletionResponse{
+  choices }` / `MessagesResponse{ content }` are this codebase's real
+  equivalents of what a TS/Python agent's SDK call returns), plus the
+  generic `message.content`/`response.content`/`completion.content` shape
+  any thin wrapper tends to keep, flowing unsanitized into `eval`/`exec`/
+  `execSync`/`system`/`Popen`/`run`/`check_output`/`check_call`/`query`/
+  `execute` — literally "an agent runs what another LLM told it to,
+  unsanitized," this year's recurring agent-security-talk bug. Verified
+  against real tree-sitter TS/Python parses via a scratch AST-dump binary
+  first (methodology carried over from the Rust/PHP sessions): critically,
+  `.choices[0].message.content`'s `[0]` subscript stays inside the
+  `MemberAccess` node's own text in both grammars, so it round-trips
+  through the taint engine's plain substring source-marker matching with
+  no engine changes needed. Wired into all three composition roots (`bin/
+  cli`, `bin/server`, `bin/worker`) and `typescript_activations()`/
+  `python_activations()` in `core/profiles/src/builtin.rs` at
+  `Severity::Blocker`. Alongside it, two smaller items round out this
+  session's other identified "vibe coding" defect buckets: `typescript:
+  swallowed-exception`/`php:swallowed-exception` (parity with the existing
+  `python:bare-except`/`broad-exception-swallowed` — an empty `catch`, or
+  one that only `console.log`s/`error_log`s the error with no re-throw and
+  no other handling; PHP's `expression_statement`→`NodeKind::Assignment`
+  parser quirk, already documented against `common::callee_node`, applies
+  here too — a bare `error_log(...)` or `throw $e;` statement surfaces as a
+  single-child `Assignment` node, not its own statement kind) and
+  `smells:db-call-in-loop` (cross-language, `applies_to` true like
+  `smells:select-star`: a `.query(`/`.execute(`/`.find(`/`->query(`-shaped
+  call inside a `for`/`while`/`foreach` body — the classic N+1 pattern,
+  purely syntactic so it needs no type resolution; nested loops are walked
+  without double-descending into an inner loop's own body, so a call inside
+  a doubly-nested loop is reported once, by the inner loop; `.find(callback)`
+  — `Array.prototype.find` — is excluded via a sole-argument-is-a-
+  `FunctionDef`/closure check to avoid the obvious JS false positive).
+  **Explicitly evaluated and deferred**: item 4 of this session's brief,
+  manifest-vs-import mismatch detection (the slopsquatting surface itself —
+  cross-referencing every `import`/`require`/`use` against `package.json`/
+  `requirements.txt`/`pyproject.toml`/`composer.json`) turned out to be a
+  real subsystem, not a rule, so it's not force-fit into this session.
+  Concretely, three gaps found by checking before committing to it: (1)
+  `core/import-graph` — the obvious reuse candidate — deliberately discards
+  exactly the specifiers this needs (`resolve.rs`'s own module docs: bare/
+  external specifiers "always treated as external and produce no edge"),
+  so this needs its own extraction pass, not an extension of that one; (2)
+  manifest parsing is workable but split three ways with no existing
+  precedent in this codebase — `package.json`/`composer.json` are JSON
+  (parseable via `serde_json` directly on `SourceFile::content()`,
+  bypassing the tree-sitter-json AST entirely), `pyproject.toml` needs the
+  already-a-workspace-dependency `toml` crate (no `parsers/treesitter-toml`
+  exists, and none is needed if parsed as data rather than as an AST),
+  `requirements.txt` is line-oriented text with no grammar at all; (3) the
+  false-positive floor is the real blocker — flagging every import not
+  found in a manifest needs a curated stdlib/builtin-module allowlist per
+  language (dozens of Node builtins, hundreds of Python stdlib modules) or
+  every project lights up on `fs`/`os`/`json`, and PHP compounds this with
+  no mechanical namespace→package mapping (`Vendor\Package` to
+  `vendor/package` goes through `composer.json`'s PSR-4 `autoload` map, not
+  a naming convention). Concrete next step for a future session: a new
+  whole-project pass (`CrossFileRule`, same shape as
+  `architecture:dependency-cycle`) that (a) parses manifests as data via
+  `serde_json`/`toml` rather than through the AST pipeline, (b) adds a
+  dedicated external-specifier extraction pass per language (TS: bare
+  non-relative import specifiers; Python: top-level module of `import
+  X`/`from X import Y`; PHP: `use` statement namespaces resolved through
+  `composer.json`'s own `autoload.psr-4` map), (c) ships hand-curated
+  stdlib/builtin allowlists for Node and Python as static tables (PHP has
+  no comparable ambiguity once autoload is resolved), and (d) flags an
+  import with no manifest match and no allowlist match — scoped to
+  TypeScript/Python/PHP, one language at a time rather than all three in
+  one pass, to keep the false-positive tuning tractable.
 - **External analyzer import (SARIF)**: ✅ **(this session)** `--sarif`
   (repeatable) merges any SARIF 2.x report into the scan —
   `infra/fs/src/sarif.rs` parses the log, `AnalysisReport::add_external_issues`

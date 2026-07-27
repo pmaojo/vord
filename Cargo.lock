@@ -3778,6 +3778,7 @@ dependencies = [
  "yunq-parser-yaml",
  "yunq-remediation",
  "yunq-rules-a11y",
+ "yunq-rules-ai-agent",
  "yunq-rules-architecture",
  "yunq-rules-engine",
  "yunq-rules-iac",
@@ -4259,6 +4260,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-rules-ai-agent"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-python",
+ "yunq-parser-typescript",
+ "yunq-rules-engine",
+ "yunq-taint",
+]
+
+[[package]]
 name = "yunq-rules-architecture"
 version = "0.1.1"
 dependencies = [
@@ -4362,6 +4374,7 @@ name = "yunq-rules-smells"
 version = "0.1.1"
 dependencies = [
  "yunq-ast",
+ "yunq-parser-php",
  "yunq-parser-python",
  "yunq-parser-rust",
  "yunq-parser-typescript",
@@ -4411,6 +4424,7 @@ dependencies = [
  "yunq-infra-postgres",
  "yunq-remediation",
  "yunq-rules-a11y",
+ "yunq-rules-ai-agent",
  "yunq-rules-architecture",
  "yunq-rules-engine",
  "yunq-rules-iac",
@@ -4467,6 +4481,7 @@ dependencies = [
  "yunq-parser-rust",
  "yunq-parser-typescript",
  "yunq-rules-a11y",
+ "yunq-rules-ai-agent",
  "yunq-rules-architecture",
  "yunq-rules-engine",
  "yunq-rules-iac",

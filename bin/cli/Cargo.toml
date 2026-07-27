@@ -35,6 +35,7 @@ yunq-parser-lua = { workspace = true }
 yunq-parser-elixir = { workspace = true }
 yunq-rules-owasp = { workspace = true }
 yunq-rules-smells = { workspace = true }
+yunq-rules-ai-agent = { workspace = true }
 yunq-rules-iac = { workspace = true }
 yunq-rules-a11y = { workspace = true }
 yunq-rules-react = { workspace = true }
