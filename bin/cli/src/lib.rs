@@ -39,6 +39,7 @@ use yunq_rules_engine::{
     MetricKey, MetricsTracker, QualityGate, Rule,
 };
 
+pub mod hook;
 pub mod output;
 
 /// Every parser the default service registers. Its own flat data literal

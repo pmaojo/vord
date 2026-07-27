@@ -16,6 +16,7 @@ yunq-rules-engine = { path = "core/rules-engine" }
 yunq-taint = { path = "core/taint" }
 yunq-symbols = { path = "core/symbols" }
 yunq-import-graph = { path = "core/import-graph" }
+yunq-agent-policy = { path = "core/agent-policy" }
 yunq-parser-typescript = { path = "parsers/treesitter-typescript" }
 yunq-parser-rust = { path = "parsers/treesitter-rust" }
 yunq-parser-python = { path = "parsers/treesitter-python" }

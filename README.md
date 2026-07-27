@@ -13,6 +13,7 @@ yunq/
 │   ├── profiles/               # yunq-profiles: RuleId, Severity, QualityProfile, QualityGate, Rating
 │   ├── rules-engine/           # yunq-rules-engine: ports (traits), Rule, CrossFileRule, AnalyzerService
 │   ├── taint/                  # yunq-taint: intra-file + cross-file inter-procedural taint analysis
+│   ├── agent-policy/           # yunq-agent-policy: Agent Permission Policy — may this agent write land?
 │   └── duplication/            # yunq-cpd: copy-paste detection (rolling-window hashes)
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
@@ -127,6 +128,7 @@ cargo run -p yunq-cli -- scan fixtures --junit report.xml     # ingest JUnit tes
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif --sarif eslint.sarif  # repeatable
 cargo run -p yunq-cli -- init --yes                            # write .github/workflows/yunq.yml
+cargo run -p yunq-cli -- hook install                          # gate an AI agent's writes (see below)
 ```
 
 Example output:
@@ -154,6 +156,85 @@ The server publishes its contract as **OpenAPI 3.1** at `GET /api-docs/openapi.j
 ```sh
 cargo run -p yunq-server -- openapi > api/openapi.json
 ```
+
+## Agentic guardrail (Claude Code, Codex, pre-commit)
+
+Every other entry point above answers *"what is wrong with this code?"* after
+the fact. `yunq hook` answers *"may this write happen?"* — inside an
+autonomous agent's edit loop, before the bytes reach disk.
+
+```sh
+cargo run -p yunq-cli -- hook install        # write yunq-policy.toml + .claude/settings.json
+cargo run -p yunq-cli -- hook check file.py  # judge one file: exit 0 / 2 (denied) / 1 (yunq failed)
+```
+
+Once installed, an agent that tries to write a shell-injection sink gets its
+own tool call denied and the reason fed straight back into its context:
+
+```
+yunq blocked this write to `deploy.py`.
+
+  1. python:subprocess-shell-true at line 3 — subprocess call with shell=True is
+     vulnerable to shell injection if the command is ever influenced by external input
+     [hard-blocked for agents]
+
+This is an Agent Permission Policy block from yunq-policy.toml, not a style
+preference. The file was NOT written. Rewrite the code so these findings do not
+occur, then write it again.
+```
+
+The file never existed — the content judged was reconstructed from the tool
+call's own arguments. Measured cost: **~7ms p50 per write**, process start
+included.
+
+**Why a hook and not an MCP tool.** An MCP tool or an LSP is *consulted*: the
+agent chooses whether to ask, and an agent optimising for task completion
+learns not to ask. A host hook is *invoked* by the runtime on every matching
+tool call and cannot be routed around. That is the difference between a
+guardrail and a linter the model may consult.
+
+### The Agent Permission Policy
+
+`yunq-policy.toml` is not the quality gate. The gate asks "is this project
+releasable?" over a whole analysis; the policy asks "may this one write land?"
+over a single proposed edit — and the two disagree on purpose:
+
+```toml
+[agent]
+block_at_or_above = "critical"
+
+# Rules an agent may never introduce, whatever severity the profile gives them.
+# An agent writing a shell sink is categorically riskier than a human doing it
+# under review, even when the rule only scores as a warning.
+blocking_rules = ["ai:llm-output-injection", "owasp:command-execution", "owasp:eval-usage"]
+
+advisory_rules = []   # report, never deny — the escape hatch for a noisy rule
+
+[[protected_path]]    # denied on path alone, no finding required
+pattern = ".github/workflows/**"
+reason = "CI definitions gate every other control; changes need human review."
+```
+
+### Host support
+
+| Host | Integration | Can it deny? |
+|---|---|---|
+| **Claude Code** | `PreToolUse` on `Edit\|Write` | **Yes** — the write is prevented |
+| **Claude Code** | `PostToolUse` on `Edit\|Write` | No — the write landed; feeds the finding back as context |
+| **Codex CLI** | `yunq hook check` | Its tool hooks fire for shell commands only, not file writes |
+| **pre-commit / CI** | `yunq hook check` | Exit 2 fails the commit or the job |
+
+The two Claude Code hook points are asymmetric by design: **`PreToolUse`
+prevents, `PostToolUse` teaches.** The wording the agent receives differs
+accordingly — a model told "blocked" about a file that was in fact written
+will move on and leave the finding in the tree.
+
+**Failing open.** A malformed payload, an unreadable file or a policy that
+does not parse lets the write proceed and reports on stderr. A guardrail that
+wedges the agent loop on its own bug gets uninstalled within a day, and an
+uninstalled guardrail blocks nothing. `hook check` is the exception: its
+non-interactive callers can tell exit 1 (yunq broke) from exit 2 (policy
+denied) and decide for themselves.
 
 ## Importing another analyzer's findings (SARIF)
 
