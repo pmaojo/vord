@@ -903,6 +903,100 @@ before being leaned on; that verification has not been done.
 - **AI Code Assurance equivalent**: flag projects/files as AI-generated,
   enforce stricter gates on AI-authored code, provenance tracking.
 - **Fix suggestions in-editor** through `yunq-lsp` connected mode.
+- **6c Agentic guardrail — yunq inside the agent's edit loop** ✅
+  **(2026-07-27)**. Every entry point before this one is post-hoc: the CLI,
+  the server and the GitHub Action all answer "what is wrong with this code?"
+  after it exists. `yunq hook` answers "may this write happen?" *before* the
+  bytes reach disk — the window between an agent deciding to edit a file and
+  the edit landing, which is the only moment where a finding costs the agent
+  one retry instead of costing a reviewer a pull request. Two pieces:
+
+  **`core/agent-policy`** (`yunq-agent-policy`, new pure crate — deps are
+  `yunq-profiles`, `globset`, `serde`, `toml`, `thiserror`; deliberately
+  *not* `yunq-rules-engine`, so it can equally judge a SARIF-imported or
+  future remote finding without learning the engine's whole domain, at the
+  cost of the caller mapping `Issue` → `Finding`). Parses `yunq-policy.toml`
+  into an `AgentPolicy` and evaluates `(path, findings)` → `Evaluation`.
+  This is explicitly **not** the quality gate, and the two disagree on
+  purpose: the gate asks "is this project releasable?" over a whole
+  analysis, the policy asks "may this one write land?" over a single
+  proposed edit. Three ways to deny, in precedence order — `advisory_rules`
+  (report but never deny, the escape hatch for a rule that is noisy in this
+  repository, outranking both paths below), `blocking_rules` (deny whatever
+  severity the active profile gives them — the list is what makes an *agent*
+  policy different from a severity threshold: an agent writing a shell sink
+  is categorically riskier than a human doing it under review), and
+  `block_at_or_above` (default `critical`). Plus `protected_path` globs that
+  deny on path alone with no finding at all. Design decisions worth keeping:
+  every serde default mirrors `Default::default()`, so an empty `[agent]`
+  table and a missing file describe the same policy and a present key is
+  always an override rather than a reset; `deny_unknown_fields` makes a typo
+  in a security policy a startup error instead of a control that silently
+  does nothing (verified — a stray `block_at_or_abov` exits 1 naming the
+  field); `AgentPolicy::default()` ships with **no** protected paths, since
+  an invisible default that refuses an agent's legitimate edit on install
+  gets the whole tool uninstalled, while `yunq hook install`'s *generated*
+  file turns them on with concrete entries — visible and editable in the
+  user's own repository, which is where an opinionated choice belongs.
+
+  **`bin/cli/src/hook.rs` + `hook_install.rs`** — the host adapters, behind
+  `yunq hook {claude-code,check,install}`. The two Claude Code hook points
+  are asymmetric and the asymmetry drives the whole design: `PreToolUse`
+  fires before the tool runs and *can* deny it
+  (`hookSpecificOutput.permissionDecision: "deny"`), while `PostToolUse`
+  fires after the write already landed and can only feed text back into the
+  model's context. So **`PreToolUse` prevents, `PostToolUse` teaches**, and
+  the agent-facing wording differs accordingly — an initial version reused
+  one message for both and told the model "blocked, the file was NOT
+  written" about a file already on disk, which invites it to move on leaving
+  the finding in the tree; now a `Timing` parameter splits the two and a test
+  pins it. Because `PreToolUse` judges a file that does not exist yet,
+  `proposed_content` reconstructs the pending content from the tool call's
+  own arguments: `Write` carries the whole body; `Edit` carries a
+  search/replace pair, so the current file is read and the replacement
+  applied *exactly* as the host will apply it, honouring `replace_all` (which
+  otherwise silently diverges on a repeated string); anything else returns
+  `None` rather than guessing, leaving the path half of the policy to apply
+  alone. One deliberate non-feature: the non-denied `PreToolUse` path emits
+  **nothing**, never `permissionDecision: "allow"` — the only way to attach a
+  pre-write advisory is alongside an `allow`, which would override the user's
+  own permission settings and auto-approve every edit yunq happens not to
+  object to, turning a security tool into a permission bypass (regression
+  test: `pre_tool_use_never_emits_allow_for_an_advisory`). Errors **fail
+  open** — a malformed payload, unreadable file or unparseable policy lets
+  the write proceed and reports on stderr, because a guardrail that wedges
+  the agent loop on its own bug is removed within a day and a removed
+  guardrail blocks nothing; `hook check` is the deliberate exception, exiting
+  1 (yunq broke) vs 2 (policy denied) so non-interactive callers can choose.
+  `hook install` merges into `.claude/settings.json` additively and
+  idempotently — unrelated keys survive, other events' hooks survive, and a
+  matcher the user narrowed by hand is not silently re-widened on reinstall;
+  a settings file that exists but does not parse is refused rather than
+  overwritten.
+
+  **Positioning.** This is the concrete answer to "why yunq rather than
+  Semgrep/CodeQL/SonarQube" in an agent-written codebase: those are all
+  invoked on a diff that already exists. The distinction that matters is
+  *invoked* vs *consulted* — an MCP server or an LSP is consulted, and an
+  agent optimising for task completion learns not to ask; a host hook is run
+  by the runtime on every matching tool call and cannot be routed around.
+  Verified end to end against real Claude Code payload shapes (not only unit
+  tests): a `Write` of `subprocess.run(target, shell=True)` is denied with
+  the rule id and line in the reason; an `Edit` that introduces `shell=True`
+  into a clean file is denied with the file still untouched on disk; a
+  `.github/workflows/**` write is denied with no finding at all; clean
+  content emits nothing. **Measured cost: ~7ms p50 / 7.6ms p95 per write**
+  (20 cold-start release-binary invocations, process startup included) —
+  comfortably inside the agent's edit loop, and far under the 30s hook
+  timeout the installer sets. Still open: Codex CLI's tool hooks fire for
+  shell commands only, not file writes, so an edit-time guardrail cannot be
+  installed there today and `yunq hook check` is the portable path (also the
+  `pre-commit`/CI path); the analysis is single-file, so cross-file taint and
+  the OOP/architecture cross-file rules do not participate in a pre-write
+  verdict; and there is no MCP server yet — worth adding as a *planning-time*
+  complement (an agent querying the policy before writing) rather than a
+  replacement for the hook, precisely because it would be consulted rather
+  than invoked.
 
 ## Phase 7 — Enterprise platform
 

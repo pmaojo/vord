@@ -3716,6 +3716,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-agent-policy"
+version = "0.1.1"
+dependencies = [
+ "globset",
+ "serde",
+ "thiserror",
+ "toml",
+ "yunq-profiles",
+]
+
+[[package]]
 name = "yunq-ast"
 version = "0.1.1"
 dependencies = [
@@ -3747,6 +3758,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "yunq-agent-policy",
  "yunq-ast",
  "yunq-infra-fs",
  "yunq-infra-github",

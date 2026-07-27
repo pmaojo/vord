@@ -11,6 +11,7 @@ use yunq_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 
 mod blame;
 mod ci_detect;
+mod hook_install;
 mod monorepo_scan;
 mod wizard;
 
@@ -47,6 +48,35 @@ enum Command {
         /// Write the workflow without asking for confirmation.
         #[arg(long)]
         yes: bool,
+    },
+    /// Agentic guardrail: gate an autonomous agent's writes against the
+    /// Agent Permission Policy (`yunq-policy.toml`).
+    Hook {
+        #[command(subcommand)]
+        action: HookAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum HookAction {
+    /// Claude Code hook entry point. Reads the hook payload on stdin and
+    /// writes its verdict as JSON on stdout — not run by hand; `yunq hook
+    /// install` wires it into `.claude/settings.json`.
+    ClaudeCode,
+    /// Judge one file against the policy. The host-agnostic entry point, for
+    /// hosts without file-write hooks (Codex CLI), `pre-commit`, and CI.
+    /// Exits 0 (allowed), 2 (denied by policy) or 1 (yunq itself failed).
+    Check {
+        /// File to judge, as the agent would write it.
+        file: PathBuf,
+    },
+    /// Wire the guardrail into this repository: write `yunq-policy.toml` and
+    /// merge the hooks into `.claude/settings.json`.
+    Install {
+        /// Override the command the hooks invoke (defaults to `yunq hook
+        /// claude-code`, which must be on PATH).
+        #[arg(long)]
+        command: Option<String>,
     },
 }
 
@@ -181,6 +211,24 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Init { yes }) => wizard::install_ci(&std::env::current_dir()?, yes),
         Some(Command::Scan(args)) => run_scan(*args).await,
         Some(Command::Fix { path, issue, model }) => run_fix(path, issue, model).await,
+        Some(Command::Hook { action }) => run_hook(action).await,
+    }
+}
+
+/// The guardrail's three entry points. `ClaudeCode` deliberately swallows
+/// its own errors into a success exit inside `run_claude_code` (failing open
+/// keeps a yunq bug from wedging the agent loop); the other two report
+/// errors normally through `main`'s handler.
+async fn run_hook(action: HookAction) -> anyhow::Result<ExitCode> {
+    match action {
+        HookAction::ClaudeCode => yunq_cli::hook::run_claude_code().await,
+        HookAction::Check { file } => yunq_cli::hook::run_check(file).await,
+        HookAction::Install { command } => {
+            let root = std::env::current_dir()?;
+            let command = command.unwrap_or_else(|| hook_install::DEFAULT_HOOK_COMMAND.to_string());
+            hook_install::install(&root, &command)?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
