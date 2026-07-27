@@ -100,6 +100,11 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("rust:panic-in-drop"), Severity::Critical),
         (rule("rust:from-over-into"), Severity::Minor),
         (rule("rust:dbg-macro"), Severity::Minor),
+        (rule("rust:drop-on-reference"), Severity::Major),
+        (rule("rust:self-comparison"), Severity::Major),
+        (rule("rust:float-literal-eq"), Severity::Major),
+        (rule("rust:derive-hash-manual-partial-eq"), Severity::Major),
+        (rule("rust:blocking-sleep-in-async"), Severity::Major),
         // rulesets/code-smells — applies_to rust only.
         (rule("smells:unwrap-usage"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/python/rust.
@@ -203,6 +208,26 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
     activations
 }
 
+fn php_activations() -> Vec<(RuleId, Severity)> {
+    let mut activations = generic_activations();
+    activations.push(permissive_cors());
+    activations.extend([
+        // rulesets/owasp — applies_to php (in addition to python/java/ruby).
+        (rule("owasp:insecure-deserialization"), Severity::Critical),
+        // rulesets/php — all applies_to php only.
+        (rule("php:eval-usage"), Severity::Critical),
+        (rule("php:extract-usage"), Severity::Critical),
+        (rule("php:error-suppression-operator"), Severity::Minor),
+        (rule("php:loose-hash-comparison"), Severity::Critical),
+        (rule("php:command-execution"), Severity::Major),
+        (rule("php:sql-injection-concat"), Severity::Blocker),
+        (rule("php:dynamic-function-call-from-superglobal"), Severity::Blocker),
+        (rule("php:variable-variable"), Severity::Major),
+        (rule("php:weak-random-token"), Severity::Critical),
+    ]);
+    activations
+}
+
 fn go_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
@@ -274,6 +299,7 @@ fn activations_for(language: &str) -> Vec<(RuleId, Severity)> {
         "rust" => rust_activations(),
         "typescript" => typescript_activations(),
         "python" => python_activations(),
+        "php" => php_activations(),
         "go" => go_activations(),
         "java" => java_activations(),
         "ruby" => ruby_activations(),

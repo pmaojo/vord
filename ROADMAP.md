@@ -138,9 +138,9 @@ re-analysis on typical PRs.
 - **Rule catalog at scale**: build out the high-value rules per language;
   rule metadata (name, description in markdown, remediation effort function,
   tags, CWE / OWASP Top 10 / CERT mappings); `GET /rules` API with search.
-  33 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
-  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 11 in
-  `rulesets/rust`) plus duplication and taint. The dedicated `rulesets/rust`
+  47 rules shipped (10 per-file + 1 cross-file in `rulesets/owasp`, 7 in
+  `rulesets/code-smells`, 2 in `rulesets/iac`, 2 in `rulesets/a11y`, 16 in
+  `rulesets/rust`, 9 in `rulesets/php`) plus duplication and taint. The dedicated `rulesets/rust`
   crate (2026-07-23) is the first language-specific ruleset (as opposed to
   the neutral-AST checks in `rulesets/code-smells` that merely happen to
   apply to every language): `rust:unsafe-undocumented` (an `unsafe` block
@@ -168,7 +168,80 @@ re-analysis on typical PRs.
   `SAFETY`-comment lookup (shared with `unsafe-undocumented`) that would
   otherwise have been duplicated across rule files. All 7 wired into the
   built-in yunq way profile (`core/profiles/src/builtin.rs`) at their real
-  default severities. Latest additions (2026-07-22) unblock two
+  default severities. ✅ **(2026-07-27, same session)** gap analysis against
+  Clippy/SonarQube's Rust coverage — the honest read is that neither is
+  close to being outmatched on raw rule *count* (Clippy alone ships ~600
+  lints), so the second `rulesets/rust` pass targeted specific
+  high-confidence categories rather than trying to race that number: five
+  more rules, taking the ruleset to 16. Two are correctness checks Clippy
+  itself deny-by-defaults on: `rust:drop-on-reference` (`drop(&x)`/
+  `drop(&mut x)` drops the reference, not the referent — a syntactic,
+  zero-type-inference no-op-bug check, mirrors `clippy::drop_ref`/
+  `forget_ref`) and `rust:derive-hash-manual-partial-eq` (a type derives
+  `Hash` but hand-writes `PartialEq`, risking a silent `Hash`/`Eq` contract
+  break that corrupts `HashMap`/`HashSet` lookups; same-file only —
+  mirrors `clippy::derived_hash_with_manual_eq`). Two more catch
+  comparison bugs syntactically, without needing symbol/type resolution:
+  `rust:self-comparison` (`x == x`/`x != x`, mirrors `clippy::eq_op`) and
+  `rust:float-literal-eq` (a float compared to a literal with `==`/`!=`,
+  mirrors `clippy::float_cmp_const`) — both share a new
+  `common::operator_between` helper that recovers the (grammar-anonymous,
+  not present as an AST node) operator token from the raw source between
+  the two operand spans, since tree-sitter-rust's `binary_expression` only
+  exposes its two operands as named children. The fifth,
+  `rust:blocking-sleep-in-async`, is a category neither Clippy nor Sonar
+  covers at all: `std::thread::sleep` called directly in an `async fn`'s
+  own body blocks the executor thread instead of yielding it, stalling
+  every other task scheduled on it — detected by walking the async fn's
+  body while skipping any nested closure/fn (so a sleep intentionally
+  wrapped in `spawn_blocking(|| ...)` is correctly not flagged). `common.rs`
+  also grew a shared `self_type_of_impl` (alongside the existing
+  `trait_of_impl`) so `derive-hash-manual-partial-eq` didn't have to
+  re-derive `impl_item`'s positional-children shape a third time. All five
+  wired into the built-in yunq way profile. ✅ **(2026-07-27, same session)**
+  explicit goal set: match SonarQube's rule-catalog depth for Rust,
+  TypeScript, Python, and PHP (Java out of scope by decision). Reality
+  check first — `rules.sonarsource.com` itself is down (confirmed via
+  live search, Feb 2026), so exact per-language counts aren't pinnable to
+  a single source, but the order of magnitude is clear from Sonar's own
+  docs/blog: JS+TS combined "500+" rules, Python "300+", PHP "hundreds"
+  (unconfirmed exact figure), Rust much newer and smaller — SonarQube's
+  Rust analyzer leans on integrating 85 Clippy rules directly rather than
+  authoring a large native catalog. Against that, yunq's rust-specific
+  count (16) plus generics is in the same order as Sonar's Rust catalog;
+  TS/Python (12+12 react / 28 python-specific, plus generics) are a much
+  smaller fraction of Sonar's 300-500; PHP was the starkest gap: **zero**
+  PHP-specific rules despite `parsers/treesitter-php` existing since the
+  parser-roster phase. Bootstrapped `rulesets/php` (new crate, wired into
+  all three composition roots — `bin/cli`, `bin/server`, `bin/worker` — and
+  a new `php_activations()` in `core/profiles/src/builtin.rs`) with a
+  first batch of 9 rules chosen for confirmed-real vulnerability classes
+  Sonar's own PHP catalog covers: `php:eval-usage` and `php:extract-usage`
+  (dynamic code / variable-scope injection, hotspots), `php:sql-injection-
+  concat` (query built by `.`-concatenation into a `mysqli_query`/`pg_query`/
+  `->query`/`->exec`/`->prepare` sink — mirrors `python:sql-injection-
+  string-building`'s scope-limited, same-call-site heuristic), `php:command-
+  execution` (`system`/`exec`/`shell_exec`/`passthru`/`popen`/`proc_open`,
+  filling a gap the generic `owasp:command-execution`'s sink list — Rust/Go/
+  Python/TS-specific — never covered for PHP at all), `php:loose-hash-
+  comparison` (PHP's "magic hash" `==` type-juggling bug on `md5`/`sha1`/
+  `hash`/`crc32` results), `php:dynamic-function-call-from-superglobal`
+  (`$_GET['f']()`/`call_user_func($_GET['f'])` — request data choosing which
+  function in the program runs), `php:error-suppression-operator` (the `@`
+  operator), `php:variable-variable` (`$$name`), and `php:weak-random-
+  token` (mirrors `typescript:math-random-for-token`'s naming-heuristic
+  shape, retargeted at `rand`/`mt_rand`/`uniqid`). A new `rulesets/php::
+  common` module holds `callee_node` — recovering a call's callee
+  uniformly across tree-sitter-php's three different `Call` shapes (bare
+  function: `[name, arguments]`; method: `[receiver, method_name,
+  arguments]`, no `MemberAccess` wrapper at all; dynamic:
+  `[subscript_expression, arguments]`) — plus the same `operator_between`
+  technique `rulesets/rust` uses to recover `binary_expression`'s
+  grammar-anonymous operator token. All 9 verified against tree-sitter-
+  php's actual parse shapes (not guessed) and wired into the built-in yunq
+  way profile. This is phase one of a multi-session build-out, not
+  parity yet — TS, Python, and Rust all still need further rounds to
+  close the gap against Sonar's real catalog sizes. Latest additions (2026-07-22) unblock two
   categories the earlier catalog audit (`specs/rule-catalog-gap-closure`)
   had marked "viable but blocked on a missing parser" — now that the
   HTML/CSS/HCL/YAML parsers exist, those categories are open:

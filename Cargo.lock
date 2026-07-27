@@ -3782,6 +3782,7 @@ dependencies = [
  "yunq-rules-engine",
  "yunq-rules-iac",
  "yunq-rules-owasp",
+ "yunq-rules-php",
  "yunq-rules-python",
  "yunq-rules-react",
  "yunq-rules-reactive",
@@ -4301,6 +4302,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-rules-php"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-php",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-rules-python"
 version = "0.1.1"
 dependencies = [
@@ -4405,6 +4415,7 @@ dependencies = [
  "yunq-rules-engine",
  "yunq-rules-iac",
  "yunq-rules-owasp",
+ "yunq-rules-php",
  "yunq-rules-python",
  "yunq-rules-react",
  "yunq-rules-rust",
@@ -4460,6 +4471,7 @@ dependencies = [
  "yunq-rules-engine",
  "yunq-rules-iac",
  "yunq-rules-owasp",
+ "yunq-rules-php",
  "yunq-rules-python",
  "yunq-rules-react",
  "yunq-rules-reactive",

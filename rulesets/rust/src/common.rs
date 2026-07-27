@@ -6,22 +6,33 @@ pub(crate) fn is_other(kind: &yunq_ast::NodeKind, name: &str) -> bool {
     matches!(kind, yunq_ast::NodeKind::Other(k) if k.as_ref() == name)
 }
 
-/// The trait an `impl` names, if any: tree-sitter-rust's `impl_item` exposes
-/// no field distinguishing "trait" from "self type" in this neutral AST's
-/// positional children, but the shapes are unambiguous — an optional leading
-/// `type_parameters`, then either just the self type (inherent impl) or the
-/// trait followed by the self type (trait impl), then the body.
-pub(crate) fn trait_of_impl(node: &AstNode) -> Option<&AstNode> {
-    let heads: Vec<&AstNode> = node
-        .children()
+/// An `impl`'s non-body, non-generics children, in source order:
+/// `[self_type]` for an inherent impl, `[trait, self_type]` for a trait impl.
+/// tree-sitter-rust's `impl_item` exposes no field distinguishing "trait"
+/// from "self type" in this neutral AST's positional children, but the
+/// shapes are unambiguous once `type_parameters`/`declaration_list`/
+/// `where_clause` are filtered out.
+fn impl_heads(node: &AstNode) -> Vec<&AstNode> {
+    node.children()
         .iter()
         .filter(|c| {
             !is_other(c.kind(), "declaration_list")
                 && !is_other(c.kind(), "where_clause")
                 && !is_other(c.kind(), "type_parameters")
         })
-        .collect();
+        .collect()
+}
+
+/// The trait an `impl` names, if any (`None` for an inherent impl).
+pub(crate) fn trait_of_impl(node: &AstNode) -> Option<&AstNode> {
+    let heads = impl_heads(node);
     (heads.len() == 2).then(|| heads[0])
+}
+
+/// The type an `impl` is written against — the self type of `impl Trait for
+/// Self`, or the sole type of an inherent `impl Self`.
+pub(crate) fn self_type_of_impl(node: &AstNode) -> Option<&AstNode> {
+    impl_heads(node).last().copied()
 }
 
 /// Whether `impl`'s named trait matches `name` (bare or path-qualified, e.g.
@@ -31,6 +42,14 @@ pub(crate) fn impl_trait_is(node: &AstNode, name: &str) -> bool {
         let base = t.text().split('<').next().unwrap_or(t.text());
         base == name || base.ends_with(&format!("::{name}"))
     })
+}
+
+/// The two named children of a `binary_expression` are its operands; the
+/// operator token itself is anonymous in tree-sitter-rust's grammar and
+/// doesn't survive conversion to this neutral AST as a node, so it's read
+/// back out of the raw source between the two operand spans.
+pub(crate) fn operator_between<'a>(source: &'a str, left: &AstNode, right: &AstNode) -> &'a str {
+    source.get(left.byte_range().end..right.byte_range().start).unwrap_or("").trim()
 }
 
 /// Whether the contiguous run of comment lines directly above `start_line`
