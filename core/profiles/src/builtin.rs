@@ -105,6 +105,12 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("rust:float-literal-eq"), Severity::Major),
         (rule("rust:derive-hash-manual-partial-eq"), Severity::Major),
         (rule("rust:blocking-sleep-in-async"), Severity::Major),
+        (rule("rust:modulo-one"), Severity::Major),
+        (rule("rust:almost-swapped"), Severity::Critical),
+        (rule("rust:absurd-extreme-comparison"), Severity::Major),
+        (rule("rust:mutex-atomic-candidate"), Severity::Minor),
+        (rule("rust:suspicious-arithmetic-impl"), Severity::Major),
+        (rule("rust:lock-held-across-await"), Severity::Critical),
         // rulesets/code-smells — applies_to rust only.
         (rule("smells:unwrap-usage"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/python/rust.
