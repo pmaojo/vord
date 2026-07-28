@@ -609,6 +609,19 @@ mod tests {
     }
 
     #[test]
+    fn enabled_reports_false_when_the_policy_disables_itself() {
+        let policy = AgentPolicy::parse("[agent]\nenabled = false\n").expect("parses");
+        assert!(!policy.enabled());
+    }
+
+    #[test]
+    fn a_denied_evaluation_is_not_empty() {
+        let policy = AgentPolicy::default();
+        let evaluation = policy.evaluate("src/a.ts", &[finding("owasp:xss", Severity::Critical)]);
+        assert!(!evaluation.is_empty());
+    }
+
+    #[test]
     fn a_finding_below_the_threshold_does_not_deny() {
         let policy = AgentPolicy::default();
         let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Major)]);
