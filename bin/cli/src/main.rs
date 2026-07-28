@@ -163,25 +163,14 @@ struct GithubArgs {
     pr: Option<u32>,
 }
 
+/// Reports produced by *other* tools that this scan folds in. Grouped
+/// because they share one shape — an optional path to a file yunq parses
+/// but never generates — and one lifecycle: read after the analysis, merged
+/// into the same report, surfaced through the same gate. `CoverageArgs` is
+/// the fourth member of this family, kept separate only because coverage
+/// alone spans eight flags.
 #[derive(clap::Args)]
-struct ScanArgs {
-    path: PathBuf,
-    #[arg(long, value_enum, default_value_t = Format::Text)]
-    format: Format,
-    /// Exit with a non-zero status if any issue at or above this severity is found.
-    #[arg(long)]
-    fail_on: Option<String>,
-    /// Disable the incremental analysis cache (.yunq-cache.json).
-    #[arg(long)]
-    no_cache: bool,
-    /// Exit with status 3 when the quality gate fails.
-    #[arg(long)]
-    enforce_gate: bool,
-    /// Do not read or update the New Code baseline (.yunq-baseline.json).
-    #[arg(long)]
-    no_baseline: bool,
-    #[command(flatten)]
-    coverage: CoverageArgs,
+struct ReportArgs {
     /// JUnit XML test report to ingest (printed as a test summary).
     #[arg(long)]
     junit: Option<PathBuf>,
@@ -198,11 +187,14 @@ struct ScanArgs {
     /// quality gate exactly like yunq's own. Repeatable.
     #[arg(long, value_name = "PATH")]
     sarif: Vec<PathBuf>,
-    #[command(flatten)]
-    github: GithubArgs,
-    /// Print a ready-to-paste prompt handing the findings to an AI coding agent.
-    #[arg(long)]
-    agent_prompt: bool,
+}
+
+/// Which project(s) the scanned path resolves to, and what to label the
+/// results with. These three decide the *identity* of what is being
+/// measured — `--monorepo` because it turns one path into many projects,
+/// each of which then needs its own key and branch the same way.
+#[derive(clap::Args)]
+struct ProjectScopeArgs {
     /// Explicit project identifier (defaults to yunq.toml's `[project] key`,
     /// then the scanned directory's name).
     #[arg(long)]
@@ -211,16 +203,54 @@ struct ScanArgs {
     /// when omitted).
     #[arg(long)]
     branch: Option<String>,
-    /// Capture per-line SCM blame (author/commit) for files with issues and
-    /// write it as JSON to this path — consumable by anything that wants to
-    /// show "who introduced this" alongside an issue.
-    #[arg(long)]
-    blame_output: Option<PathBuf>,
     /// Treat `path` as a monorepo root: discover every yunq.toml-configured
     /// project under it and scan each independently, reporting results per
     /// project instead of merging them into one report.
     #[arg(long)]
     monorepo: bool,
+}
+
+/// Where the findings go once the analysis is done — none of these change
+/// what gets analyzed or whether the scan passes, only what is emitted.
+#[derive(clap::Args)]
+struct OutputArgs {
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    format: Format,
+    /// Print a ready-to-paste prompt handing the findings to an AI coding agent.
+    #[arg(long)]
+    agent_prompt: bool,
+    /// Capture per-line SCM blame (author/commit) for files with issues and
+    /// write it as JSON to this path — consumable by anything that wants to
+    /// show "who introduced this" alongside an issue.
+    #[arg(long)]
+    blame_output: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct ScanArgs {
+    path: PathBuf,
+    /// Exit with a non-zero status if any issue at or above this severity is found.
+    #[arg(long)]
+    fail_on: Option<String>,
+    /// Disable the incremental analysis cache (.yunq-cache.json).
+    #[arg(long)]
+    no_cache: bool,
+    /// Exit with status 3 when the quality gate fails.
+    #[arg(long)]
+    enforce_gate: bool,
+    /// Do not read or update the New Code baseline (.yunq-baseline.json).
+    #[arg(long)]
+    no_baseline: bool,
+    #[command(flatten)]
+    coverage: CoverageArgs,
+    #[command(flatten)]
+    reports: ReportArgs,
+    #[command(flatten)]
+    github: GithubArgs,
+    #[command(flatten)]
+    scope: ProjectScopeArgs,
+    #[command(flatten)]
+    output: OutputArgs,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -392,13 +422,14 @@ fn resolve_ci_context() -> ci_detect::CiContext {
 /// last-resort project fallback.
 fn resolve_context(args: &ScanArgs, config_project_key: Option<String>, ci: &ci_detect::CiContext) -> ResolvedContext {
     let project = args
+        .scope
         .project
         .clone()
         .or(config_project_key)
         .or_else(|| args.path.file_name().map(|n| n.to_string_lossy().to_string()));
     ResolvedContext {
         project,
-        branch: args.branch.clone().or_else(|| ci.branch.clone()),
+        branch: args.scope.branch.clone().or_else(|| ci.branch.clone()),
         pr: args.github.pr.or(ci.pr),
         commit_sha: args.github.commit_sha.clone().or_else(|| ci.commit_sha.clone()),
         github_repo: args.github.github_repo.clone().or_else(|| ci.github_repo.clone()),
@@ -531,7 +562,7 @@ fn coverage_new_code_measure(
 /// which is what lets the two sets coexist in one report, one gate and one
 /// New Code baseline.
 fn ingest_sarif(args: &ScanArgs, report: &mut yunq_rules_engine::AnalysisReport) -> anyhow::Result<()> {
-    if args.sarif.is_empty() {
+    if args.reports.sarif.is_empty() {
         return Ok(());
     }
 
@@ -545,7 +576,7 @@ fn ingest_sarif(args: &ScanArgs, report: &mut yunq_rules_engine::AnalysisReport)
 
     let (mut imported, mut skipped) = (0usize, 0usize);
     let mut tools: Vec<String> = Vec::new();
-    for path in &args.sarif {
+    for path in &args.reports.sarif {
         let raw = read_report_file(path)?;
         let import = yunq_infra_fs::parse_sarif_relative_to(&raw, &root)
             .map_err(|e| anyhow::anyhow!("cannot import SARIF from {}: {e}", path.display()))?;
@@ -562,7 +593,7 @@ fn ingest_sarif(args: &ScanArgs, report: &mut yunq_rules_engine::AnalysisReport)
     let tools = if tools.is_empty() { "unknown tool".to_string() } else { tools.join(", ") };
     println!(
         "📥 Imported {imported} issue(s) from {} SARIF report(s) [{tools}]{}",
-        args.sarif.len(),
+        args.reports.sarif.len(),
         if skipped > 0 { format!(" — {skipped} result(s) skipped (passing, suppressed or location-less)") } else { String::new() }
     );
     Ok(())
@@ -672,7 +703,7 @@ fn render_output(
     coverage_new_code: Option<f64>,
     context: &output::ScanContextDto,
 ) -> anyhow::Result<()> {
-    match args.format {
+    match args.output.format {
         Format::Text => {
             print!("{}", output::render_text(report, gate, new_code, test_report, coverage_new_code, context))
         }
@@ -683,7 +714,7 @@ fn render_output(
             )
         }
     }
-    if args.agent_prompt {
+    if args.output.agent_prompt {
         println!("\n{}", output::render_agent_prompt(report, gate, &args.path.display().to_string()));
     }
     Ok(())
@@ -703,7 +734,7 @@ fn render_output(
 /// still lines up with `Issue::file()` for any consumer cross-referencing
 /// the two.
 fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisReport) {
-    let Some(output_path) = &args.blame_output else { return };
+    let Some(output_path) = &args.output.blame_output else { return };
     let Some(git_root) = yunq_cli::find_git_root(&args.path) else {
         eprintln!(
             "warning: --blame-output given but {} is not inside a Git repository — skipping blame capture",
@@ -757,7 +788,7 @@ fn exit_code(
 }
 
 async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
-    if args.monorepo {
+    if args.scope.monorepo {
         return monorepo_scan::run(&args).await;
     }
 
@@ -777,11 +808,11 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     ingest_coverage(&args)?.apply_to(&mut report);
     let coverage_new_code = coverage_new_code_measure(args.coverage.coverage_diff.clone(), &report)?;
 
-    let test_report = load_test_report(args.junit.clone())?;
+    let test_report = load_test_report(args.reports.junit.clone())?;
     if let Some(summary) = &test_report {
         report.set_test_report(summary.clone());
     }
-    if let Some(mutation) = load_mutation_report(args.mutation_report.clone())? {
+    if let Some(mutation) = load_mutation_report(args.reports.mutation_report.clone())? {
         report.set_mutation(mutation);
     }
     if let Some(cache) = &cache

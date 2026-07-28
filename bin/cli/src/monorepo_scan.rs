@@ -82,7 +82,7 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
     report_monorepo_status(args, &context, &results).await;
 
     let shared_context = context.to_dto();
-    match args.format {
+    match args.output.format {
         crate::Format::Text => print!("{}", render_text(root, &results, &shared_context)),
         crate::Format::Json => println!("{}", render_json(root, &results, &shared_context)?),
     }

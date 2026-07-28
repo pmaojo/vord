@@ -146,6 +146,21 @@ mod live_db_tests {
     use yunq_ast::Span;
     use yunq_rules_engine::{Hotspot, HotspotStorage, Issue, IssueScope, IssueStorage, RuleId, Severity};
 
+    /// Serializes the tests in this module against each other, for the
+    /// same reason `queue::live_db_tests` needs it: `purge_expired` sweeps
+    /// *every* project past its effective retention, so a sibling test's
+    /// deliberately-backdated rows are fair game for the sweep this test
+    /// is asserting on. Scoping each test to a unique project key isolates
+    /// the setup but not the operation under test.
+    static RETENTION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// A connected adapter plus exclusive use of the retention sweep. The
+    /// guard must outlive the test body, so callers bind it.
+    async fn exclusive_retention() -> (PgIssueStorage, tokio::sync::MutexGuard<'static, ()>) {
+        let guard = RETENTION_LOCK.lock().await;
+        (connected_storage().await, guard)
+    }
+
     async fn connected_storage() -> PgIssueStorage {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
@@ -157,7 +172,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn purge_expired_removes_only_analyses_past_their_effective_retention() {
-        let storage = connected_storage().await;
+        let (storage, _retention) = exclusive_retention().await;
         let key = format!(
             "retention-test-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -197,7 +212,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn purge_expired_leaves_projects_with_no_effective_retention_untouched() {
-        let storage = connected_storage().await;
+        let (storage, _retention) = exclusive_retention().await;
         let key = format!(
             "retention-test-noop-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -252,7 +267,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn purge_expired_removes_only_issues_and_hotspots_past_their_effective_retention() {
-        let storage = connected_storage().await;
+        let (storage, _retention) = exclusive_retention().await;
         let key = format!(
             "retention-test-findings-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -320,7 +335,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn purge_expired_leaves_unscoped_issues_and_hotspots_untouched() {
-        let storage = connected_storage().await;
+        let (storage, _retention) = exclusive_retention().await;
         let key = format!(
             "retention-test-unscoped-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
