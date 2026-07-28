@@ -18,7 +18,7 @@
 use sqlx::Row;
 use yunq_rules_engine::StorageError;
 
-use crate::PgIssueStorage;
+use crate::{PgAuditStore, PgConfigStore};
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
@@ -33,7 +33,7 @@ pub struct PurgeReport {
     pub hotspots_deleted: u64,
 }
 
-impl PgIssueStorage {
+impl PgConfigStore {
     /// Sets (or clears, with `None`) a project's retention override in
     /// days. Returns the prior value for the audit log. Creates the
     /// project by key on first sight, same as gate assignment/permissions.
@@ -42,7 +42,7 @@ impl PgIssueStorage {
         project_key: &str,
         retention_days: Option<i32>,
     ) -> Result<Option<i32>, StorageError> {
-        let project_id = self.ensure_project(project_key).await?;
+        let project_id = crate::shared::ensure_project(&self.pool, project_key).await?;
         let mut tx = self.pool.begin().await.map_err(storage_err)?;
 
         let before: Option<i32> = sqlx::query("SELECT retention_days FROM projects WHERE id = $1")
@@ -63,7 +63,9 @@ impl PgIssueStorage {
         tx.commit().await.map_err(storage_err)?;
         Ok(before)
     }
+}
 
+impl PgAuditStore {
     /// Deletes analyses, issues and hotspots older than each project's
     /// effective retention — its own `retention_days` override if set, else
     /// `default_days`. A project with neither set is left untouched.
@@ -143,13 +145,27 @@ mod tests {
 #[cfg(test)]
 mod live_db_tests {
     use super::*;
+    use crate::{PgAnalysisStore, PgIssueStorage};
     use yunq_ast::Span;
     use yunq_rules_engine::{Hotspot, HotspotStorage, Issue, IssueScope, IssueStorage, RuleId, Severity};
 
-    async fn connected_storage() -> PgIssueStorage {
+    /// A connected adapter plus exclusive use of the issue/hotspot/analysis
+    /// tables: `purge_expired` sweeps *every* project past its effective
+    /// retention, so a sibling test's rows are fair game for the sweep
+    /// this test is asserting on. The guard must outlive the test body,
+    /// so callers bind it.
+    async fn exclusive_retention() -> (PgAnalysisStore, tokio::sync::MutexGuard<'static, ()>) {
+        let guard = crate::shared::WHOLE_TABLE_LOCK.lock().await;
+        (connected_storage().await, guard)
+    }
+
+    /// The retention sweep spans three contexts: an analysis to age out,
+    /// the issues/hotspots hanging off it, and the audit-side purge that
+    /// removes them. Tests build all three from the one pool.
+    async fn connected_storage() -> PgAnalysisStore {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        let storage = PgAnalysisStore::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
         storage
     }
@@ -157,7 +173,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn purge_expired_removes_only_analyses_past_their_effective_retention() {
-        let storage = connected_storage().await;
+        let (storage, _retention) = exclusive_retention().await;
         let key = format!(
             "retention-test-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -172,10 +188,10 @@ mod live_db_tests {
             .await
             .unwrap();
 
-        let before = storage.set_project_retention_days(&key, Some(1)).await.unwrap();
+        let before = PgConfigStore::new(storage.pool().clone()).set_project_retention_days(&key, Some(1)).await.unwrap();
         assert_eq!(before, None);
 
-        let report = storage.purge_expired(None).await.unwrap();
+        let report = PgAuditStore::new(storage.pool().clone()).purge_expired(None).await.unwrap();
         assert_eq!(report.analyses_deleted, 1);
 
         let remaining: i64 = sqlx::query("SELECT COUNT(*) AS n FROM analyses WHERE project_id = $1")
@@ -197,7 +213,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn purge_expired_leaves_projects_with_no_effective_retention_untouched() {
-        let storage = connected_storage().await;
+        let (storage, _retention) = exclusive_retention().await;
         let key = format!(
             "retention-test-noop-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -213,7 +229,7 @@ mod live_db_tests {
 
         // No project override, no instance default: this project's analysis
         // must survive the purge no matter what other test data is present.
-        storage.purge_expired(None).await.unwrap();
+        PgAuditStore::new(storage.pool().clone()).purge_expired(None).await.unwrap();
         let remaining: i64 = sqlx::query("SELECT COUNT(*) AS n FROM analyses WHERE project_id = $1")
             .bind(project_id)
             .fetch_one(storage.pool())
@@ -252,7 +268,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn purge_expired_removes_only_issues_and_hotspots_past_their_effective_retention() {
-        let storage = connected_storage().await;
+        let (storage, _retention) = exclusive_retention().await;
         let key = format!(
             "retention-test-findings-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -261,10 +277,10 @@ mod live_db_tests {
         let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
 
         // One recent issue/hotspot (kept) and one old issue/hotspot (purged).
-        storage.save_issues(&[test_issue("recent")], scope).await.unwrap();
-        storage.save_issues(&[test_issue("old")], scope).await.unwrap();
-        storage.save_hotspots(&[test_hotspot("recent")], scope).await.unwrap();
-        storage.save_hotspots(&[test_hotspot("old")], scope).await.unwrap();
+        PgIssueStorage::new(storage.pool().clone()).save_issues(&[test_issue("recent")], scope).await.unwrap();
+        PgIssueStorage::new(storage.pool().clone()).save_issues(&[test_issue("old")], scope).await.unwrap();
+        PgIssueStorage::new(storage.pool().clone()).save_hotspots(&[test_hotspot("recent")], scope).await.unwrap();
+        PgIssueStorage::new(storage.pool().clone()).save_hotspots(&[test_hotspot("old")], scope).await.unwrap();
 
         sqlx::query(
             "UPDATE issues SET created_at = now() - interval '30 days'
@@ -283,10 +299,10 @@ mod live_db_tests {
         .await
         .unwrap();
 
-        let before = storage.set_project_retention_days(&key, Some(1)).await.unwrap();
+        let before = PgConfigStore::new(storage.pool().clone()).set_project_retention_days(&key, Some(1)).await.unwrap();
         assert_eq!(before, None);
 
-        let report = storage.purge_expired(None).await.unwrap();
+        let report = PgAuditStore::new(storage.pool().clone()).purge_expired(None).await.unwrap();
         assert_eq!(report.issues_deleted, 1);
         assert_eq!(report.hotspots_deleted, 1);
 
@@ -320,7 +336,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn purge_expired_leaves_unscoped_issues_and_hotspots_untouched() {
-        let storage = connected_storage().await;
+        let (storage, _retention) = exclusive_retention().await;
         let key = format!(
             "retention-test-unscoped-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -330,8 +346,8 @@ mod live_db_tests {
         // Pre-migration-shaped rows: saved with no project/analysis at all
         // (the default `IssueScope`), same as every row saved before
         // 0016_issue_hotspot_scoping.sql existed.
-        storage.save_issues(&[test_issue(&marker)], IssueScope::default()).await.unwrap();
-        storage.save_hotspots(&[test_hotspot(&marker)], IssueScope::default()).await.unwrap();
+        PgIssueStorage::new(storage.pool().clone()).save_issues(&[test_issue(&marker)], IssueScope::default()).await.unwrap();
+        PgIssueStorage::new(storage.pool().clone()).save_hotspots(&[test_hotspot(&marker)], IssueScope::default()).await.unwrap();
 
         let issue_file = format!("src/{marker}.rs");
         sqlx::query("UPDATE issues SET created_at = now() - interval '3650 days' WHERE file = $1")
@@ -348,7 +364,7 @@ mod live_db_tests {
         // An aggressive instance-wide default: if these rows had a
         // project_id, this would purge them instantly. They don't, so the
         // purge query's join against `projects` can never match them.
-        storage.purge_expired(Some(1)).await.unwrap();
+        PgAuditStore::new(storage.pool().clone()).purge_expired(Some(1)).await.unwrap();
 
         let remaining_issues: i64 =
             sqlx::query("SELECT COUNT(*) AS n FROM issues WHERE file = $1")

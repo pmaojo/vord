@@ -234,7 +234,7 @@ where
         self.storage.save_hotspots(&hotspots, scope).await?;
         self.metrics.record(&metrics).await?;
         let mut report = AnalysisReport::new(issues, hotspots, metrics);
-        report.set_duplications(duplication.blocks);
+        report.set_duplications(duplication);
         Ok(report)
     }
 

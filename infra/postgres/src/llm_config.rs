@@ -17,7 +17,7 @@ use base64::Engine;
 use sqlx::Row;
 use yunq_rules_engine::StorageError;
 
-use crate::PgIssueStorage;
+use crate::PgConfigStore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LlmConfigError {
@@ -78,7 +78,7 @@ fn decrypt(key: &Key<Aes256Gcm>, ciphertext: &[u8], nonce: &[u8]) -> Result<Stri
         .map_err(|e| LlmConfigError::Crypto(format!("decrypted plaintext wasn't valid UTF-8: {e}")))
 }
 
-impl PgIssueStorage {
+impl PgConfigStore {
     /// Upserts a project's BYOK provider config, encrypting `api_key`
     /// before it ever reaches the database. Creates the project by key on
     /// first sight, same as gate assignment and permission grants.
@@ -92,7 +92,7 @@ impl PgIssueStorage {
     ) -> Result<(), LlmConfigError> {
         let key = master_key()?;
         let (cipher, nonce) = encrypt(&key, api_key)?;
-        let project_id = self.ensure_project(project_key).await.map_err(LlmConfigError::Storage)?;
+        let project_id = crate::shared::ensure_project(&self.pool, project_key).await.map_err(LlmConfigError::Storage)?;
 
         sqlx::query(
             "INSERT INTO project_llm_provider_config
@@ -265,11 +265,12 @@ mod tests {
 #[cfg(test)]
 mod live_db_tests {
     use super::*;
+    use crate::{PgAnalysisStore};
 
-    async fn connected_storage() -> PgIssueStorage {
+    async fn connected_storage() -> PgConfigStore {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        let storage = PgConfigStore::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
         storage
     }
@@ -335,7 +336,7 @@ mod live_db_tests {
     async fn get_returns_none_for_a_project_without_an_override() {
         let storage = connected_storage().await;
         let key = unique_project_key("no-override");
-        storage.ensure_project(&key).await.unwrap();
+        PgAnalysisStore::new(storage.pool().clone()).ensure_project(&key).await.unwrap();
 
         assert_eq!(storage.get_project_llm_config(&key).await.unwrap(), None);
     }
@@ -358,7 +359,7 @@ mod live_db_tests {
     async fn delete_is_false_when_no_override_existed() {
         let storage = connected_storage().await;
         let key = unique_project_key("delete-noop");
-        storage.ensure_project(&key).await.unwrap();
+        PgAnalysisStore::new(storage.pool().clone()).ensure_project(&key).await.unwrap();
 
         assert!(!storage.delete_project_llm_config(&key).await.unwrap());
     }
@@ -368,7 +369,7 @@ mod live_db_tests {
     async fn project_key_for_issue_resolves_the_owning_project() {
         let storage = connected_storage().await;
         let key = unique_project_key("issue-owner");
-        let project_id = storage.ensure_project(&key).await.unwrap();
+        let project_id = PgAnalysisStore::new(storage.pool().clone()).ensure_project(&key).await.unwrap();
 
         let issue_id: i64 = sqlx::query(
             "INSERT INTO issues (rule, severity, message, file, start_line, start_col, end_line, end_col, status, project_id)

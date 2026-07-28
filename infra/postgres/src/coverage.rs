@@ -10,13 +10,13 @@ use yunq_rules_engine::{
     FileCoverageLineReader, FileCoverageLineStorage, FileCoverageLines, StorageError,
 };
 
-use crate::PgIssueStorage;
+use crate::PgAnalysisStore;
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
 }
 
-impl CoverageStorage for PgIssueStorage {
+impl CoverageStorage for PgAnalysisStore {
     async fn save_coverage(
         &self,
         analysis_id: i64,
@@ -45,7 +45,7 @@ impl CoverageStorage for PgIssueStorage {
     }
 }
 
-impl PgIssueStorage {
+impl PgAnalysisStore {
     /// The most recent analysis id for a project's branch — the row a
     /// freshly-ingested coverage report attaches to, since coverage is
     /// scoped to an already-completed scan rather than starting a new one.
@@ -69,7 +69,7 @@ impl PgIssueStorage {
 /// already uses.
 const COVERAGE_LINE_BATCH_ROWS: usize = 1000;
 
-impl FileCoverageLineStorage for PgIssueStorage {
+impl FileCoverageLineStorage for PgAnalysisStore {
     async fn save_file_coverage_lines(
         &self,
         analysis_id: i64,
@@ -108,7 +108,7 @@ impl FileCoverageLineStorage for PgIssueStorage {
     }
 }
 
-impl FileCoverageLineReader for PgIssueStorage {
+impl FileCoverageLineReader for PgAnalysisStore {
     async fn file_coverage_lines(
         &self,
         project_key: &str,
@@ -155,7 +155,7 @@ impl FileCoverageLineReader for PgIssueStorage {
     }
 }
 
-impl CoverageResultReader for PgIssueStorage {
+impl CoverageResultReader for PgAnalysisStore {
     async fn latest_coverage(
         &self,
         project_key: &str,

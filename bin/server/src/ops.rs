@@ -24,7 +24,7 @@ use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use yunq_infra_postgres::{
     AuditLogEntry, AuditLogQuery, CompareProfileError, CopyProfileError, LlmConfigError,
-    PgIssueStorage, ProjectLlmConfig, PurgeReport, RestoreProfileError, SystemSnapshot,
+    PgAuditStore, PgConfigStore, ProjectLlmConfig, PurgeReport, RestoreProfileError, SystemSnapshot,
 };
 use yunq_rules_engine::{
     ComparisonOperator, MetricKey, Page, ProfileBackup, ProfileDiff, QualityProfile, RuleId,
@@ -123,7 +123,7 @@ pub(crate) trait OpsStore: Send + Sync {
     ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, CopyProfileError>>;
 
     /// Restores a profile from a backup — issue #22's "Restore profile"
-    /// operation. See `PgIssueStorage::restore_quality_profile` for the
+    /// operation. See `PgConfigStore::restore_quality_profile` for the
     /// name-collision policy `force` controls.
     fn restore_profile(
         &self,
@@ -157,13 +157,31 @@ pub(crate) trait OpsStore: Send + Sync {
     fn project_key_for_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<Option<String>, StorageError>>;
 }
 
-impl OpsStore for PgIssueStorage {
+/// The administration surface the ops API needs, which spans two of the
+/// storage contexts: configuration writes (gates, profiles, permissions,
+/// retention, BYOK settings) and the audit record of who made them.
+/// Composed here in the server's own adapter layer rather than pushing a
+/// combined type back into `yunq-infra-postgres` — needing these two
+/// together is a property of this API, not of the database.
+#[derive(Clone)]
+pub struct PgOpsStore {
+    config: PgConfigStore,
+    audit: PgAuditStore,
+}
+
+impl PgOpsStore {
+    pub fn new(config: PgConfigStore, audit: PgAuditStore) -> Self {
+        Self { config, audit }
+    }
+}
+
+impl OpsStore for PgOpsStore {
     fn upsert_gate(
         &self,
         name: String,
         conditions: Vec<GateCondition>,
     ) -> BoxFuture<'_, Result<BeforeAfter<GateCondition>, StorageError>> {
-        Box::pin(async move { PgIssueStorage::upsert_quality_gate(self, &name, &conditions).await })
+        Box::pin(async move { PgConfigStore::upsert_quality_gate(&self.config, &name, &conditions).await })
     }
 
     fn upsert_profile(
@@ -172,7 +190,7 @@ impl OpsStore for PgIssueStorage {
         activations: Vec<(RuleId, Severity)>,
     ) -> BoxFuture<'_, Result<BeforeAfter<ProfileActivation>, StorageError>> {
         Box::pin(async move {
-            PgIssueStorage::upsert_quality_profile(self, &name, &activations).await
+            PgConfigStore::upsert_quality_profile(&self.config, &name, &activations).await
         })
     }
 
@@ -183,7 +201,7 @@ impl OpsStore for PgIssueStorage {
         role: Option<String>,
     ) -> BoxFuture<'_, Result<Option<String>, StorageError>> {
         Box::pin(async move {
-            PgIssueStorage::set_project_permission(self, &project_key, &user_login, role.as_deref())
+            PgConfigStore::set_project_permission(&self.config, &project_key, &user_login, role.as_deref())
                 .await
         })
     }
@@ -198,8 +216,8 @@ impl OpsStore for PgIssueStorage {
         after: Option<Value>,
     ) -> BoxFuture<'_, Result<(), StorageError>> {
         Box::pin(async move {
-            PgIssueStorage::record_audit(
-                self,
+            PgAuditStore::record_audit(
+                &self.audit,
                 actor_user_id.as_deref(),
                 &action,
                 &entity_type,
@@ -215,11 +233,11 @@ impl OpsStore for PgIssueStorage {
         &self,
         query: AuditLogQuery,
     ) -> BoxFuture<'_, Result<Page<AuditLogEntry>, StorageError>> {
-        Box::pin(async move { PgIssueStorage::list_audit_log(self, &query).await })
+        Box::pin(async move { PgAuditStore::list_audit_log(&self.audit, &query).await })
     }
 
     fn system_snapshot(&self) -> BoxFuture<'_, SystemSnapshot> {
-        Box::pin(PgIssueStorage::system_snapshot(self))
+        Box::pin(PgAuditStore::system_snapshot(&self.audit))
     }
 
     fn set_retention(
@@ -228,16 +246,16 @@ impl OpsStore for PgIssueStorage {
         retention_days: Option<i32>,
     ) -> BoxFuture<'_, Result<Option<i32>, StorageError>> {
         Box::pin(async move {
-            PgIssueStorage::set_project_retention_days(self, &project_key, retention_days).await
+            PgConfigStore::set_project_retention_days(&self.config, &project_key, retention_days).await
         })
     }
 
     fn purge_expired(&self, default_days: Option<i32>) -> BoxFuture<'_, Result<PurgeReport, StorageError>> {
-        Box::pin(async move { PgIssueStorage::purge_expired(self, default_days).await })
+        Box::pin(async move { PgAuditStore::purge_expired(&self.audit, default_days).await })
     }
 
     fn read_profile(&self, name: String) -> BoxFuture<'_, Result<Option<QualityProfile>, StorageError>> {
-        Box::pin(async move { PgIssueStorage::read_quality_profile(self, &name).await })
+        Box::pin(async move { PgConfigStore::read_quality_profile(&self.config, &name).await })
     }
 
     fn compare_profiles(
@@ -245,7 +263,7 @@ impl OpsStore for PgIssueStorage {
         name_a: String,
         name_b: String,
     ) -> BoxFuture<'_, Result<ProfileDiff, CompareProfileError>> {
-        Box::pin(async move { PgIssueStorage::compare_quality_profiles(self, &name_a, &name_b).await })
+        Box::pin(async move { PgConfigStore::compare_quality_profiles(&self.config, &name_a, &name_b).await })
     }
 
     fn copy_profile(
@@ -253,7 +271,7 @@ impl OpsStore for PgIssueStorage {
         source_name: String,
         new_name: String,
     ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, CopyProfileError>> {
-        Box::pin(async move { PgIssueStorage::copy_quality_profile(self, &source_name, &new_name).await })
+        Box::pin(async move { PgConfigStore::copy_quality_profile(&self.config, &source_name, &new_name).await })
     }
 
     fn restore_profile(
@@ -261,7 +279,7 @@ impl OpsStore for PgIssueStorage {
         backup: ProfileBackup,
         force: bool,
     ) -> BoxFuture<'_, Result<Vec<ProfileActivation>, RestoreProfileError>> {
-        Box::pin(async move { PgIssueStorage::restore_quality_profile(self, &backup, force).await })
+        Box::pin(async move { PgConfigStore::restore_quality_profile(&self.config, &backup, force).await })
     }
 
     fn set_llm_config(
@@ -273,8 +291,8 @@ impl OpsStore for PgIssueStorage {
         api_key: String,
     ) -> BoxFuture<'_, Result<(), LlmConfigError>> {
         Box::pin(async move {
-            PgIssueStorage::set_project_llm_config(
-                self,
+            PgConfigStore::set_project_llm_config(
+                &self.config,
                 &project_key,
                 &provider,
                 base_url.as_deref(),
@@ -289,15 +307,15 @@ impl OpsStore for PgIssueStorage {
         &self,
         project_key: String,
     ) -> BoxFuture<'_, Result<Option<ProjectLlmConfig>, LlmConfigError>> {
-        Box::pin(async move { PgIssueStorage::get_project_llm_config(self, &project_key).await })
+        Box::pin(async move { PgConfigStore::get_project_llm_config(&self.config, &project_key).await })
     }
 
     fn clear_llm_config(&self, project_key: String) -> BoxFuture<'_, Result<bool, LlmConfigError>> {
-        Box::pin(async move { PgIssueStorage::delete_project_llm_config(self, &project_key).await })
+        Box::pin(async move { PgConfigStore::delete_project_llm_config(&self.config, &project_key).await })
     }
 
     fn project_key_for_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<Option<String>, StorageError>> {
-        Box::pin(async move { PgIssueStorage::project_key_for_issue(self, issue_id).await })
+        Box::pin(async move { PgConfigStore::project_key_for_issue(&self.config, issue_id).await })
     }
 }
 

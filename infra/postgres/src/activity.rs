@@ -14,7 +14,7 @@ use sqlx::postgres::{PgRow, Postgres};
 use sqlx::{QueryBuilder, Row};
 use yunq_rules_engine::{Page, StorageError};
 
-use crate::PgIssueStorage;
+use crate::PgAuditStore;
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
@@ -65,7 +65,7 @@ fn activity_entry_from_row(row: &PgRow) -> Result<ActivityLogEntry, StorageError
     })
 }
 
-impl PgIssueStorage {
+impl PgAuditStore {
     /// Appends one activity log entry, resolving (and creating, if unseen)
     /// the project by key — same "first sight creates the row" convention
     /// as `ensure_project`'s other callers (retention, permissions). Best-
@@ -78,7 +78,7 @@ impl PgIssueStorage {
         message: &str,
         metadata: Option<Value>,
     ) -> Result<(), StorageError> {
-        let project_id = self.ensure_project(project_key).await?;
+        let project_id = crate::shared::ensure_project(&self.pool, project_key).await?;
         sqlx::query(
             "INSERT INTO activity_log (project_id, event_type, message, metadata)
              VALUES ($1, $2, $3, $4)",
@@ -172,11 +172,12 @@ mod tests {
 #[cfg(test)]
 mod live_db_tests {
     use super::*;
+    use crate::{PgAnalysisStore};
 
-    async fn connected_storage() -> PgIssueStorage {
+    async fn connected_storage() -> PgAuditStore {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        let storage = PgAuditStore::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
         storage
     }
@@ -216,7 +217,7 @@ mod live_db_tests {
             .unwrap();
         assert_eq!(filtered.total, 1);
 
-        let project_id = storage.ensure_project(&key).await.unwrap();
+        let project_id = PgAnalysisStore::new(storage.pool().clone()).ensure_project(&key).await.unwrap();
         sqlx::query("DELETE FROM projects WHERE id = $1")
             .bind(project_id)
             .execute(storage.pool())

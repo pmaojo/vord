@@ -21,7 +21,7 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use yunq_infra_fs::CoverageFormat;
-use yunq_infra_postgres::PgIssueStorage;
+use yunq_infra_postgres::PgAnalysisStore;
 use yunq_rules_engine::{
     ComponentTree, ComponentTreeReader, CoverageResultReader, CoverageResultSummary,
     CoverageStorage, CoverageSummary, FileBlame, FileBlameLineReader, FileBlameLineStorage,
@@ -32,7 +32,7 @@ use yunq_rules_engine::{
 use crate::AppState;
 
 /// Object-safe HTTP-facing adapter over the coverage, measure-history and
-/// component-tree read/write methods on `PgIssueStorage` — same "one trait
+/// component-tree read/write methods on `PgAnalysisStore` — same "one trait
 /// per composition-root need" pattern as `OpsStore`/`GateBadgePort` in
 /// `main.rs`. Grown beyond pure coverage concerns (issue #26's measure
 /// history / component tree / sources endpoints) rather than adding a new
@@ -104,9 +104,9 @@ pub(crate) trait CoveragePort: Send + Sync {
     ) -> BoxFuture<'_, Result<Option<FileBlameLines>, StorageError>>;
 }
 
-impl CoveragePort for PgIssueStorage {
+impl CoveragePort for PgAnalysisStore {
     fn ensure_project(&self, key: String) -> BoxFuture<'_, Result<i64, StorageError>> {
-        Box::pin(async move { PgIssueStorage::ensure_project(self, &key).await })
+        Box::pin(async move { PgAnalysisStore::ensure_project(self, &key).await })
     }
 
     fn latest_analysis_id(
@@ -114,7 +114,7 @@ impl CoveragePort for PgIssueStorage {
         project_id: i64,
         branch: String,
     ) -> BoxFuture<'_, Result<Option<i64>, StorageError>> {
-        Box::pin(async move { PgIssueStorage::latest_analysis_id(self, project_id, &branch).await })
+        Box::pin(async move { PgAnalysisStore::latest_analysis_id(self, project_id, &branch).await })
     }
 
     fn save_coverage(

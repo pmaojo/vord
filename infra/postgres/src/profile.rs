@@ -3,12 +3,12 @@
 //! plus a child table of entries) rather than as an opaque JSON blob.
 //!
 //! Also the thin persistence layer behind issue #22's compare/copy/
-//! backup-restore operations: [`PgIssueStorage::read_quality_profile`]
+//! backup-restore operations: [`PgConfigStore::read_quality_profile`]
 //! rebuilds a `QualityProfile` (parent chain included, via `parent_id` —
 //! see migration `0018_quality_profile_inheritance.sql`) from stored rows,
-//! and [`PgIssueStorage::compare_quality_profiles`],
-//! [`PgIssueStorage::copy_quality_profile`] and
-//! [`PgIssueStorage::restore_quality_profile`] each read what they need
+//! and [`PgConfigStore::compare_quality_profiles`],
+//! [`PgConfigStore::copy_quality_profile`] and
+//! [`PgConfigStore::restore_quality_profile`] each read what they need
 //! through it and hand off to the pure `core/profiles` functions
 //! (`compare`, `copy_profile`, `restore`) for the actual decision —
 //! this file only does I/O.
@@ -18,7 +18,7 @@ use yunq_rules_engine::{
     ProfileBackup, ProfileDiff, QualityProfile, RestorePolicy, RuleId, Severity, StorageError,
 };
 
-use crate::PgIssueStorage;
+use crate::PgConfigStore;
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
@@ -28,7 +28,7 @@ fn storage_err(e: impl std::fmt::Display) -> StorageError {
 /// crate's own writes (`restore_quality_profile` is the only path that
 /// sets `parent_id`, and it always points at an already-existing row), but
 /// this is a defensive bound all the same — without it, a cycle would spin
-/// [`PgIssueStorage::read_quality_profile`] forever instead of returning a
+/// [`PgConfigStore::read_quality_profile`] forever instead of returning a
 /// clear error.
 const MAX_PARENT_CHAIN_DEPTH: u8 = 16;
 
@@ -116,7 +116,7 @@ async fn replace_profile_activations(
     Ok(after)
 }
 
-impl PgIssueStorage {
+impl PgConfigStore {
     /// Creates the named profile if it doesn't exist yet, then replaces its
     /// full set of rule activations — the write path behind
     /// `PUT /api/quality-profiles/{name}`. Returns `(before, after)`
@@ -360,10 +360,10 @@ mod live_db_tests {
 
     use super::*;
 
-    async fn connected_storage() -> PgIssueStorage {
+    async fn connected_storage() -> PgConfigStore {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        let storage = PgConfigStore::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
         storage
     }
@@ -375,7 +375,7 @@ mod live_db_tests {
         )
     }
 
-    async fn delete_profile(storage: &PgIssueStorage, name: &str) {
+    async fn delete_profile(storage: &PgConfigStore, name: &str) {
         sqlx::query("DELETE FROM quality_profiles WHERE name = $1")
             .bind(name)
             .execute(&storage.pool)

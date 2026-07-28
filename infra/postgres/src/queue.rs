@@ -19,7 +19,7 @@ use sqlx::postgres::PgListener;
 use sqlx::{PgPool, Row};
 use yunq_rules_engine::{JobQueue, QueueError, ScanJob};
 
-use crate::PgIssueStorage;
+use crate::{PgAnalysisStore, PgAuditStore};
 
 const NOTIFY_CHANNEL: &str = "yunq_scan_jobs";
 const POLL_FALLBACK: Duration = Duration::from_secs(5);
@@ -34,7 +34,7 @@ fn queue_err(e: impl std::fmt::Display) -> QueueError {
     QueueError(e.to_string())
 }
 
-impl JobQueue for PgIssueStorage {
+impl JobQueue for PgAnalysisStore {
     async fn enqueue_scan(&self, job: ScanJob) -> Result<(), QueueError> {
         sqlx::query("INSERT INTO scan_jobs (project, path) VALUES ($1, $2)")
             .bind(job.project())
@@ -170,7 +170,7 @@ pub struct FailedJob {
     pub updated_at: String,
 }
 
-impl PgIssueStorage {
+impl PgAuditStore {
     /// Reads the current scan-job queue depth by status plus the most
     /// recent failures, for the task queue status / failure-diagnostics
     /// API. A plain read — no locking, no claim.
@@ -250,15 +250,38 @@ mod live_db_tests {
     use super::*;
     use yunq_rules_engine::JobQueue;
 
-    async fn connected_storage() -> PgIssueStorage {
+    /// Serializes the tests in this module against each other. Unlike the
+    /// issue/hotspot tests, which read back rows they select by primary
+    /// key, these exercise `claim_one` — and a queue consumer claims the
+    /// oldest pending job in the *table*, not one scoped to the caller.
+    /// Giving each test a unique project name is therefore not enough to
+    /// isolate it: any row another test (or a previously failed run) left
+    /// pending is claimed first, and the test fails comparing its own
+    /// project against someone else's. That made the outcome depend on
+    /// execution order — `--test-threads=1` failed three of the four,
+    /// parallel failed a different two.
+    static QUEUE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// A connected adapter plus exclusive use of `scan_jobs`, emptied so
+    /// the claim order is determined by this test alone. The guard must be
+    /// held for the body of the test, so callers bind it rather than
+    /// dropping it on the spot.
+    async fn exclusive_queue() -> (PgAnalysisStore, tokio::sync::MutexGuard<'static, ()>) {
+        let guard = QUEUE_LOCK.lock().await;
+        let storage = connected_storage().await;
+        sqlx::query("DELETE FROM scan_jobs").execute(storage.pool()).await.unwrap();
+        (storage, guard)
+    }
+
+    async fn connected_storage() -> PgAnalysisStore {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        let storage = PgAnalysisStore::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
         storage
     }
 
-    async fn cleanup(storage: &PgIssueStorage, project: &str) {
+    async fn cleanup(storage: &PgAnalysisStore, project: &str) {
         sqlx::query("DELETE FROM scan_jobs WHERE project = $1")
             .bind(project)
             .execute(storage.pool())
@@ -269,7 +292,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn claim_increments_attempts_and_records_project_and_path() {
-        let storage = connected_storage().await;
+        let (storage, _queue) = exclusive_queue().await;
         let project = format!(
             "queue-test-claim-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -297,7 +320,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn failing_below_max_attempts_releases_back_to_pending_with_error() {
-        let storage = connected_storage().await;
+        let (storage, _queue) = exclusive_queue().await;
         let project = format!(
             "queue-test-release-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -325,7 +348,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn exhausting_retry_budget_dead_letters_the_job() {
-        let storage = connected_storage().await;
+        let (storage, _queue) = exclusive_queue().await;
         let project = format!(
             "queue-test-deadletter-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -359,7 +382,7 @@ mod live_db_tests {
     #[tokio::test]
     #[ignore = "requires a live Postgres; see module docs"]
     async fn queue_status_reports_counts_and_recent_failures() {
-        let storage = connected_storage().await;
+        let (storage, _queue) = exclusive_queue().await;
         let project = format!(
             "queue-test-status-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -378,7 +401,7 @@ mod live_db_tests {
             consumer.fail(id, attempts, "always fails").await.unwrap();
         }
 
-        let status = storage.queue_status().await.unwrap();
+        let status = PgAuditStore::new(storage.pool().clone()).queue_status().await.unwrap();
         assert_eq!(status.dead, 1);
         assert!(status.pending >= 1);
         assert!(status.recent_failures.iter().any(|f| f.project == project

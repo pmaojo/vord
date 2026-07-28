@@ -1,10 +1,33 @@
-//! Outbound adapter: persists issues and metrics in PostgreSQL via sqlx.
-//! Uses runtime-checked queries on purpose — no live database is needed at
-//! build time. Implements the segregated core ports (`IssueStorage`,
-//! `IssueReader`, `MetricsTracker`); consumers depend only on what they use.
+//! Outbound adapters: persist yunq's data in PostgreSQL via sqlx. Uses
+//! runtime-checked queries on purpose — no live database is needed at
+//! build time.
+//!
+//! Split into four adapters, one per bounded context, rather than one type
+//! answering for the whole database. They were a single `PgIssueStorage`
+//! that had accumulated 63 methods across 13 modules and implemented 11
+//! ports — issue workflow, coverage, quality-profile administration, the
+//! audit log and the job queue all on one struct, which is what
+//! `smells:god-class` flagged when yunq scanned itself:
+//!
+//! - [`PgIssueStorage`] — the issue/hotspot aggregate: storing and
+//!   searching issues and hotspots, and the workflow (transitions,
+//!   assignment, changelog) over them.
+//! - [`PgAnalysisStore`] — one analysis run and the results attached to
+//!   it: the project/analysis lifecycle, gate results, metrics, measures,
+//!   coverage and blame.
+//! - [`PgConfigStore`] — administration: quality profiles and gate
+//!   definitions, per-project LLM settings, permissions and retention
+//!   policy. Configuration read by analyses, never produced by them.
+//! - [`PgAuditStore`] — the operational record: audit log, activity feed,
+//!   system snapshot, retention sweep and queue diagnostics.
+//!
+//! Every adapter is a cheap handle over one shared [`sqlx::PgPool`], so a
+//! composition root opens a single pool and builds the contexts it
+//! actually uses — the server takes all four, the worker takes three, and
+//! neither depends on methods it never calls.
 
-use sqlx::postgres::{PgPoolOptions, PgRow, Postgres};
-use sqlx::{PgPool, QueryBuilder, Row};
+use sqlx::postgres::{PgRow, Postgres};
+use sqlx::{QueryBuilder, Row};
 use yunq_ast::Span;
 use yunq_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, Hotspot, HotspotReader, HotspotReview,
@@ -13,6 +36,8 @@ use yunq_rules_engine::{
     IssueStorage, IssueTransition, IssueWorkflow, Metrics, MetricsTracker, Page, Resolution,
     RuleId, Severity, StorageError, StoredHotspot, StoredIssue, WorkflowError,
 };
+
+mod shared;
 
 mod activity;
 mod audit;
@@ -41,33 +66,36 @@ pub use queue::{FailedJob, PgJobConsumer, QueueStatus};
 pub use retention::PurgeReport;
 pub use system::SystemSnapshot;
 
-#[derive(Clone)]
-pub struct PgIssueStorage {
-    pool: PgPool,
-}
+shared::pg_adapter!(
+    /// The issue/hotspot aggregate: storing and searching issues and
+    /// hotspots, plus the workflow over them (transitions, assignment,
+    /// changelog). Nothing about how an analysis ran, what it is
+    /// configured with, or who did what to the instance — those are
+    /// [`PgAnalysisStore`], [`PgConfigStore`] and [`PgAuditStore`].
+    PgIssueStorage
+);
 
-impl PgIssueStorage {
-    /// Creates the adapter without touching the network; connections are
-    /// established on first use.
-    pub fn connect_lazy(database_url: &str) -> Result<Self, StorageError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect_lazy(database_url)
-            .map_err(storage_err)?;
-        Ok(Self { pool })
-    }
+shared::pg_adapter!(
+    /// One analysis run and everything attached to it: the
+    /// project/analysis lifecycle, the quality-gate *result* it produced
+    /// (the gate *definition* is configuration), run metrics, measures,
+    /// coverage and blame — plus enqueueing the scan that starts one.
+    PgAnalysisStore
+);
 
-    /// Applies the embedded migrations (compiled in at build time).
-    pub async fn migrate(&self) -> Result<(), StorageError> {
-        sqlx::migrate!("./migrations").run(&self.pool).await.map_err(storage_err)
-    }
+shared::pg_adapter!(
+    /// Administration: quality profiles and gate definitions, per-project
+    /// LLM settings, permissions and retention policy. Configuration that
+    /// analyses read and humans write — never produced by a scan.
+    PgConfigStore
+);
 
-    /// The underlying pool, shared with the job queue adapter so producer,
-    /// consumer and issue storage all talk to the same database.
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
-    }
-}
+shared::pg_adapter!(
+    /// The operational record: audit log, activity feed, system snapshot,
+    /// the retention sweep and queue diagnostics. What the instance did,
+    /// as opposed to what it found.
+    PgAuditStore
+);
 
 impl IssueFetcher for PgIssueStorage {
     async fn fetch_issue(&self, issue_id: i64) -> Result<StoredIssue, WorkflowError> {
@@ -533,7 +561,7 @@ impl IssueChangelogReader for PgIssueStorage {
     }
 }
 
-impl MetricsTracker for PgIssueStorage {
+impl MetricsTracker for PgAnalysisStore {
     async fn record(&self, metrics: &Metrics) -> Result<(), StorageError> {
         sqlx::query(
             "INSERT INTO scan_metrics (files_scanned, files_skipped, parse_failures, lines_of_code, issue_total)
@@ -564,13 +592,17 @@ mod live_db_tests {
     use super::*;
     use yunq_rules_engine::Hotspot;
 
+    /// Each test here owns a project and asserts only on rows scoped to
+    /// it, so nothing needs emptying up front and nothing needs
+    /// serializing: a sibling test's issues are simply not selected.
+    /// This used to `DELETE FROM issues`/`hotspots` and then assert on
+    /// `COUNT(*)` over the whole table, which both clobbered whatever
+    /// else was running and made its own result depend on it.
     async fn connected_storage() -> PgIssueStorage {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
         let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
-        sqlx::query("DELETE FROM issues").execute(storage.pool()).await.unwrap();
-        sqlx::query("DELETE FROM hotspots").execute(storage.pool()).await.unwrap();
         storage
     }
 
@@ -590,14 +622,16 @@ mod live_db_tests {
                 )
             })
             .collect();
-        let project_id = storage.ensure_project("batch-insert-issue-cols").await.unwrap();
+        let project_id = PgAnalysisStore::new(storage.pool().clone()).ensure_project("batch-insert-issue-cols").await.unwrap();
         let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
         storage.save_issues(&issues, scope).await.unwrap();
 
-        let rows = sqlx::query(&format!("SELECT {ISSUE_COLUMNS} FROM issues ORDER BY id"))
-            .fetch_all(storage.pool())
-            .await
-            .unwrap();
+        let rows =
+            sqlx::query(&format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE project_id = $1 ORDER BY id"))
+                .bind(project_id)
+                .fetch_all(storage.pool())
+                .await
+                .unwrap();
         let restored: Vec<StoredIssue> =
             rows.iter().map(issue_from_row).collect::<Result<_, _>>().unwrap();
         assert_eq!(restored.len(), 5);
@@ -620,7 +654,8 @@ mod live_db_tests {
 
         // Documented no-op: must not open a transaction or error.
         storage.save_issues(&[], scope).await.unwrap();
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM issues")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM issues WHERE project_id = $1")
+            .bind(project_id)
             .fetch_one(storage.pool())
             .await
             .unwrap();
@@ -648,14 +683,15 @@ mod live_db_tests {
                 )
             })
             .collect();
-        let project_id = storage.ensure_project("batch-insert-hotspot-cols").await.unwrap();
+        let project_id = PgAnalysisStore::new(storage.pool().clone()).ensure_project("batch-insert-hotspot-cols").await.unwrap();
         let scope = IssueScope { project_id: Some(project_id), analysis_id: None };
         storage.save_hotspots(&hotspots, scope).await.unwrap();
 
         let rows = sqlx::query(
             "SELECT id, rule, message, file, start_line, start_col, end_line, end_col, status
-             FROM hotspots ORDER BY id",
+             FROM hotspots WHERE project_id = $1 ORDER BY id",
         )
+        .bind(project_id)
         .fetch_all(storage.pool())
         .await
         .unwrap();

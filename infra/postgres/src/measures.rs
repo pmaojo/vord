@@ -3,7 +3,7 @@
 //! analysis (`MeasureStorage`, called from `bin/worker`) and read back as a
 //! metric time series (`MeasureHistoryReader`) or a project's latest
 //! per-file measures (`ComponentTreeReader`). Lives alongside
-//! `PgIssueStorage`/`gate.rs`/`coverage.rs` (same pool, same database).
+//! `PgAnalysisStore`/`gate.rs`/`coverage.rs` (same pool, same database).
 
 use std::collections::BTreeMap;
 
@@ -13,7 +13,7 @@ use yunq_rules_engine::{
     MeasureHistoryReader, MeasureStorage, StorageError,
 };
 
-use crate::PgIssueStorage;
+use crate::PgAnalysisStore;
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
@@ -24,7 +24,7 @@ fn storage_err(e: impl std::fmt::Display) -> StorageError {
 /// already uses.
 const MEASURE_BATCH_ROWS: usize = 1000;
 
-impl MeasureStorage for PgIssueStorage {
+impl MeasureStorage for PgAnalysisStore {
     async fn save_measures(
         &self,
         analysis_id: i64,
@@ -66,7 +66,7 @@ impl MeasureStorage for PgIssueStorage {
     }
 }
 
-impl MeasureHistoryReader for PgIssueStorage {
+impl MeasureHistoryReader for PgAnalysisStore {
     async fn measure_history(
         &self,
         project_key: &str,
@@ -134,7 +134,7 @@ impl MeasureHistoryReader for PgIssueStorage {
     }
 }
 
-impl ComponentTreeReader for PgIssueStorage {
+impl ComponentTreeReader for PgAnalysisStore {
     async fn component_tree(
         &self,
         project_key: &str,
@@ -220,10 +220,10 @@ mod tests {
 mod live_db_tests {
     use super::*;
 
-    async fn connected_storage() -> PgIssueStorage {
+    async fn connected_storage() -> PgAnalysisStore {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        let storage = PgAnalysisStore::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
         storage
     }

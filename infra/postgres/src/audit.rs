@@ -9,7 +9,7 @@ use sqlx::postgres::{PgRow, Postgres};
 use sqlx::{QueryBuilder, Row};
 use yunq_rules_engine::{Page, StorageError};
 
-use crate::PgIssueStorage;
+use crate::PgAuditStore;
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
@@ -81,7 +81,7 @@ fn audit_entry_from_row(row: &PgRow) -> Result<AuditLogEntry, StorageError> {
     })
 }
 
-impl PgIssueStorage {
+impl PgAuditStore {
     /// Appends one audit log entry. Not run inside the caller's mutation
     /// transaction (same fire-and-follow-up pattern already used for the
     /// issue changelog in `lib.rs::record_transition`) — the audit trail is

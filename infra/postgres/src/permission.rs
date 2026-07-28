@@ -5,7 +5,7 @@
 use sqlx::Row;
 use yunq_rules_engine::StorageError;
 
-use crate::PgIssueStorage;
+use crate::PgConfigStore;
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
@@ -60,7 +60,7 @@ async fn apply_role_change(
     Ok(())
 }
 
-impl PgIssueStorage {
+impl PgConfigStore {
     /// Grants (or changes) a user's role on a project when `role` is
     /// `Some`, revokes it when `None`. The project is created by key on
     /// first sight, same as quality gate assignment. Returns the prior
@@ -71,7 +71,7 @@ impl PgIssueStorage {
         user_login: &str,
         role: Option<&str>,
     ) -> Result<Option<String>, StorageError> {
-        let project_id = self.ensure_project(project_key).await?;
+        let project_id = crate::shared::ensure_project(&self.pool, project_key).await?;
         let mut tx = self.pool.begin().await.map_err(storage_err)?;
 
         let before = prior_role(&mut tx, project_id, user_login).await?;
