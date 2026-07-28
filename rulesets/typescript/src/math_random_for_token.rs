@@ -6,7 +6,7 @@
 //! `crypto.getRandomValues` instead.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 const SENSITIVE_NAME_MARKERS: &[&str] = &["token", "password", "passwd", "secret", "apikey", "session"];
 
@@ -33,21 +33,7 @@ fn flagged_target(decl: &AstNode) -> Option<&AstNode> {
         .then_some(target)
 }
 
-pub struct MathRandomForTokenRule {
-    id: RuleId,
-}
-
-impl MathRandomForTokenRule {
-    pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:math-random-for-token").expect("valid rule id") }
-    }
-}
-
-impl Default for MathRandomForTokenRule {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+declare_rule_id!(MathRandomForTokenRule, "typescript:math-random-for-token");
 
 impl Rule for MathRandomForTokenRule {
     fn id(&self) -> &RuleId {

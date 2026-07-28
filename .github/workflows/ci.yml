@@ -25,6 +25,121 @@ jobs:
       - name: cargo clippy --all-targets --workspace
         run: cargo clippy --all-targets --workspace -- -D warnings
 
+  dogfood-gate:
+    name: yunq scans itself (blocker/critical/parse-failure gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build yunq
+        run: cargo build -p yunq-cli
+
+      - name: Self-scan with the enforced quality gate
+        # No coverage/mutation report is fed here, so those two gate
+        # conditions read as "no-value" (ignored) rather than failing — see
+        # the coverage/mutation jobs below for why those aren't enforced yet.
+        # This still gates on the part of the default gate the project does
+        # meet today: zero blocker/critical issues, zero parse failures.
+        run: ./target/debug/yunq-cli scan . --enforce-gate
+
+  dogfood-coverage:
+    name: yunq's own test coverage (measured, not yet gated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Measure coverage
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex 'tests?/|fixtures/'
+
+      - name: Build yunq
+        run: cargo build -p yunq-cli
+
+      # Deliberately not `--enforce-gate`: the shipped default gate wants
+      # coverage >= 80%, and the real number here is ~72% today. Enforcing
+      # that now would fail every PR over something this change didn't
+      # regress. This job exists to make the number visible and trending —
+      # `--enforce-gate` belongs here once coverage actually clears the bar,
+      # not before.
+      - name: Report coverage against yunq's own gate threshold
+        run: ./target/debug/yunq-cli scan . --coverage-report lcov.info
+
+  dogfood-mutation:
+    name: Mutation-test the agent guardrail's policy core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@cargo-mutants
+
+      - name: Build yunq
+        run: cargo build -p yunq-cli
+
+      # Scoped to yunq-agent-policy rather than the whole workspace: that
+      # crate is the guardrail's actual decision logic (what may an agent
+      # write, escalate or deny) — the highest-consequence code in the
+      # repository per the "Bob" philosophy this feature set is inspired
+      # by — and it's small and pure enough (~700 lines, no I/O) that full
+      # mutation testing finishes in under two minutes. Mutation-testing the
+      # full 60k-line workspace this way would take hours per run; widen
+      # this scope crate-by-crate as each one proves fast enough.
+      - name: Mutation-test yunq-agent-policy
+        run: cargo mutants -p yunq-agent-policy --output mutants.out
+
+      # cargo-mutants' own report schema isn't Stryker's; converts each
+      # mutant outcome to the Stryker Mutation Testing Elements shape
+      # yunq's `--mutation-report` already understands (the same importer
+      # StrykerJS/Stryker.NET/Infection reports go through), grouped by
+      # file. `Unviable` (does not compile) maps to `CompileError`, which
+      # yunq's mutation_score formula already excludes from both numerator
+      # and denominator, same as Stryker's own convention.
+      - name: Convert cargo-mutants output to the Stryker report schema
+        run: |
+          jq '{
+            files: (
+              [.outcomes[] | select(.scenario != "Baseline") | {
+                file: .scenario.Mutant.file,
+                status: (
+                  if .summary == "CaughtMutant" then "Killed"
+                  elif .summary == "MissedMutant" then "Survived"
+                  elif .summary == "Unviable" then "CompileError"
+                  elif .summary == "Timeout" then "Timeout"
+                  else "Ignored" end
+                )
+              }]
+              | group_by(.file)
+              | map({key: .[0].file, value: {mutants: map({status: .status})}})
+              | from_entries
+            )
+          }' mutants.out/outcomes.json > mutation-report.json
+
+      # Enforced: yunq-agent-policy's mutation score clears the default
+      # gate's 60% bar comfortably (~95% as of this job's introduction), so
+      # unlike the workspace-wide coverage job above, there's no reason to
+      # hold this one back from actually gating.
+      - name: Gate on the agent-policy crate's mutation score
+        run: ./target/debug/yunq-cli scan core/agent-policy --mutation-report mutation-report.json --enforce-gate
+
   benchmark-gate:
     name: Benchmark regression gate
     # Only meaningful with a merge base to diff against; a direct push to
