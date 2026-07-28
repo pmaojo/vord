@@ -49,6 +49,10 @@ pub enum Cause {
     /// which owns the approval-token workflow this cause exists to drive —
     /// this crate only ever produces the verdict, never the approval).
     Escalation,
+    /// The path matches a `[[gherkin_required]]` glob and the caller found
+    /// no `@covers(...)`-tagged Gherkin scenario for it — no AST finding
+    /// needed, the same "deny on path alone" shape as `ProtectedPath`.
+    MissingGherkinEvidence { pattern: String, reason: String },
 }
 
 /// Whether a violation stops the write, merely annotates it, or blocks
@@ -90,6 +94,12 @@ impl Violation {
             }
             (Cause::Escalation, Some(f)) => {
                 format!("{} at line {} — {} [requires human approval]", f.rule, f.line, f.message)
+            }
+            (Cause::MissingGherkinEvidence { pattern, reason }, _) => {
+                format!(
+                    "no Gherkin scenario covers this path (required by `{pattern}`) — {reason} Tag a covering \
+                     scenario with `@covers(<glob matching this path>)`."
+                )
             }
             // A rule/threshold/escalation cause always carries the finding
             // that caused it; this arm exists only to keep `describe` total.
@@ -249,6 +259,8 @@ struct PolicyFile {
     agent: AgentSection,
     #[serde(default, rename = "protected_path")]
     protected_paths: Vec<ProtectedPathSection>,
+    #[serde(default, rename = "gherkin_required")]
+    gherkin_required: Vec<GherkinRequiredSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -309,6 +321,19 @@ struct ProtectedPathSection {
     reason: String,
 }
 
+/// A glob under which an agent write requires at least one `@covers(...)`-
+/// tagged Gherkin scenario to already exist somewhere in the repository's
+/// `.feature` files (`bin/cli` scans for these — this crate has no I/O).
+/// Off by default, same reasoning as `protected_path`: a bar this crate
+/// cannot itself verify is met should never silently deny the moment yunq is
+/// installed.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GherkinRequiredSection {
+    pattern: String,
+    reason: String,
+}
+
 fn default_enabled() -> bool {
     true
 }
@@ -349,6 +374,10 @@ pub struct AgentPolicy {
     /// Parallel to `protected`'s glob indices: the (pattern, reason) pair
     /// behind each, so a match can name the rule it broke.
     protected_meta: Vec<(String, String)>,
+    gherkin_required: GlobSet,
+    /// Parallel to `gherkin_required`'s glob indices, same shape as
+    /// `protected_meta`.
+    gherkin_required_meta: Vec<(String, String)>,
 }
 
 impl Default for AgentPolicy {
@@ -400,6 +429,18 @@ impl AgentPolicy {
             .build()
             .map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
 
+        let mut gherkin_builder = GlobSetBuilder::new();
+        let mut gherkin_required_meta = Vec::new();
+        for entry in &file.gherkin_required {
+            let glob = Glob::new(&entry.pattern)
+                .map_err(|source| PolicyError::Glob { pattern: entry.pattern.clone(), source })?;
+            gherkin_builder.add(glob);
+            gherkin_required_meta.push((entry.pattern.clone(), entry.reason.clone()));
+        }
+        let gherkin_required = gherkin_builder
+            .build()
+            .map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
+
         Ok(Self {
             enabled: file.agent.enabled,
             block_at_or_above,
@@ -409,6 +450,8 @@ impl AgentPolicy {
             escalate_rules: parse_rules(&file.agent.escalate_rules)?,
             protected,
             protected_meta,
+            gherkin_required,
+            gherkin_required_meta,
         })
     }
 
@@ -502,6 +545,45 @@ impl AgentPolicy {
 
         Evaluation { violations }
     }
+
+    /// Whether any `[[gherkin_required]]` glob is configured at all — the
+    /// caller's cue to skip scanning `.feature` files entirely (an I/O and
+    /// glob-matching cost this crate cannot see or avoid on its own) when
+    /// the repository hasn't opted in.
+    pub fn has_gherkin_requirements(&self) -> bool {
+        !self.gherkin_required_meta.is_empty()
+    }
+
+    /// Same as [`Self::evaluate_with_provenance`], plus a Gherkin-evidence
+    /// check: a path matching `[[gherkin_required]]` with
+    /// `has_covering_scenario = false` denies with no finding needed, the
+    /// same "deny on path alone" shape [`Cause::ProtectedPath`] already uses.
+    /// This crate has no I/O, so it never determines coverage itself — the
+    /// caller (`bin/cli`, scanning `.feature` files for `@covers(...)` tags)
+    /// supplies the answer per path, the same way it supplies [`Provenance`].
+    pub fn evaluate_with_evidence(
+        &self,
+        path: &str,
+        findings: &[Finding],
+        provenance: Provenance,
+        has_covering_scenario: bool,
+    ) -> Evaluation {
+        let mut evaluation = self.evaluate_with_provenance(path, findings, provenance);
+        if !self.enabled || has_covering_scenario {
+            return evaluation;
+        }
+
+        let normalised = path.replace('\\', "/");
+        for index in self.gherkin_required.matches(&normalised) {
+            let (pattern, reason) = &self.gherkin_required_meta[index];
+            evaluation.violations.push(Violation {
+                enforcement: Enforcement::Deny,
+                cause: Cause::MissingGherkinEvidence { pattern: pattern.clone(), reason: reason.clone() },
+                finding: None,
+            });
+        }
+        evaluation
+    }
 }
 
 #[cfg(test)]
@@ -523,6 +605,7 @@ mod tests {
         assert_eq!(policy.block_at_or_above(), Severity::Critical);
         assert!(policy.blocking_rules.contains(&rule("ai:llm-output-injection")));
         assert!(policy.protected_meta.is_empty(), "path protection is opt-in");
+        assert!(!policy.has_gherkin_requirements(), "gherkin evidence is opt-in");
     }
 
     #[test]
@@ -575,6 +658,77 @@ reason = "CI changes need a human reviewer."
         let evaluation = policy.evaluate(".github/workflows/ci.yml", &[]);
         assert!(evaluation.is_denied());
         assert!(evaluation.violations[0].describe().contains("human reviewer"));
+    }
+
+    fn gherkin_policy() -> AgentPolicy {
+        let raw = r#"
+[[gherkin_required]]
+pattern = "core/domain/**"
+reason = "Domain logic changes must be described by a Gherkin scenario."
+"#;
+        AgentPolicy::parse(raw).expect("parses")
+    }
+
+    #[test]
+    fn a_gherkin_required_path_with_no_covering_scenario_denies_with_no_findings_at_all() {
+        let policy = gherkin_policy();
+        assert!(policy.has_gherkin_requirements());
+        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, false);
+        assert!(evaluation.is_denied());
+        assert!(evaluation.violations[0].describe().contains("Gherkin scenario"));
+        assert!(evaluation.violations[0].describe().contains("described by a Gherkin scenario"));
+    }
+
+    #[test]
+    fn a_gherkin_required_path_with_a_covering_scenario_does_not_deny() {
+        let policy = gherkin_policy();
+        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, true);
+        assert!(!evaluation.is_denied());
+        assert!(evaluation.is_empty());
+    }
+
+    #[test]
+    fn a_path_outside_the_required_glob_is_unaffected_by_missing_evidence() {
+        let policy = gherkin_policy();
+        let evaluation = policy.evaluate_with_evidence("src/unrelated.rs", &[], Provenance::Unestablished, false);
+        assert!(!evaluation.is_denied());
+    }
+
+    #[test]
+    fn a_disabled_policy_ignores_missing_gherkin_evidence_too() {
+        let raw = r#"
+[agent]
+enabled = false
+[[gherkin_required]]
+pattern = "core/domain/**"
+reason = "x"
+"#;
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, false);
+        assert!(evaluation.is_empty(), "disabled means out of the loop entirely, gherkin gate included");
+    }
+
+    #[test]
+    fn evaluate_with_provenance_never_applies_the_gherkin_gate() {
+        // The two-argument-provenance entry point predates this gate and
+        // must stay behaviorally inert to it — only evaluate_with_evidence
+        // opts a caller in, matching how evaluate() stayed inert to
+        // provenance until a caller explicitly asked for it.
+        let policy = gherkin_policy();
+        let evaluation = policy.evaluate_with_provenance("core/domain/order.rs", &[], Provenance::Unestablished);
+        assert!(!evaluation.is_denied());
+    }
+
+    #[test]
+    fn a_gherkin_required_section_missing_its_reason_is_an_error() {
+        let err = AgentPolicy::parse("[[gherkin_required]]\npattern = \"core/**\"\n").unwrap_err();
+        assert!(matches!(err, PolicyError::Toml(_)));
+    }
+
+    #[test]
+    fn an_invalid_gherkin_required_glob_is_an_error() {
+        let err = AgentPolicy::parse("[[gherkin_required]]\npattern = \"[\"\nreason = \"x\"\n").unwrap_err();
+        assert!(matches!(err, PolicyError::Glob { .. }));
     }
 
     #[test]

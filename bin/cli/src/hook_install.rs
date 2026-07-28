@@ -90,6 +90,18 @@ reason = "CI definitions gate every other control; changes need human review."
 [[protected_path]]
 pattern = "**/*.tf"
 reason = "Terraform changes can rewrite IAM and networking; human review required."
+
+# Requires at least one Gherkin scenario tagged `@covers(<glob>)` somewhere
+# in the repository's .feature files before an agent may write to a matching
+# path — yunq scans for the tag, it does not run the scenario. Commented out
+# by default: unlike protected_path, turning this on immediately denies every
+# matching write until real .feature coverage exists, so it needs the
+# repository to already have (or be ready to add) BDD scenarios, not just a
+# glob. Uncomment and adjust once that coverage is in place.
+#
+# [[gherkin_required]]
+# pattern = "core/domain/**"
+# reason = "Domain logic changes must be described by a Gherkin scenario before an agent may land them."
 "#;
 
 /// Merges yunq's hooks into an existing `.claude/settings.json` value.
@@ -278,6 +290,10 @@ mod tests {
         assert!(policy.evaluate(".github/workflows/ci.yml", &[]).is_denied());
         assert!(policy.evaluate("infra/main.tf", &[]).is_denied());
         assert!(!policy.evaluate("src/app.ts", &[]).is_denied());
+        assert!(
+            !policy.has_gherkin_requirements(),
+            "the example is shipped commented out, unlike protected_path"
+        );
     }
 
     #[test]

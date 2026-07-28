@@ -219,6 +219,23 @@ Office's guidance is not to list an AI as an author) and orthogonal to what
 this guardrail needs, which is "should this path be judged more strictly",
 not "who gets credit".
 
+**Gherkin evidence gate.** The mechanical version of Uncle Bob Martin's
+"surround the agents with constraints — unit tests, gherkin tests, QA
+procedures" gauntlet: `[[gherkin_required]]` names glob patterns an agent may
+only write to if at least one Gherkin scenario somewhere in the repository's
+`.feature` files is tagged `@covers(<glob matching this path>)` — feature-
+level or scenario-level, either counts. `yunq hook` scans `.feature` files for
+that tag (no Gherkin execution, no cucumber-rust dependency — just the tag
+lines, which are mechanically easy to find without a full parser) and denies
+a matching write with no AST finding needed, the same "deny on path alone"
+shape `protected_path` already uses. Off by default and commented out in the
+installed template, unlike `protected_path`: turning it on immediately denies
+every matching write until real `.feature` coverage exists, so it is opt-in
+per repository once that coverage is ready, not a default anyone gets for
+free. The scan itself is skipped entirely (no filesystem walk at all) when no
+`[[gherkin_required]]` glob is configured, keeping the common case as fast as
+before this landed.
+
 **Circuit breaker.** An agent that cannot resolve a finding — a false
 positive, or a vulnerability it does not know how to fix — will otherwise
 retry the same write indefinitely, burning tokens against a wall. `yunq hook`

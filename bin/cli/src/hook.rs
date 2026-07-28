@@ -563,6 +563,10 @@ fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serd
                 None => "requires human approval".to_string(),
             },
         ),
+        Cause::MissingGherkinEvidence { pattern, reason } => (
+            "missing_gherkin_evidence",
+            format!("path matches `{pattern}` and needs a `@covers(...)`-tagged scenario ({reason})"),
+        ),
     };
     let circuit_breaker_tripped = rule.as_deref().is_some_and(|r| breaker.tripped.iter().any(|t| t.as_str() == r));
     serde_json::json!({
@@ -706,8 +710,38 @@ fn new_dependency_findings(relative: &str, old_content: Option<&str>, new_conten
         .collect()
 }
 
+/// Whether `relative` already has a covering Gherkin scenario, per
+/// `[[gherkin_required]]`'s evidence gate. Skips the `.feature`-file scan
+/// entirely (returning `true`, i.e. "assume covered") when the policy has no
+/// `[[gherkin_required]]` globs at all — `AgentPolicy::evaluate_with_evidence`
+/// only ever reads this value for a path that actually matches one, so on an
+/// unconfigured repository the answer is inert and not worth a filesystem
+/// walk on every single write. A scan that fails (unreadable `.feature`
+/// file, walk error) fails open the same way every other check in this
+/// module does: report on stderr and treat the write as covered rather than
+/// deny over a tooling problem.
+fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &str) -> bool {
+    if !policy.has_gherkin_requirements() {
+        return true;
+    }
+    match yunq_infra_fs::GherkinCoverageIndex::build_from_repo(root) {
+        Ok(index) => index.covers(relative),
+        Err(e) => {
+            eprintln!("yunq hook: could not scan .feature files for Gherkin evidence: {e}");
+            true
+        }
+    }
+}
+
 /// Judges one proposed write end to end: policy, path, and (when content is
 /// available and parseable) findings.
+///
+/// A path matching `[[gherkin_required]]` with no covering `@covers(...)`
+/// scenario anywhere in the repository's `.feature` files denies with no
+/// finding needed, via [`has_covering_gherkin_scenario`] and
+/// [`AgentPolicy::evaluate_with_evidence`] — the mechanical version of
+/// Uncle Bob's "surround the agent with constraints" gauntlet: no scenario,
+/// no landed write.
 ///
 /// Before evaluating, the path's [`Provenance`] is looked up in the AI-touch
 /// ledger (`.yunq-provenance.json`) and passed to
@@ -746,7 +780,8 @@ pub async fn judge(
         findings.extend(new_dependency_findings(&relative, old_content.as_deref(), content));
     }
     let provenance = provenance_for(&load_provenance(root), &relative);
-    let evaluation = policy.evaluate_with_provenance(&relative, &findings, provenance);
+    let has_scenario = has_covering_gherkin_scenario(policy, root, &relative);
+    let evaluation = policy.evaluate_with_evidence(&relative, &findings, provenance, has_scenario);
     record_provenance_touch(root, &relative);
     let verdict = Verdict::from_evaluation(relative, evaluation);
 
@@ -1481,6 +1516,53 @@ mod tests {
         let new_content = r#"{"dependencies": {"left-pad": "1.0.0", "left-pad-plus": "0.0.1"}}"#;
         let verdict = judge(&policy, &dir, &manifest, Some(new_content)).await.expect("judged");
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_required_path_with_no_covering_feature_file_denies_end_to_end() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-gherkin-missing-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
+        let file = dir.join("core/domain/order.rs");
+
+        let policy = AgentPolicy::parse(
+            "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
+        )
+        .expect("parses");
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n")).await.expect("judged");
+        let Verdict::Deny { evaluation, .. } = &verdict else { panic!("expected a denial, got {verdict:?}") };
+        assert!(
+            evaluation.violations.iter().any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
+            "{evaluation:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_required_path_with_a_covering_feature_file_is_not_denied_on_that_ground() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-gherkin-covered-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
+        std::fs::create_dir_all(dir.join("features")).expect("features dir");
+        std::fs::write(
+            dir.join("features/orders.feature"),
+            "@covers(core/domain/**)\nFeature: Orders\n  Scenario: Place an order\n    Given a cart\n",
+        )
+        .expect("write feature file");
+        let file = dir.join("core/domain/order.rs");
+
+        let policy = AgentPolicy::parse(
+            "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
+        )
+        .expect("parses");
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n")).await.expect("judged");
+        if let Verdict::Deny { evaluation, .. } = &verdict {
+            assert!(
+                !evaluation.violations.iter().any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
+                "{evaluation:?}"
+            );
+        }
 
         std::fs::remove_dir_all(&dir).ok();
     }

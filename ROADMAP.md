@@ -982,9 +982,45 @@ before being leaned on; that verification has not been done.
   credit". Still open: this is per-path/local (`bin/cli` only, gitignored
   file, no server-side aggregation) and per-write-history only — it does not
   yet flag a *project* the way Sonar's manual setting does, nor does it feed
-  the whole-repo quality gate (Phase 3); a Gherkin-scenario evidence
-  requirement and a mutation-testing score are the two other legs of this
-  still to build.
+  the whole-repo quality gate (Phase 3); a mutation-testing score is the one
+  remaining leg of this still to build.
+  ✅ **(2026-07-28) Gherkin evidence gate** — the second leg. `[[gherkin_required]]`
+  (new array-of-tables in `yunq-policy.toml`, same shape as `protected_path`:
+  glob `pattern` + `reason`) denies an agent write to a matching path unless
+  at least one Gherkin scenario anywhere in the repository's `.feature` files
+  is tagged `@covers(<glob>)` — new `Cause::MissingGherkinEvidence` in
+  `core/agent-policy`, deny-on-path-alone with no AST finding needed, same
+  shape `ProtectedPath` already has. `infra/fs::gherkin` does the actual
+  scanning (new module, mirrors `sarif.rs`/`junit.rs`'s inbound-adapter
+  shape): `extract_covers_patterns` finds `@covers(...)` tag tokens by line
+  scanning — deliberately not a full Gherkin grammar/parser or a
+  `cucumber-rust` dependency, since only tag lines are meaningful here and
+  Gherkin's own syntax makes them trivial to isolate without one —
+  `GherkinCoverageIndex::build_from_repo` walks the tree with the same
+  gitignore-aware `ignore::WalkBuilder` `collect_sources` uses and compiles
+  every tag into one `GlobSet` so a path query is a single glob-set match, not
+  a re-scan. `AgentPolicy::evaluate_with_evidence` (new, additive alongside
+  `evaluate`/`evaluate_with_provenance`) takes a caller-supplied
+  `has_covering_scenario: bool` — this crate still does zero I/O itself.
+  Wired into `bin/cli`'s `judge()` via `has_covering_gherkin_scenario`, which
+  skips the `.feature`-file walk entirely (returns `true` unconditionally)
+  when `AgentPolicy::has_gherkin_requirements()` is false, so an
+  unconfigured repository pays zero extra cost per write — the same
+  performance-conscious opt-in-until-configured posture `protected_path` set.
+  Fails open on a walk/read error, consistent with every other check in this
+  module. Shipped commented out in `yunq hook install`'s template (unlike
+  `protected_path`): turning this on immediately denies every matching write
+  until real `.feature` coverage exists, so it needs the repository to
+  already have — or be actively adding — BDD scenarios, not just a glob.
+  Deliberately does not execute cucumber-rust or any Gherkin runner; it only
+  reads tags, the same "aggregate another tool's output" relationship the
+  SARIF and mutation-report importers already have to their respective
+  tools. Still open: a `@covers` tag currently only proves a human (or an
+  agent) *claimed* coverage, not that the tagged scenario actually runs and
+  passes against the tagged path — closing that gap needs correlating
+  `.feature` execution with source paths, likely via step-definition
+  file/line metadata a cucumber-rust JSON report could carry, not yet
+  investigated.
 - **Fix suggestions in-editor** through `yunq-lsp` connected mode.
 - **6c Agentic guardrail — yunq inside the agent's edit loop** ✅
   **(2026-07-27)**. Every entry point before this one is post-hoc: the CLI,
