@@ -58,6 +58,29 @@ impl AnalysisHistoryReader for PgAnalysisStore {
         row.map(|row| row.try_get::<i64, _>("id")).transpose().map_err(storage_err)
     }
 
+    async fn previous_analysis_id(
+        &self,
+        project_key: &str,
+        branch: &str,
+        before_analysis_id: i64,
+    ) -> Result<Option<i64>, StorageError> {
+        let Some(project_id) = find_project_id(&self.pool, project_key).await? else {
+            return Ok(None);
+        };
+        let row = sqlx::query(
+            "SELECT id FROM analyses
+             WHERE project_id = $1 AND branch = $2 AND id < $3
+             ORDER BY id DESC LIMIT 1",
+        )
+        .bind(project_id)
+        .bind(branch)
+        .bind(before_analysis_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(storage_err)?;
+        row.map(|row| row.try_get::<i64, _>("id")).transpose().map_err(storage_err)
+    }
+
     async fn baseline_for_analysis(&self, analysis_id: i64) -> Result<Baseline, StorageError> {
         let rows = sqlx::query(
             "SELECT rule, severity, file, start_line, start_col, end_line, end_col, message
@@ -177,5 +200,39 @@ mod live_db_tests {
             .await
             .unwrap();
         assert_eq!(resolved, None);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn previous_analysis_id_excludes_the_current_pending_row() {
+        let _guard = WHOLE_TABLE_LOCK.lock().await;
+        let analyses = connected_storage().await;
+        let key = unique_key("nco-previous");
+        let project_id = analyses.ensure_project(&key).await.unwrap();
+
+        let first_id = analyses.record_analysis(project_id, "main", 100, 0).await.unwrap();
+        // The pending row for the scan currently being classified — must
+        // not be returned as its own "previous" analysis.
+        let current_id = analyses.record_analysis_pending(project_id, "main").await.unwrap();
+
+        let resolved = analyses.previous_analysis_id(&key, "main", current_id).await.unwrap();
+        assert_eq!(resolved, Some(first_id));
+
+        sqlx::query("DELETE FROM projects WHERE id = $1").bind(project_id).execute(analyses.pool()).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn previous_analysis_id_is_none_on_a_project_s_first_scan() {
+        let _guard = WHOLE_TABLE_LOCK.lock().await;
+        let analyses = connected_storage().await;
+        let key = unique_key("nco-previous-first");
+        let project_id = analyses.ensure_project(&key).await.unwrap();
+
+        let current_id = analyses.record_analysis_pending(project_id, "main").await.unwrap();
+        let resolved = analyses.previous_analysis_id(&key, "main", current_id).await.unwrap();
+        assert_eq!(resolved, None);
+
+        sqlx::query("DELETE FROM projects WHERE id = $1").bind(project_id).execute(analyses.pool()).await.unwrap();
     }
 }

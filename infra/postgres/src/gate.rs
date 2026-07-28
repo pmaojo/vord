@@ -292,6 +292,36 @@ impl PgAnalysisStore {
         .map_err(storage_err)?;
         Ok(())
     }
+
+    /// `resolve_new_code_definition`, reached from a project key instead of
+    /// an id already in hand — the read path an admin API takes, where a
+    /// project that has never been scanned is a legitimate "use the
+    /// built-in default" outcome rather than something to create a row for.
+    pub async fn resolve_new_code_definition_by_key(
+        &self,
+        project_key: &str,
+        branch: &str,
+    ) -> Result<NewCodeDefinition, StorageError> {
+        let Some(project_id) = crate::shared::find_project_id(&self.pool, project_key).await? else {
+            return Ok(NewCodeDefinition::PreviousAnalysis);
+        };
+        self.resolve_new_code_definition(project_id, branch).await
+    }
+
+    /// `set_new_code_definition`, reached from a project key instead of an
+    /// id already in hand — the write path an admin API takes, where
+    /// naming a project for the first time (e.g. before its first scan)
+    /// should still succeed rather than requiring the project to already
+    /// exist.
+    pub async fn set_new_code_definition_by_key(
+        &self,
+        project_key: &str,
+        branch: Option<&str>,
+        definition: &NewCodeDefinition,
+    ) -> Result<(), StorageError> {
+        let project_id = crate::shared::ensure_project(&self.pool, project_key).await?;
+        self.set_new_code_definition(project_id, branch, definition).await
+    }
 }
 
 fn rows_to_conditions(rows: &[PgRow]) -> Result<Vec<(String, ComparisonOperator, f64)>, StorageError> {

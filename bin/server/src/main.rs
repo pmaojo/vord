@@ -49,6 +49,7 @@ mod issue_comments;
 mod issue_tags;
 mod measures;
 mod metrics;
+mod new_code_admin;
 mod ops;
 pub mod portfolios;
 mod project_features;
@@ -320,6 +321,7 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(ai_provider_admin::set_ai_provider, ai_provider_admin::get_ai_provider, ai_provider_admin::clear_ai_provider))
         .routes(routes!(ops::list_audit_log))
         .routes(routes!(ops::set_project_retention))
+        .routes(routes!(new_code_admin::get_new_code_definition, new_code_admin::set_new_code_definition))
         .routes(routes!(ops::run_housekeeping))
         .routes(routes!(activity::project_activity))
         .routes(routes!(tasks::queue_status))
@@ -348,7 +350,7 @@ fn build_app_state() -> anyhow::Result<Arc<AppState>> {
     let reader: Arc<dyn IssueApiStore> = Arc::new(issues);
     let gate: Arc<dyn GateBadgePort> = Arc::new(analyses.clone());
     let coverage: Arc<dyn CoveragePort> = Arc::new(analyses.clone());
-    let ops: Arc<dyn OpsStore> = Arc::new(ops::PgOpsStore::new(config, audit.clone()));
+    let ops: Arc<dyn OpsStore> = Arc::new(ops::PgOpsStore::new(config, audit.clone(), analyses.clone()));
     let activity: Arc<dyn ActivityPort> = Arc::new(audit.clone());
     let queue_diagnostics: Arc<dyn QueueDiagnosticsPort> = Arc::new(audit);
     let queue: Arc<dyn ScanQueuePort> = Arc::new(analyses);

@@ -302,6 +302,20 @@ pub trait AnalysisHistoryReader: Send + Sync {
         &self,
         analysis_id: i64,
     ) -> impl Future<Output = Result<Baseline, StorageError>> + Send;
+
+    /// The most recent analysis for `(project_key, branch)` strictly before
+    /// `before_analysis_id`, or `None` if there isn't one — the lookup
+    /// behind `NewCodeDefinition::PreviousAnalysis`. Distinct from
+    /// `latest_analysis_id_on_branch`: the caller's own in-progress scan has
+    /// typically already been recorded (see `record_analysis_pending`) by
+    /// the time it asks "what came before me", so "most recent" would
+    /// otherwise resolve to itself.
+    fn previous_analysis_id(
+        &self,
+        project_key: &str,
+        branch: &str,
+        before_analysis_id: i64,
+    ) -> impl Future<Output = Result<Option<i64>, StorageError>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]

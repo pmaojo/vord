@@ -39,7 +39,8 @@ pub use domain::{
 pub use gate_defaults::default_gate;
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
 pub use new_code_overrides::{
-    NewCodeOverride, OverrideScope, OverrideSource, resolve_baseline, resolve_new_code_definition,
+    NewCodeOverride, OverrideScope, OverrideSource, resolve_baseline,
+    resolve_baseline_for_new_code_definition, resolve_new_code_definition,
 };
 pub use portfolios::{
     PortfolioNode, PortfolioRollup, ProjectRollupInput,

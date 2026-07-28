@@ -2,17 +2,26 @@
 //! Code definition: previous version / N days / reference branch /
 //! specific analysis — per project and per branch".
 //!
-//! Two layers: a pure resolver (`resolve_new_code_definition`) that picks
-//! the most-specific override for a `(project, branch)` out of whatever
-//! `OverrideSource`s are configured, and `resolve_baseline`, which turns
-//! the winning override into a real `Baseline` via the `AnalysisHistoryReader`
-//! port — storing/administering `OverrideSource`s themselves (the HTTP layer)
-//! is a separate, not-yet-built piece.
+//! `NewCodeOverride`/`OverrideScope`/`OverrideSource` here and
+//! `NewCodeDefinition` (`crate::project`) are two designs for the same idea
+//! that predate this note: `NewCodeDefinition` is the one with real,
+//! already-persisted storage (`new_code_definitions` table,
+//! `PgAnalysisStore::{resolve,set}_new_code_definition`), so it's the one
+//! the worker's scan pipeline and the admin HTTP API actually use.
+//! `resolve_baseline_for_new_code_definition` below is the bridge: it turns
+//! a resolved `NewCodeDefinition` into a real `Baseline` via the
+//! `AnalysisHistoryReader` port, delegating to `resolve_baseline` (which
+//! speaks the local `NewCodeOverride` type) for three of its four variants.
+//! `OverrideScope`'s three-tier (global/project/branch) precedence has no
+//! Postgres-backed counterpart yet — `NewCodeDefinition` only has
+//! project+branch — so `resolve_new_code_definition`/`OverrideSource` stay
+//! unwired for now rather than growing a second, redundant storage table.
 
 use serde::{Deserialize, Serialize};
 
 use crate::new_code::Baseline;
 use crate::ports::{AnalysisHistoryReader, StorageError};
+use crate::project::NewCodeDefinition;
 
 /// What scope an override applies to — global (instance default), one
 /// project, or one branch on one project.
@@ -127,6 +136,51 @@ pub async fn resolve_baseline<R: AnalysisHistoryReader>(
     }
 }
 
+/// Same as `resolve_baseline`, but for the real, persisted
+/// `NewCodeDefinition` (see the module doc for why there are two types).
+/// `current_analysis_id` is the analysis currently being classified — needed
+/// to resolve `PreviousAnalysis` correctly, since by the time a scan asks
+/// "what came before me" its own placeholder row has usually already been
+/// recorded (`record_analysis_pending`) and would otherwise look like its
+/// own most recent analysis.
+pub async fn resolve_baseline_for_new_code_definition<R: AnalysisHistoryReader>(
+    reader: &R,
+    project_key: &str,
+    branch_name: &str,
+    current_analysis_id: i64,
+    definition: &NewCodeDefinition,
+) -> Result<Baseline, StorageError> {
+    match definition {
+        NewCodeDefinition::PreviousAnalysis => {
+            match reader.previous_analysis_id(project_key, branch_name, current_analysis_id).await? {
+                Some(id) => reader.baseline_for_analysis(id).await,
+                None => Ok(Baseline::default()),
+            }
+        }
+        NewCodeDefinition::NumberOfDays(days) => {
+            resolve_baseline(reader, project_key, branch_name, &NewCodeOverride::Days(*days)).await
+        }
+        NewCodeDefinition::ReferenceBranch(branch) => {
+            resolve_baseline(
+                reader,
+                project_key,
+                branch_name,
+                &NewCodeOverride::ReferenceBranch(branch.as_str().to_string()),
+            )
+            .await
+        }
+        NewCodeDefinition::SpecificAnalysis(id) => {
+            resolve_baseline(
+                reader,
+                project_key,
+                branch_name,
+                &NewCodeOverride::SpecificAnalysis(id.clone()),
+            )
+            .await
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +260,8 @@ mod tests {
         latest: std::collections::HashMap<(String, String), i64>,
         /// `(project_key, branch, days_ago)` -> analysis id.
         days_ago: std::collections::HashMap<(String, String, u32), i64>,
+        /// `(project_key, branch, before_analysis_id)` -> analysis id.
+        previous: std::collections::HashMap<(String, String, i64), i64>,
         /// analysis id -> the baseline it produced.
         baselines: std::collections::HashMap<i64, Baseline>,
     }
@@ -236,6 +292,18 @@ mod tests {
                 .get(&analysis_id)
                 .cloned()
                 .ok_or_else(|| StorageError(format!("no such analysis {analysis_id}")))
+        }
+
+        async fn previous_analysis_id(
+            &self,
+            project_key: &str,
+            branch: &str,
+            before_analysis_id: i64,
+        ) -> Result<Option<i64>, StorageError> {
+            Ok(self
+                .previous
+                .get(&(project_key.to_string(), branch.to_string(), before_analysis_id))
+                .copied())
         }
     }
 
@@ -322,5 +390,88 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"project\""));
         assert!(json.contains("yunq"));
+    }
+
+    #[test]
+    fn definition_previous_analysis_excludes_the_current_analysis() {
+        let mut history = FakeAnalysisHistory::default();
+        // The current scan's own pending row (id 50) must not come back as
+        // its own "previous" analysis.
+        history.previous.insert(("yunq".to_string(), "main".to_string(), 50), 41);
+        history.baselines.insert(41, baseline_with_fingerprint(11));
+
+        let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
+            &history,
+            "yunq",
+            "main",
+            50,
+            &NewCodeDefinition::PreviousAnalysis,
+        ))
+        .unwrap();
+        assert_eq!(resolved.fingerprints().collect::<Vec<_>>(), vec![11]);
+    }
+
+    #[test]
+    fn definition_previous_analysis_is_empty_on_a_project_s_first_scan() {
+        let history = FakeAnalysisHistory::default();
+        let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
+            &history,
+            "yunq",
+            "main",
+            1,
+            &NewCodeDefinition::PreviousAnalysis,
+        ))
+        .unwrap();
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn definition_number_of_days_delegates_to_resolve_baseline() {
+        let mut history = FakeAnalysisHistory::default();
+        history.days_ago.insert(("yunq".to_string(), "main".to_string(), 30), 7);
+        history.baselines.insert(7, baseline_with_fingerprint(3));
+
+        let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
+            &history,
+            "yunq",
+            "main",
+            999,
+            &NewCodeDefinition::NumberOfDays(30),
+        ))
+        .unwrap();
+        assert_eq!(resolved.fingerprints().collect::<Vec<_>>(), vec![3]);
+    }
+
+    #[test]
+    fn definition_reference_branch_delegates_to_resolve_baseline() {
+        let mut history = FakeAnalysisHistory::default();
+        history.latest.insert(("yunq".to_string(), "develop".to_string()), 8);
+        history.baselines.insert(8, baseline_with_fingerprint(4));
+
+        let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
+            &history,
+            "yunq",
+            "main",
+            999,
+            &NewCodeDefinition::ReferenceBranch(crate::project::BranchName::new("develop").unwrap()),
+        ))
+        .unwrap();
+        assert_eq!(resolved.fingerprints().collect::<Vec<_>>(), vec![4]);
+    }
+
+    #[test]
+    fn definition_specific_analysis_delegates_to_resolve_baseline() {
+        let mut history = FakeAnalysisHistory::default();
+        history.baselines.insert(55, baseline_with_fingerprint(6));
+
+        let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
+            &history,
+            "yunq",
+            "main",
+            999,
+            &NewCodeDefinition::SpecificAnalysis("55".to_string()),
+        ))
+        .unwrap();
+        assert_eq!(resolved.fingerprints().collect::<Vec<_>>(), vec![6]);
     }
 }
