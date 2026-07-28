@@ -64,7 +64,7 @@ pub use suppression::is_suppressed;
 pub use test_code::{LineRange, in_ranges, is_test_only_path, rust_test_module_ranges};
 
 // Re-export duplication vocabulary so consumers depend on one facade.
-pub use yunq_cpd::{BlockRef, DuplicateBlock, DuplicationConfig};
+pub use yunq_cpd::{CloneRegion, CloneSet, DuplicationConfig, TokenNormalization};
 pub use service::{AnalyzeError, AnalyzerService};
 
 // Re-export the quality model so consumers depend on one facade.

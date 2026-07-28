@@ -3,7 +3,7 @@
 
 use serde::Serialize;
 use yunq_rules_engine::{
-    AnalysisReport, ConditionStatus, CoverageSummary, DuplicateBlock, GateEvaluation, GateStatus,
+    AnalysisReport, CloneSet, ConditionStatus, CoverageSummary, GateEvaluation, GateStatus,
     Hotspot, Issue, Metrics, MutationSummary, NewCodeAnalysis, RemediationEffortSummary,
     TestReportSummary,
 };
@@ -139,10 +139,11 @@ impl From<&MutationSummary> for MutationDto {
 
 #[derive(Serialize)]
 pub struct DuplicationDto {
-    pub first_file: String,
-    pub first_lines: String,
-    pub second_file: String,
-    pub second_lines: String,
+    /// Every place this shape occurs, as `path:start-end`.
+    pub occurrences: Vec<String>,
+    /// How many places — the number of edits a change to this code costs.
+    pub occurrence_count: usize,
+    /// Span of one occurrence, in source lines.
     pub lines: usize,
 }
 
@@ -273,14 +274,16 @@ impl From<&Hotspot> for HotspotDto {
     }
 }
 
-impl From<&DuplicateBlock> for DuplicationDto {
-    fn from(d: &DuplicateBlock) -> Self {
+impl From<&CloneSet> for DuplicationDto {
+    fn from(set: &CloneSet) -> Self {
         Self {
-            first_file: d.first.file.clone(),
-            first_lines: format!("{}-{}", d.first.start_line, d.first.end_line),
-            second_file: d.second.file.clone(),
-            second_lines: format!("{}-{}", d.second.start_line, d.second.end_line),
-            lines: d.lines,
+            occurrences: set
+                .regions
+                .iter()
+                .map(|r| format!("{}:{}-{}", r.file, r.start_line, r.end_line))
+                .collect(),
+            occurrence_count: set.regions.len(),
+            lines: set.lines,
         }
     }
 }
@@ -440,23 +443,29 @@ fn render_duplications_text(out: &mut String, report: &AnalysisReport) {
     if metrics.duplicated_blocks() == 0 {
         return;
     }
+    let occurrences: usize = report.duplications().iter().map(|s| s.regions.len()).sum();
     out.push_str(&format!(
-        "Duplication: {} blocks, {} lines ({:.1}%)\n",
+        "Duplication: {} clone sets, {} occurrences, {} lines ({:.1}%)\n",
         metrics.duplicated_blocks(),
+        occurrences,
         metrics.duplicated_lines(),
         metrics.duplicated_lines_density(),
     ));
-    for block in report.duplications() {
+    // Widest-reaching first (`find_duplicates` already sorts them), each set
+    // listing every place it occurs — one finding per duplicated shape, not
+    // one per pair of places sharing it.
+    for set in report.duplications() {
         out.push_str(&format!(
-            "  = {}:{}-{} <-> {}:{}-{} ({} lines)\n",
-            block.first.file,
-            block.first.start_line,
-            block.first.end_line,
-            block.second.file,
-            block.second.start_line,
-            block.second.end_line,
-            block.lines,
+            "  = {} lines duplicated across {} places:\n",
+            set.lines,
+            set.regions.len()
         ));
+        for region in &set.regions {
+            out.push_str(&format!(
+                "      {}:{}-{}\n",
+                region.file, region.start_line, region.end_line
+            ));
+        }
     }
 }
 

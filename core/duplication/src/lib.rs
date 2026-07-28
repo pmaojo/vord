@@ -1,4 +1,6 @@
-//! Copy-paste detection (CPD) by block hashing:
+//! Copy-paste detection (CPD) by block hashing.
+//!
+//! Pipeline:
 //!
 //! 1. Runs of consecutive statements with identical content are collapsed to
 //!    their first and last occurrence, so e.g. fifty blank `println();`
@@ -10,16 +12,29 @@
 //! 3. Blocks are indexed by hash across *all* files at once: a duplicate is
 //!    found by hash lookup, never by comparing every pair of files against
 //!    each other.
-//! 4. Runs of adjacent matching blocks are merged into maximal duplicated
-//!    line ranges.
+//! 4. Runs of adjacent matching blocks are merged into maximal line ranges,
+//!    then grouped by content into [`CloneSet`]s — every place one shape
+//!    occurs, rather than every pair of places sharing it. Pairs grow as
+//!    `n*(n-1)/2` in how widely a shape was copied, so reporting them makes
+//!    the most duplicated code the least readable finding.
+//! 5. Regions that overlap another in the same set are dropped, and sets
+//!    below [`DuplicationConfig::min_lines`] are discarded. Both exist
+//!    because a detector with neither reports mostly noise: a periodic
+//!    construct matches itself at every offset, and short matches are the
+//!    shape of the language rather than copied logic.
+//!
+//! `duplicated_lines` counts only lines inside a *reported* set, so the
+//! density metric can never disagree with the findings.
 //!
 //! The "statement" unit is one source line's worth of tokens, normalized by
 //! whichever `AstParser` is registered for that file's language (leaf-level
 //! tree-sitter walk in `yunq-treesitter-tokens`: literal values collapsed
 //! to placeholders, comments dropped, intra-line whitespace insignificant —
-//! see `parsers/treesitter-tokens`). Languages without a registered parser
-//! fall back to [`fallback_tokenize`]'s trimmed-line behavior. Pure core —
-//! std only, no tree-sitter dependency.
+//! see `parsers/treesitter-tokens`). [`TokenNormalization`] additionally
+//! decides whether identifiers survive, which is what separates Type-1
+//! (exact-but-for-literals) from Type-2 (copied-and-renamed) clones.
+//! Languages without a registered parser fall back to [`fallback_tokenize`]'s
+//! trimmed-line behavior. Pure core — std only, no tree-sitter dependency.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -56,39 +71,116 @@ pub fn fallback_tokenize(file: &SourceFile) -> Vec<(u32, String)> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct DuplicationConfig {
-    /// Number of consecutive statements per hashed block (default 5).
+    /// Number of consecutive statements per hashed block — the granularity
+    /// at which candidate matches are found, before they are extended into
+    /// maximal runs and filtered by `min_lines`.
     pub block_size: usize,
+    /// Smallest span, in source lines, worth reporting as a clone.
+    ///
+    /// A detector with no floor reports every incidental match: closing
+    /// braces, an import list, the boilerplate seam where one construct
+    /// ends and the next begins. Those are the *shape* of the language,
+    /// not copied logic, and they dominate the output — on a codebase of
+    /// small, uniform files they can be an order of magnitude more numerous
+    /// than the real clones. Ten lines is the same floor SonarQube's CPD
+    /// uses, and it is a threshold rather than a heuristic: everything at
+    /// or above it is reported, whatever it looks like.
+    pub min_lines: usize,
+    /// How far tokens are normalized before hashing.
+    pub normalization: TokenNormalization,
+    /// Whether test code participates in duplication detection.
+    ///
+    /// Off by default, for the same reason every rule in this engine skips
+    /// test code: tests are *expected* to repeat themselves — a table of
+    /// near-identical cases is how a suite is meant to read, and
+    /// deduplicating it usually makes it worse. Left on, test files also
+    /// dominate the report on any well-tested codebase, which buries the
+    /// production clones that do warrant a decision.
+    pub include_test_code: bool,
 }
 
 impl Default for DuplicationConfig {
     fn default() -> Self {
-        Self { block_size: 5 }
+        Self {
+            block_size: 5,
+            min_lines: 10,
+            normalization: TokenNormalization::default(),
+            include_test_code: false,
+        }
     }
 }
 
-/// One side of a duplicate pair.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BlockRef {
+/// What a tokenizer erases before content is hashed — the knob that decides
+/// *which kind of clone* the detector can see.
+///
+/// Literal values and comments are always erased, so reformatting or
+/// changing a constant never hides a copy (a "Type-1" clone). Identifiers
+/// are the interesting choice, and it is a real trade, not an oversight
+/// either way: erasing them additionally catches a block that was copied
+/// and had its variables renamed ("Type-2"), at the cost that any two
+/// blocks with the same *syntactic shape* now match, whether or not either
+/// was copied from the other. Which is right depends on the codebase, so
+/// it is configuration rather than a default anyone has to live with.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TokenNormalization {
+    /// Replace identifier names with a placeholder, so a renamed copy still
+    /// matches. Off by default: it is the setting that can turn unrelated
+    /// code into a finding, so a codebase should opt into it knowingly.
+    pub identifiers: bool,
+}
+
+/// Placeholder an erased identifier collapses to. Uses a control character
+/// no source token can contain, so it can never collide with real code.
+pub const IDENTIFIER_PLACEHOLDER: &str = "\u{0}ID\u{0}";
+
+/// One place a duplicated shape occurs.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CloneRegion {
     pub file: String,
     pub start_line: u32,
     pub end_line: u32,
 }
 
-/// Two regions with identical normalized content.
+impl CloneRegion {
+    /// Whether two regions of the same file cover any line in common.
+    fn overlaps(&self, other: &Self) -> bool {
+        self.file == other.file
+            && self.start_line <= other.end_line
+            && other.start_line <= self.end_line
+    }
+}
+
+/// Every place one duplicated shape occurs, grouped — not the pairs
+/// between them.
+///
+/// Pairs are the wrong unit to report: a shape occurring in `n` places
+/// produces `n*(n-1)/2` of them, so one widely-copied helper buries
+/// everything else under thousands of lines that all say the same thing.
+/// Grouping is also what the reader wants — "these 24 files share this
+/// block" is one decision, while 276 pairwise findings are not.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DuplicateBlock {
-    pub first: BlockRef,
-    pub second: BlockRef,
-    /// Number of duplicated significant lines.
+pub struct CloneSet {
+    /// Where the shape occurs, in source order. Always at least two, and
+    /// never two that overlap each other.
+    pub regions: Vec<CloneRegion>,
+    /// Span of one occurrence, in source lines.
     pub lines: usize,
 }
 
 /// Aggregate duplication result for one analysis.
 #[derive(Clone, Debug, Default)]
 pub struct DuplicationReport {
-    pub blocks: Vec<DuplicateBlock>,
-    /// Distinct (file, line) pairs involved in any duplication.
+    pub clone_sets: Vec<CloneSet>,
+    /// Distinct (file, line) pairs covered by a reported clone set.
     pub duplicated_lines: usize,
+}
+
+impl DuplicationReport {
+    /// Total occurrences across every set — the count a reader compares
+    /// against "how many places would I have to touch".
+    pub fn total_regions(&self) -> usize {
+        self.clone_sets.iter().map(|set| set.regions.len()).sum()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -242,50 +334,49 @@ fn consecutive_runs(starts: &BTreeSet<usize>) -> Vec<(usize, usize)> {
     runs
 }
 
-/// Builds the `DuplicateBlock` for one matched run and records every line
-/// it covers into `duplicated`.
-#[allow(clippy::too_many_arguments)]
-fn record_duplicate_run(
+/// The region one matched run covers on one side, keyed by content so
+/// equal regions from different pairings collapse into a single set.
+fn region_of(
     files: &[TokenizedFile],
-    per_file_blocks: &[Vec<Block>],
-    per_file_statements: &[Vec<Statement>],
-    file_a: usize,
-    file_b: usize,
-    delta: isize,
+    blocks: &[Block],
+    statements: &[Statement],
+    file_index: usize,
     run_start: usize,
     run_end: usize,
-    duplicated: &mut BTreeSet<(usize, u32)>,
-) -> DuplicateBlock {
-    let blocks_a = &per_file_blocks[file_a];
-    let blocks_b = &per_file_blocks[file_b];
-    let a_start = (run_start as isize - delta) as usize;
-    let a_end = (run_end as isize - delta) as usize;
-    let block_a = blocks_a[a_start];
-    let block_a_end = blocks_a[a_end];
-    let block_b = blocks_b[run_start];
-    let block_b_end = blocks_b[run_end];
-
-    let stmts_a = &per_file_statements[file_a];
-    let stmts_b = &per_file_statements[file_b];
-    for stmt in &stmts_a[block_a.stmt_start..=block_a_end.stmt_end] {
-        duplicated.insert((file_a, stmt.line_number));
+) -> (u64, usize, CloneRegion) {
+    let first_stmt = blocks[run_start].stmt_start;
+    let last_stmt = blocks[run_end].stmt_end;
+    // Key on the normalized content itself, so every occurrence of the same
+    // shape lands in the same set no matter which pairing discovered it.
+    let mut hasher = DefaultHasher::new();
+    for stmt in &statements[first_stmt..=last_stmt] {
+        stmt.hash.hash(&mut hasher);
     }
-    for stmt in &stmts_b[block_b.stmt_start..=block_b_end.stmt_end] {
-        duplicated.insert((file_b, stmt.line_number));
-    }
+    let region = CloneRegion {
+        file: files[file_index].path.clone(),
+        start_line: statements[first_stmt].line_number,
+        end_line: statements[last_stmt].line_number,
+    };
+    (hasher.finish(), first_stmt, region)
+}
 
-    let first = BlockRef {
-        file: files[file_a].path.clone(),
-        start_line: stmts_a[block_a.stmt_start].line_number,
-        end_line: stmts_a[block_a_end.stmt_end].line_number,
-    };
-    let second = BlockRef {
-        file: files[file_b].path.clone(),
-        start_line: stmts_b[block_b.stmt_start].line_number,
-        end_line: stmts_b[block_b_end.stmt_end].line_number,
-    };
-    let lines = (second.end_line - second.start_line + 1) as usize;
-    DuplicateBlock { first, second, lines }
+/// Drops regions that overlap one already kept, scanning in source order.
+///
+/// A periodic construct — a table of like-shaped records, a long `match`
+/// of parallel arms — matches itself at every offset, so the raw runs
+/// contain the same lines shifted by one record over and over. Those are
+/// one repetitive region, not many clones, and reporting each shift
+/// separately says nothing new. Keeping only non-overlapping occurrences
+/// leaves exactly the distinct places a reader would have to edit.
+fn without_overlaps(mut regions: Vec<CloneRegion>) -> Vec<CloneRegion> {
+    regions.sort();
+    let mut kept: Vec<CloneRegion> = Vec::with_capacity(regions.len());
+    for region in regions {
+        if !kept.iter().any(|k| k.overlaps(&region)) {
+            kept.push(region);
+        }
+    }
+    kept
 }
 
 pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> DuplicationReport {
@@ -298,25 +389,59 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
     let index = build_hash_index(&per_file_blocks);
     let matches = group_matches_by_delta(&index);
 
-    let mut blocks_out = Vec::new();
-    let mut duplicated: BTreeSet<(usize, u32)> = BTreeSet::new();
+    // Content hash -> every region carrying that content, deduplicated.
+    let mut by_content: BTreeMap<u64, BTreeSet<CloneRegion>> = BTreeMap::new();
     for ((file_a, file_b, delta), starts) in matches {
         for (run_start, run_end) in consecutive_runs(&starts) {
-            blocks_out.push(record_duplicate_run(
-                files,
-                &per_file_blocks,
-                &per_file_statements,
-                file_a,
-                file_b,
-                delta,
-                run_start,
-                run_end,
-                &mut duplicated,
-            ));
+            let a_start = (run_start as isize - delta) as usize;
+            let a_end = (run_end as isize - delta) as usize;
+            for (file, blocks_start, blocks_end) in
+                [(file_a, a_start, a_end), (file_b, run_start, run_end)]
+            {
+                let (key, _, region) = region_of(
+                    files,
+                    &per_file_blocks[file],
+                    &per_file_statements[file],
+                    file,
+                    blocks_start,
+                    blocks_end,
+                );
+                by_content.entry(key).or_default().insert(region);
+            }
         }
     }
 
-    DuplicationReport { blocks: blocks_out, duplicated_lines: duplicated.len() }
+    let mut clone_sets: Vec<CloneSet> = by_content
+        .into_values()
+        .filter_map(|regions| {
+            let regions = without_overlaps(regions.into_iter().collect());
+            // A shape needs at least two surviving places to be a clone at
+            // all, and must clear the reporting floor.
+            let lines = regions
+                .iter()
+                .map(|r| (r.end_line - r.start_line + 1) as usize)
+                .max()
+                .unwrap_or(0);
+            (regions.len() >= 2 && lines >= config.min_lines).then_some(CloneSet { regions, lines })
+        })
+        .collect();
+    // Largest first: the widest-reaching duplication is the one worth
+    // reading, and it is what a reader should meet at the top of a report.
+    clone_sets.sort_by(|a, b| {
+        (b.lines * b.regions.len())
+            .cmp(&(a.lines * a.regions.len()))
+            .then_with(|| a.regions.cmp(&b.regions))
+    });
+
+    // Density counts only what is actually reported, so the metric and the
+    // findings can never disagree.
+    let duplicated: BTreeSet<(&str, u32)> = clone_sets
+        .iter()
+        .flat_map(|set| &set.regions)
+        .flat_map(|r| (r.start_line..=r.end_line).map(move |line| (r.file.as_str(), line)))
+        .collect();
+
+    DuplicationReport { duplicated_lines: duplicated.len(), clone_sets }
 }
 
 #[cfg(test)]
@@ -341,13 +466,14 @@ mod tests {
         let b = format!("fn b() {{\n\n{shared}}}\n");
         let files = [file("a.rs", &a), file("b.rs", &b)];
 
-        let report = find_duplicates(&files, DuplicationConfig { block_size: 5 });
-        assert_eq!(report.blocks.len(), 1);
-        let block = &report.blocks[0];
+        let report = find_duplicates(&files, DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
+        assert_eq!(report.clone_sets.len(), 1);
+        let set = &report.clone_sets[0];
         // 8 shared body lines + the identical closing brace line.
-        assert_eq!(block.lines, 9);
-        assert_eq!(block.first.file, "a.rs");
-        assert_eq!(block.second.file, "b.rs");
+        assert_eq!(set.lines, 9);
+        assert_eq!(set.regions.len(), 2);
+        assert_eq!(set.regions[0].file, "a.rs");
+        assert_eq!(set.regions[1].file, "b.rs");
         assert_eq!(report.duplicated_lines, 18);
     }
 
@@ -357,8 +483,8 @@ mod tests {
             file("a.rs", &format!("fn a() {{\n{}}}\n", block_body("alpha"))),
             file("b.rs", &format!("fn b() {{\n{}}}\n", block_body("beta"))),
         ];
-        let report = find_duplicates(&files, DuplicationConfig { block_size: 5 });
-        assert!(report.blocks.is_empty());
+        let report = find_duplicates(&files, DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
+        assert!(report.clone_sets.is_empty());
         assert_eq!(report.duplicated_lines, 0);
     }
 
@@ -366,7 +492,7 @@ mod tests {
     fn short_files_are_ignored() {
         let files = [file("a.rs", "let x = 1;\n"), file("b.rs", "let x = 1;\n")];
         let report = find_duplicates(&files, DuplicationConfig::default());
-        assert!(report.blocks.is_empty());
+        assert!(report.clone_sets.is_empty());
     }
 
     #[test]
@@ -380,20 +506,102 @@ mod tests {
         let b = format!("fn b() {{\n{repeated}}}\n");
         let files = [file("a.rs", &a), file("b.rs", &b)];
         let report = find_duplicates(&files, DuplicationConfig::default());
-        assert!(report.blocks.is_empty(), "{:?}", report.blocks);
+        assert!(report.clone_sets.is_empty(), "{:?}", report.clone_sets);
     }
 
     #[test]
-    fn three_way_duplicate_is_reported_pairwise_across_all_files() {
+    fn three_way_duplicate_is_one_set_with_three_occurrences() {
         let shared: String = (0..6).map(|i| format!("    acc += items[{i}];\n")).collect();
         let files = [
             file("a.rs", &format!("fn a() {{\n{shared}}}\n")),
             file("b.rs", &format!("fn b() {{\n{shared}}}\n")),
             file("c.rs", &format!("fn c() {{\n{shared}}}\n")),
         ];
-        let report = find_duplicates(&files, DuplicationConfig { block_size: 5 });
-        // a-b, a-c, b-c.
-        assert_eq!(report.blocks.len(), 3);
+        let report = find_duplicates(&files, DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
+        // One shape in three places — one finding, not the a-b/a-c/b-c
+        // pairs. This is the whole point of grouping: the pair count grows
+        // quadratically with how widely a shape was copied, so the most
+        // duplicated code produced the most unreadable report.
+        assert_eq!(report.clone_sets.len(), 1);
+        let files_listed: Vec<&str> =
+            report.clone_sets[0].regions.iter().map(|r| r.file.as_str()).collect();
+        assert_eq!(files_listed, ["a.rs", "b.rs", "c.rs"]);
+        assert_eq!(report.total_regions(), 3);
+    }
+
+    #[test]
+    fn a_match_below_the_line_floor_is_not_reported() {
+        // Six identical lines, floor of ten. Short incidental matches are
+        // what a floor exists to exclude: they are the shape of the
+        // language, not copied logic, and they outnumber real clones by an
+        // order of magnitude on a codebase of small uniform files.
+        let shared: String = (0..6).map(|i| format!("    acc += items[{i}];\n")).collect();
+        let files = [
+            file("a.rs", &format!("fn a() {{\n{shared}}}\n")),
+            file("b.rs", &format!("fn b() {{\n{shared}}}\n")),
+        ];
+        let report = find_duplicates(&files, DuplicationConfig { min_lines: 10, ..Default::default() });
+        assert!(report.clone_sets.is_empty());
+        // Density has to agree with the findings: a line nobody is told
+        // about must not count as duplicated.
+        assert_eq!(report.duplicated_lines, 0);
+    }
+
+    #[test]
+    fn a_periodic_construct_is_not_reported_against_every_shift_of_itself() {
+        // A table of like-shaped records matches itself at every offset, so
+        // the raw runs are the same lines shifted by one record over and
+        // over. That is one repetitive region, not many clones; reporting
+        // each shift said nothing new and buried everything else.
+        let record: String = "    Spec { id: NAME, value: NUM },\n".to_string();
+        let table: String = record.repeat(30);
+        let files = [file("a.rs", &format!("const T: &[Spec] = &[\n{table}];\n"))];
+        let report = find_duplicates(&files, DuplicationConfig::default());
+        for set in &report.clone_sets {
+            for (i, left) in set.regions.iter().enumerate() {
+                for right in &set.regions[i + 1..] {
+                    assert!(
+                        !left.overlaps(right),
+                        "reported a region against an overlapping shift of itself: {left:?} vs {right:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn identifier_normalization_is_what_catches_a_renamed_copy() {
+        // The Type-1/Type-2 boundary, asserted from both sides so neither
+        // can silently change: with identifiers intact a renamed copy is
+        // invisible, and erasing them is precisely what reveals it.
+        let body = |name: &str| -> String {
+            (0..10)
+                .map(|i| format!("    let {name}_{i} = {name}.compute(step);\n"))
+                .collect()
+        };
+        let tokenize = |path: &str, prefix: &str, normalize: bool| {
+            let lines: Vec<(u32, String)> = (0..10)
+                .map(|i| {
+                    let name = if normalize { IDENTIFIER_PLACEHOLDER } else { prefix };
+                    (i + 1, format!("let {name} {i} = {name} . compute ( step ) ;"))
+                })
+                .collect();
+            let _ = body(prefix);
+            TokenizedFile { path: path.into(), lines }
+        };
+
+        let type_1 = [tokenize("a.rs", "alpha", false), tokenize("b.rs", "beta", false)];
+        assert!(
+            find_duplicates(&type_1, DuplicationConfig::default()).clone_sets.is_empty(),
+            "renamed copy must be invisible while identifiers are preserved"
+        );
+
+        let type_2 = [tokenize("a.rs", "alpha", true), tokenize("b.rs", "beta", true)];
+        assert_eq!(
+            find_duplicates(&type_2, DuplicationConfig::default()).clone_sets.len(),
+            1,
+            "erasing identifiers must reveal the renamed copy"
+        );
     }
 
     #[test]
@@ -408,8 +616,8 @@ mod tests {
             .collect();
         let a = TokenizedFile { path: "a.rs".into(), lines: body.clone() };
         let b = TokenizedFile { path: "b.rs".into(), lines: body };
-        let report = find_duplicates(&[a, b], DuplicationConfig { block_size: 5 });
-        assert_eq!(report.blocks.len(), 1);
-        assert_eq!(report.blocks[0].lines, 6);
+        let report = find_duplicates(&[a, b], DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
+        assert_eq!(report.clone_sets.len(), 1);
+        assert_eq!(report.clone_sets[0].lines, 6);
     }
 }

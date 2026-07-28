@@ -152,12 +152,26 @@ where
     fn detect_duplication(&self, files: &[SourceFile]) -> yunq_cpd::DuplicationReport {
         let tokenized: Vec<yunq_cpd::TokenizedFile> = files
             .iter()
+            .filter(|file| {
+                self.duplication.include_test_code || !crate::is_test_only_path(file.path())
+            })
             .map(|file| {
-                let lines = self
+                let mut lines = self
                     .parsers
                     .get(file.language())
-                    .map(|parser| parser.tokenize_for_duplication(file))
+                    .map(|parser| parser.tokenize_for_duplication(file, self.duplication.normalization))
                     .unwrap_or_else(|| yunq_cpd::fallback_tokenize(file));
+                if !self.duplication.include_test_code {
+                    // Dropping the lines rather than the whole file matters:
+                    // a source file with an inline test module still has
+                    // production code worth checking, and leaving the test
+                    // lines in would also let a clone straddle the boundary
+                    // between the two — matching the *seam* where one ends
+                    // and the other begins, which is shared by every file in
+                    // a language and is not duplication at all.
+                    let test_ranges = crate::rust_test_module_ranges(file.content());
+                    lines.retain(|(line, _)| !crate::in_ranges(&test_ranges, *line));
+                }
                 yunq_cpd::TokenizedFile { path: file.path().to_string(), lines }
             })
             .collect();
@@ -226,7 +240,7 @@ where
         let (mut issues, hotspots) = fold_outcomes(self.analyze_all(files), &mut metrics, &classifications);
 
         let duplication = self.detect_duplication(files);
-        metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
+        metrics.set_duplication(duplication.duplicated_lines, duplication.clone_sets.len());
 
         self.run_cross_file_rules(files, &mut issues, &mut metrics);
 

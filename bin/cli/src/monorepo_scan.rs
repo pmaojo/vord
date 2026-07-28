@@ -58,8 +58,17 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
         let cache = (!args.no_cache).then(|| {
             std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(project_dir.join(".yunq-cache.json")))
         });
-        let report =
-            yunq_cli::scan_with_project_config(project_dir, cache.clone(), &source_dirs, &exclusions).await?;
+        // Each project's own `[duplication]` settings, so a monorepo can
+        // hold packages with different tolerances rather than one blanket
+        // policy imposed by the root.
+        let report = yunq_cli::scan_with_project_config(
+            project_dir,
+            cache.clone(),
+            &source_dirs,
+            &exclusions,
+            &config.duplication,
+        )
+        .await?;
         if let Some(cache) = &cache
             && let Err(e) = cache.persist()
         {

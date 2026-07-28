@@ -195,7 +195,7 @@ pub async fn scan_with_exclusions(
     cache: Option<Arc<FileAnalysisCache>>,
     exclusions: &[String],
 ) -> anyhow::Result<AnalysisReport> {
-    scan_with_project_config(path, cache, &[], exclusions).await
+    scan_with_project_config(path, cache, &[], exclusions, &Default::default()).await
 }
 
 /// Scans with an optional incremental cache, `yunq.toml`'s
@@ -207,14 +207,33 @@ pub async fn scan_with_project_config(
     cache: Option<Arc<FileAnalysisCache>>,
     source_dirs: &[String],
     exclusions: &[String],
+    duplication: &yunq_infra_fs::DuplicationSettings,
 ) -> anyhow::Result<AnalysisReport> {
     let sources = yunq_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
-    let mut service =
-        default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
+    let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
+        .with_duplication_config(duplication_config(duplication));
     if let Some(cache) = cache {
         service = service.with_cache(cache);
     }
     Ok(service.analyze_files(&sources).await?)
+}
+
+/// Overlays `[duplication]` from `yunq.toml` onto the engine defaults —
+/// an unset field keeps the default rather than zeroing it.
+pub fn duplication_config(
+    settings: &yunq_infra_fs::DuplicationSettings,
+) -> yunq_rules_engine::DuplicationConfig {
+    let defaults = yunq_rules_engine::DuplicationConfig::default();
+    yunq_rules_engine::DuplicationConfig {
+        block_size: settings.block_size.unwrap_or(defaults.block_size),
+        min_lines: settings.min_lines.unwrap_or(defaults.min_lines),
+        normalization: yunq_rules_engine::TokenNormalization {
+            identifiers: settings
+                .normalize_identifiers
+                .unwrap_or(defaults.normalization.identifiers),
+        },
+        include_test_code: settings.include_test_code.unwrap_or(defaults.include_test_code),
+    }
 }
 
 /// Walks up from `start` looking for a `.git` directory, so remediation can
