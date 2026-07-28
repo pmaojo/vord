@@ -72,6 +72,14 @@ advisory_rules = []
 # get the policy edited to remove the rule.
 escalate_rules = []
 
+# Stricter threshold for a path yunq has already seen an agent write to (or
+# attempt to write to) before — tracked automatically in
+# .yunq-provenance.json, no manual "mark this file as AI-generated" step
+# required. Only the threshold tightens here; blocking_rules/escalate_rules/
+# advisory_rules above apply the same regardless of a path's provenance.
+[agent.ai_touched]
+block_at_or_above = "major"
+
 # Paths an agent may not touch at all, with no finding required. Delete any
 # entry that does not fit how this repository works; an agent that cannot do
 # its job will be given a wider blast radius by whoever is annoyed enough.
@@ -270,5 +278,29 @@ mod tests {
         assert!(policy.evaluate(".github/workflows/ci.yml", &[]).is_denied());
         assert!(policy.evaluate("infra/main.tf", &[]).is_denied());
         assert!(!policy.evaluate("src/app.ts", &[]).is_denied());
+    }
+
+    #[test]
+    fn the_shipped_policy_template_turns_on_a_stricter_ai_touched_threshold() {
+        use yunq_agent_policy::{Finding, Provenance};
+
+        let policy = yunq_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
+        assert_eq!(policy.block_at_or_above(), yunq_rules_engine::Severity::Critical);
+        assert_eq!(policy.block_at_or_above_for(Provenance::AiTouched), yunq_rules_engine::Severity::Major);
+
+        let major_finding = [Finding {
+            rule: yunq_rules_engine::RuleId::new("smells:long-method").expect("valid rule id"),
+            severity: yunq_rules_engine::Severity::Major,
+            message: "boom".to_string(),
+            line: 1,
+        }];
+        assert!(
+            !policy.evaluate_with_provenance("src/app.ts", &major_finding, Provenance::Unestablished).is_denied(),
+            "major is below the shipped base threshold of critical"
+        );
+        assert!(
+            policy.evaluate_with_provenance("src/app.ts", &major_finding, Provenance::AiTouched).is_denied(),
+            "major meets the shipped ai_touched threshold"
+        );
     }
 }

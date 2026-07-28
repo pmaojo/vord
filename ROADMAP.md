@@ -959,8 +959,32 @@ before being leaned on; that verification has not been done.
 - **6b Assign to Agent**: `POST /issues/{id}/assign-to-agent`, bulk action,
   one PR per issue via `PrGateway`; PR-scoped mode proposes fixes when a PR
   breaks its quality gate. Developer-in-the-loop always.
-- **AI Code Assurance equivalent**: flag projects/files as AI-generated,
-  enforce stricter gates on AI-authored code, provenance tracking.
+- **AI Code Assurance equivalent** ✅ **(2026-07-28)** — first slice landed
+  inside `core/agent-policy`/`yunq hook`, not as a separate subsystem:
+  `Provenance` (`Unestablished`/`AiTouched`) is looked up per path in a new
+  `.yunq-provenance.json` ledger (`bin/cli`, gitignored) recording every path
+  a `yunq hook` write has ever targeted — denied or not, since an attempted
+  edit is itself a "an agent is steering this file" signal. A path already in
+  the ledger is judged against a new `[agent.ai_touched] block_at_or_above`
+  threshold instead of the base one; `blocking_rules`/`escalate_rules`/
+  `advisory_rules` stay identical regardless of provenance (only the
+  severity bar tightens, the same asymmetry SonarQube's real "Sonar way for
+  Agentic AI" gate ships — stricter on security, unchanged elsewhere).
+  Absent `[agent.ai_touched]` means no behavior change (same opt-in-until-
+  configured convention as `protected_path`); `yunq hook install`'s template
+  now ships a concrete `block_at_or_above = "major"` example. Deliberately
+  does **not** use a commit trailer or co-author attribution (`Co-authored-by:
+  <model>`) as the tagging mechanism — that convention is both contested (US
+  Copyright Office guidance against listing an AI as an author; VS Code's
+  April 2026 default-on `Co-authored-by: Copilot` trailer was reverted within
+  three weeks after backlash) and orthogonal to what a stricter gate needs,
+  which is "should this path be judged more strictly", not "who gets
+  credit". Still open: this is per-path/local (`bin/cli` only, gitignored
+  file, no server-side aggregation) and per-write-history only — it does not
+  yet flag a *project* the way Sonar's manual setting does, nor does it feed
+  the whole-repo quality gate (Phase 3); a Gherkin-scenario evidence
+  requirement and a mutation-testing score are the two other legs of this
+  still to build.
 - **Fix suggestions in-editor** through `yunq-lsp` connected mode.
 - **6c Agentic guardrail — yunq inside the agent's edit loop** ✅
   **(2026-07-27)**. Every entry point before this one is post-hoc: the CLI,
