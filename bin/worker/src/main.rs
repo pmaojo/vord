@@ -109,6 +109,7 @@ where
         .chain(yunq_rules_python::all_rules())
         .chain(yunq_rules_typescript::all_rules())
         .chain(yunq_rules_php::all_rules())
+        .chain(yunq_rules_go::all_rules())
         .chain(yunq_rules_ai_agent::all_rules())
         .collect();
     let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> = yunq_rules_owasp::all_cross_rules()

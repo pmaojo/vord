@@ -18,6 +18,7 @@ yunq-rules-rust = { workspace = true }
 yunq-rules-python = { workspace = true }
 yunq-rules-typescript = { workspace = true }
 yunq-rules-php = { workspace = true }
+yunq-rules-go = { workspace = true }
 yunq-rules-ai-agent = { workspace = true }
 yunq-infra-postgres = { workspace = true }
 yunq-infra-fs = { workspace = true }

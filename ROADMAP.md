@@ -665,6 +665,65 @@ re-analysis on typical PRs.
   catalog, `bin/worker`), and are activated by default in
   `typescript_activations()` (`core/profiles/src/builtin.rs`) with
   severities cross-checked against each rule's `default_severity()`.
+- **Language-specific ruleset: Go** ✅ **(this session)** — a new
+  `rulesets/go` crate (`yunq-rules-go`), same shape as `rulesets/rust`/
+  `rulesets/php`: idioms only Go has, as opposed to the generic checks
+  already covering it (`owasp:command-execution`'s `exec.Command` hotspot,
+  `owasp:disabled-cert-validation`'s `InsecureSkipVerify` check — both
+  confirmed already Go-aware before writing anything, to avoid shipping a
+  duplicate). Explicit competitive read first: `gosec`, `golangci-lint`
+  (`forcetypeassert`) and `staticcheck` (`SA1029`) each cover exactly one of
+  this batch's six rules, none cover all six as a set, and none of it is a
+  license concern (these are the checks' *behavior*, reimplemented
+  independently against this repo's own neutral AST, not ported code). 6
+  rules, each grounded in real tree-sitter-go grammar shapes (verified with
+  a throwaway AST-dump scratch test appended to
+  `parsers/treesitter-go/src/lib.rs`, then reverted — same discipline as
+  every prior language batch): `go:sql-injection-concat` (a
+  `.Query`/`.QueryContext`/`.QueryRow`/`.QueryRowContext`/`.Exec`/
+  `.ExecContext`/`.Prepare`/`.PrepareContext` call — names shared across
+  `database/sql`, `sqlx` and `pgx` — whose argument is built by `+`
+  concatenation or `fmt.Sprintf`; no generic rule covered Go SQL injection
+  at all, since `owasp:injection`'s taint analysis is TypeScript-only),
+  `go:weak-random-token` (a token/password/secret/session-named value built
+  from a `math/rand`-only method — `Intn`/`Int63`/`Int31`/`Float64`/
+  `Float32`/`Perm`/`Shuffle`/`Int63n`/`Int31n`/`NormFloat64`/`ExpFloat64` —
+  deliberately excluding `Int`/`Read`, which `crypto/rand` also exposes
+  under the same package alias `rand`, so a syntactic check can't
+  disambiguate those two), `go:context-value-string-key` (a bare string
+  literal as a `context.WithValue` key — mirrors `staticcheck`'s `SA1029`;
+  real collision hazard between two unrelated packages' identically-named
+  keys), `go:unchecked-type-assertion` (a single-value `x.(T)` outside the
+  narrow two-target `v, ok := x.(T)` shape Go's grammar allows for the safe
+  comma-ok form — mirrors `golangci-lint`'s `forcetypeassert`; the
+  detector special-cases exactly that one shape via `names.children().len()
+  < 2` on the enclosing `VariableDecl`/`Assignment` and flags every other
+  position unconditionally, since Go's syntax doesn't allow comma-ok
+  anywhere else), `go:defer-in-loop` (a `defer` inside a `for` body — it
+  runs at the enclosing *function's* return, not the iteration's end, so
+  cleanup piles up for the loop's duration; scoping mirrors
+  `smells:db-call-in-loop`'s nested-loop skip logic, generalized into a
+  shared `common::collect_bounded` that stops at a nested `for_statement` or
+  `FunctionDef` boundary), and `go:goroutine-loop-var-capture` (a
+  parameterless `go func(){...}()` referencing its enclosing C-style
+  `for`'s own loop variable by reference instead of taking it as a
+  parameter — the single most common real-world Go concurrency bug pre-1.22
+  and the reason Go 1.22 changed the language's own loop-variable
+  semantics). The last is deliberately a **hotspot**, not an unconditional
+  bug: whether this shape is actually broken depends on the module's
+  `go.mod` Go-version directive, which a same-file syntactic rule can't
+  read, so it's flagged for review either way rather than asserted as
+  wrong — scoped to the classic `for_clause` (C-style) loop only,
+  `for range` is a distinct grammar shape (`range_clause`) sharing the same
+  pitfall and left as a known follow-up gap rather than force-fit into this
+  batch. All 6 wired into all three composition roots (`bin/cli`,
+  `bin/server`'s rule catalog, `bin/worker`) and `go_activations()`
+  (`core/profiles/src/builtin.rs`); 26 unit tests, `cargo clippy --workspace
+  --exclude yunq-frontend --all-targets -- -D warnings` clean, and manually
+  verified end-to-end via `yunq scan --format json` against a real `.go`
+  sample exercising all six shapes (five real findings plus the hotspot;
+  the sixth rule's own unit tests separately cover its true-positive/
+  true-negative pairs the single sample didn't happen to trigger).
 
 ### Rule-coverage levers, ranked by rules-per-LOC
 
