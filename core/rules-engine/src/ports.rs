@@ -30,7 +30,16 @@ pub trait AstParser: Send + Sync {
     /// placeholder and dropping comments — `yunq-treesitter-tokens`)
     /// override this so duplication matching is token-accurate rather than
     /// sensitive to literal values and incidental whitespace.
-    fn tokenize_for_duplication(&self, file: &SourceFile) -> Vec<(u32, String)> {
+    /// Per-line normalized tokens for copy-paste detection. `normalization`
+    /// decides which clone kinds are visible (see
+    /// [`yunq_cpd::TokenNormalization`]); a parser that cannot honor it
+    /// still returns usable Type-1 tokens rather than nothing.
+    fn tokenize_for_duplication(
+        &self,
+        file: &SourceFile,
+        normalization: yunq_cpd::TokenNormalization,
+    ) -> Vec<(u32, String)> {
+        let _ = normalization;
         yunq_cpd::fallback_tokenize(file)
     }
 }

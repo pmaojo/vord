@@ -12,6 +12,8 @@ pub struct YunqConfig {
     pub analysis: AnalysisConfig,
     #[serde(default)]
     pub rules: RulesConfig,
+    #[serde(default)]
+    pub duplication: DuplicationSettings,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -27,6 +29,25 @@ pub struct AnalysisConfig {
     pub exclusions: Option<Vec<String>>,
     pub inclusions: Option<Vec<String>>,
     pub profile: Option<String>,
+}
+
+/// `[duplication]` in `yunq.toml`. Every field is optional and falls back
+/// to the engine default, so a project only states what it wants changed.
+/// These were hardcoded before, which meant a codebase whose shape did not
+/// suit the defaults had no recourse.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DuplicationSettings {
+    /// Smallest clone worth reporting, in source lines (engine default 10).
+    pub min_lines: Option<usize>,
+    /// Consecutive statements per hashed block (engine default 5) — the
+    /// granularity candidate matches are found at, before extension.
+    pub block_size: Option<usize>,
+    /// Erase identifier names before hashing, so a copied-and-renamed block
+    /// still matches ("Type-2" clones). Off by default.
+    pub normalize_identifiers: Option<bool>,
+    /// Let test code participate in duplication detection. Off by default —
+    /// repetition in a test suite is usually deliberate.
+    pub include_test_code: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]

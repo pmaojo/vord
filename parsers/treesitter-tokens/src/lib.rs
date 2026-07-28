@@ -23,6 +23,8 @@
 //! stop affecting the hash — only leading/trailing whitespace mattered
 //! before this, via `str::trim`.
 
+pub use yunq_cpd::{TokenNormalization, IDENTIFIER_PLACEHOLDER};
+
 const STRING_PLACEHOLDER: &str = "\u{0}STR\u{0}";
 const NUMBER_PLACEHOLDER: &str = "\u{0}NUM\u{0}";
 
@@ -30,8 +32,18 @@ const NUMBER_PLACEHOLDER: &str = "\u{0}NUM\u{0}";
 /// file. `line_number` is 1-based; lines with no significant tokens (blank
 /// or comment-only) are omitted.
 pub fn statement_lines(tree: &tree_sitter::Tree, source: &str) -> Vec<(u32, String)> {
+    statement_lines_with(tree, source, TokenNormalization::default())
+}
+
+/// [`statement_lines`] with an explicit normalization policy — see
+/// [`TokenNormalization`] for what erasing identifiers buys and costs.
+pub fn statement_lines_with(
+    tree: &tree_sitter::Tree,
+    source: &str,
+    normalization: TokenNormalization,
+) -> Vec<(u32, String)> {
     let mut tokens: Vec<(u32, &str)> = Vec::new();
-    walk(tree.root_node(), source.as_bytes(), &mut tokens);
+    walk(tree.root_node(), source.as_bytes(), normalization, &mut tokens);
 
     let mut grouped: Vec<(u32, String)> = Vec::new();
     for (line, token) in tokens {
@@ -46,13 +58,28 @@ pub fn statement_lines(tree: &tree_sitter::Tree, source: &str) -> Vec<(u32, Stri
     grouped
 }
 
-fn walk<'a>(node: tree_sitter::Node<'a>, source: &'a [u8], out: &mut Vec<(u32, &'a str)>) {
+fn walk<'a>(
+    node: tree_sitter::Node<'a>,
+    source: &'a [u8],
+    normalization: TokenNormalization,
+    out: &mut Vec<(u32, &'a str)>,
+) {
     let kind = node.kind();
     if is_comment(kind) {
         return;
     }
     if let Some(placeholder) = literal_placeholder(kind) {
         out.push((node.start_position().row as u32 + 1, placeholder));
+        return;
+    }
+    // Every grammar names its name-carrying leaves `*identifier`
+    // (`identifier`, `type_identifier`, `field_identifier`,
+    // `property_identifier`, ...), which is what makes this one rule work
+    // across languages instead of needing a per-grammar list. Keywords and
+    // punctuation are anonymous nodes and keep their text, so the block's
+    // structure still has to match.
+    if normalization.identifiers && is_identifier(kind) && node.child_count() == 0 {
+        out.push((node.start_position().row as u32 + 1, IDENTIFIER_PLACEHOLDER));
         return;
     }
     if node.child_count() == 0 {
@@ -64,8 +91,12 @@ fn walk<'a>(node: tree_sitter::Node<'a>, source: &'a [u8], out: &mut Vec<(u32, &
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        walk(child, source, out);
+        walk(child, source, normalization, out);
     }
+}
+
+fn is_identifier(kind: &str) -> bool {
+    kind.ends_with("identifier")
 }
 
 fn is_comment(kind: &str) -> bool {

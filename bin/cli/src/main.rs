@@ -361,7 +361,9 @@ fn parse_fail_on_threshold(fail_on: Option<String>) -> anyhow::Result<Option<Sev
 
 /// `yunq.toml`'s `[analysis] sources`/`exclusions`/`[project] key`, or all
 /// empty when there's no project config (a bare directory/file scan).
-fn load_project_scope(path: &std::path::Path) -> (Vec<String>, Vec<String>, Option<String>) {
+fn load_project_scope(
+    path: &std::path::Path,
+) -> (Vec<String>, Vec<String>, Option<String>, yunq_infra_fs::DuplicationSettings) {
     yunq_infra_fs::YunqConfig::load_from_dir(path)
         .map(|config| {
             if let Some(key) = &config.project.key {
@@ -371,6 +373,7 @@ fn load_project_scope(path: &std::path::Path) -> (Vec<String>, Vec<String>, Opti
                 config.analysis.sources.unwrap_or_default(),
                 config.analysis.exclusions.unwrap_or_default(),
                 config.project.key,
+                config.duplication,
             )
         })
         .unwrap_or_default()
@@ -793,14 +796,15 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     }
 
     let threshold = parse_fail_on_threshold(args.fail_on.clone())?;
-    let (source_dirs, exclusions, config_project_key) = load_project_scope(&args.path);
+    let (source_dirs, exclusions, config_project_key, duplication) = load_project_scope(&args.path);
     let ci = resolve_ci_context();
     let context = resolve_context(&args, config_project_key, &ci);
 
     let cache = (!args.no_cache && args.path.is_dir())
         .then(|| std::sync::Arc::new(FileAnalysisCache::open(args.path.join(".yunq-cache.json"))));
     let mut report =
-        yunq_cli::scan_with_project_config(&args.path, cache.clone(), &source_dirs, &exclusions).await?;
+        yunq_cli::scan_with_project_config(&args.path, cache.clone(), &source_dirs, &exclusions, &duplication)
+            .await?;
 
     // Before the gate and the New Code baseline: imported findings are
     // ordinary issues from here on, so both must see them.

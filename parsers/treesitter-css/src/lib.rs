@@ -39,7 +39,11 @@ impl AstParser for CssParser {
         Ok(convert(tree.root_node(), &file.content_shared()))
     }
 
-    fn tokenize_for_duplication(&self, file: &SourceFile) -> Vec<(u32, String)> {
+    fn tokenize_for_duplication(
+        &self,
+        file: &SourceFile,
+        normalization: yunq_cpd::TokenNormalization,
+    ) -> Vec<(u32, String)> {
         let mut parser = tree_sitter::Parser::new();
         if parser.set_language(&tree_sitter_css::LANGUAGE.into()).is_err() {
             return yunq_cpd::fallback_tokenize(file);
@@ -47,7 +51,7 @@ impl AstParser for CssParser {
         let Some(tree) = parser.parse(file.content(), None) else {
             return yunq_cpd::fallback_tokenize(file);
         };
-        yunq_treesitter_tokens::statement_lines(&tree, file.content())
+        yunq_treesitter_tokens::statement_lines_with(&tree, file.content(), normalization)
     }
 }
 
