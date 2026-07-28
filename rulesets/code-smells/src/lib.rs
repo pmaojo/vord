@@ -3,10 +3,15 @@
 mod cognitive_complexity;
 mod commented_out_code;
 mod complexity;
+mod concrete_dependency;
 mod db_call_in_loop;
+mod fat_interface;
 mod feature_envy;
 mod god_class;
+mod liskov_not_implemented;
 mod long_function;
+mod low_cohesion;
+mod open_closed_violation;
 mod refused_bequest;
 mod select_star;
 mod todo_comment;
@@ -15,10 +20,15 @@ mod unwrap_usage;
 pub use cognitive_complexity::CognitiveComplexityRule;
 pub use commented_out_code::CommentedOutCodeRule;
 pub use complexity::ComplexityRule;
+pub use concrete_dependency::ConcreteDependencyRule;
 pub use db_call_in_loop::DbCallInLoopRule;
+pub use fat_interface::FatInterfaceRule;
 pub use feature_envy::FeatureEnvyRule;
 pub use god_class::GodClassRule;
+pub use liskov_not_implemented::LiskovNotImplementedRule;
 pub use long_function::LongFunctionRule;
+pub use low_cohesion::LowCohesionRule;
+pub use open_closed_violation::OpenClosedViolationRule;
 pub use refused_bequest::RefusedBequestRule;
 pub use select_star::SelectStarRule;
 pub use todo_comment::TodoCommentRule;
@@ -37,6 +47,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(CommentedOutCodeRule::new()),
         Box::new(SelectStarRule::new()),
         Box::new(DbCallInLoopRule::new()),
+        Box::new(FatInterfaceRule::default()),
     ]
 }
 
@@ -44,5 +55,13 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
 /// OOP-smell rules need every file's classes at once so a superclass or a
 /// foreign-typed parameter declared in a different file still resolves.
 pub fn all_cross_rules() -> Vec<Box<dyn CrossFileRule>> {
-    vec![Box::new(GodClassRule::default()), Box::new(FeatureEnvyRule::default()), Box::new(RefusedBequestRule::new())]
+    vec![
+        Box::new(GodClassRule::default()),
+        Box::new(FeatureEnvyRule::default()),
+        Box::new(RefusedBequestRule::new()),
+        Box::new(LowCohesionRule::default()),
+        Box::new(LiskovNotImplementedRule::new()),
+        Box::new(ConcreteDependencyRule::new()),
+        Box::new(OpenClosedViolationRule::new()),
+    ]
 }

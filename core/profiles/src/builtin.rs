@@ -116,6 +116,9 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("smells:unwrap-usage"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/python/rust.
         (rule("smells:god-class"), Severity::Major),
+        (rule("smells:low-cohesion"), Severity::Major),
+        // rulesets/code-smells — applies_to typescript/rust (interface/trait).
+        (rule("smells:fat-interface"), Severity::Minor),
     ]);
     activations
 }
@@ -149,6 +152,12 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("smells:god-class"), Severity::Major),
         (rule("smells:feature-envy"), Severity::Minor),
         (rule("smells:refused-bequest"), Severity::Minor),
+        (rule("smells:low-cohesion"), Severity::Major),
+        (rule("smells:liskov-not-implemented"), Severity::Major),
+        (rule("smells:concrete-dependency"), Severity::Major),
+        (rule("smells:open-closed-violation"), Severity::Major),
+        // rulesets/code-smells — applies_to typescript/rust (interface/trait).
+        (rule("smells:fat-interface"), Severity::Minor),
         // rulesets/reactive — applies_to typescript (RxJS).
         (rule("reactive:missing-unsubscribe"), Severity::Major),
         (rule("reactive:subject-never-completed"), Severity::Minor),
@@ -185,6 +194,10 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("smells:god-class"), Severity::Major),
         (rule("smells:feature-envy"), Severity::Minor),
         (rule("smells:refused-bequest"), Severity::Minor),
+        (rule("smells:low-cohesion"), Severity::Major),
+        (rule("smells:liskov-not-implemented"), Severity::Major),
+        (rule("smells:concrete-dependency"), Severity::Major),
+        (rule("smells:open-closed-violation"), Severity::Major),
         // rulesets/python — all applies_to python only.
         (rule("python:mutable-default-argument"), Severity::Major),
         (rule("python:bare-except"), Severity::Major),
