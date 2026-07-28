@@ -122,11 +122,21 @@ impl Metrics {
         self.duplicated_blocks
     }
 
+    /// A percentage, so callers may assume `0.0..=100.0`. `duplicated_lines`
+    /// counts distinct *line numbers* the duplication detector touched
+    /// (which, inside a matched block, includes any blank/comment lines
+    /// straddled by the surrounding duplicate statements), while
+    /// `lines_of_code` counts only real code lines — a codebase with heavy
+    /// commenting can therefore see `duplicated_lines` exceed
+    /// `lines_of_code`. Clamped rather than left to overshoot 100%: a
+    /// "density" above the whole is meaningless to every caller of this
+    /// measure, not just `AnalysisReport::health_score`, whose duplication
+    /// penalty an unclamped value could otherwise blow past any bound.
     pub fn duplicated_lines_density(&self) -> f64 {
         if self.lines_of_code == 0 {
             0.0
         } else {
-            self.duplicated_lines as f64 * 100.0 / self.lines_of_code as f64
+            (self.duplicated_lines as f64 * 100.0 / self.lines_of_code as f64).min(100.0)
         }
     }
 
@@ -702,15 +712,32 @@ impl AnalysisReport {
         self.metrics.remediation_effort()
     }
 
+    /// A single 0-100 blend, unlike [`Self::rating`]/[`Self::reliability_rating`]/
+    /// [`Self::security_rating`]'s A-E letter grades — but built the same
+    /// way those already are: as a *rate* (findings per thousand lines of
+    /// code), never a raw count. A raw-count penalty subtracted from a
+    /// fixed 100-point budget is not scale-invariant — the same 44 major
+    /// issues that are a real problem in a 2,000-line project are a
+    /// healthy rate in a 200,000-line one, and a fixed budget scores both
+    /// identically (usually: zero). Per-KLOC keeps this comparable across
+    /// project sizes the way the letter grades already are.
     pub fn health_score(&self) -> u32 {
-        let blocker = *self.metrics.issues_by_severity().get(&Severity::Blocker).unwrap_or(&0) as u32;
-        let critical = *self.metrics.issues_by_severity().get(&Severity::Critical).unwrap_or(&0) as u32;
-        let major = *self.metrics.issues_by_severity().get(&Severity::Major).unwrap_or(&0) as u32;
-        let hotspots = self.hotspots.len() as u32;
-        let dup_penalty = (self.metrics.duplicated_lines_density() * 0.5) as u32;
+        let kloc = (self.metrics.lines_of_code() as f64 / 1000.0).max(1.0);
+        let per_kloc = |count: usize| count as f64 / kloc;
 
-        let penalty = blocker * 10 + critical * 5 + major + hotspots * 2 + dup_penalty;
-        100u32.saturating_sub(penalty)
+        let blocker = *self.metrics.issues_by_severity().get(&Severity::Blocker).unwrap_or(&0);
+        let critical = *self.metrics.issues_by_severity().get(&Severity::Critical).unwrap_or(&0);
+        let major = *self.metrics.issues_by_severity().get(&Severity::Major).unwrap_or(&0);
+        let hotspots = self.hotspots.len();
+        // `duplicated_lines_density` is already a 0.0..=100.0 percentage,
+        // not a count — it does not get the per-KLOC treatment the count
+        // -based terms above do, only the same weight the original formula
+        // gave it.
+        let dup_penalty = self.metrics.duplicated_lines_density() * 0.5;
+
+        let penalty =
+            per_kloc(blocker) * 10.0 + per_kloc(critical) * 5.0 + per_kloc(major) + per_kloc(hotspots) * 2.0 + dup_penalty;
+        (100.0 - penalty).max(0.0).round() as u32
     }
 
     pub fn measure(&self, key: &MetricKey) -> Option<f64> {
@@ -1102,6 +1129,59 @@ mod tests {
         assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
         assert_eq!(report.measure(&key("security_rating")), Some(2.0));
         assert_eq!(report.measure(&key("maintainability_rating")), Some(1.0));
+    }
+
+    #[test]
+    fn duplicated_lines_density_never_exceeds_100_percent() {
+        // The duplication detector's line count and `lines_of_code` use
+        // different bases (see `Metrics::duplicated_lines_density`'s doc
+        // comment) and can disagree enough that the naive ratio overshoots
+        // 100% on a comment-heavy codebase — asserted directly here since
+        // nothing else in this file exercises `Metrics` in isolation.
+        let mut metrics = Metrics::new();
+        metrics.add_file(100);
+        metrics.set_duplication(400, 1);
+        assert_eq!(metrics.duplicated_lines_density(), 100.0);
+    }
+
+    #[test]
+    fn a_large_codebase_with_a_modest_issue_rate_does_not_saturate_health_score_to_zero() {
+        // The regression this guards: a raw issue *count* subtracted from a
+        // fixed 100-point budget saturates to 0 for any codebase past a few
+        // hundred/thousand issues, regardless of how sparse those issues
+        // actually are relative to the code. 44 major issues in 60k lines
+        // (yunq's own size when this was found) is a healthy ~0.7 per
+        // KLOC — nowhere near the two letter-grade ratings' worst-severity
+        // algorithm would call risky, and the score must reflect that.
+        let mut metrics = Metrics::new();
+        metrics.add_file(60_000);
+        for _ in 0..44 {
+            metrics.count_issue(Severity::Major);
+        }
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), metrics);
+        assert!(report.health_score() > 90, "got {}", report.health_score());
+    }
+
+    #[test]
+    fn a_small_codebase_with_a_high_issue_rate_still_scores_low() {
+        // The other half of the regression guard: normalizing by KLOC must
+        // not become a loophole where a small, genuinely bad file scores
+        // well just because its raw counts are small.
+        let mut metrics = Metrics::new();
+        metrics.add_file(50);
+        for _ in 0..10 {
+            metrics.count_issue(Severity::Blocker);
+        }
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), metrics);
+        assert_eq!(report.health_score(), 0);
+    }
+
+    #[test]
+    fn health_score_is_100_for_a_clean_report() {
+        let mut metrics = Metrics::new();
+        metrics.add_file(1_000);
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), metrics);
+        assert_eq!(report.health_score(), 100);
     }
 
     #[test]
