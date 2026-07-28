@@ -86,6 +86,53 @@ pub trait Rule: Send + Sync {
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding>;
 }
 
+/// Generates the `struct`/`new`/`Default` cluster every [`Rule`] implementor
+/// repeats verbatim — only the type name and the rule id string differ
+/// between rules; everything else (the field, the constructor, `Default`
+/// delegating to it) is identical in every ruleset crate in this workspace.
+///
+/// Deliberately stops there: `impl Rule for X { .. }` — `check`, `metadata`,
+/// severity, and every other trait method — stays hand-written in each
+/// rule's own file, because that is where rules actually differ from one
+/// another. Folding `check`'s detection logic into a macro too would trade
+/// a real duplication problem (there isn't one there) for an unreadable one
+/// (a `macro_rules!` matcher standing in for what should be plain code).
+///
+/// ```
+/// # use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+/// # use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
+/// declare_rule_id!(ExampleRule, "example:my-rule");
+///
+/// impl Rule for ExampleRule {
+///     fn id(&self) -> &RuleId { &self.id }
+///     fn applies_to(&self, _lang: &LanguageIdentifier) -> bool { true }
+///     fn default_severity(&self) -> Severity { Severity::Minor }
+///     fn check(&self, _file: &SourceFile, _ast: &AstNode) -> Vec<Finding> { Vec::new() }
+/// }
+///
+/// assert_eq!(ExampleRule::default().id().as_str(), "example:my-rule");
+/// ```
+#[macro_export]
+macro_rules! declare_rule_id {
+    ($name:ident, $rule_id:literal) => {
+        pub struct $name {
+            id: $crate::RuleId,
+        }
+
+        impl $name {
+            pub fn new() -> Self {
+                Self { id: $crate::RuleId::new($rule_id).expect("valid rule id") }
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+    };
+}
+
 /// Extension point for whole-program analyses that need every file's AST at
 /// once (cross-file taint, dependency rules, …). Same plugin model as
 /// [`Rule`], run as a dedicated cross-file phase after per-file analysis.

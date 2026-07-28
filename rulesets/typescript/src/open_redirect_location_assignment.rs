@@ -7,7 +7,7 @@
 //! since its destination is fixed at the call site.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// The finite set of navigation targets this rule recognizes — deliberately
 /// an exact-text allowlist rather than "any `*.location`/`*.href`" so an
@@ -39,21 +39,7 @@ fn flagged_assignment(node: &AstNode) -> Option<&AstNode> {
     (*value.kind() != NodeKind::StringLiteral).then_some(node)
 }
 
-pub struct OpenRedirectLocationAssignmentRule {
-    id: RuleId,
-}
-
-impl OpenRedirectLocationAssignmentRule {
-    pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:open-redirect-location-assignment").expect("valid rule id") }
-    }
-}
-
-impl Default for OpenRedirectLocationAssignmentRule {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+declare_rule_id!(OpenRedirectLocationAssignmentRule, "typescript:open-redirect-location-assignment");
 
 impl Rule for OpenRedirectLocationAssignmentRule {
     fn id(&self) -> &RuleId {
