@@ -14,6 +14,7 @@ use crate::domain::{
     HotspotStatus, InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition,
     Metrics, ScanJob, StoredHotspot, StoredIssue,
 };
+use crate::new_code::Baseline;
 use crate::structural_metrics::StructuralCounts;
 
 /// Inbound port: turns raw source text into the neutral AST.
@@ -266,6 +267,41 @@ pub trait CoverageResultReader: Send + Sync {
         &self,
         project_key: &str,
     ) -> impl Future<Output = Result<Option<CoverageResultSummary>, StorageError>> + Send;
+}
+
+/// Outbound port: resolves a New Code override (see `new_code_overrides`) to
+/// the analysis history it refers to, so the pure engine can build a
+/// `Baseline` without knowing how or where analyses are persisted.
+pub trait AnalysisHistoryReader: Send + Sync {
+    /// The most recent analysis id for `(project_key, branch)`, or `None` if
+    /// that project/branch has never been analyzed — the lookup behind a
+    /// `ReferenceBranch` override. Distinct name from the existing
+    /// `PgAnalysisStore::latest_analysis_id(project_id, branch)` (used by
+    /// coverage ingestion) to avoid an inherent-vs-trait method name clash
+    /// on the same adapter type — that one takes an already-resolved
+    /// `project_id`, this one resolves from a `project_key`.
+    fn latest_analysis_id_on_branch(
+        &self,
+        project_key: &str,
+        branch: &str,
+    ) -> impl Future<Output = Result<Option<i64>, StorageError>> + Send;
+
+    /// The analysis id closest to (at or before) `days_ago` days before now,
+    /// on `branch` — the lookup behind a `Days` override.
+    fn analysis_id_days_ago(
+        &self,
+        project_key: &str,
+        branch: &str,
+        days_ago: u32,
+    ) -> impl Future<Output = Result<Option<i64>, StorageError>> + Send;
+
+    /// Rebuilds the issue-fingerprint `Baseline` one specific past analysis
+    /// run produced — the last step for all three override kinds, once
+    /// they've been resolved to a concrete analysis id.
+    fn baseline_for_analysis(
+        &self,
+        analysis_id: i64,
+    ) -> impl Future<Output = Result<Baseline, StorageError>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]

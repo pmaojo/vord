@@ -2,12 +2,17 @@
 //! Code definition: previous version / N days / reference branch /
 //! specific analysis — per project and per branch".
 //!
-//! Skeleton: types + a pure resolver that picks the most-specific override
-//! are in place; the persistence + HTTP layer land in following iterations.
+//! Two layers: a pure resolver (`resolve_new_code_definition`) that picks
+//! the most-specific override for a `(project, branch)` out of whatever
+//! `OverrideSource`s are configured, and `resolve_baseline`, which turns
+//! the winning override into a real `Baseline` via the `AnalysisHistoryReader`
+//! port — storing/administering `OverrideSource`s themselves (the HTTP layer)
+//! is a separate, not-yet-built piece.
 
 use serde::{Deserialize, Serialize};
 
 use crate::new_code::Baseline;
+use crate::ports::{AnalysisHistoryReader, StorageError};
 
 /// What scope an override applies to — global (instance default), one
 /// project, or one branch on one project.
@@ -86,16 +91,40 @@ pub fn resolve_new_code_definition(
     global.map(|src| (src.override_value.clone(), src.clone()))
 }
 
-/// Helper that converts the resolved override to the existing `Baseline`
-/// type, so the analysis path doesn't need to learn about `NewCodeOverride`.
-/// The string-id form of `ReferenceBranch`/`SpecificAnalysis` becomes the
-/// `Baseline::Named(...)` variant.
-#[allow(dead_code)]
-pub fn override_to_baseline(override_value: NewCodeOverride) -> Baseline {
-    let _ = override_value;
-    // TODO: resolve ReferenceBranch / SpecificAnalysis / Days to actual
-    // analysis entries from Postgres, then build a real Baseline.
-    Baseline::default()
+/// Resolves `override_value` to a real `Baseline` by looking up the analysis
+/// it refers to through `reader` (whichever `AnalysisHistoryReader` the
+/// composition root wired up — Postgres in production) and rebuilding that
+/// analysis' issue fingerprints:
+///   - `ReferenceBranch(b)` → the latest analysis on branch `b`.
+///   - `Days(n)` → the analysis closest to (at or before) `n` days ago on
+///     `branch_name`.
+///   - `SpecificAnalysis(id)` → the analysis `id` parses to.
+///
+/// Falls back to an empty `Baseline` (nothing pre-existing — every issue
+/// counts as new code) when the override points at an analysis that doesn't
+/// exist: a reference branch that hasn't been scanned yet, a `Days` window
+/// before the project's first scan, or a malformed/unknown `SpecificAnalysis`
+/// id. That mirrors how a project's very first analysis has no prior
+/// baseline either — it is not an error condition.
+pub async fn resolve_baseline<R: AnalysisHistoryReader>(
+    reader: &R,
+    project_key: &str,
+    branch_name: &str,
+    override_value: &NewCodeOverride,
+) -> Result<Baseline, StorageError> {
+    let analysis_id = match override_value {
+        NewCodeOverride::ReferenceBranch(branch) => {
+            reader.latest_analysis_id_on_branch(project_key, branch).await?
+        }
+        NewCodeOverride::Days(days) => {
+            reader.analysis_id_days_ago(project_key, branch_name, *days).await?
+        }
+        NewCodeOverride::SpecificAnalysis(id) => id.parse::<i64>().ok(),
+    };
+    match analysis_id {
+        Some(id) => reader.baseline_for_analysis(id).await,
+        None => Ok(Baseline::default()),
+    }
 }
 
 #[cfg(test)]
@@ -169,12 +198,122 @@ mod tests {
         assert_eq!(NewCodeOverride::SpecificAnalysis("abc".to_string()).label(), "analysis:abc");
     }
 
+    /// In-memory stand-in for the Postgres-backed `AnalysisHistoryReader` —
+    /// exercises `resolve_baseline`'s branching without a database.
+    #[derive(Default)]
+    struct FakeAnalysisHistory {
+        /// `(project_key, branch)` -> latest analysis id.
+        latest: std::collections::HashMap<(String, String), i64>,
+        /// `(project_key, branch, days_ago)` -> analysis id.
+        days_ago: std::collections::HashMap<(String, String, u32), i64>,
+        /// analysis id -> the baseline it produced.
+        baselines: std::collections::HashMap<i64, Baseline>,
+    }
+
+    impl AnalysisHistoryReader for FakeAnalysisHistory {
+        async fn latest_analysis_id_on_branch(
+            &self,
+            project_key: &str,
+            branch: &str,
+        ) -> Result<Option<i64>, StorageError> {
+            Ok(self.latest.get(&(project_key.to_string(), branch.to_string())).copied())
+        }
+
+        async fn analysis_id_days_ago(
+            &self,
+            project_key: &str,
+            branch: &str,
+            days_ago: u32,
+        ) -> Result<Option<i64>, StorageError> {
+            Ok(self
+                .days_ago
+                .get(&(project_key.to_string(), branch.to_string(), days_ago))
+                .copied())
+        }
+
+        async fn baseline_for_analysis(&self, analysis_id: i64) -> Result<Baseline, StorageError> {
+            self.baselines
+                .get(&analysis_id)
+                .cloned()
+                .ok_or_else(|| StorageError(format!("no such analysis {analysis_id}")))
+        }
+    }
+
+    fn baseline_with_fingerprint(fp: u64) -> Baseline {
+        Baseline::from_fingerprints([fp])
+    }
+
     #[test]
-    fn override_to_baseline_returns_empty_placeholder() {
-        let b = override_to_baseline(NewCodeOverride::ReferenceBranch("develop".to_string()));
-        // TODO: Once Baseline resolution is wired, assert the resolved
-        // analysis entries here. For now, it returns an empty baseline.
-        assert!(b.is_empty());
+    fn resolve_baseline_follows_reference_branch_to_its_latest_analysis() {
+        let mut history = FakeAnalysisHistory::default();
+        history.latest.insert(("yunq".to_string(), "develop".to_string()), 42);
+        history.baselines.insert(42, baseline_with_fingerprint(7));
+
+        let resolved = futures::executor::block_on(resolve_baseline(
+            &history,
+            "yunq",
+            "main",
+            &NewCodeOverride::ReferenceBranch("develop".to_string()),
+        ))
+        .unwrap();
+        assert_eq!(resolved.fingerprints().collect::<Vec<_>>(), vec![7]);
+    }
+
+    #[test]
+    fn resolve_baseline_looks_up_days_ago_on_the_requested_branch() {
+        let mut history = FakeAnalysisHistory::default();
+        history.days_ago.insert(("yunq".to_string(), "main".to_string(), 7), 9);
+        history.baselines.insert(9, baseline_with_fingerprint(99));
+
+        let resolved = futures::executor::block_on(resolve_baseline(
+            &history,
+            "yunq",
+            "main",
+            &NewCodeOverride::Days(7),
+        ))
+        .unwrap();
+        assert_eq!(resolved.fingerprints().collect::<Vec<_>>(), vec![99]);
+    }
+
+    #[test]
+    fn resolve_baseline_parses_specific_analysis_id() {
+        let mut history = FakeAnalysisHistory::default();
+        history.baselines.insert(123, baseline_with_fingerprint(1));
+
+        let resolved = futures::executor::block_on(resolve_baseline(
+            &history,
+            "yunq",
+            "main",
+            &NewCodeOverride::SpecificAnalysis("123".to_string()),
+        ))
+        .unwrap();
+        assert_eq!(resolved.fingerprints().collect::<Vec<_>>(), vec![1]);
+    }
+
+    #[test]
+    fn resolve_baseline_falls_back_to_empty_when_reference_branch_never_analyzed() {
+        let history = FakeAnalysisHistory::default();
+        let resolved = futures::executor::block_on(resolve_baseline(
+            &history,
+            "yunq",
+            "main",
+            &NewCodeOverride::ReferenceBranch("never-scanned".to_string()),
+        ))
+        .unwrap();
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn resolve_baseline_falls_back_to_empty_for_a_malformed_specific_analysis_id() {
+        let history = FakeAnalysisHistory::default();
+        let resolved = futures::executor::block_on(resolve_baseline(
+            &history,
+            "yunq",
+            "main",
+            &NewCodeOverride::SpecificAnalysis("not-a-number".to_string()),
+        ))
+        .unwrap();
+        assert!(resolved.is_empty());
     }
 
     #[test]

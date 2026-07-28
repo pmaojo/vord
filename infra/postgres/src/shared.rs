@@ -33,6 +33,21 @@ pub(crate) async fn ensure_project(pool: &PgPool, key: &str) -> Result<i64, Stor
     row.try_get::<i64, _>("id").map_err(storage_err)
 }
 
+/// Looks up a project's id by key without creating it — for read paths
+/// where "this project has never been analyzed" is a legitimate outcome
+/// rather than something to paper over (unlike `ensure_project`, which a
+/// write path calls to guarantee a row exists).
+pub(crate) async fn find_project_id(pool: &PgPool, key: &str) -> Result<Option<i64>, StorageError> {
+    sqlx::query("SELECT id FROM projects WHERE key = $1")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .map_err(storage_err)?
+        .map(|row| row.try_get::<i64, _>("id"))
+        .transpose()
+        .map_err(storage_err)
+}
+
 /// The gate id explicitly assigned to the project, or (if unassigned) the
 /// instance-wide default gate's id, or `None` if neither row exists (a
 /// fresh database with migrations not yet seeded).
