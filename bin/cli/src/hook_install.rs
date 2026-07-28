@@ -65,6 +65,13 @@ blocking_rules = [
 # by default, since most new dependencies are legitimate).
 advisory_rules = []
 
+# Rules that block like `blocking_rules`, but a human can lift the block for
+# one specific write with `yunq hook approve <token>` (the token is printed
+# in the denial). Use this for findings that are too risky to let an agent
+# resolve unsupervised but are not always wrong — a blanket block would just
+# get the policy edited to remove the rule.
+escalate_rules = []
+
 # Paths an agent may not touch at all, with no finding required. Delete any
 # entry that does not fit how this repository works; an agent that cannot do
 # its job will be given a wider blast radius by whoever is annoyed enough.

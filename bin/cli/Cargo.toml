@@ -59,3 +59,4 @@ serde_json = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
 dialoguer = { workspace = true }
+chrono = { workspace = true }

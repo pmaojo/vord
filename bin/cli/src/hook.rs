@@ -50,7 +50,9 @@
 //! callers (CI, `pre-commit`) can tell exit 1 (yunq broke) from exit 2
 //! (policy denied) and decide for themselves.
 
-use std::io::Read;
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use yunq_agent_policy::{AgentPolicy, Cause, CircuitBreakerState, Enforcement, Evaluation, Finding, Violation};
@@ -63,6 +65,16 @@ pub const POLICY_FILE: &str = "yunq-policy.toml";
 /// Filename of the circuit breaker's persisted per-rule failure counts, read from and written to
 /// the repository root alongside the policy.
 pub const CIRCUIT_BREAKER_FILE: &str = ".yunq-circuit-breaker.json";
+
+/// Filename of the escalation approval store: tokens a human has authorized via `yunq hook
+/// approve`, each consumed the next time the matching write is judged.
+pub const APPROVALS_FILE: &str = ".yunq-approvals.json";
+
+/// Filename of the loop alarm's persisted "last write" signature and streak count.
+pub const LOOP_GUARD_FILE: &str = ".yunq-loop-guard.json";
+
+/// Filename of the append-only audit log of every non-silent verdict this guardrail has issued.
+pub const AUDIT_LOG_FILE: &str = ".yunq-audit.jsonl";
 
 /// The subset of a host's hook payload this guardrail needs. Both Claude
 /// Code and Codex CLI send snake_case JSON with these field names; unknown
@@ -208,17 +220,262 @@ pub fn track_circuit_breaker(root: &Path, verdict: &Verdict) -> CircuitBreakerRe
     CircuitBreakerReport { tripped }
 }
 
+// ---------------------------------------------------------------------------
+// Escalation approvals
+// ---------------------------------------------------------------------------
+
+/// Deterministic identifier for the escalated part of one write, derived
+/// from the path and the escalating findings themselves (rule, line,
+/// message) rather than the raw proposed content — every call site that
+/// needs it (`judge`, `denial_text`, `structured_report`) has an
+/// [`Evaluation`] in hand, but not all of them also have the content, and
+/// content that reproduces the identical findings is, for approval
+/// purposes, the identical write. `None` when nothing in `evaluation`
+/// escalated, so callers can use it directly as "is there anything to
+/// approve here at all".
+///
+/// Not cryptographic — this is a workflow token correlating one human's
+/// review with one retry, not a security boundary, so `DefaultHasher` (no
+/// extra dependency) is enough.
+pub fn escalation_token(path: &str, evaluation: &Evaluation) -> Option<String> {
+    let mut parts: Vec<String> = evaluation
+        .escalations()
+        .filter_map(|v| v.finding.as_ref())
+        .map(|f| format!("{}:{}:{}", f.rule, f.line, f.message))
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    parts.sort();
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    parts.join("|").hash(&mut hasher);
+    Some(format!("{:016x}", hasher.finish()))
+}
+
+/// Loads the set of approved-and-not-yet-consumed escalation tokens, or an empty set when the
+/// store is missing or unreadable — the same fail-open posture as [`load_circuit_breaker`]: a
+/// lost approval only means a human has to re-approve, never a bypassed policy.
+fn load_approvals(root: &Path) -> HashSet<String> {
+    let path = root.join(APPROVALS_FILE);
+    let Ok(raw) = std::fs::read_to_string(&path) else { return HashSet::new() };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn save_approvals(root: &Path, approvals: &HashSet<String>) {
+    let path = root.join(APPROVALS_FILE);
+    match serde_json::to_string_pretty(approvals) {
+        Ok(raw) => {
+            if let Err(e) = std::fs::write(&path, raw) {
+                eprintln!("yunq hook: could not persist approvals at {}: {e}", path.display());
+            }
+        }
+        Err(e) => eprintln!("yunq hook: could not serialize approvals: {e}"),
+    }
+}
+
+/// `yunq hook approve <token>`: the human-intervention step for an escalated write. Records the
+/// token so the *next* judgement of the matching write consumes it and lets that one write
+/// through — approval is single-use and write-specific, never a standing exemption for the rule.
+pub fn approve_escalation(root: &Path, token: &str) -> std::io::Result<()> {
+    let mut approvals = load_approvals(root);
+    approvals.insert(token.to_string());
+    save_approvals(root, &approvals);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Loop alarm
+// ---------------------------------------------------------------------------
+
+/// Consecutive identical writes (same path, same proposed content) that trip the alarm. Same
+/// value as the circuit breaker's threshold and for the same reason: low enough to catch a stuck
+/// agent before it burns much of its budget, high enough that retrying a genuine fix once or
+/// twice never trips it.
+const LOOP_TRIP_THRESHOLD: u32 = 3;
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct LoopGuardState {
+    signature: Option<String>,
+    count: u32,
+}
+
+/// Whether the loop alarm has tripped for the write just tracked, and how many times in a row it
+/// has now seen the identical write — independent of whatever the policy decided about it. A
+/// clean write repeated forever is exactly as strong a "the agent is stuck" signal as a denied
+/// one repeated forever, which is why this tracks every write, not just denials (contrast
+/// [`CircuitBreakerState`], which only ever sees denials).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LoopGuardReport {
+    pub count: u32,
+}
+
+impl LoopGuardReport {
+    pub fn is_tripped(&self) -> bool {
+        self.count >= LOOP_TRIP_THRESHOLD
+    }
+}
+
+fn write_signature(path: &str, content: Option<&str>) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    content.unwrap_or_default().hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn load_loop_guard(root: &Path) -> LoopGuardState {
+    let path = root.join(LOOP_GUARD_FILE);
+    let Ok(raw) = std::fs::read_to_string(&path) else { return LoopGuardState::default() };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn save_loop_guard(root: &Path, state: &LoopGuardState) {
+    let path = root.join(LOOP_GUARD_FILE);
+    match serde_json::to_string_pretty(state) {
+        Ok(raw) => {
+            if let Err(e) = std::fs::write(&path, raw) {
+                eprintln!("yunq hook: could not persist loop guard state at {}: {e}", path.display());
+            }
+        }
+        Err(e) => eprintln!("yunq hook: could not serialize loop guard state: {e}"),
+    }
+}
+
+/// Folds one write attempt into the persisted "last write" streak. A signature that differs from
+/// the last one resets the streak to 1 rather than merely pausing it — like the circuit breaker,
+/// "consecutive" means uninterrupted.
+pub fn track_loop_guard(root: &Path, path: &str, content: Option<&str>) -> LoopGuardReport {
+    let signature = write_signature(path, content);
+    let mut state = load_loop_guard(root);
+    state.count = if state.signature.as_deref() == Some(signature.as_str()) { state.count + 1 } else { 1 };
+    state.signature = Some(signature);
+    let report = LoopGuardReport { count: state.count };
+    save_loop_guard(root, &state);
+    report
+}
+
+/// Deletes the loop alarm's persisted state — the human-intervention step after a trip, same
+/// shape as [`reset_circuit_breaker`].
+pub fn reset_loop_guard(root: &Path) -> std::io::Result<()> {
+    let path = root.join(LOOP_GUARD_FILE);
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
+
+/// Appends one JSON line to `.yunq-audit.jsonl`. Best-effort, like every other piece of state
+/// this module persists: an audit entry that fails to write is reported on stderr, never turned
+/// into a denial — this is a record of decisions, not a decision itself.
+fn append_audit_entry(root: &Path, entry: serde_json::Value) {
+    let Ok(line) = serde_json::to_string(&entry) else { return };
+    let path = root.join(AUDIT_LOG_FILE);
+    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(mut file) => {
+            if let Err(e) = writeln!(file, "{line}") {
+                eprintln!("yunq hook: could not append audit log at {}: {e}", path.display());
+            }
+        }
+        Err(e) => eprintln!("yunq hook: could not open audit log at {}: {e}", path.display()),
+    }
+}
+
+/// Records one judged write's outcome. A [`Verdict::Silent`] leaves no trace — the same
+/// signal-to-noise judgement [`denial_text`]/[`advisory_text`] already make: a guardrail that
+/// logs every clean write turns the one log worth auditing into one nobody reads.
+pub fn append_audit_log(root: &Path, event: &str, verdict: &Verdict, breaker: &CircuitBreakerReport, loop_report: &LoopGuardReport) {
+    let (path, evaluation, outcome) = match verdict {
+        Verdict::Silent => return,
+        Verdict::Deny { path, evaluation } if evaluation.escalations().count() == evaluation.violations.len() => {
+            (path, evaluation, "escalation_pending")
+        }
+        Verdict::Deny { path, evaluation } => (path, evaluation, "deny"),
+        Verdict::Advise { path, evaluation } => (path, evaluation, "advise"),
+    };
+    append_audit_entry(
+        root,
+        serde_json::json!({
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "event": event,
+            "path": path,
+            "outcome": outcome,
+            "circuit_breaker_tripped": breaker.is_tripped(),
+            "loop_alarm_tripped": loop_report.is_tripped(),
+            "violations": evaluation.violations.iter().map(|v| violation_json(v, breaker)).collect::<Vec<_>>(),
+        }),
+    );
+}
+
+/// Records a human's approval being consumed — the one event this module logs outside
+/// [`append_audit_log`]'s verdict-shaped entries, since by the time `judge` consumes the token
+/// the write it applies to has already turned into a `Silent`/`Advise` verdict with no trace of
+/// the escalation left to log otherwise.
+fn append_escalation_approved_audit(root: &Path, path: &str, token: &str) {
+    append_audit_entry(
+        root,
+        serde_json::json!({
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "event": "escalation_approved",
+            "path": path,
+            "outcome": "escalation_approved",
+            "token": token,
+        }),
+    );
+}
+
+/// Reads the audit log, oldest first, keeping only the most recent `limit` entries (all of them
+/// when `None`). A line that fails to parse is skipped rather than failing the whole read — a
+/// human-editable JSONL file gathers stray blank lines and typos, and one bad line should not
+/// hide every entry around it.
+pub fn read_audit_log(root: &Path, limit: Option<usize>) -> Vec<serde_json::Value> {
+    let path = root.join(AUDIT_LOG_FILE);
+    let Ok(raw) = std::fs::read_to_string(&path) else { return Vec::new() };
+    let mut entries: Vec<serde_json::Value> = raw.lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    if let Some(limit) = limit {
+        let start = entries.len().saturating_sub(limit);
+        entries = entries.split_off(start);
+    }
+    entries
+}
+
+/// Human-readable rendering of [`read_audit_log`]'s output for `yunq hook audit`'s default
+/// (non-`--format json`) output.
+pub fn render_audit_text(entries: &[serde_json::Value]) -> String {
+    if entries.is_empty() {
+        return format!("yunq: no audit log entries yet ({AUDIT_LOG_FILE} not found or empty).\n");
+    }
+    let mut out = String::new();
+    for entry in entries {
+        let get = |key: &str| entry.get(key).and_then(|v| v.as_str()).unwrap_or("?");
+        out.push_str(&format!("{}  {:<10}  {:<18}  {}\n", get("timestamp"), get("event"), get("outcome"), get("path")));
+    }
+    out
+}
+
 /// The structured, machine-readable counterpart to [`denial_text`] / [`advisory_text`]: every
 /// violation as a JSON object naming the exact rule, line and the deterministic condition that
 /// must hold for it to clear, rather than prose a caller has to pattern-match. This is the
 /// contract `hook check --format json` speaks on stdout, and it is also embedded (as a fenced
 /// block) inside the prose the Claude Code hook returns, so an agent that wants exact parsing does
 /// not have to choose between the two.
-pub fn structured_report(path: &str, evaluation: &Evaluation, breaker: &CircuitBreakerReport) -> serde_json::Value {
+pub fn structured_report(
+    path: &str,
+    evaluation: &Evaluation,
+    breaker: &CircuitBreakerReport,
+    loop_report: &LoopGuardReport,
+) -> serde_json::Value {
     serde_json::json!({
         "path": path,
         "denied": evaluation.is_denied(),
         "circuit_breaker_tripped": breaker.is_tripped(),
+        "loop_alarm_tripped": loop_report.is_tripped(),
+        "escalation_token": escalation_token(path, evaluation),
         "violations": evaluation.violations.iter().map(|v| violation_json(v, breaker)).collect::<Vec<_>>(),
     })
 }
@@ -242,6 +499,13 @@ fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serd
         Cause::SeverityThreshold { threshold } => {
             ("severity_threshold", format!("no finding at or above severity `{threshold}` in this write"))
         }
+        Cause::Escalation => (
+            "escalation",
+            match &rule {
+                Some(r) => format!("write requires human approval for rule `{r}` — see `yunq hook approve <token>`"),
+                None => "requires human approval".to_string(),
+            },
+        ),
     };
     let circuit_breaker_tripped = rule.as_deref().is_some_and(|r| breaker.tripped.iter().any(|t| t.as_str() == r));
     serde_json::json!({
@@ -249,7 +513,11 @@ fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serd
         "severity": severity,
         "line": line,
         "message": message,
-        "enforcement": match violation.enforcement { Enforcement::Deny => "deny", Enforcement::Warn => "warn" },
+        "enforcement": match violation.enforcement {
+            Enforcement::Deny => "deny",
+            Enforcement::Warn => "warn",
+            Enforcement::Escalate => "escalate",
+        },
         "cause": cause,
         "expected_state": expected_state,
         "circuit_breaker_tripped": circuit_breaker_tripped,
@@ -383,6 +651,14 @@ fn new_dependency_findings(relative: &str, old_content: Option<&str>, new_conten
 
 /// Judges one proposed write end to end: policy, path, and (when content is
 /// available and parseable) findings.
+///
+/// The last step consumes a pending escalation approval: when every
+/// violation in an otherwise-denied evaluation is an [`Enforcement::Escalate`]
+/// (never when a hard `Deny` is mixed in — see [`Cause::BlockingRule`]'s "no
+/// exceptions" invariant), a matching token in `.yunq-approvals.json` is
+/// removed and the write is re-judged against whatever remains. This is the
+/// only place approval state is read, keeping it out of the pure
+/// `yunq-agent-policy` evaluation itself.
 pub async fn judge(
     policy: &AgentPolicy,
     root: &Path,
@@ -402,7 +678,23 @@ pub async fn judge(
         findings.extend(new_dependency_findings(&relative, old_content.as_deref(), content));
     }
     let evaluation = policy.evaluate(&relative, &findings);
-    Ok(Verdict::from_evaluation(relative, evaluation))
+    let verdict = Verdict::from_evaluation(relative, evaluation);
+
+    let Verdict::Deny { path, evaluation } = &verdict else { return Ok(verdict) };
+    let no_hard_deny = !evaluation.violations.iter().any(|v| v.enforcement == Enforcement::Deny);
+    if !no_hard_deny {
+        return Ok(verdict);
+    }
+    let Some(token) = escalation_token(path, evaluation) else { return Ok(verdict) };
+    let mut approvals = load_approvals(root);
+    if !approvals.remove(&token) {
+        return Ok(verdict);
+    }
+    save_approvals(root, &approvals);
+    append_escalation_approved_audit(root, path, &token);
+
+    let residual: Vec<Violation> = evaluation.violations.iter().filter(|v| v.enforcement != Enforcement::Escalate).cloned().collect();
+    Ok(Verdict::from_evaluation(path.clone(), Evaluation { violations: residual }))
 }
 
 /// Re-bases an absolute tool path onto the repository root the policy globs
@@ -434,7 +726,13 @@ pub enum Timing {
 /// violations with rule id and line, and states plainly that this is a
 /// policy block rather than a suggestion — an agent given a soft-sounding
 /// refusal will retry the identical write.
-pub fn denial_text(path: &str, evaluation: &Evaluation, timing: Timing, breaker: &CircuitBreakerReport) -> String {
+pub fn denial_text(
+    path: &str,
+    evaluation: &Evaluation,
+    timing: Timing,
+    breaker: &CircuitBreakerReport,
+    loop_report: &LoopGuardReport,
+) -> String {
     let mut out = match timing {
         Timing::Prevented => format!("yunq blocked this write to `{path}`.\n\n"),
         Timing::AlreadyWritten => {
@@ -464,6 +762,13 @@ pub fn denial_text(path: &str, evaluation: &Evaluation, timing: Timing, breaker:
              else, and do not disable the policy.\n"
         }
     });
+    if let Some(token) = escalation_token(path, evaluation) {
+        out.push_str(&format!(
+            "\nThis includes finding(s) that require human approval before they may proceed. A human \
+             reviewer must run `yunq hook approve {token}` after reviewing this change; only then may \
+             you retry the identical write.\n"
+        ));
+    }
     if breaker.is_tripped() {
         let rules: Vec<&str> = breaker.tripped.iter().map(RuleId::as_str).collect();
         out.push_str(&format!(
@@ -474,21 +779,36 @@ pub fn denial_text(path: &str, evaluation: &Evaluation, timing: Timing, breaker:
             CircuitBreakerState::TRIP_THRESHOLD,
         ));
     }
+    if loop_report.is_tripped() {
+        out.push_str(&format!(
+            "\nLOOP ALARM: this exact write (same file, byte-identical content) has now been attempted {} \
+             times in a row. Retrying it again will not change the outcome — stop, try a materially \
+             different approach, or ask a human for help.\n",
+            loop_report.count,
+        ));
+    }
     out.push_str(&format!(
         "\nMachine-readable form:\n{}\n",
-        serde_json::to_string(&structured_report(path, evaluation, breaker)).unwrap_or_default(),
+        serde_json::to_string(&structured_report(path, evaluation, breaker, loop_report)).unwrap_or_default(),
     ));
     out
 }
 
 /// The non-blocking counterpart: findings worth putting in front of the model
 /// without stopping it.
-pub fn advisory_text(path: &str, evaluation: &Evaluation) -> String {
+pub fn advisory_text(path: &str, evaluation: &Evaluation, loop_report: &LoopGuardReport) -> String {
     let mut out = format!("yunq found issues in `{path}`:\n\n");
     for violation in &evaluation.violations {
         out.push_str(&format!("  - {}\n", violation.describe()));
     }
     out.push_str("\nConsider fixing these before moving on.\n");
+    if loop_report.is_tripped() {
+        out.push_str(&format!(
+            "\nLOOP ALARM: this exact write (same file, byte-identical content) has now been attempted {} \
+             times in a row.\n",
+            loop_report.count,
+        ));
+    }
     out
 }
 
@@ -504,14 +824,19 @@ pub fn advisory_text(path: &str, evaluation: &Evaluation) -> String {
 /// auto-approve every edit yunq happens not to object to, turning a security
 /// tool into a permission bypass. Staying silent lets the host's normal
 /// permission flow run untouched.
-pub fn claude_code_output(event: &str, verdict: &Verdict, breaker: &CircuitBreakerReport) -> Option<serde_json::Value> {
+pub fn claude_code_output(
+    event: &str,
+    verdict: &Verdict,
+    breaker: &CircuitBreakerReport,
+    loop_report: &LoopGuardReport,
+) -> Option<serde_json::Value> {
     match (event, verdict) {
         (_, Verdict::Silent) => None,
         ("PreToolUse", Verdict::Deny { path, evaluation }) => Some(serde_json::json!({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": denial_text(path, evaluation, Timing::Prevented, breaker),
+                "permissionDecisionReason": denial_text(path, evaluation, Timing::Prevented, breaker, loop_report),
             }
         })),
         // Pre-write advisories are deliberately dropped: the only way to
@@ -519,12 +844,12 @@ pub fn claude_code_output(event: &str, verdict: &Verdict, breaker: &CircuitBreak
         ("PreToolUse", Verdict::Advise { .. }) => None,
         ("PostToolUse", Verdict::Deny { path, evaluation }) => Some(serde_json::json!({
             "decision": "block",
-            "reason": denial_text(path, evaluation, Timing::AlreadyWritten, breaker),
+            "reason": denial_text(path, evaluation, Timing::AlreadyWritten, breaker, loop_report),
         })),
         ("PostToolUse", Verdict::Advise { path, evaluation }) => Some(serde_json::json!({
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUse",
-                "additionalContext": advisory_text(path, evaluation),
+                "additionalContext": advisory_text(path, evaluation, loop_report),
             }
         })),
         _ => None,
@@ -541,8 +866,8 @@ pub async fn run_claude_code() -> anyhow::Result<std::process::ExitCode> {
     let mut raw = String::new();
     std::io::stdin().read_to_string(&mut raw)?;
 
-    let verdict = match claude_code_verdict(&raw).await {
-        Ok(verdict) => verdict,
+    let (verdict, loop_report) = match claude_code_verdict(&raw).await {
+        Ok(result) => result,
         Err(e) => {
             // Fail open: the agent keeps working, the operator sees why.
             eprintln!("yunq hook: {e:#}");
@@ -559,19 +884,23 @@ pub async fn run_claude_code() -> anyhow::Result<std::process::ExitCode> {
     let root =
         payload.cwd.as_ref().map(PathBuf::from).or_else(|| std::env::current_dir().ok()).unwrap_or_else(|| PathBuf::from("."));
     let breaker = track_circuit_breaker(&root, &verdict);
-    if let Some(output) = claude_code_output(&payload.hook_event_name, &verdict, &breaker) {
+    append_audit_log(&root, &payload.hook_event_name, &verdict, &breaker, &loop_report);
+    if let Some(output) = claude_code_output(&payload.hook_event_name, &verdict, &breaker, &loop_report) {
         println!("{}", serde_json::to_string(&output)?);
     }
     Ok(std::process::ExitCode::SUCCESS)
 }
 
 /// The analysable half of the Claude Code hook, split out so the wiring
-/// above stays a thin shell around a function that can be tested.
-async fn claude_code_verdict(raw: &str) -> anyhow::Result<Verdict> {
+/// above stays a thin shell around a function that can be tested. Also
+/// tracks the loop alarm — it needs the same `(root, relative path,
+/// content)` this function already assembles for `judge`, so it is folded in
+/// here rather than re-derived by the caller.
+async fn claude_code_verdict(raw: &str) -> anyhow::Result<(Verdict, LoopGuardReport)> {
     let payload: HookPayload = serde_json::from_str(raw).map_err(|e| anyhow::anyhow!("bad hook payload: {e}"))?;
 
     let Some(file_path) = payload.tool_input.get("file_path").and_then(|v| v.as_str()) else {
-        return Ok(Verdict::Silent);
+        return Ok((Verdict::Silent, LoopGuardReport::default()));
     };
     let file = PathBuf::from(file_path);
     let root = payload
@@ -583,7 +912,7 @@ async fn claude_code_verdict(raw: &str) -> anyhow::Result<Verdict> {
 
     let policy = load_policy(&root)?;
     if !policy.enabled() {
-        return Ok(Verdict::Silent);
+        return Ok((Verdict::Silent, LoopGuardReport::default()));
     }
 
     // Pre-write: judge what the agent is about to write. Post-write: it is
@@ -593,7 +922,10 @@ async fn claude_code_verdict(raw: &str) -> anyhow::Result<Verdict> {
         _ => std::fs::read_to_string(&file).ok(),
     };
 
-    judge(&policy, &root, &file, content.as_deref()).await
+    let relative = relative_to(&root, &file);
+    let loop_report = track_loop_guard(&root, &relative, content.as_deref());
+    let verdict = judge(&policy, &root, &file, content.as_deref()).await?;
+    Ok((verdict, loop_report))
 }
 
 // ---------------------------------------------------------------------------
@@ -615,17 +947,21 @@ pub async fn run_check(file: PathBuf, format: HookOutputFormat) -> anyhow::Resul
     }
 
     let content = std::fs::read_to_string(&file).ok();
+    let relative = relative_to(&root, &file);
+    let loop_report = track_loop_guard(&root, &relative, content.as_deref());
     let verdict = judge(&policy, &root, &file, content.as_deref()).await?;
     let breaker = track_circuit_breaker(&root, &verdict);
+    append_audit_log(&root, "check", &verdict, &breaker, &loop_report);
 
     match verdict {
         Verdict::Silent => Ok(std::process::ExitCode::SUCCESS),
         Verdict::Advise { path, evaluation } => {
             match format {
-                HookOutputFormat::Json => {
-                    println!("{}", serde_json::to_string_pretty(&structured_report(&path, &evaluation, &breaker))?)
-                }
-                HookOutputFormat::Text => eprintln!("{}", advisory_text(&path, &evaluation)),
+                HookOutputFormat::Json => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&structured_report(&path, &evaluation, &breaker, &loop_report))?
+                ),
+                HookOutputFormat::Text => eprintln!("{}", advisory_text(&path, &evaluation, &loop_report)),
             }
             Ok(std::process::ExitCode::SUCCESS)
         }
@@ -634,11 +970,12 @@ pub async fn run_check(file: PathBuf, format: HookOutputFormat) -> anyhow::Resul
             // definition — even when the caller is a pre-commit hook about
             // to reject the commit that carries it.
             match format {
-                HookOutputFormat::Json => {
-                    println!("{}", serde_json::to_string_pretty(&structured_report(&path, &evaluation, &breaker))?)
-                }
+                HookOutputFormat::Json => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&structured_report(&path, &evaluation, &breaker, &loop_report))?
+                ),
                 HookOutputFormat::Text => {
-                    eprintln!("{}", denial_text(&path, &evaluation, Timing::AlreadyWritten, &breaker))
+                    eprintln!("{}", denial_text(&path, &evaluation, Timing::AlreadyWritten, &breaker, &loop_report))
                 }
             }
             Ok(std::process::ExitCode::from(2))
@@ -749,7 +1086,8 @@ mod tests {
             }],
         );
         let verdict = Verdict::from_evaluation("a.py".to_string(), evaluation);
-        let output = claude_code_output("PreToolUse", &verdict, &CircuitBreakerReport::default()).expect("emits");
+        let output = claude_code_output("PreToolUse", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default())
+            .expect("emits");
         assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "deny");
         let reason = output["hookSpecificOutput"]["permissionDecisionReason"].as_str().expect("reason");
         assert!(reason.contains("owasp:eval-usage"), "{reason}");
@@ -768,7 +1106,8 @@ mod tests {
             }],
         );
         let verdict = Verdict::from_evaluation("a.py".to_string(), evaluation);
-        let output = claude_code_output("PostToolUse", &verdict, &CircuitBreakerReport::default()).expect("emits");
+        let output = claude_code_output("PostToolUse", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default())
+            .expect("emits");
         assert_eq!(output["decision"], "block");
         assert!(output["reason"].as_str().expect("reason").contains("owasp:eval-usage"));
     }
@@ -789,10 +1128,11 @@ mod tests {
         );
 
         let breaker = CircuitBreakerReport::default();
-        let prevented = denial_text("a.py", &evaluation, Timing::Prevented, &breaker);
+        let loop_report = LoopGuardReport::default();
+        let prevented = denial_text("a.py", &evaluation, Timing::Prevented, &breaker, &loop_report);
         assert!(prevented.contains("was NOT written"), "{prevented}");
 
-        let landed = denial_text("a.py", &evaluation, Timing::AlreadyWritten, &breaker);
+        let landed = denial_text("a.py", &evaluation, Timing::AlreadyWritten, &breaker, &loop_report);
         assert!(landed.contains("ALREADY been written"), "{landed}");
         assert!(!landed.contains("was NOT written"), "{landed}");
     }
@@ -800,8 +1140,9 @@ mod tests {
     #[test]
     fn a_silent_verdict_emits_nothing_on_either_event() {
         let breaker = CircuitBreakerReport::default();
-        assert!(claude_code_output("PreToolUse", &Verdict::Silent, &breaker).is_none());
-        assert!(claude_code_output("PostToolUse", &Verdict::Silent, &breaker).is_none());
+        let loop_report = LoopGuardReport::default();
+        assert!(claude_code_output("PreToolUse", &Verdict::Silent, &breaker, &loop_report).is_none());
+        assert!(claude_code_output("PostToolUse", &Verdict::Silent, &breaker, &loop_report).is_none());
     }
 
     #[test]
@@ -821,7 +1162,10 @@ mod tests {
             );
         let verdict = Verdict::from_evaluation("a.py".to_string(), evaluation);
         assert!(matches!(verdict, Verdict::Advise { .. }));
-        assert!(claude_code_output("PreToolUse", &verdict, &CircuitBreakerReport::default()).is_none());
+        assert!(
+            claude_code_output("PreToolUse", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default())
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -832,7 +1176,8 @@ mod tests {
     #[tokio::test]
     async fn a_payload_with_no_file_path_is_silent() {
         let raw = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}"#;
-        assert!(matches!(claude_code_verdict(raw).await.expect("ok"), Verdict::Silent));
+        let (verdict, _loop_report) = claude_code_verdict(raw).await.expect("ok");
+        assert!(matches!(verdict, Verdict::Silent));
     }
 
     fn eval_usage_evaluation() -> Evaluation {
@@ -850,7 +1195,7 @@ mod tests {
     #[test]
     fn structured_report_names_the_rule_line_and_expected_state() {
         let evaluation = eval_usage_evaluation();
-        let report = structured_report("a.py", &evaluation, &CircuitBreakerReport::default());
+        let report = structured_report("a.py", &evaluation, &CircuitBreakerReport::default(), &LoopGuardReport::default());
         assert_eq!(report["path"], "a.py");
         assert_eq!(report["denied"], true);
         assert_eq!(report["circuit_breaker_tripped"], false);
@@ -868,7 +1213,12 @@ mod tests {
             AgentPolicy::parse("[[protected_path]]\npattern = \".github/workflows/**\"\nreason = \"CI.\"\n")
                 .expect("parses");
         let evaluation = policy.evaluate(".github/workflows/ci.yml", &[]);
-        let report = structured_report(".github/workflows/ci.yml", &evaluation, &CircuitBreakerReport::default());
+        let report = structured_report(
+            ".github/workflows/ci.yml",
+            &evaluation,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport::default(),
+        );
         let violation = &report["violations"][0];
         assert_eq!(violation["rule"], serde_json::Value::Null);
         assert_eq!(violation["cause"], "protected_path");
@@ -877,7 +1227,8 @@ mod tests {
     #[test]
     fn denial_text_embeds_a_parseable_machine_readable_block() {
         let evaluation = eval_usage_evaluation();
-        let text = denial_text("a.py", &evaluation, Timing::Prevented, &CircuitBreakerReport::default());
+        let text =
+            denial_text("a.py", &evaluation, Timing::Prevented, &CircuitBreakerReport::default(), &LoopGuardReport::default());
         let json_line = text.lines().last().expect("a line");
         let parsed: serde_json::Value = serde_json::from_str(json_line).expect("valid json");
         assert_eq!(parsed["violations"][0]["rule"], "owasp:eval-usage");
@@ -887,7 +1238,7 @@ mod tests {
     fn a_tripped_breaker_adds_a_stop_and_rollback_instruction() {
         let evaluation = eval_usage_evaluation();
         let breaker = CircuitBreakerReport { tripped: vec![RuleId::new("owasp:eval-usage").expect("rule")] };
-        let text = denial_text("a.py", &evaluation, Timing::Prevented, &breaker);
+        let text = denial_text("a.py", &evaluation, Timing::Prevented, &breaker, &LoopGuardReport::default());
         assert!(text.contains("CIRCUIT BREAKER TRIPPED"), "{text}");
         assert!(text.contains("Revert"), "{text}");
         assert!(text.to_lowercase().contains("human"), "{text}");
@@ -896,8 +1247,78 @@ mod tests {
     #[test]
     fn a_verdict_without_a_tripped_rule_adds_no_stop_instruction() {
         let evaluation = eval_usage_evaluation();
-        let text = denial_text("a.py", &evaluation, Timing::Prevented, &CircuitBreakerReport::default());
+        let text =
+            denial_text("a.py", &evaluation, Timing::Prevented, &CircuitBreakerReport::default(), &LoopGuardReport::default());
         assert!(!text.contains("CIRCUIT BREAKER"), "{text}");
+    }
+
+    #[test]
+    fn a_tripped_loop_alarm_adds_a_stop_instruction() {
+        let evaluation = eval_usage_evaluation();
+        let text = denial_text(
+            "a.py",
+            &evaluation,
+            Timing::Prevented,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport { count: 3 },
+        );
+        assert!(text.contains("LOOP ALARM"), "{text}");
+        assert!(text.contains('3'), "{text}");
+    }
+
+    #[test]
+    fn an_untripped_loop_guard_adds_no_alarm_text() {
+        let evaluation = eval_usage_evaluation();
+        let text = denial_text(
+            "a.py",
+            &evaluation,
+            Timing::Prevented,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport { count: 1 },
+        );
+        assert!(!text.contains("LOOP ALARM"), "{text}");
+    }
+
+    #[test]
+    fn identical_writes_trip_the_loop_alarm_on_the_third_repeat() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-loop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        assert!(!track_loop_guard(&dir, "a.py", Some("x = 1")).is_tripped());
+        assert!(!track_loop_guard(&dir, "a.py", Some("x = 1")).is_tripped());
+        let third = track_loop_guard(&dir, "a.py", Some("x = 1"));
+        assert!(third.is_tripped(), "the third identical write in a row must trip the alarm");
+        assert_eq!(third.count, 3);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_write_that_changes_content_resets_the_loop_streak() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-loop-reset-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        track_loop_guard(&dir, "a.py", Some("x = 1"));
+        track_loop_guard(&dir, "a.py", Some("x = 1"));
+        let changed = track_loop_guard(&dir, "a.py", Some("x = 2"));
+        assert_eq!(changed.count, 1, "different content is not the same write");
+        assert!(!changed.is_tripped());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reset_loop_guard_clears_the_persisted_streak() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-loop-clear-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        track_loop_guard(&dir, "a.py", Some("x = 1"));
+        track_loop_guard(&dir, "a.py", Some("x = 1"));
+        reset_loop_guard(&dir).expect("reset");
+        let after = track_loop_guard(&dir, "a.py", Some("x = 1"));
+        assert_eq!(after.count, 1, "reset clears the persisted streak");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -992,5 +1413,157 @@ mod tests {
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn escalation_token_is_none_without_any_escalating_violation() {
+        assert!(escalation_token("a.py", &eval_usage_evaluation()).is_none());
+    }
+
+    #[test]
+    fn escalation_token_is_stable_for_the_same_write_and_differs_for_a_different_one() {
+        let policy = AgentPolicy::parse("[agent]\nescalate_rules = [\"smells:long-method\"]\n").expect("parses");
+        let evaluation = policy.evaluate("a.py", &[finding_of("smells:long-method", 7)]);
+        let token_a = escalation_token("a.py", &evaluation).expect("token");
+        let token_b = escalation_token("a.py", &evaluation).expect("token");
+        assert_eq!(token_a, token_b, "the same evaluation must always yield the same token");
+
+        let other_line = policy.evaluate("a.py", &[finding_of("smells:long-method", 9)]);
+        let token_c = escalation_token("a.py", &other_line).expect("token");
+        assert_ne!(token_a, token_c, "a materially different finding must yield a different token");
+    }
+
+    fn finding_of(rule_id: &str, line: u32) -> Finding {
+        Finding {
+            rule: RuleId::new(rule_id).expect("rule"),
+            severity: yunq_rules_engine::Severity::Minor,
+            message: "long method".to_string(),
+            line,
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unapproved_escalation_blocks_the_write_end_to_end() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-escalate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = []\nescalate_rules = [\"python:subprocess-shell-true\"]\n")
+            .expect("parses");
+        let file = dir.join("a.py");
+        let content = "import subprocess\nsubprocess.run(cmd, shell=True)\n";
+        let verdict = judge(&policy, &dir, &file, Some(content)).await.expect("judged");
+        match &verdict {
+            Verdict::Deny { evaluation, .. } => {
+                assert_eq!(evaluation.escalations().count(), 1);
+            }
+            other => panic!("expected an unapproved escalation to deny, got {other:?}"),
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_approved_token_is_consumed_exactly_once() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-approve-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        approve_escalation(&dir, "deadbeef").expect("approve");
+        let mut approvals = load_approvals(&dir);
+        assert!(approvals.contains("deadbeef"));
+        assert!(approvals.remove("deadbeef"), "consuming the token must find it exactly once");
+        save_approvals(&dir, &approvals);
+        assert!(!load_approvals(&dir).contains("deadbeef"), "a consumed token must not remain approved");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn an_approved_escalation_lets_the_identical_write_through_end_to_end() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-approve-flow-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = []\nescalate_rules = [\"python:subprocess-shell-true\"]\n")
+            .expect("parses");
+        let file = dir.join("a.py");
+        let content = "import subprocess\nsubprocess.run(cmd, shell=True)\n";
+
+        let first = judge(&policy, &dir, &file, Some(content)).await.expect("judged");
+        let Verdict::Deny { path, evaluation } = &first else { panic!("expected a first-attempt denial") };
+        let token = escalation_token(path, evaluation).expect("token");
+        approve_escalation(&dir, &token).expect("approve");
+
+        // A byte-identical retry now reproduces the identical finding, so
+        // `judge` re-derives the identical token, finds it approved, and
+        // consumes it — letting the write through as if it were clean.
+        let second = judge(&policy, &dir, &file, Some(content)).await.expect("judged");
+        assert!(matches!(second, Verdict::Silent), "an approved escalation must let the retry through, got {second:?}");
+
+        // Approval is single-use: a third identical attempt must escalate again.
+        let third = judge(&policy, &dir, &file, Some(content)).await.expect("judged");
+        assert!(matches!(third, Verdict::Deny { .. }), "a consumed token must not approve a later retry, got {third:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn append_and_read_audit_log_round_trips_a_denial() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-audit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let verdict = Verdict::from_evaluation("a.py".to_string(), eval_usage_evaluation());
+        append_audit_log(&dir, "PreToolUse", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default());
+
+        let entries = read_audit_log(&dir, None);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["path"], "a.py");
+        assert_eq!(entries[0]["outcome"], "deny");
+        assert_eq!(entries[0]["event"], "PreToolUse");
+        assert_eq!(entries[0]["violations"][0]["rule"], "owasp:eval-usage");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_silent_verdict_is_never_written_to_the_audit_log() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-audit-silent-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        append_audit_log(&dir, "PreToolUse", &Verdict::Silent, &CircuitBreakerReport::default(), &LoopGuardReport::default());
+        assert!(read_audit_log(&dir, None).is_empty(), "a clean write must leave no audit trail");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn read_audit_log_limit_keeps_only_the_most_recent_entries() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-audit-limit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        for line in 1..=5 {
+            let evaluation = AgentPolicy::default().evaluate(
+                "a.py",
+                &[Finding {
+                    rule: RuleId::new("owasp:eval-usage").expect("rule"),
+                    severity: yunq_rules_engine::Severity::Blocker,
+                    message: format!("attempt {line}"),
+                    line,
+                }],
+            );
+            let verdict = Verdict::from_evaluation("a.py".to_string(), evaluation);
+            append_audit_log(&dir, "check", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default());
+        }
+
+        let entries = read_audit_log(&dir, Some(2));
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["violations"][0]["message"], "attempt 4");
+        assert_eq!(entries[1]["violations"][0]["message"], "attempt 5");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn render_audit_text_reports_when_the_log_is_empty() {
+        let text = render_audit_text(&[]);
+        assert!(text.contains("no audit log entries"), "{text}");
     }
 }

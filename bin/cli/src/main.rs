@@ -86,6 +86,27 @@ enum HookAction {
     /// step after a trip. Review what the agent could not resolve, then run this before letting
     /// it continue.
     ResetCircuitBreaker,
+    /// Approve an escalated write after human review — the token comes from the denial text or
+    /// `hook check --format json`'s `escalation_token` field. Single-use: it authorizes exactly
+    /// one retry of the identical write, not a standing exemption for the rule.
+    Approve {
+        /// The escalation token to approve.
+        token: String,
+    },
+    /// Clear the loop alarm's persisted "last write" streak — the human-intervention step after
+    /// a trip, same shape as `reset-circuit-breaker`.
+    ResetLoopGuard,
+    /// Show the audit log of every non-silent verdict this guardrail has issued
+    /// (`.yunq-audit.jsonl`).
+    Audit {
+        /// Show only the most recent N entries.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// `text` prints one line per entry (the default); `json` prints the raw entries as a
+        /// JSON array.
+        #[arg(long, value_enum, default_value = "text")]
+        format: Format,
+    },
 }
 
 #[derive(clap::Args)]
@@ -254,6 +275,27 @@ async fn run_hook(action: HookAction) -> anyhow::Result<ExitCode> {
             let root = std::env::current_dir()?;
             yunq_cli::hook::reset_circuit_breaker(&root)?;
             println!("yunq: circuit breaker state cleared.");
+            Ok(ExitCode::SUCCESS)
+        }
+        HookAction::Approve { token } => {
+            let root = std::env::current_dir()?;
+            yunq_cli::hook::approve_escalation(&root, &token)?;
+            println!("yunq: escalation token {token} approved — the agent may retry the identical write once.");
+            Ok(ExitCode::SUCCESS)
+        }
+        HookAction::ResetLoopGuard => {
+            let root = std::env::current_dir()?;
+            yunq_cli::hook::reset_loop_guard(&root)?;
+            println!("yunq: loop alarm state cleared.");
+            Ok(ExitCode::SUCCESS)
+        }
+        HookAction::Audit { limit, format } => {
+            let root = std::env::current_dir()?;
+            let entries = yunq_cli::hook::read_audit_log(&root, Some(limit));
+            match format {
+                Format::Text => print!("{}", yunq_cli::hook::render_audit_text(&entries)),
+                Format::Json => println!("{}", serde_json::to_string_pretty(&entries)?),
+            }
             Ok(ExitCode::SUCCESS)
         }
     }
