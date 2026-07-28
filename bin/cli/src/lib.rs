@@ -233,6 +233,9 @@ pub fn duplication_config(
                 .unwrap_or(defaults.normalization.identifiers),
         },
         include_test_code: settings.include_test_code.unwrap_or(defaults.include_test_code),
+        max_declarations_spanned: settings
+            .max_declarations_spanned
+            .unwrap_or(defaults.max_declarations_spanned),
     }
 }
 

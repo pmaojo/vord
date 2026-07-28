@@ -49,15 +49,21 @@ impl AstParser for ElixirParser {
         &self,
         file: &SourceFile,
         normalization: yunq_cpd::TokenNormalization,
-    ) -> Vec<(u32, String)> {
+    ) -> yunq_cpd::TokenizedSource {
         let mut parser = tree_sitter::Parser::new();
         if parser.set_language(&tree_sitter_elixir::LANGUAGE.into()).is_err() {
-            return yunq_cpd::fallback_tokenize(file);
+            return yunq_cpd::TokenizedSource {
+                lines: yunq_cpd::fallback_tokenize(file),
+                declaration_lines: Vec::new(),
+            };
         }
         let Some(tree) = parser.parse(file.content(), None) else {
-            return yunq_cpd::fallback_tokenize(file);
+            return yunq_cpd::TokenizedSource {
+                lines: yunq_cpd::fallback_tokenize(file),
+                declaration_lines: Vec::new(),
+            };
         };
-        yunq_treesitter_tokens::statement_lines_with(&tree, file.content(), normalization)
+        yunq_treesitter_tokens::tokenize(&tree, file.content(), normalization)
     }
 }
 

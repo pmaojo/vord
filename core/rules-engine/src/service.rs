@@ -156,11 +156,14 @@ where
                 self.duplication.include_test_code || !crate::is_test_only_path(file.path())
             })
             .map(|file| {
-                let mut lines = self
+                let mut tokenized = self
                     .parsers
                     .get(file.language())
                     .map(|parser| parser.tokenize_for_duplication(file, self.duplication.normalization))
-                    .unwrap_or_else(|| yunq_cpd::fallback_tokenize(file));
+                    .unwrap_or_else(|| yunq_cpd::TokenizedSource {
+                        lines: yunq_cpd::fallback_tokenize(file),
+                        declaration_lines: Vec::new(),
+                    });
                 if !self.duplication.include_test_code {
                     // Dropping the lines rather than the whole file matters:
                     // a source file with an inline test module still has
@@ -170,9 +173,14 @@ where
                     // and the other begins, which is shared by every file in
                     // a language and is not duplication at all.
                     let test_ranges = crate::rust_test_module_ranges(file.content());
-                    lines.retain(|(line, _)| !crate::in_ranges(&test_ranges, *line));
+                    tokenized.lines.retain(|(line, _)| !crate::in_ranges(&test_ranges, *line));
+                    tokenized.declaration_lines.retain(|line| !crate::in_ranges(&test_ranges, *line));
                 }
-                yunq_cpd::TokenizedFile { path: file.path().to_string(), lines }
+                yunq_cpd::TokenizedFile {
+                    path: file.path().to_string(),
+                    lines: tokenized.lines,
+                    declaration_lines: tokenized.declaration_lines,
+                }
             })
             .collect();
         yunq_cpd::find_duplicates(&tokenized, self.duplication)

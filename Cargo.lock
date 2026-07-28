@@ -3967,6 +3967,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -3979,6 +3980,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -3991,6 +3993,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4003,6 +4006,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4015,6 +4019,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4047,6 +4052,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4059,6 +4065,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4071,6 +4078,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4083,6 +4091,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4095,6 +4104,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4107,6 +4117,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4119,6 +4130,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4131,6 +4143,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4143,6 +4156,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4155,6 +4169,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4167,6 +4182,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4179,6 +4195,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4191,6 +4208,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4203,6 +4221,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4215,6 +4234,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4227,6 +4247,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4239,6 +4260,7 @@ dependencies = [
  "yunq-ast",
  "yunq-cpd",
  "yunq-rules-engine",
+ "yunq-treesitter-adapter",
  "yunq-treesitter-tokens",
 ]
 
@@ -4481,6 +4503,17 @@ dependencies = [
  "yunq-ast",
  "yunq-parser-typescript",
  "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-treesitter-adapter"
+version = "0.1.1"
+dependencies = [
+ "tree-sitter",
+ "yunq-ast",
+ "yunq-cpd",
+ "yunq-rules-engine",
+ "yunq-treesitter-tokens",
 ]
 
 [[package]]

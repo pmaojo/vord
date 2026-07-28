@@ -1,73 +1,14 @@
 //! Inbound adapter: Rust → neutral AST via tree-sitter.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{AstParser, ParseError};
+use yunq_ast::{LanguageIdentifier, NodeKind};
 
-pub struct RustParser;
-
-impl RustParser {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for RustParser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AstParser for RustParser {
-    fn language(&self) -> LanguageIdentifier {
-        LanguageIdentifier::rust()
-    }
-
-    fn parse(&self, file: &SourceFile) -> Result<AstNode, ParseError> {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_rust::LANGUAGE.into())
-            .map_err(|e| ParseError::Backend(e.to_string()))?;
-        let tree = parser.parse(file.content(), None).ok_or_else(|| ParseError::Syntax {
-            file: file.path().to_string(),
-            detail: "tree-sitter produced no tree".to_string(),
-        })?;
-        Ok(convert(tree.root_node(), &file.content_shared()))
-    }
-
-    fn tokenize_for_duplication(
-        &self,
-        file: &SourceFile,
-        normalization: yunq_cpd::TokenNormalization,
-    ) -> Vec<(u32, String)> {
-        let mut parser = tree_sitter::Parser::new();
-        if parser.set_language(&tree_sitter_rust::LANGUAGE.into()).is_err() {
-            return yunq_cpd::fallback_tokenize(file);
-        }
-        let Some(tree) = parser.parse(file.content(), None) else {
-            return yunq_cpd::fallback_tokenize(file);
-        };
-        yunq_treesitter_tokens::statement_lines_with(&tree, file.content(), normalization)
-    }
-}
-
-// Zero-copy: every produced node slices the shared file buffer.
-fn convert(node: tree_sitter::Node<'_>, source: &std::sync::Arc<str>) -> AstNode {
-    let mut cursor = node.walk();
-    let children = node.named_children(&mut cursor).map(|c| convert(c, source)).collect();
-    AstNode::from_source(
-        map_kind(node.kind()),
-        span_of(node),
-        std::sync::Arc::clone(source),
-        node.byte_range(),
-        children,
-    )
-}
-
-fn span_of(node: tree_sitter::Node<'_>) -> Span {
-    let (start, end) = (node.start_position(), node.end_position());
-    Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
-}
+yunq_treesitter_adapter::declare_parser!(
+    RustParser,
+    LanguageIdentifier::rust(),
+    tree_sitter_rust::LANGUAGE,
+    map_kind
+);
 
 const KIND_TABLE: &[(&str, NodeKind)] = &[
     ("source_file", NodeKind::SourceUnit),
@@ -95,6 +36,8 @@ fn map_kind(kind: &str) -> NodeKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yunq_ast::{AstNode, SourceFile};
+    use yunq_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("test.rs", code, LanguageIdentifier::rust()).unwrap();
