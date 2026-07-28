@@ -10,5 +10,6 @@ yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }
 yunq-cpd = { workspace = true }
 yunq-treesitter-tokens = { workspace = true }
+yunq-treesitter-adapter = { path = "../treesitter-adapter" }
 tree-sitter = { workspace = true }
 tree-sitter-java = "0.23"

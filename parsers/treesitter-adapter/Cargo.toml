@@ -1,0 +1,13 @@
+[package]
+name = "yunq-treesitter-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+yunq-ast = { path = "../../core/ast" }
+yunq-rules-engine = { path = "../../core/rules-engine" }
+yunq-cpd = { path = "../../core/duplication" }
+yunq-treesitter-tokens = { path = "../treesitter-tokens" }
+tree-sitter = { workspace = true }

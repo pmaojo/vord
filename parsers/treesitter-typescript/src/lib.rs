@@ -1,7 +1,7 @@
 //! Inbound adapter: TypeScript/TSX → neutral AST via tree-sitter.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{AstParser, ParseError};
 
 pub struct TypeScriptParser;
@@ -24,20 +24,7 @@ impl AstParser for TypeScriptParser {
     }
 
     fn parse(&self, file: &SourceFile) -> Result<AstNode, ParseError> {
-        let mut parser = tree_sitter::Parser::new();
-        let grammar = if file.path().ends_with(".tsx") {
-            tree_sitter_typescript::LANGUAGE_TSX
-        } else {
-            tree_sitter_typescript::LANGUAGE_TYPESCRIPT
-        };
-        parser
-            .set_language(&grammar.into())
-            .map_err(|e| ParseError::Backend(e.to_string()))?;
-        let tree = parser.parse(file.content(), None).ok_or_else(|| ParseError::Syntax {
-            file: file.path().to_string(),
-            detail: "tree-sitter produced no tree".to_string(),
-        })?;
-        Ok(convert(tree.root_node(), &file.content_shared()))
+        yunq_treesitter_adapter::parse_with(&grammar_for(file), file, map_kind)
     }
 
     fn tokenize_for_duplication(
@@ -45,39 +32,12 @@ impl AstParser for TypeScriptParser {
         file: &SourceFile,
         normalization: yunq_cpd::TokenNormalization,
     ) -> Vec<(u32, String)> {
-        let mut parser = tree_sitter::Parser::new();
-        let grammar = if file.path().ends_with(".tsx") {
-            tree_sitter_typescript::LANGUAGE_TSX
-        } else {
-            tree_sitter_typescript::LANGUAGE_TYPESCRIPT
-        };
-        if parser.set_language(&grammar.into()).is_err() {
-            return yunq_cpd::fallback_tokenize(file);
-        }
-        let Some(tree) = parser.parse(file.content(), None) else {
-            return yunq_cpd::fallback_tokenize(file);
-        };
-        yunq_treesitter_tokens::statement_lines_with(&tree, file.content(), normalization)
+        yunq_treesitter_adapter::tokenize_with(&grammar_for(file), file, normalization)
     }
 }
 
 // Zero-copy: every produced node slices the shared file buffer.
-fn convert(node: tree_sitter::Node<'_>, source: &std::sync::Arc<str>) -> AstNode {
-    let mut cursor = node.walk();
-    let children = node.named_children(&mut cursor).map(|c| convert(c, source)).collect();
-    AstNode::from_source(
-        map_kind(node.kind()),
-        span_of(node),
-        std::sync::Arc::clone(source),
-        node.byte_range(),
-        children,
-    )
-}
 
-fn span_of(node: tree_sitter::Node<'_>) -> Span {
-    let (start, end) = (node.start_position(), node.end_position());
-    Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
-}
 
 const KIND_TABLE: &[(&str, NodeKind)] = &[
     ("program", NodeKind::SourceUnit),
@@ -103,6 +63,16 @@ const KIND_TABLE: &[(&str, NodeKind)] = &[
     ("subscript_expression", NodeKind::MemberAccess),
     ("comment", NodeKind::Comment),
 ];
+
+/// `.tsx` is a different grammar, not a dialect — and parsing and
+/// duplication tokenizing must agree on which one a file gets.
+fn grammar_for(file: &SourceFile) -> tree_sitter::Language {
+    if file.path().ends_with(".tsx") {
+        tree_sitter_typescript::LANGUAGE_TSX.into()
+    } else {
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
+    }
+}
 
 fn map_kind(kind: &str) -> NodeKind {
     yunq_ast::lookup_kind(KIND_TABLE, kind)
