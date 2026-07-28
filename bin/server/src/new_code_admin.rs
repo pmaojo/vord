@@ -39,7 +39,7 @@ fn forbidden(permission: Permission) -> (StatusCode, String) {
 /// JSON shape of a `NewCodeDefinition`. `rename_all = "snake_case"` on the
 /// `kind` tag happens to match the Postgres `kind` column's own encoding
 /// (`new_code_definitions.kind`) exactly.
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum NewCodeDefinitionDto {
     /// New code is everything since the previous analysis on this branch.
@@ -137,7 +137,7 @@ pub(crate) async fn get_new_code_definition(
     }))
 }
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Debug, PartialEq, Eq, Deserialize, ToSchema)]
 pub(crate) struct SetNewCodeDefinitionRequestDto {
     /// Branch this override applies to; omit to set the project-wide
     /// default that any branch without its own override falls back to.
@@ -205,4 +205,177 @@ pub(crate) async fn set_new_code_definition(
         branch: request.for_branch.unwrap_or_else(|| DEFAULT_BRANCH.to_string()),
         definition: NewCodeDefinitionDto::from_domain(definition),
     }))
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct GlobalNewCodeDefinitionResponseDto {
+    /// `None` when no instance-wide default has been set — every project
+    /// then resolves through its own default, or the built-in
+    /// `previous_analysis` if it has none either.
+    definition: Option<NewCodeDefinitionDto>,
+}
+
+/// Reads the instance-wide default New Code definition, if one has been
+/// set — distinct from a project's *effective* definition
+/// (`GET /api/projects/{key}/new-code-definition`), which also folds in
+/// any project/branch override.
+#[utoipa::path(
+    get,
+    path = "/api/system/new-code-definition",
+    responses(
+        (status = 200, description = "The instance-wide default, if set", body = GlobalNewCodeDefinitionResponseDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn get_global_new_code_definition(
+    State(state): State<Arc<AppState>>,
+    Caller(caller): Caller,
+) -> Result<Json<GlobalNewCodeDefinitionResponseDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
+    let definition = state
+        .ops
+        .global_new_code_definition()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(GlobalNewCodeDefinitionResponseDto {
+        definition: definition.map(NewCodeDefinitionDto::from_domain),
+    }))
+}
+
+/// Sets the instance-wide default New Code definition, applied to any
+/// project/branch with no override of its own; audit-logged as
+/// `system.new_code_definition_updated`.
+#[utoipa::path(
+    put,
+    path = "/api/system/new-code-definition",
+    request_body = NewCodeDefinitionDto,
+    responses(
+        (status = 200, description = "The instance-wide default after the update", body = GlobalNewCodeDefinitionResponseDto),
+        (status = 400, description = "Invalid branch name"),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn set_global_new_code_definition(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Caller(caller): Caller,
+    Json(request): Json<NewCodeDefinitionDto>,
+) -> Result<Json<GlobalNewCodeDefinitionResponseDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
+    let actor = actor_from_headers(&state, &headers);
+    let definition = request.into_domain()?;
+
+    state
+        .ops
+        .set_global_new_code_definition(definition.clone())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    state
+        .ops
+        .record_audit(
+            actor,
+            "system.new_code_definition_updated".to_string(),
+            "instance".to_string(),
+            "global".to_string(),
+            None,
+            Some(serde_json::json!({ "definition": NewCodeDefinitionDto::from_domain(definition.clone()) })),
+        )
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(GlobalNewCodeDefinitionResponseDto {
+        definition: Some(NewCodeDefinitionDto::from_domain(definition)),
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dto_round_trips_through_domain_for_every_variant() {
+        let cases = [
+            NewCodeDefinitionDto::PreviousAnalysis,
+            NewCodeDefinitionDto::NumberOfDays { days: 30 },
+            NewCodeDefinitionDto::ReferenceBranch { branch: "develop".to_string() },
+            NewCodeDefinitionDto::SpecificAnalysis { analysis_id: "42".to_string() },
+        ];
+        for dto in cases {
+            let domain = dto.clone().into_domain().expect("valid dto");
+            assert_eq!(NewCodeDefinitionDto::from_domain(domain), dto);
+        }
+    }
+
+    #[test]
+    fn reference_branch_with_whitespace_is_rejected() {
+        let dto = NewCodeDefinitionDto::ReferenceBranch { branch: "has space".to_string() };
+        let (status, _) = dto.into_domain().unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn previous_analysis_deserializes_from_just_the_kind_tag() {
+        let dto: NewCodeDefinitionDto = serde_json::from_str(r#"{"kind":"previous_analysis"}"#).unwrap();
+        assert_eq!(dto, NewCodeDefinitionDto::PreviousAnalysis);
+    }
+
+    #[test]
+    fn number_of_days_deserializes_tag_plus_payload() {
+        let dto: NewCodeDefinitionDto =
+            serde_json::from_str(r#"{"kind":"number_of_days","days":14}"#).unwrap();
+        assert_eq!(dto, NewCodeDefinitionDto::NumberOfDays { days: 14 });
+    }
+
+    /// The field the request body actually exercises `#[serde(flatten)]`
+    /// for: `SetNewCodeDefinitionRequestDto`'s own `for_branch` sits
+    /// alongside the flattened, internally-tagged `NewCodeDefinitionDto` —
+    /// a combination serde has had rough edges with historically. Verifying
+    /// it round-trips through real JSON (not just that it compiles) for
+    /// both a scoped and an unscoped request.
+    #[test]
+    fn set_request_flattens_definition_alongside_for_branch() {
+        let scoped: SetNewCodeDefinitionRequestDto = serde_json::from_str(
+            r#"{"for_branch":"develop","kind":"reference_branch","branch":"main"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            scoped,
+            SetNewCodeDefinitionRequestDto {
+                for_branch: Some("develop".to_string()),
+                definition: NewCodeDefinitionDto::ReferenceBranch { branch: "main".to_string() },
+            }
+        );
+
+        let unscoped: SetNewCodeDefinitionRequestDto =
+            serde_json::from_str(r#"{"kind":"number_of_days","days":7}"#).unwrap();
+        assert_eq!(
+            unscoped,
+            SetNewCodeDefinitionRequestDto {
+                for_branch: None,
+                definition: NewCodeDefinitionDto::NumberOfDays { days: 7 },
+            }
+        );
+    }
+
+    #[test]
+    fn global_response_serializes_unset_as_null_not_a_missing_field() {
+        let unset = serde_json::to_value(GlobalNewCodeDefinitionResponseDto { definition: None }).unwrap();
+        assert_eq!(unset, serde_json::json!({ "definition": null }));
+
+        let set = serde_json::to_value(GlobalNewCodeDefinitionResponseDto {
+            definition: Some(NewCodeDefinitionDto::NumberOfDays { days: 14 }),
+        })
+        .unwrap();
+        assert_eq!(set, serde_json::json!({ "definition": { "kind": "number_of_days", "days": 14 } }));
+    }
 }

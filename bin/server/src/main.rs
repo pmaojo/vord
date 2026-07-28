@@ -322,6 +322,10 @@ fn build_router() -> (axum::Router<Arc<AppState>>, utoipa::openapi::OpenApi) {
         .routes(routes!(ops::list_audit_log))
         .routes(routes!(ops::set_project_retention))
         .routes(routes!(new_code_admin::get_new_code_definition, new_code_admin::set_new_code_definition))
+        .routes(routes!(
+            new_code_admin::get_global_new_code_definition,
+            new_code_admin::set_global_new_code_definition
+        ))
         .routes(routes!(ops::run_housekeeping))
         .routes(routes!(activity::project_activity))
         .routes(routes!(tasks::queue_status))
