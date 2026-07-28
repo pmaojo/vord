@@ -3794,6 +3794,7 @@ dependencies = [
  "yunq-rules-ai-agent",
  "yunq-rules-architecture",
  "yunq-rules-engine",
+ "yunq-rules-go",
  "yunq-rules-iac",
  "yunq-rules-owasp",
  "yunq-rules-php",
@@ -4308,6 +4309,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-rules-go"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-go",
+ "yunq-rules-engine",
+]
+
+[[package]]
 name = "yunq-rules-iac"
 version = "0.1.1"
 dependencies = [
@@ -4440,6 +4450,7 @@ dependencies = [
  "yunq-rules-ai-agent",
  "yunq-rules-architecture",
  "yunq-rules-engine",
+ "yunq-rules-go",
  "yunq-rules-iac",
  "yunq-rules-owasp",
  "yunq-rules-php",
@@ -4497,6 +4508,7 @@ dependencies = [
  "yunq-rules-ai-agent",
  "yunq-rules-architecture",
  "yunq-rules-engine",
+ "yunq-rules-go",
  "yunq-rules-iac",
  "yunq-rules-owasp",
  "yunq-rules-php",

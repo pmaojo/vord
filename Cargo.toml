@@ -55,6 +55,7 @@ yunq-rules-architecture = { path = "rulesets/architecture" }
 yunq-rules-reactive = { path = "rulesets/reactive" }
 yunq-rules-typescript = { path = "rulesets/typescript" }
 yunq-rules-php = { path = "rulesets/php" }
+yunq-rules-go = { path = "rulesets/go" }
 yunq-rules-ai-agent = { path = "rulesets/ai-agent" }
 yunq-infra-memory = { path = "infra/memory" }
 yunq-cli = { path = "bin/cli" }

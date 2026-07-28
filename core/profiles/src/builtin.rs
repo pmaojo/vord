@@ -258,6 +258,15 @@ fn go_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
     activations.push((rule("owasp:disabled-cert-validation"), Severity::Critical));
+    activations.extend([
+        // rulesets/go — all applies_to go only.
+        (rule("go:sql-injection-concat"), Severity::Blocker),
+        (rule("go:weak-random-token"), Severity::Critical),
+        (rule("go:context-value-string-key"), Severity::Major),
+        (rule("go:unchecked-type-assertion"), Severity::Major),
+        (rule("go:defer-in-loop"), Severity::Major),
+        (rule("go:goroutine-loop-var-capture"), Severity::Major),
+    ]);
     activations
 }
 
