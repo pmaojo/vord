@@ -44,13 +44,23 @@ pub enum Cause {
     BlockingRule,
     /// A finding at or above `block_at_or_above`.
     SeverityThreshold { threshold: Severity },
+    /// A rule listed in `escalate_rules`: blocked until a human explicitly
+    /// approves this exact write (see `yunq hook approve` in `bin/cli`,
+    /// which owns the approval-token workflow this cause exists to drive —
+    /// this crate only ever produces the verdict, never the approval).
+    Escalation,
 }
 
-/// Whether a violation stops the write or merely annotates it.
+/// Whether a violation stops the write, merely annotates it, or blocks
+/// pending an explicit human approval.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Enforcement {
     Deny,
     Warn,
+    /// Blocks like `Deny`, but a caller that tracks approvals may lift it
+    /// for one specific, already-reviewed write. Never lifted here — this
+    /// crate is pure and knows nothing of approval state.
+    Escalate,
 }
 
 /// One reason the policy has something to say about a proposed write.
@@ -78,8 +88,11 @@ impl Violation {
             (Cause::SeverityThreshold { threshold }, Some(f)) => {
                 format!("{} ({}) at line {} — {} [at/above {threshold}]", f.rule, f.severity, f.line, f.message)
             }
-            // A rule/threshold cause always carries the finding that caused
-            // it; this arm exists only to keep `describe` total.
+            (Cause::Escalation, Some(f)) => {
+                format!("{} at line {} — {} [requires human approval]", f.rule, f.line, f.message)
+            }
+            // A rule/threshold/escalation cause always carries the finding
+            // that caused it; this arm exists only to keep `describe` total.
             (_, None) => "policy violation".to_string(),
         }
     }
@@ -92,16 +105,31 @@ pub struct Evaluation {
 }
 
 impl Evaluation {
+    /// True for a hard `Deny` and equally true for an unresolved `Escalate`
+    /// — both block the write; the only difference is that an `Escalate`
+    /// *can* be lifted by a caller-tracked approval, which is exactly why
+    /// this crate (pure, no I/O, no approval state) treats them alike.
     pub fn is_denied(&self) -> bool {
-        self.violations.iter().any(|v| v.enforcement == Enforcement::Deny)
+        self.violations.iter().any(|v| matches!(v.enforcement, Enforcement::Deny | Enforcement::Escalate))
     }
 
+    /// Every violation that currently blocks the write — `Deny` and
+    /// `Escalate` alike, so a caller rendering "why is this blocked" text
+    /// does not have to remember to query two iterators.
     pub fn denials(&self) -> impl Iterator<Item = &Violation> {
-        self.violations.iter().filter(|v| v.enforcement == Enforcement::Deny)
+        self.violations.iter().filter(|v| matches!(v.enforcement, Enforcement::Deny | Enforcement::Escalate))
     }
 
     pub fn warnings(&self) -> impl Iterator<Item = &Violation> {
         self.violations.iter().filter(|v| v.enforcement == Enforcement::Warn)
+    }
+
+    /// Just the escalations, for a caller that needs to tell "blocked
+    /// outright" apart from "blocked pending approval" (e.g. to compute an
+    /// approval token, or to decide whether an approval could possibly
+    /// apply — see `bin/cli`'s `judge`).
+    pub fn escalations(&self) -> impl Iterator<Item = &Violation> {
+        self.violations.iter().filter(|v| v.enforcement == Enforcement::Escalate)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -213,6 +241,8 @@ struct AgentSection {
     blocking_rules: Vec<String>,
     #[serde(default)]
     advisory_rules: Vec<String>,
+    #[serde(default)]
+    escalate_rules: Vec<String>,
 }
 
 impl Default for AgentSection {
@@ -222,6 +252,7 @@ impl Default for AgentSection {
             block_at_or_above: default_block_at_or_above(),
             blocking_rules: default_blocking_rules(),
             advisory_rules: Vec::new(),
+            escalate_rules: Vec::new(),
         }
     }
 }
@@ -267,6 +298,7 @@ pub struct AgentPolicy {
     block_at_or_above: Severity,
     blocking_rules: Vec<RuleId>,
     advisory_rules: Vec<RuleId>,
+    escalate_rules: Vec<RuleId>,
     protected: GlobSet,
     /// Parallel to `protected`'s glob indices: the (pattern, reason) pair
     /// behind each, so a match can name the rule it broke.
@@ -322,6 +354,7 @@ impl AgentPolicy {
             block_at_or_above,
             blocking_rules: parse_rules(&file.agent.blocking_rules)?,
             advisory_rules: parse_rules(&file.agent.advisory_rules)?,
+            escalate_rules: parse_rules(&file.agent.escalate_rules)?,
             protected,
             protected_meta,
         })
@@ -360,22 +393,34 @@ impl AgentPolicy {
         }
 
         for finding in findings {
-            // An advisory rule is never allowed to deny, whatever its
-            // severity or blocking-list membership — it is the single
-            // escape hatch for a rule that is noisy in this repository, and
-            // it has to outrank both other paths to be usable as one.
             let advisory = self.advisory_rules.contains(&finding.rule);
             let blocking = self.blocking_rules.contains(&finding.rule);
+            let escalate = self.escalate_rules.contains(&finding.rule);
             let over_threshold = finding.severity >= self.block_at_or_above;
 
-            let (enforcement, cause) = match (advisory, blocking, over_threshold) {
-                (true, true, _) | (true, _, true) => (Enforcement::Warn, Cause::BlockingRule),
-                (true, false, false) => continue,
-                (false, true, _) => (Enforcement::Deny, Cause::BlockingRule),
-                (false, false, true) => {
-                    (Enforcement::Deny, Cause::SeverityThreshold { threshold: self.block_at_or_above })
-                }
-                (false, false, false) => continue,
+            // Nothing about this finding trips the policy at all: skip
+            // rather than manufacture a violation with no enforcement path
+            // behind it.
+            if !(blocking || escalate || over_threshold) {
+                continue;
+            }
+
+            // An advisory rule is never allowed to deny or escalate,
+            // whatever its severity or list membership — it is the single
+            // escape hatch for a rule that is noisy in this repository, and
+            // it has to outrank every other path to be usable as one.
+            let (enforcement, cause) = if advisory {
+                (Enforcement::Warn, Cause::BlockingRule)
+            } else if blocking {
+                // The hard-blocked list has no override: a category the
+                // repository decided is categorically too dangerous for an
+                // agent to introduce does not become approvable just
+                // because it is also listed under `escalate_rules`.
+                (Enforcement::Deny, Cause::BlockingRule)
+            } else if escalate {
+                (Enforcement::Escalate, Cause::Escalation)
+            } else {
+                (Enforcement::Deny, Cause::SeverityThreshold { threshold: self.block_at_or_above })
             };
 
             violations.push(Violation { enforcement, cause, finding: Some(finding.clone()) });
@@ -521,6 +566,65 @@ reason = "Terraform."
     fn an_invalid_rule_id_is_an_error() {
         let err = AgentPolicy::parse("[agent]\nblocking_rules = [\"NotARule\"]\n").unwrap_err();
         assert!(matches!(err, PolicyError::RuleId(_)));
+    }
+
+    #[test]
+    fn an_escalate_listed_rule_blocks_pending_approval_instead_of_denying_outright() {
+        let raw = "[agent]\nescalate_rules = [\"smells:long-method\"]\n";
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Minor)]);
+        assert!(evaluation.is_denied(), "an unresolved escalation still blocks the write");
+        assert_eq!(evaluation.escalations().count(), 1);
+        assert_eq!(evaluation.denials().count(), 1, "denials() surfaces escalations too");
+        assert!(matches!(evaluation.violations[0].enforcement, Enforcement::Escalate));
+        assert!(matches!(evaluation.violations[0].cause, Cause::Escalation));
+    }
+
+    #[test]
+    fn an_escalation_describes_itself_as_requiring_human_approval() {
+        let raw = "[agent]\nescalate_rules = [\"smells:long-method\"]\n";
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Minor)]);
+        assert!(evaluation.violations[0].describe().contains("requires human approval"));
+    }
+
+    #[test]
+    fn advisory_outranks_escalation_just_as_it_outranks_blocking() {
+        let raw = r#"
+[agent]
+escalate_rules = ["smells:long-method"]
+advisory_rules = ["smells:long-method"]
+"#;
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Minor)]);
+        assert!(!evaluation.is_denied(), "advisory is the escape hatch and must win over escalation too");
+        assert_eq!(evaluation.warnings().count(), 1);
+    }
+
+    #[test]
+    fn blocking_outranks_escalation_when_a_rule_is_listed_in_both() {
+        // The hard-blocked list is "no exceptions"; putting a rule in both
+        // lists must not accidentally make it approvable.
+        let raw = r#"
+[agent]
+blocking_rules = ["owasp:eval-usage"]
+escalate_rules = ["owasp:eval-usage"]
+"#;
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let evaluation = policy.evaluate("a.py", &[finding("owasp:eval-usage", Severity::Info)]);
+        assert!(matches!(evaluation.violations[0].enforcement, Enforcement::Deny));
+        assert!(matches!(evaluation.violations[0].cause, Cause::BlockingRule));
+    }
+
+    #[test]
+    fn escalation_does_not_participate_in_the_severity_threshold_path() {
+        // A rule only in escalate_rules, at a severity below the threshold,
+        // still escalates — escalate_rules is its own opt-in list, not a
+        // second severity gate.
+        let raw = "[agent]\nescalate_rules = [\"smells:long-method\"]\nblock_at_or_above = \"blocker\"\n";
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Info)]);
+        assert!(matches!(evaluation.violations[0].enforcement, Enforcement::Escalate));
     }
 
     #[test]

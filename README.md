@@ -169,6 +169,9 @@ cargo run -p yunq-cli -- hook install        # write yunq-policy.toml + .claude/
 cargo run -p yunq-cli -- hook check file.py  # judge one file: exit 0 / 2 (denied) / 1 (yunq failed)
 cargo run -p yunq-cli -- hook check file.py --format json  # structured verdict on stdout, for tooling
 cargo run -p yunq-cli -- hook reset-circuit-breaker        # clear a tripped breaker after review
+cargo run -p yunq-cli -- hook approve <token>               # authorize one escalated write after review
+cargo run -p yunq-cli -- hook reset-loop-guard              # clear a tripped loop alarm after review
+cargo run -p yunq-cli -- hook audit --limit 20               # tail the guardrail's decision log
 ```
 
 Once installed, an agent that tries to write a shell-injection sink gets its
@@ -188,8 +191,9 @@ occur, then write it again.
 
 The file never existed — the content judged was reconstructed from the tool
 call's own arguments. Measured cost: **~7ms p50 per write**, process start
-included (the circuit breaker below adds one small JSON file read/write per
-denial on top of that, not yet independently re-measured).
+included (the circuit breaker, loop alarm and audit log below each add one
+small file read/write per invocation on top of that, not yet independently
+re-measured).
 
 Every denial also carries a machine-readable form — the same violations as a
 JSON object naming the exact rule, line and the deterministic condition that
@@ -227,6 +231,33 @@ native npm/pip package before it runs, so this guardrail instead surfaces
 the dependency for human review rather than claiming to have executed it
 safely.
 
+**Escalation: block pending human approval.** `blocking_rules` and
+`block_at_or_above` are binary — always denied, no exceptions. `escalate_rules`
+is the third tier for findings that are too risky to let an agent resolve
+unsupervised but are not *always* wrong: the write is blocked exactly like a
+denial, but the denial text carries a token
+(`yunq hook approve <token>`) a human can redeem after reviewing the change.
+Approval is single-use and write-specific — it authorizes one byte-identical
+retry, computed from the path and the exact findings that escalated, never a
+standing exemption for the rule. A rule also listed in `blocking_rules` stays
+unconditionally denied; the hard-blocked list has no override, by design.
+
+**Loop alarm.** The circuit breaker (above) only watches denials of the same
+*rule*; it says nothing about an agent that keeps proposing the exact same
+byte-identical write regardless of outcome — including a clean one, which is
+just as strong a "the agent is stuck" signal. `yunq hook` separately tracks
+the last write's `(path, content)` signature; the third identical write in a
+row adds a `LOOP ALARM` line to the denial/advisory text telling the agent to
+stop retrying and try something materially different. State lives in
+`.yunq-loop-guard.json` (gitignored); `yunq hook reset-loop-guard` clears it.
+
+**Audit log.** Every non-silent verdict — deny, advise, an unresolved
+escalation, an approval being consumed — is appended as one JSON line to
+`.yunq-audit.jsonl` (gitignored): timestamp, event, path, outcome, and the
+same violation detail as the machine-readable block above. A clean write
+leaves no trace, the same signal-to-noise judgement the denial text itself
+makes. `yunq hook audit` tails it (`--format json` for the raw entries).
+
 **Why a hook and not an MCP tool.** An MCP tool or an LSP is *consulted*: the
 agent chooses whether to ask, and an agent optimising for task completion
 learns not to ask. A host hook is *invoked* by the runtime on every matching
@@ -255,6 +286,7 @@ block_at_or_above = "critical"
 blocking_rules = ["ai:llm-output-injection", "owasp:command-execution", "owasp:eval-usage"]
 
 advisory_rules = []   # report, never deny — the escape hatch for a noisy rule
+escalate_rules = []   # deny until a human runs `yunq hook approve <token>`
 
 [[protected_path]]    # denied on path alone, no finding required
 pattern = ".github/workflows/**"

@@ -4,4 +4,7 @@
 .yunq-cache.json
 .yunq-baseline.json
 .yunq-circuit-breaker.json
+.yunq-approvals.json
+.yunq-loop-guard.json
+.yunq-audit.jsonl
 .claude/
