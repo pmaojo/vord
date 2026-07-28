@@ -151,6 +151,41 @@ fn has_secret_like_charset(s: &str) -> bool {
     has_digit || has_symbol
 }
 
+/// One `-`/`_`/`:`/`.`/`,`/`[`/`]`-separated piece of a longer string,
+/// judged as "a word someone typed" rather than "a run of random bytes":
+/// alphanumeric, short, and — when it carries digits — not also mixing
+/// letter case. `missing`, `a11y`, `20250929` and `CamelCase` all pass;
+/// `aG3n7Zq9Lm2XpW5` (mixed case *and* digits) and any run longer than a
+/// plausible word do not.
+fn is_word_like_segment(s: &str) -> bool {
+    const MAX_WORD_LEN: usize = 15;
+    if s.len() > MAX_WORD_LEN || !s.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return false;
+    }
+    let has_digit = s.bytes().any(|b| b.is_ascii_digit());
+    let has_upper = s.bytes().any(|b| b.is_ascii_uppercase());
+    let has_lower = s.bytes().any(|b| b.is_ascii_lowercase());
+    !(has_digit && has_upper && has_lower)
+}
+
+/// A structured identifier — a rule id (`a11y:missing-lang-attribute`), a
+/// model name (`claude-sonnet-4-5-20250929`), a dotted accessor path
+/// (`.choices[0].message.content`) — rather than a secret.
+///
+/// [`has_secret_like_charset`] alone lets all three through, because each
+/// contains a digit, and that is the only signal it asks for. What
+/// actually separates them from a token is *segmentation*: an identifier
+/// is several short words joined by structural punctuation, while a
+/// random token is one unbroken run (or, for a prefixed key like
+/// `sk-proj-<random>`, a couple of short words followed by a long run
+/// that is not a word). So: two or more segments, every one of them
+/// word-like.
+fn looks_like_delimited_identifier(s: &str) -> bool {
+    const DELIMITERS: &[char] = &['-', '_', ':', '.', ',', '[', ']'];
+    let segments: Vec<&str> = s.split(DELIMITERS).filter(|part| !part.is_empty()).collect();
+    segments.len() >= 2 && segments.iter().all(|part| is_word_like_segment(part))
+}
+
 /// Flags string literals whose Shannon entropy is high enough to look like
 /// a random token/key, regardless of provider — the catch-all for
 /// private/self-hosted services and formats without a dedicated pattern.
@@ -229,6 +264,7 @@ impl Rule for HighEntropyStringRule {
                 || looks_like_uuid(value)
                 || looks_like_url_path_or_integrity_hash(value)
                 || looks_like_format_template(value)
+                || looks_like_delimited_identifier(value)
             {
                 continue;
             }
@@ -280,6 +316,34 @@ mod tests {
         let code = "const apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
         let findings = check_ts(code);
         assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn ignores_structured_identifiers_that_merely_contain_digits() {
+        // The regression this guards: `has_secret_like_charset` accepts any
+        // string containing a digit, so a rule id, a model name and a
+        // dotted accessor path all cleared it and then scored above the
+        // entropy threshold on character variety alone. All three are
+        // source-code identifiers sitting in plain sight, not credentials.
+        for identifier in [
+            "a11y:missing-lang-attribute",
+            "claude-sonnet-4-5-20250929",
+            ".choices[0].message.content",
+            "secrets:high-entropy-string",
+            "text-embedding-3-small",
+        ] {
+            let code = format!("const x = \"{identifier}\";\n");
+            assert!(check_ts(&code).is_empty(), "flagged identifier {identifier} as a secret");
+        }
+    }
+
+    #[test]
+    fn still_flags_a_prefixed_token_whose_random_half_is_not_word_like() {
+        // The guard on the exemption above: a `prefix-prefix-<random>` key
+        // is segmented too, but its payload segment is neither short nor
+        // word-shaped, so it must still be caught.
+        let code = "const k = \"sk-proj-aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
+        assert_eq!(check_ts(code).len(), 1);
     }
 
     #[test]

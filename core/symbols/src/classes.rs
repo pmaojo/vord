@@ -41,6 +41,22 @@ pub struct MethodInfo<'a> {
     pub params: Vec<MemberInfo>,
     pub node: &'a AstNode,
     pub span: Span,
+    /// For a Rust method declared in an `impl Trait for Type` block, the
+    /// trait's simple name; `None` for a method the type declares on its
+    /// own terms (an inherent `impl Type` block, or a TypeScript/Python
+    /// class body). The distinction matters to any analysis that reads a
+    /// method set as evidence of how the author *chose* to shape the type:
+    /// a trait method's existence, name and signature are dictated by the
+    /// trait, so it says nothing about that type's design.
+    pub trait_name: Option<String>,
+}
+
+impl MethodInfo<'_> {
+    /// Whether this method satisfies a trait the type implements, rather
+    /// than being one the type declares for itself.
+    pub fn is_trait_impl(&self) -> bool {
+        self.trait_name.is_some()
+    }
 }
 
 /// One class/struct: its declared fields, its methods, and its superclass
@@ -159,6 +175,7 @@ fn build_ts_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
                         params: ts_params(member),
                         node: member,
                         span: member.span(),
+                        trait_name: None,
                     });
                 }
             } else if matches!(member.kind(), NodeKind::Other(k) if k.as_ref().ends_with("field_definition")) {
@@ -221,6 +238,7 @@ fn build_python_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
                             params: python_params(member),
                             node: member,
                             span: member.span(),
+                            trait_name: None,
                         });
                         collect_self_attrs(member, &mut fields, &mut field_names);
                     }
@@ -353,6 +371,10 @@ fn attach_rust_impls<'a>(ast: &'a AstNode, _file: &str, classes: &mut BTreeMap<S
         let type_names: Vec<&AstNode> =
             impl_node.children().iter().filter(|c| impl_type_name(c).is_some()).collect();
         let Some(target_name) = type_names.last().and_then(|n| impl_type_name(n)) else { continue };
+        // Two type expressions means `impl Trait for Foo` — the first is
+        // the trait. One means an inherent `impl Foo`, no trait involved.
+        let trait_name =
+            (type_names.len() >= 2).then(|| impl_type_name(type_names[0])).flatten();
         let Some(class) = classes.get_mut(&target_name) else { continue };
         let Some(decls) = impl_node.children().iter().find(|c| is_other(c, "declaration_list")) else { continue };
         for member in decls.children() {
@@ -370,6 +392,7 @@ fn attach_rust_impls<'a>(ast: &'a AstNode, _file: &str, classes: &mut BTreeMap<S
                 params: rust_params(member),
                 node: member,
                 span: member.span(),
+                trait_name: trait_name.clone(),
             });
         }
     }

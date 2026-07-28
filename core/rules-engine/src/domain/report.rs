@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use yunq_cpd::DuplicateBlock;
+use yunq_cpd::{DuplicateBlock, DuplicationReport};
 use yunq_profiles::{IssueType, MetricKey, Rating, RemediationEffortSummary, RuleId, Severity};
 
 use super::hotspot::{Hotspot, HotspotStatus};
@@ -599,12 +599,25 @@ impl AnalysisReport {
         self.mutation = Some(mutation);
     }
 
-    pub fn set_duplications(&mut self, duplications: Vec<DuplicateBlock>) {
-        self.metrics.set_duplication(
-            duplications.iter().map(|b| b.lines).sum(),
-            duplications.len(),
-        );
-        self.duplications = duplications;
+    /// Stores the detected duplicate blocks and folds the detector's own
+    /// counters into the metrics.
+    ///
+    /// Takes the whole [`DuplicationReport`] rather than just its blocks
+    /// because `duplicated_lines` cannot be recovered from the blocks
+    /// alone. Blocks are *pairs*, and one duplicated region shared by `n`
+    /// files produces `n*(n-1)/2` of them over the same lines, so summing
+    /// each pair's span counts most lines many times over. On a codebase
+    /// with a wide clone set — say a rule-per-file layout where every file
+    /// carries the same trait-impl skeleton — that sum runs several times
+    /// the size of the codebase itself, pushing the density past 100% and
+    /// (via the clamp in [`Metrics::duplicated_lines_density`]) pinning the
+    /// duplication term of [`AnalysisReport::health_score`] at its
+    /// maximum penalty no matter how much duplication there actually is.
+    /// [`DuplicationReport::duplicated_lines`] is already the distinct
+    /// count, so it is used as-is.
+    pub fn set_duplications(&mut self, duplication: DuplicationReport) {
+        self.metrics.set_duplication(duplication.duplicated_lines, duplication.blocks.len());
+        self.duplications = duplication.blocks;
     }
 
     /// Merges issues detected by a *different* analyzer (imported from its
@@ -1142,6 +1155,41 @@ mod tests {
         metrics.add_file(100);
         metrics.set_duplication(400, 1);
         assert_eq!(metrics.duplicated_lines_density(), 100.0);
+    }
+
+    #[test]
+    fn set_duplications_does_not_double_count_lines_shared_by_many_pairs() {
+        // The regression this guards: duplicate blocks are *pairs*, so one
+        // region cloned across n files arrives as n*(n-1)/2 blocks all
+        // covering the same lines. Summing each pair's span counted those
+        // lines once per pair — on yunq's own rule-per-file layout that
+        // turned 12,968 genuinely duplicated lines into 172,087, a density
+        // of 281% clamped to 100%, which pinned `health_score`'s
+        // duplication penalty at its 50-point maximum and dragged a
+        // healthy score down to 49. The detector already reports the
+        // distinct count; it must survive the trip into `Metrics`.
+        use yunq_cpd::BlockRef;
+        let region = |file: &str| BlockRef { file: file.into(), start_line: 1, end_line: 10 };
+        let pair = |a: &str, b: &str| DuplicateBlock { first: region(a), second: region(b), lines: 10 };
+        // The same 10 lines in each of 4 files: 6 pairs, 40 distinct lines.
+        let blocks = vec![
+            pair("a.rs", "b.rs"),
+            pair("a.rs", "c.rs"),
+            pair("a.rs", "d.rs"),
+            pair("b.rs", "c.rs"),
+            pair("b.rs", "d.rs"),
+            pair("c.rs", "d.rs"),
+        ];
+        let mut metrics = Metrics::new();
+        metrics.add_file(400);
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), metrics);
+        report.set_duplications(DuplicationReport { blocks, duplicated_lines: 40 });
+
+        assert_eq!(report.metrics().duplicated_blocks(), 6);
+        // Naive summing would report 60 lines here (6 pairs * 10), a 15%
+        // density on a 400-line codebase that is really 10%.
+        assert_eq!(report.metrics().duplicated_lines(), 40);
+        assert_eq!(report.metrics().duplicated_lines_density(), 10.0);
     }
 
     #[test]
