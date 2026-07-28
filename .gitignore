@@ -7,4 +7,5 @@
 .yunq-approvals.json
 .yunq-loop-guard.json
 .yunq-audit.jsonl
+.yunq-provenance.json
 .claude/

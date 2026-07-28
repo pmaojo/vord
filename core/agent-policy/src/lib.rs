@@ -49,6 +49,10 @@ pub enum Cause {
     /// which owns the approval-token workflow this cause exists to drive —
     /// this crate only ever produces the verdict, never the approval).
     Escalation,
+    /// The path matches a `[[gherkin_required]]` glob and the caller found
+    /// no `@covers(...)`-tagged Gherkin scenario for it — no AST finding
+    /// needed, the same "deny on path alone" shape as `ProtectedPath`.
+    MissingGherkinEvidence { pattern: String, reason: String },
 }
 
 /// Whether a violation stops the write, merely annotates it, or blocks
@@ -90,6 +94,12 @@ impl Violation {
             }
             (Cause::Escalation, Some(f)) => {
                 format!("{} at line {} — {} [requires human approval]", f.rule, f.line, f.message)
+            }
+            (Cause::MissingGherkinEvidence { pattern, reason }, _) => {
+                format!(
+                    "no Gherkin scenario covers this path (required by `{pattern}`) — {reason} Tag a covering \
+                     scenario with `@covers(<glob matching this path>)`."
+                )
             }
             // A rule/threshold/escalation cause always carries the finding
             // that caused it; this arm exists only to keep `describe` total.
@@ -135,6 +145,27 @@ impl Evaluation {
     pub fn is_empty(&self) -> bool {
         self.violations.is_empty()
     }
+}
+
+/// Whether a path is already known, from prior agent activity, to carry
+/// AI-authored history.
+///
+/// This crate has no I/O, so it never determines this itself — the caller
+/// (`bin/cli`'s per-repo touch ledger, keyed on every path a `yunq hook`
+/// write has ever targeted) supplies it per evaluation, the same way it
+/// supplies `Finding`s. This is the automatic, per-path analogue of the
+/// "flag this project as AI-generated" setting incumbent tools require a
+/// human to set by hand: once yunq has seen an agent write to a path, that
+/// path carries the flag from then on with no configuration step.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Provenance {
+    /// No recorded agent write has ever targeted this exact path before. The
+    /// base policy applies.
+    #[default]
+    Unestablished,
+    /// A prior agent write has already targeted this exact path — the
+    /// stricter `[agent.ai_touched]` policy applies instead of the base one.
+    AiTouched,
 }
 
 /// How many times in a row the same rule has denied an agent's write.
@@ -228,6 +259,8 @@ struct PolicyFile {
     agent: AgentSection,
     #[serde(default, rename = "protected_path")]
     protected_paths: Vec<ProtectedPathSection>,
+    #[serde(default, rename = "gherkin_required")]
+    gherkin_required: Vec<GherkinRequiredSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -237,6 +270,8 @@ struct AgentSection {
     enabled: bool,
     #[serde(default = "default_block_at_or_above")]
     block_at_or_above: String,
+    #[serde(default)]
+    ai_touched: AiTouchedSection,
     #[serde(default = "default_blocking_rules")]
     blocking_rules: Vec<String>,
     #[serde(default)]
@@ -250,6 +285,7 @@ impl Default for AgentSection {
         Self {
             enabled: default_enabled(),
             block_at_or_above: default_block_at_or_above(),
+            ai_touched: AiTouchedSection::default(),
             blocking_rules: default_blocking_rules(),
             advisory_rules: Vec::new(),
             escalate_rules: Vec::new(),
@@ -257,9 +293,43 @@ impl Default for AgentSection {
     }
 }
 
+/// The stricter policy applied once [`Provenance::AiTouched`] is asserted for
+/// a path. The only field is a severity threshold, not a separate rule list:
+/// `blocking_rules`/`escalate_rules`/`advisory_rules` stay identical
+/// regardless of provenance, since a categorical ban (`eval`, a shell sink)
+/// is exactly as dangerous whether or not the file has agent history — only
+/// the severity bar legitimately tightens, mirroring the "stricter on
+/// security, unchanged elsewhere" shape real AI-code quality gates ship.
+///
+/// Absent (or with `block_at_or_above` unset) means "same as the base
+/// policy" — this section only ever tightens, and follows the same
+/// opt-in-until-configured convention `protected_path` uses: a default that
+/// silently denies more of an agent's writes the moment yunq is installed
+/// gets yunq uninstalled. `yunq hook install`'s generated policy turns it on
+/// with a concrete value, visible and editable like every other opinionated
+/// default in that template.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AiTouchedSection {
+    block_at_or_above: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProtectedPathSection {
+    pattern: String,
+    reason: String,
+}
+
+/// A glob under which an agent write requires at least one `@covers(...)`-
+/// tagged Gherkin scenario to already exist somewhere in the repository's
+/// `.feature` files (`bin/cli` scans for these — this crate has no I/O).
+/// Off by default, same reasoning as `protected_path`: a bar this crate
+/// cannot itself verify is met should never silently deny the moment yunq is
+/// installed.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GherkinRequiredSection {
     pattern: String,
     reason: String,
 }
@@ -296,6 +366,7 @@ fn default_blocking_rules() -> Vec<String> {
 pub struct AgentPolicy {
     enabled: bool,
     block_at_or_above: Severity,
+    ai_touched_block_at_or_above: Severity,
     blocking_rules: Vec<RuleId>,
     advisory_rules: Vec<RuleId>,
     escalate_rules: Vec<RuleId>,
@@ -303,6 +374,10 @@ pub struct AgentPolicy {
     /// Parallel to `protected`'s glob indices: the (pattern, reason) pair
     /// behind each, so a match can name the rule it broke.
     protected_meta: Vec<(String, String)>,
+    gherkin_required: GlobSet,
+    /// Parallel to `gherkin_required`'s glob indices, same shape as
+    /// `protected_meta`.
+    gherkin_required_meta: Vec<(String, String)>,
 }
 
 impl Default for AgentPolicy {
@@ -331,6 +406,11 @@ impl AgentPolicy {
         let block_at_or_above = Severity::parse(&file.agent.block_at_or_above)
             .ok_or_else(|| PolicyError::Severity(file.agent.block_at_or_above.clone()))?;
 
+        let ai_touched_block_at_or_above = match &file.agent.ai_touched.block_at_or_above {
+            Some(raw) => Severity::parse(raw).ok_or_else(|| PolicyError::Severity(raw.clone()))?,
+            None => block_at_or_above,
+        };
+
         let parse_rules = |raw: &[String]| -> Result<Vec<RuleId>, PolicyError> {
             raw.iter()
                 .map(|r| RuleId::new(r).map_err(|_| PolicyError::RuleId(r.clone())))
@@ -349,14 +429,29 @@ impl AgentPolicy {
             .build()
             .map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
 
+        let mut gherkin_builder = GlobSetBuilder::new();
+        let mut gherkin_required_meta = Vec::new();
+        for entry in &file.gherkin_required {
+            let glob = Glob::new(&entry.pattern)
+                .map_err(|source| PolicyError::Glob { pattern: entry.pattern.clone(), source })?;
+            gherkin_builder.add(glob);
+            gherkin_required_meta.push((entry.pattern.clone(), entry.reason.clone()));
+        }
+        let gherkin_required = gherkin_builder
+            .build()
+            .map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
+
         Ok(Self {
             enabled: file.agent.enabled,
             block_at_or_above,
+            ai_touched_block_at_or_above,
             blocking_rules: parse_rules(&file.agent.blocking_rules)?,
             advisory_rules: parse_rules(&file.agent.advisory_rules)?,
             escalate_rules: parse_rules(&file.agent.escalate_rules)?,
             protected,
             protected_meta,
+            gherkin_required,
+            gherkin_required_meta,
         })
     }
 
@@ -368,18 +463,40 @@ impl AgentPolicy {
         self.block_at_or_above
     }
 
-    /// Judges one proposed write. `path` is repository-relative, using
-    /// forward slashes (backslashes are normalised, so a Windows-shaped path
-    /// matches the same globs).
+    /// The severity threshold in force for a path with the given
+    /// [`Provenance`] — the base `block_at_or_above` for
+    /// [`Provenance::Unestablished`], or the (possibly stricter)
+    /// `[agent.ai_touched]` value for [`Provenance::AiTouched`].
+    pub fn block_at_or_above_for(&self, provenance: Provenance) -> Severity {
+        match provenance {
+            Provenance::AiTouched => self.ai_touched_block_at_or_above,
+            Provenance::Unestablished => self.block_at_or_above,
+        }
+    }
+
+    /// Judges one proposed write with no known AI-touch history — equivalent
+    /// to [`Self::evaluate_with_provenance`] with [`Provenance::Unestablished`].
+    /// `path` is repository-relative, using forward slashes (backslashes are
+    /// normalised, so a Windows-shaped path matches the same globs).
+    pub fn evaluate(&self, path: &str, findings: &[Finding]) -> Evaluation {
+        self.evaluate_with_provenance(path, findings, Provenance::Unestablished)
+    }
+
+    /// Judges one proposed write, applying the stricter `[agent.ai_touched]`
+    /// severity threshold instead of the base one when `provenance` is
+    /// [`Provenance::AiTouched`]. Provenance affects only the threshold —
+    /// `blocking_rules`/`escalate_rules`/`advisory_rules` apply identically
+    /// either way (see [`AiTouchedSection`]'s doc comment for why).
     ///
     /// A disabled policy returns no violations at all rather than
     /// downgrading them to warnings: `enabled = false` means "yunq is not in
     /// this agent's loop", and emitting advisory noise would contradict that.
-    pub fn evaluate(&self, path: &str, findings: &[Finding]) -> Evaluation {
+    pub fn evaluate_with_provenance(&self, path: &str, findings: &[Finding], provenance: Provenance) -> Evaluation {
         if !self.enabled {
             return Evaluation::default();
         }
 
+        let threshold = self.block_at_or_above_for(provenance);
         let mut violations = Vec::new();
 
         let normalised = path.replace('\\', "/");
@@ -396,7 +513,7 @@ impl AgentPolicy {
             let advisory = self.advisory_rules.contains(&finding.rule);
             let blocking = self.blocking_rules.contains(&finding.rule);
             let escalate = self.escalate_rules.contains(&finding.rule);
-            let over_threshold = finding.severity >= self.block_at_or_above;
+            let over_threshold = finding.severity >= threshold;
 
             // Nothing about this finding trips the policy at all: skip
             // rather than manufacture a violation with no enforcement path
@@ -420,13 +537,52 @@ impl AgentPolicy {
             } else if escalate {
                 (Enforcement::Escalate, Cause::Escalation)
             } else {
-                (Enforcement::Deny, Cause::SeverityThreshold { threshold: self.block_at_or_above })
+                (Enforcement::Deny, Cause::SeverityThreshold { threshold })
             };
 
             violations.push(Violation { enforcement, cause, finding: Some(finding.clone()) });
         }
 
         Evaluation { violations }
+    }
+
+    /// Whether any `[[gherkin_required]]` glob is configured at all — the
+    /// caller's cue to skip scanning `.feature` files entirely (an I/O and
+    /// glob-matching cost this crate cannot see or avoid on its own) when
+    /// the repository hasn't opted in.
+    pub fn has_gherkin_requirements(&self) -> bool {
+        !self.gherkin_required_meta.is_empty()
+    }
+
+    /// Same as [`Self::evaluate_with_provenance`], plus a Gherkin-evidence
+    /// check: a path matching `[[gherkin_required]]` with
+    /// `has_covering_scenario = false` denies with no finding needed, the
+    /// same "deny on path alone" shape [`Cause::ProtectedPath`] already uses.
+    /// This crate has no I/O, so it never determines coverage itself — the
+    /// caller (`bin/cli`, scanning `.feature` files for `@covers(...)` tags)
+    /// supplies the answer per path, the same way it supplies [`Provenance`].
+    pub fn evaluate_with_evidence(
+        &self,
+        path: &str,
+        findings: &[Finding],
+        provenance: Provenance,
+        has_covering_scenario: bool,
+    ) -> Evaluation {
+        let mut evaluation = self.evaluate_with_provenance(path, findings, provenance);
+        if !self.enabled || has_covering_scenario {
+            return evaluation;
+        }
+
+        let normalised = path.replace('\\', "/");
+        for index in self.gherkin_required.matches(&normalised) {
+            let (pattern, reason) = &self.gherkin_required_meta[index];
+            evaluation.violations.push(Violation {
+                enforcement: Enforcement::Deny,
+                cause: Cause::MissingGherkinEvidence { pattern: pattern.clone(), reason: reason.clone() },
+                finding: None,
+            });
+        }
+        evaluation
     }
 }
 
@@ -449,6 +605,20 @@ mod tests {
         assert_eq!(policy.block_at_or_above(), Severity::Critical);
         assert!(policy.blocking_rules.contains(&rule("ai:llm-output-injection")));
         assert!(policy.protected_meta.is_empty(), "path protection is opt-in");
+        assert!(!policy.has_gherkin_requirements(), "gherkin evidence is opt-in");
+    }
+
+    #[test]
+    fn enabled_reports_false_when_the_policy_disables_itself() {
+        let policy = AgentPolicy::parse("[agent]\nenabled = false\n").expect("parses");
+        assert!(!policy.enabled());
+    }
+
+    #[test]
+    fn a_denied_evaluation_is_not_empty() {
+        let policy = AgentPolicy::default();
+        let evaluation = policy.evaluate("src/a.ts", &[finding("owasp:xss", Severity::Critical)]);
+        assert!(!evaluation.is_empty());
     }
 
     #[test]
@@ -501,6 +671,77 @@ reason = "CI changes need a human reviewer."
         let evaluation = policy.evaluate(".github/workflows/ci.yml", &[]);
         assert!(evaluation.is_denied());
         assert!(evaluation.violations[0].describe().contains("human reviewer"));
+    }
+
+    fn gherkin_policy() -> AgentPolicy {
+        let raw = r#"
+[[gherkin_required]]
+pattern = "core/domain/**"
+reason = "Domain logic changes must be described by a Gherkin scenario."
+"#;
+        AgentPolicy::parse(raw).expect("parses")
+    }
+
+    #[test]
+    fn a_gherkin_required_path_with_no_covering_scenario_denies_with_no_findings_at_all() {
+        let policy = gherkin_policy();
+        assert!(policy.has_gherkin_requirements());
+        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, false);
+        assert!(evaluation.is_denied());
+        assert!(evaluation.violations[0].describe().contains("Gherkin scenario"));
+        assert!(evaluation.violations[0].describe().contains("described by a Gherkin scenario"));
+    }
+
+    #[test]
+    fn a_gherkin_required_path_with_a_covering_scenario_does_not_deny() {
+        let policy = gherkin_policy();
+        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, true);
+        assert!(!evaluation.is_denied());
+        assert!(evaluation.is_empty());
+    }
+
+    #[test]
+    fn a_path_outside_the_required_glob_is_unaffected_by_missing_evidence() {
+        let policy = gherkin_policy();
+        let evaluation = policy.evaluate_with_evidence("src/unrelated.rs", &[], Provenance::Unestablished, false);
+        assert!(!evaluation.is_denied());
+    }
+
+    #[test]
+    fn a_disabled_policy_ignores_missing_gherkin_evidence_too() {
+        let raw = r#"
+[agent]
+enabled = false
+[[gherkin_required]]
+pattern = "core/domain/**"
+reason = "x"
+"#;
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, false);
+        assert!(evaluation.is_empty(), "disabled means out of the loop entirely, gherkin gate included");
+    }
+
+    #[test]
+    fn evaluate_with_provenance_never_applies_the_gherkin_gate() {
+        // The two-argument-provenance entry point predates this gate and
+        // must stay behaviorally inert to it — only evaluate_with_evidence
+        // opts a caller in, matching how evaluate() stayed inert to
+        // provenance until a caller explicitly asked for it.
+        let policy = gherkin_policy();
+        let evaluation = policy.evaluate_with_provenance("core/domain/order.rs", &[], Provenance::Unestablished);
+        assert!(!evaluation.is_denied());
+    }
+
+    #[test]
+    fn a_gherkin_required_section_missing_its_reason_is_an_error() {
+        let err = AgentPolicy::parse("[[gherkin_required]]\npattern = \"core/**\"\n").unwrap_err();
+        assert!(matches!(err, PolicyError::Toml(_)));
+    }
+
+    #[test]
+    fn an_invalid_gherkin_required_glob_is_an_error() {
+        let err = AgentPolicy::parse("[[gherkin_required]]\npattern = \"[\"\nreason = \"x\"\n").unwrap_err();
+        assert!(matches!(err, PolicyError::Glob { .. }));
     }
 
     #[test]
@@ -625,6 +866,74 @@ escalate_rules = ["owasp:eval-usage"]
         let policy = AgentPolicy::parse(raw).expect("parses");
         let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Info)]);
         assert!(matches!(evaluation.violations[0].enforcement, Enforcement::Escalate));
+    }
+
+    #[test]
+    fn an_absent_ai_touched_section_uses_the_same_threshold_as_the_base_policy() {
+        let policy = AgentPolicy::default();
+        assert_eq!(policy.block_at_or_above_for(Provenance::Unestablished), Severity::Critical);
+        assert_eq!(policy.block_at_or_above_for(Provenance::AiTouched), Severity::Critical);
+    }
+
+    #[test]
+    fn evaluate_is_equivalent_to_evaluate_with_provenance_unestablished() {
+        let policy = AgentPolicy::default();
+        let f = [finding("owasp:xss", Severity::Critical)];
+        assert_eq!(policy.evaluate("src/a.ts", &f), policy.evaluate_with_provenance("src/a.ts", &f, Provenance::Unestablished));
+    }
+
+    #[test]
+    fn an_ai_touched_path_is_judged_against_the_stricter_threshold() {
+        let raw = "[agent]\nblock_at_or_above = \"critical\"\n[agent.ai_touched]\nblock_at_or_above = \"major\"\n";
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        let f = [finding("smells:long-method", Severity::Major)];
+
+        let untouched = policy.evaluate_with_provenance("src/a.ts", &f, Provenance::Unestablished);
+        assert!(!untouched.is_denied(), "major is below the base critical threshold");
+
+        let touched = policy.evaluate_with_provenance("src/a.ts", &f, Provenance::AiTouched);
+        assert!(touched.is_denied(), "major meets the stricter ai_touched threshold");
+    }
+
+    #[test]
+    fn ai_touched_threshold_can_never_be_looser_than_configured_even_though_nothing_enforces_that() {
+        // Not a hard invariant the type system enforces, but the shipped
+        // template always sets ai_touched >= base — documented here so a
+        // future change to the default doesn't silently invert it.
+        let raw = "[agent.ai_touched]\nblock_at_or_above = \"blocker\"\n";
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        assert_eq!(policy.block_at_or_above_for(Provenance::AiTouched), Severity::Blocker);
+        assert_eq!(policy.block_at_or_above_for(Provenance::Unestablished), Severity::Critical);
+    }
+
+    #[test]
+    fn provenance_never_changes_blocking_rule_or_escalation_behavior() {
+        let raw = "[agent]\nblocking_rules = [\"owasp:eval-usage\"]\nescalate_rules = [\"smells:long-method\"]\n";
+        let policy = AgentPolicy::parse(raw).expect("parses");
+
+        let blocked = [finding("owasp:eval-usage", Severity::Info)];
+        assert_eq!(
+            policy.evaluate_with_provenance("a.py", &blocked, Provenance::Unestablished),
+            policy.evaluate_with_provenance("a.py", &blocked, Provenance::AiTouched),
+        );
+
+        let escalated = [finding("smells:long-method", Severity::Minor)];
+        assert_eq!(
+            policy.evaluate_with_provenance("a.py", &escalated, Provenance::Unestablished),
+            policy.evaluate_with_provenance("a.py", &escalated, Provenance::AiTouched),
+        );
+    }
+
+    #[test]
+    fn an_invalid_ai_touched_severity_is_an_error_not_a_silent_default() {
+        let err = AgentPolicy::parse("[agent.ai_touched]\nblock_at_or_above = \"catastrophic\"\n").unwrap_err();
+        assert!(matches!(err, PolicyError::Severity(_)));
+    }
+
+    #[test]
+    fn an_unknown_key_in_ai_touched_is_rejected_rather_than_ignored() {
+        let err = AgentPolicy::parse("[agent.ai_touched]\nblock_at_or_abov = \"major\"\n").unwrap_err();
+        assert!(matches!(err, PolicyError::Toml(_)));
     }
 
     #[test]

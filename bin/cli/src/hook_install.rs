@@ -72,6 +72,14 @@ advisory_rules = []
 # get the policy edited to remove the rule.
 escalate_rules = []
 
+# Stricter threshold for a path yunq has already seen an agent write to (or
+# attempt to write to) before — tracked automatically in
+# .yunq-provenance.json, no manual "mark this file as AI-generated" step
+# required. Only the threshold tightens here; blocking_rules/escalate_rules/
+# advisory_rules above apply the same regardless of a path's provenance.
+[agent.ai_touched]
+block_at_or_above = "major"
+
 # Paths an agent may not touch at all, with no finding required. Delete any
 # entry that does not fit how this repository works; an agent that cannot do
 # its job will be given a wider blast radius by whoever is annoyed enough.
@@ -82,6 +90,18 @@ reason = "CI definitions gate every other control; changes need human review."
 [[protected_path]]
 pattern = "**/*.tf"
 reason = "Terraform changes can rewrite IAM and networking; human review required."
+
+# Requires at least one Gherkin scenario tagged `@covers(<glob>)` somewhere
+# in the repository's .feature files before an agent may write to a matching
+# path — yunq scans for the tag, it does not run the scenario. Commented out
+# by default: unlike protected_path, turning this on immediately denies every
+# matching write until real .feature coverage exists, so it needs the
+# repository to already have (or be ready to add) BDD scenarios, not just a
+# glob. Uncomment and adjust once that coverage is in place.
+#
+# [[gherkin_required]]
+# pattern = "core/domain/**"
+# reason = "Domain logic changes must be described by a Gherkin scenario before an agent may land them."
 "#;
 
 /// Merges yunq's hooks into an existing `.claude/settings.json` value.
@@ -270,5 +290,33 @@ mod tests {
         assert!(policy.evaluate(".github/workflows/ci.yml", &[]).is_denied());
         assert!(policy.evaluate("infra/main.tf", &[]).is_denied());
         assert!(!policy.evaluate("src/app.ts", &[]).is_denied());
+        assert!(
+            !policy.has_gherkin_requirements(),
+            "the example is shipped commented out, unlike protected_path"
+        );
+    }
+
+    #[test]
+    fn the_shipped_policy_template_turns_on_a_stricter_ai_touched_threshold() {
+        use yunq_agent_policy::{Finding, Provenance};
+
+        let policy = yunq_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
+        assert_eq!(policy.block_at_or_above(), yunq_rules_engine::Severity::Critical);
+        assert_eq!(policy.block_at_or_above_for(Provenance::AiTouched), yunq_rules_engine::Severity::Major);
+
+        let major_finding = [Finding {
+            rule: yunq_rules_engine::RuleId::new("smells:long-method").expect("valid rule id"),
+            severity: yunq_rules_engine::Severity::Major,
+            message: "boom".to_string(),
+            line: 1,
+        }];
+        assert!(
+            !policy.evaluate_with_provenance("src/app.ts", &major_finding, Provenance::Unestablished).is_denied(),
+            "major is below the shipped base threshold of critical"
+        );
+        assert!(
+            policy.evaluate_with_provenance("src/app.ts", &major_finding, Provenance::AiTouched).is_denied(),
+            "major meets the shipped ai_touched threshold"
+        );
     }
 }

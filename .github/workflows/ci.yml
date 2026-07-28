@@ -103,8 +103,16 @@ jobs:
       # mutation testing finishes in under two minutes. Mutation-testing the
       # full 60k-line workspace this way would take hours per run; widen
       # this scope crate-by-crate as each one proves fast enough.
+      # No --output flag: cargo-mutants' own `-o`/`--output <dir>` creates a
+      # `mutants.out` *within* `<dir>` rather than treating `<dir>` as the
+      # output itself, so a prior `--output mutants.out` here actually wrote
+      # to the nested `mutants.out/mutants.out/outcomes.json` while the next
+      # step read the unnested `mutants.out/outcomes.json` and failed with
+      # "No such file or directory". Omitting the flag uses cargo-mutants'
+      # own default (`mutants.out` in the current directory, i.e. the repo
+      # root here), which is exactly the path the next step already expects.
       - name: Mutation-test yunq-agent-policy
-        run: cargo mutants -p yunq-agent-policy --output mutants.out
+        run: cargo mutants -p yunq-agent-policy
 
       # cargo-mutants' own report schema isn't Stryker's; converts each
       # mutant outcome to the Stryker Mutation Testing Elements shape

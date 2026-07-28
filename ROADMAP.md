@@ -959,8 +959,81 @@ before being leaned on; that verification has not been done.
 - **6b Assign to Agent**: `POST /issues/{id}/assign-to-agent`, bulk action,
   one PR per issue via `PrGateway`; PR-scoped mode proposes fixes when a PR
   breaks its quality gate. Developer-in-the-loop always.
-- **AI Code Assurance equivalent**: flag projects/files as AI-generated,
-  enforce stricter gates on AI-authored code, provenance tracking.
+- **AI Code Assurance equivalent** ✅ **(2026-07-28)** — first slice landed
+  inside `core/agent-policy`/`yunq hook`, not as a separate subsystem:
+  `Provenance` (`Unestablished`/`AiTouched`) is looked up per path in a new
+  `.yunq-provenance.json` ledger (`bin/cli`, gitignored) recording every path
+  a `yunq hook` write has ever targeted — denied or not, since an attempted
+  edit is itself a "an agent is steering this file" signal. A path already in
+  the ledger is judged against a new `[agent.ai_touched] block_at_or_above`
+  threshold instead of the base one; `blocking_rules`/`escalate_rules`/
+  `advisory_rules` stay identical regardless of provenance (only the
+  severity bar tightens, the same asymmetry SonarQube's real "Sonar way for
+  Agentic AI" gate ships — stricter on security, unchanged elsewhere).
+  Absent `[agent.ai_touched]` means no behavior change (same opt-in-until-
+  configured convention as `protected_path`); `yunq hook install`'s template
+  now ships a concrete `block_at_or_above = "major"` example. Deliberately
+  does **not** use a commit trailer or co-author attribution (`Co-authored-by:
+  <model>`) as the tagging mechanism — that convention is both contested (US
+  Copyright Office guidance against listing an AI as an author; VS Code's
+  April 2026 default-on `Co-authored-by: Copilot` trailer was reverted within
+  three weeks after backlash) and orthogonal to what a stricter gate needs,
+  which is "should this path be judged more strictly", not "who gets
+  credit". Still open: this is per-path/local (`bin/cli` only, gitignored
+  file, no server-side aggregation) and per-write-history only — it does not
+  yet flag a *project* the way Sonar's manual setting does, nor does it feed
+  the whole-repo quality gate (Phase 3). Correction to this entry's first
+  draft: the mutation-testing leg of the "Bob gauntlet" was not actually
+  missing — `.github/workflows/ci.yml`'s `mutation-gate` job already ran
+  `cargo mutants -p yunq-agent-policy`, converted its output to the Stryker
+  report schema, and gated on the crate's mutation score before any of this
+  session's work started; it was just never written up here. That job caught
+  a real regression from the provenance/Gherkin work above: `Evaluation::is_empty`
+  and `AgentPolicy::enabled` were only ever asserted `true` in the existing
+  suite, so cargo-mutants' "replace body with `true`" mutant survived both —
+  fixed by adding the missing false-case assertion for each (verified
+  locally: `cargo mutants -p yunq-agent-policy` now reports 0 missed, 44
+  caught, 8 unviable). Still genuinely open: the mutation gate is scoped to
+  `yunq-agent-policy` alone (the highest-consequence, smallest, fastest-to-
+  mutate crate); widening it crate-by-crate as each proves fast enough is
+  unstarted.
+  ✅ **(2026-07-28) Gherkin evidence gate** — the second leg. `[[gherkin_required]]`
+  (new array-of-tables in `yunq-policy.toml`, same shape as `protected_path`:
+  glob `pattern` + `reason`) denies an agent write to a matching path unless
+  at least one Gherkin scenario anywhere in the repository's `.feature` files
+  is tagged `@covers(<glob>)` — new `Cause::MissingGherkinEvidence` in
+  `core/agent-policy`, deny-on-path-alone with no AST finding needed, same
+  shape `ProtectedPath` already has. `infra/fs::gherkin` does the actual
+  scanning (new module, mirrors `sarif.rs`/`junit.rs`'s inbound-adapter
+  shape): `extract_covers_patterns` finds `@covers(...)` tag tokens by line
+  scanning — deliberately not a full Gherkin grammar/parser or a
+  `cucumber-rust` dependency, since only tag lines are meaningful here and
+  Gherkin's own syntax makes them trivial to isolate without one —
+  `GherkinCoverageIndex::build_from_repo` walks the tree with the same
+  gitignore-aware `ignore::WalkBuilder` `collect_sources` uses and compiles
+  every tag into one `GlobSet` so a path query is a single glob-set match, not
+  a re-scan. `AgentPolicy::evaluate_with_evidence` (new, additive alongside
+  `evaluate`/`evaluate_with_provenance`) takes a caller-supplied
+  `has_covering_scenario: bool` — this crate still does zero I/O itself.
+  Wired into `bin/cli`'s `judge()` via `has_covering_gherkin_scenario`, which
+  skips the `.feature`-file walk entirely (returns `true` unconditionally)
+  when `AgentPolicy::has_gherkin_requirements()` is false, so an
+  unconfigured repository pays zero extra cost per write — the same
+  performance-conscious opt-in-until-configured posture `protected_path` set.
+  Fails open on a walk/read error, consistent with every other check in this
+  module. Shipped commented out in `yunq hook install`'s template (unlike
+  `protected_path`): turning this on immediately denies every matching write
+  until real `.feature` coverage exists, so it needs the repository to
+  already have — or be actively adding — BDD scenarios, not just a glob.
+  Deliberately does not execute cucumber-rust or any Gherkin runner; it only
+  reads tags, the same "aggregate another tool's output" relationship the
+  SARIF and mutation-report importers already have to their respective
+  tools. Still open: a `@covers` tag currently only proves a human (or an
+  agent) *claimed* coverage, not that the tagged scenario actually runs and
+  passes against the tagged path — closing that gap needs correlating
+  `.feature` execution with source paths, likely via step-definition
+  file/line metadata a cucumber-rust JSON report could carry, not yet
+  investigated.
 - **Fix suggestions in-editor** through `yunq-lsp` connected mode.
 - **6c Agentic guardrail — yunq inside the agent's edit loop** ✅
   **(2026-07-27)**. Every entry point before this one is post-hoc: the CLI,

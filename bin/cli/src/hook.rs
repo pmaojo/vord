@@ -55,7 +55,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use yunq_agent_policy::{AgentPolicy, Cause, CircuitBreakerState, Enforcement, Evaluation, Finding, Violation};
+use yunq_agent_policy::{AgentPolicy, Cause, CircuitBreakerState, Enforcement, Evaluation, Finding, Provenance, Violation};
 use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
 use yunq_rules_engine::RuleId;
 
@@ -75,6 +75,63 @@ pub const LOOP_GUARD_FILE: &str = ".yunq-loop-guard.json";
 
 /// Filename of the append-only audit log of every non-silent verdict this guardrail has issued.
 pub const AUDIT_LOG_FILE: &str = ".yunq-audit.jsonl";
+
+/// Filename of the per-path AI-touch ledger: every path a `yunq hook` write
+/// has ever targeted, denied or not — an attempted edit is itself a signal
+/// worth remembering, since the point is "has an agent been steering this
+/// file", not "did every attempt succeed". Read back on the next judgement to
+/// decide whether [`Provenance::AiTouched`]'s stricter policy applies. This
+/// is the automatic, per-file analogue of the "flag this project as
+/// AI-generated" setting incumbent AI-code-assurance tools require a human
+/// to set by hand.
+pub const PROVENANCE_FILE: &str = ".yunq-provenance.json";
+
+/// Loads the AI-touch ledger, or an empty one when the file is missing or
+/// unreadable. Same fail-open posture as [`load_circuit_breaker`]: a lost
+/// ledger only means a path is (re-)judged as untouched, never a bypassed
+/// policy — `[agent.ai_touched]` only ever tightens, so forgetting a touch
+/// makes the *next* write on that path more permissive, not less safe.
+pub fn load_provenance(root: &Path) -> HashSet<String> {
+    let path = root.join(PROVENANCE_FILE);
+    let Ok(raw) = std::fs::read_to_string(&path) else { return HashSet::new() };
+    serde_json::from_str::<Vec<String>>(&raw).map(|paths| paths.into_iter().collect()).unwrap_or_default()
+}
+
+/// Persists the AI-touch ledger. Best-effort: a write failure is reported on
+/// stderr rather than surfaced as a denial, matching every other piece of
+/// soft state this module keeps (circuit breaker, loop guard).
+pub fn save_provenance(root: &Path, touched: &HashSet<String>) {
+    let mut entries: Vec<&String> = touched.iter().collect();
+    entries.sort();
+    let path = root.join(PROVENANCE_FILE);
+    match serde_json::to_string_pretty(&entries) {
+        Ok(raw) => {
+            if let Err(e) = std::fs::write(&path, raw) {
+                eprintln!("yunq hook: could not persist provenance ledger at {}: {e}", path.display());
+            }
+        }
+        Err(e) => eprintln!("yunq hook: could not serialize provenance ledger: {e}"),
+    }
+}
+
+/// The provenance a path carries given the ledger seen so far.
+pub fn provenance_for(touched: &HashSet<String>, path: &str) -> Provenance {
+    if touched.contains(path) {
+        Provenance::AiTouched
+    } else {
+        Provenance::Unestablished
+    }
+}
+
+/// Records that an agent write has now targeted `path`, persisting only when
+/// the ledger actually changes (an already-touched path is a no-op, not a
+/// redundant write on every single judgement).
+pub fn record_provenance_touch(root: &Path, path: &str) {
+    let mut touched = load_provenance(root);
+    if touched.insert(path.to_string()) {
+        save_provenance(root, &touched);
+    }
+}
 
 /// The subset of a host's hook payload this guardrail needs. Both Claude
 /// Code and Codex CLI send snake_case JSON with these field names; unknown
@@ -506,6 +563,10 @@ fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serd
                 None => "requires human approval".to_string(),
             },
         ),
+        Cause::MissingGherkinEvidence { pattern, reason } => (
+            "missing_gherkin_evidence",
+            format!("path matches `{pattern}` and needs a `@covers(...)`-tagged scenario ({reason})"),
+        ),
     };
     let circuit_breaker_tripped = rule.as_deref().is_some_and(|r| breaker.tripped.iter().any(|t| t.as_str() == r));
     serde_json::json!({
@@ -649,8 +710,49 @@ fn new_dependency_findings(relative: &str, old_content: Option<&str>, new_conten
         .collect()
 }
 
+/// Whether `relative` already has a covering Gherkin scenario, per
+/// `[[gherkin_required]]`'s evidence gate. Skips the `.feature`-file scan
+/// entirely (returning `true`, i.e. "assume covered") when the policy has no
+/// `[[gherkin_required]]` globs at all — `AgentPolicy::evaluate_with_evidence`
+/// only ever reads this value for a path that actually matches one, so on an
+/// unconfigured repository the answer is inert and not worth a filesystem
+/// walk on every single write. A scan that fails (unreadable `.feature`
+/// file, walk error) fails open the same way every other check in this
+/// module does: report on stderr and treat the write as covered rather than
+/// deny over a tooling problem.
+fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &str) -> bool {
+    if !policy.has_gherkin_requirements() {
+        return true;
+    }
+    match yunq_infra_fs::GherkinCoverageIndex::build_from_repo(root) {
+        Ok(index) => index.covers(relative),
+        Err(e) => {
+            eprintln!("yunq hook: could not scan .feature files for Gherkin evidence: {e}");
+            true
+        }
+    }
+}
+
 /// Judges one proposed write end to end: policy, path, and (when content is
 /// available and parseable) findings.
+///
+/// A path matching `[[gherkin_required]]` with no covering `@covers(...)`
+/// scenario anywhere in the repository's `.feature` files denies with no
+/// finding needed, via [`has_covering_gherkin_scenario`] and
+/// [`AgentPolicy::evaluate_with_evidence`] — the mechanical version of
+/// Uncle Bob's "surround the agent with constraints" gauntlet: no scenario,
+/// no landed write.
+///
+/// Before evaluating, the path's [`Provenance`] is looked up in the AI-touch
+/// ledger (`.yunq-provenance.json`) and passed to
+/// [`AgentPolicy::evaluate_with_provenance`], so a path with prior agent
+/// history is judged against `[agent.ai_touched]`'s stricter threshold. The
+/// touch is then recorded unconditionally — including on this very write,
+/// whether it ends up denied or not — so a repeatedly-retried denied write
+/// still escalates the path's provenance for the next attempt, and a path an
+/// agent has only ever attempted (never landed) still reads as AI-touched:
+/// the point is "has an agent been steering this file", not "did the write
+/// succeed".
 ///
 /// The last step consumes a pending escalation approval: when every
 /// violation in an otherwise-denied evaluation is an [`Enforcement::Escalate`]
@@ -677,7 +779,10 @@ pub async fn judge(
         let old_content = std::fs::read_to_string(file).ok();
         findings.extend(new_dependency_findings(&relative, old_content.as_deref(), content));
     }
-    let evaluation = policy.evaluate(&relative, &findings);
+    let provenance = provenance_for(&load_provenance(root), &relative);
+    let has_scenario = has_covering_gherkin_scenario(policy, root, &relative);
+    let evaluation = policy.evaluate_with_evidence(&relative, &findings, provenance, has_scenario);
+    record_provenance_touch(root, &relative);
     let verdict = Verdict::from_evaluation(relative, evaluation);
 
     let Verdict::Deny { path, evaluation } = &verdict else { return Ok(verdict) };
@@ -1411,6 +1516,53 @@ mod tests {
         let new_content = r#"{"dependencies": {"left-pad": "1.0.0", "left-pad-plus": "0.0.1"}}"#;
         let verdict = judge(&policy, &dir, &manifest, Some(new_content)).await.expect("judged");
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_required_path_with_no_covering_feature_file_denies_end_to_end() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-gherkin-missing-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
+        let file = dir.join("core/domain/order.rs");
+
+        let policy = AgentPolicy::parse(
+            "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
+        )
+        .expect("parses");
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n")).await.expect("judged");
+        let Verdict::Deny { evaluation, .. } = &verdict else { panic!("expected a denial, got {verdict:?}") };
+        assert!(
+            evaluation.violations.iter().any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
+            "{evaluation:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_required_path_with_a_covering_feature_file_is_not_denied_on_that_ground() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-gherkin-covered-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
+        std::fs::create_dir_all(dir.join("features")).expect("features dir");
+        std::fs::write(
+            dir.join("features/orders.feature"),
+            "@covers(core/domain/**)\nFeature: Orders\n  Scenario: Place an order\n    Given a cart\n",
+        )
+        .expect("write feature file");
+        let file = dir.join("core/domain/order.rs");
+
+        let policy = AgentPolicy::parse(
+            "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
+        )
+        .expect("parses");
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n")).await.expect("judged");
+        if let Verdict::Deny { evaluation, .. } = &verdict {
+            assert!(
+                !evaluation.violations.iter().any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
+                "{evaluation:?}"
+            );
+        }
 
         std::fs::remove_dir_all(&dir).ok();
     }
