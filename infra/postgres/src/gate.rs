@@ -242,7 +242,8 @@ impl PgAnalysisStore {
 
     /// The New Code definition that applies to a project's branch: a
     /// branch-specific override if one is stored, else the project-wide
-    /// default, else the built-in default (`PreviousAnalysis`).
+    /// default, else the instance-wide global default (if one is set), else
+    /// the built-in default (`PreviousAnalysis`).
     pub async fn resolve_new_code_definition(
         &self,
         project_id: i64,
@@ -252,6 +253,8 @@ impl PgAnalysisStore {
             "SELECT kind, param FROM new_code_definitions WHERE project_id = $1 AND branch = $2
              UNION ALL
              SELECT kind, param FROM new_code_definitions WHERE project_id = $1 AND branch IS NULL
+             UNION ALL
+             SELECT kind, param FROM global_new_code_definition WHERE id = 1
              LIMIT 1",
         )
         .bind(project_id)
@@ -266,6 +269,44 @@ impl PgAnalysisStore {
         let kind: String = row.try_get("kind").map_err(storage_err)?;
         let param: Option<String> = row.try_get("param").map_err(storage_err)?;
         new_code_definition_from_row(&kind, param.as_deref())
+    }
+
+    /// The instance-wide default New Code definition, if one has been set —
+    /// distinct from `resolve_new_code_definition`'s fully-resolved result,
+    /// which also folds in any project/branch override and falls back to
+    /// `PreviousAnalysis` rather than reporting "unset".
+    pub async fn global_new_code_definition(&self) -> Result<Option<NewCodeDefinition>, StorageError> {
+        let row = sqlx::query("SELECT kind, param FROM global_new_code_definition WHERE id = 1")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(storage_err)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let kind: String = row.try_get("kind").map_err(storage_err)?;
+        let param: Option<String> = row.try_get("param").map_err(storage_err)?;
+        new_code_definition_from_row(&kind, param.as_deref()).map(Some)
+    }
+
+    /// Sets the instance-wide default New Code definition, applied to any
+    /// project/branch with no override of its own.
+    pub async fn set_global_new_code_definition(
+        &self,
+        definition: &NewCodeDefinition,
+    ) -> Result<(), StorageError> {
+        let (kind, param) = new_code_definition_to_row(definition);
+        sqlx::query(
+            "INSERT INTO global_new_code_definition (id, kind, param)
+             VALUES (1, $1, $2)
+             ON CONFLICT (id) DO UPDATE
+                SET kind = EXCLUDED.kind, param = EXCLUDED.param, updated_at = now()",
+        )
+        .bind(kind)
+        .bind(param)
+        .execute(&self.pool)
+        .await
+        .map_err(storage_err)?;
+        Ok(())
     }
 
     /// Assigns a New Code definition to a project, optionally scoped to one
@@ -485,5 +526,150 @@ mod tests {
             GateStatus::Failed
         );
         assert!(gate_status_from_column("bogus").is_err());
+    }
+}
+
+/// `#[ignore]`d by default so `cargo test` needs no database; run explicitly
+/// with `cargo test -p yunq-infra-postgres -- --ignored` against
+/// `DATABASE_URL`, same convention as `lib.rs`'s `live_db_tests` module.
+///
+/// `resolve_new_code_definition`'s full four-tier precedence
+/// (branch > project > global > built-in `PreviousAnalysis`) — including the
+/// project/branch tiers that predate this module and had no live coverage
+/// of their own until now — was never exercised against a real database
+/// before; these are the first.
+#[cfg(test)]
+mod live_db_tests {
+    use super::*;
+    use crate::PgAnalysisStore;
+
+    async fn connected_storage() -> PgAnalysisStore {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
+        let storage = PgAnalysisStore::connect_lazy(&database_url).unwrap();
+        storage.migrate().await.unwrap();
+        storage
+    }
+
+    fn unique_key(prefix: &str) -> String {
+        format!(
+            "{prefix}-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        )
+    }
+
+    /// Clears any prior run's global default so each test starts from a
+    /// known "unset" state — the global row is a singleton shared by every
+    /// test in this module (and, in principle, every project on the
+    /// instance), unlike the per-project rows the rest of this file's tests
+    /// isolate with a unique project key.
+    async fn clear_global(storage: &PgAnalysisStore) {
+        sqlx::query("DELETE FROM global_new_code_definition WHERE id = 1")
+            .execute(storage.pool())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn global_default_is_none_until_set() {
+        // The global row is a singleton shared across this whole module (and
+        // in principle the instance), so tests that touch it — unlike the
+        // per-project ones below, which isolate via a unique project key —
+        // need the same whole-table lock `retention.rs`'s live tests use.
+        let _guard = crate::shared::WHOLE_TABLE_LOCK.lock().await;
+        let storage = connected_storage().await;
+        clear_global(&storage).await;
+        assert_eq!(storage.global_new_code_definition().await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn global_default_roundtrips_and_upserts() {
+        let _guard = crate::shared::WHOLE_TABLE_LOCK.lock().await;
+        let storage = connected_storage().await;
+        clear_global(&storage).await;
+
+        storage.set_global_new_code_definition(&NewCodeDefinition::NumberOfDays(14)).await.unwrap();
+        assert_eq!(
+            storage.global_new_code_definition().await.unwrap(),
+            Some(NewCodeDefinition::NumberOfDays(14))
+        );
+
+        // Setting it again replaces rather than duplicating the singleton row.
+        storage
+            .set_global_new_code_definition(&NewCodeDefinition::ReferenceBranch(
+                BranchName::new("develop").unwrap(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            storage.global_new_code_definition().await.unwrap(),
+            Some(NewCodeDefinition::ReferenceBranch(BranchName::new("develop").unwrap()))
+        );
+
+        clear_global(&storage).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres; see module docs"]
+    async fn resolve_falls_back_through_all_four_tiers_in_precedence_order() {
+        let _guard = crate::shared::WHOLE_TABLE_LOCK.lock().await;
+        let storage = connected_storage().await;
+        clear_global(&storage).await;
+        let key = unique_key("gate-precedence");
+        let project_id = storage.ensure_project(&key).await.unwrap();
+
+        // 1. Nothing set anywhere: the built-in default.
+        assert_eq!(
+            storage.resolve_new_code_definition(project_id, "main").await.unwrap(),
+            NewCodeDefinition::PreviousAnalysis
+        );
+
+        // 2. Global default set: it wins over the built-in default.
+        storage.set_global_new_code_definition(&NewCodeDefinition::NumberOfDays(90)).await.unwrap();
+        assert_eq!(
+            storage.resolve_new_code_definition(project_id, "main").await.unwrap(),
+            NewCodeDefinition::NumberOfDays(90)
+        );
+
+        // 3. Project-wide default set: it wins over the global default.
+        storage
+            .set_new_code_definition(project_id, None, &NewCodeDefinition::NumberOfDays(30))
+            .await
+            .unwrap();
+        assert_eq!(
+            storage.resolve_new_code_definition(project_id, "main").await.unwrap(),
+            NewCodeDefinition::NumberOfDays(30)
+        );
+        // A different, unconfigured branch still only sees the project
+        // default (and would fall through to global/built-in if that
+        // weren't set) — the project default isn't branch-specific.
+        assert_eq!(
+            storage.resolve_new_code_definition(project_id, "feature/x").await.unwrap(),
+            NewCodeDefinition::NumberOfDays(30)
+        );
+
+        // 4. Branch-specific override set: it wins over everything else,
+        // but only for its own branch.
+        storage
+            .set_new_code_definition(
+                project_id,
+                Some("main"),
+                &NewCodeDefinition::ReferenceBranch(BranchName::new("develop").unwrap()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            storage.resolve_new_code_definition(project_id, "main").await.unwrap(),
+            NewCodeDefinition::ReferenceBranch(BranchName::new("develop").unwrap())
+        );
+        assert_eq!(
+            storage.resolve_new_code_definition(project_id, "feature/x").await.unwrap(),
+            NewCodeDefinition::NumberOfDays(30)
+        );
+
+        sqlx::query("DELETE FROM projects WHERE id = $1").bind(project_id).execute(storage.pool()).await.unwrap();
+        clear_global(&storage).await;
     }
 }

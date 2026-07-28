@@ -159,7 +159,8 @@ pub(crate) trait OpsStore: Send + Sync {
 
     /// The effective New Code definition for a project/branch: its own
     /// branch-specific override, else the project-wide default, else the
-    /// built-in default (`PreviousAnalysis`) — same precedence
+    /// instance-wide global default (if set), else the built-in default
+    /// (`PreviousAnalysis`) — same precedence
     /// `PgAnalysisStore::resolve_new_code_definition` applies at scan time.
     fn new_code_definition(
         &self,
@@ -173,6 +174,16 @@ pub(crate) trait OpsStore: Send + Sync {
         &self,
         project_key: String,
         branch: Option<String>,
+        definition: NewCodeDefinition,
+    ) -> BoxFuture<'_, Result<(), StorageError>>;
+
+    /// The instance-wide default New Code definition, if one has been set.
+    fn global_new_code_definition(&self) -> BoxFuture<'_, Result<Option<NewCodeDefinition>, StorageError>>;
+
+    /// Sets the instance-wide default New Code definition, applied to any
+    /// project/branch with no override of its own.
+    fn set_global_new_code_definition(
+        &self,
         definition: NewCodeDefinition,
     ) -> BoxFuture<'_, Result<(), StorageError>>;
 }
@@ -363,6 +374,19 @@ impl OpsStore for PgOpsStore {
                 &definition,
             )
             .await
+        })
+    }
+
+    fn global_new_code_definition(&self) -> BoxFuture<'_, Result<Option<NewCodeDefinition>, StorageError>> {
+        Box::pin(async move { PgAnalysisStore::global_new_code_definition(&self.analyses).await })
+    }
+
+    fn set_global_new_code_definition(
+        &self,
+        definition: NewCodeDefinition,
+    ) -> BoxFuture<'_, Result<(), StorageError>> {
+        Box::pin(async move {
+            PgAnalysisStore::set_global_new_code_definition(&self.analyses, &definition).await
         })
     }
 }

@@ -207,6 +207,97 @@ pub(crate) async fn set_new_code_definition(
     }))
 }
 
+#[derive(Serialize, ToSchema)]
+pub(crate) struct GlobalNewCodeDefinitionResponseDto {
+    /// `None` when no instance-wide default has been set — every project
+    /// then resolves through its own default, or the built-in
+    /// `previous_analysis` if it has none either.
+    definition: Option<NewCodeDefinitionDto>,
+}
+
+/// Reads the instance-wide default New Code definition, if one has been
+/// set — distinct from a project's *effective* definition
+/// (`GET /api/projects/{key}/new-code-definition`), which also folds in
+/// any project/branch override.
+#[utoipa::path(
+    get,
+    path = "/api/system/new-code-definition",
+    responses(
+        (status = 200, description = "The instance-wide default, if set", body = GlobalNewCodeDefinitionResponseDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn get_global_new_code_definition(
+    State(state): State<Arc<AppState>>,
+    Caller(caller): Caller,
+) -> Result<Json<GlobalNewCodeDefinitionResponseDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
+    let definition = state
+        .ops
+        .global_new_code_definition()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(GlobalNewCodeDefinitionResponseDto {
+        definition: definition.map(NewCodeDefinitionDto::from_domain),
+    }))
+}
+
+/// Sets the instance-wide default New Code definition, applied to any
+/// project/branch with no override of its own; audit-logged as
+/// `system.new_code_definition_updated`.
+#[utoipa::path(
+    put,
+    path = "/api/system/new-code-definition",
+    request_body = NewCodeDefinitionDto,
+    responses(
+        (status = 200, description = "The instance-wide default after the update", body = GlobalNewCodeDefinitionResponseDto),
+        (status = 400, description = "Invalid branch name"),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn set_global_new_code_definition(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Caller(caller): Caller,
+    Json(request): Json<NewCodeDefinitionDto>,
+) -> Result<Json<GlobalNewCodeDefinitionResponseDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
+    let actor = actor_from_headers(&state, &headers);
+    let definition = request.into_domain()?;
+
+    state
+        .ops
+        .set_global_new_code_definition(definition.clone())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    state
+        .ops
+        .record_audit(
+            actor,
+            "system.new_code_definition_updated".to_string(),
+            "instance".to_string(),
+            "global".to_string(),
+            None,
+            Some(serde_json::json!({ "definition": NewCodeDefinitionDto::from_domain(definition.clone()) })),
+        )
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(GlobalNewCodeDefinitionResponseDto {
+        definition: Some(NewCodeDefinitionDto::from_domain(definition)),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +365,17 @@ mod tests {
                 definition: NewCodeDefinitionDto::NumberOfDays { days: 7 },
             }
         );
+    }
+
+    #[test]
+    fn global_response_serializes_unset_as_null_not_a_missing_field() {
+        let unset = serde_json::to_value(GlobalNewCodeDefinitionResponseDto { definition: None }).unwrap();
+        assert_eq!(unset, serde_json::json!({ "definition": null }));
+
+        let set = serde_json::to_value(GlobalNewCodeDefinitionResponseDto {
+            definition: Some(NewCodeDefinitionDto::NumberOfDays { days: 14 }),
+        })
+        .unwrap();
+        assert_eq!(set, serde_json::json!({ "definition": { "kind": "number_of_days", "days": 14 } }));
     }
 }
