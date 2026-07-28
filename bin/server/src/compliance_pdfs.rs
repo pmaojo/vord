@@ -376,6 +376,23 @@ mod tests {
         AnalysisReport::new(vec![issue], Vec::new(), Metrics::new())
     }
 
+    fn multi_finding_report(specs: &[(&str, ProfileSeverity)]) -> AnalysisReport {
+        let issues = specs
+            .iter()
+            .enumerate()
+            .map(|(i, (rule_id, severity))| {
+                Issue::new(
+                    RuleId::new(rule_id).unwrap(),
+                    *severity,
+                    "test finding",
+                    "src/test.rs",
+                    Span::new(i as u32 + 1, 1, i as u32 + 1, 10),
+                )
+            })
+            .collect();
+        AnalysisReport::new(issues, Vec::new(), Metrics::new())
+    }
+
     #[test]
     fn rejects_empty_report_for_cwe_top25() {
         let cg = ComplianceReportGenerator::new("Acme Corp");
@@ -409,10 +426,22 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "pending PDF implementation"]
     fn cwe_top25_sorts_by_count_descending() {
-        let _report = one_finding_report("owasp:sqli", Severity::Critical);
-        // TODO: call generate() and assert rows are ordered by count desc, then cwe_id asc
+        let cg = ComplianceReportGenerator::new("Acme Corp");
+        let report = multi_finding_report(&[
+            ("owasp:sqli", ProfileSeverity::Critical),
+            ("owasp:sqli", ProfileSeverity::Critical),
+            ("owasp:sqli", ProfileSeverity::Critical),
+            ("owasp:xss", ProfileSeverity::Major),
+        ]);
+        let bytes = cg.generate(&report, ComplianceReportKind::CweTop25).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        let sqli_pos = text.find("CWE-89").expect("expected CWE-89 (3 findings) in output");
+        let xss_pos = text.find("CWE-79").expect("expected CWE-79 (1 finding) in output");
+        assert!(
+            sqli_pos < xss_pos,
+            "higher-count CWE-89 must be rendered before lower-count CWE-79"
+        );
     }
 
     #[test]
