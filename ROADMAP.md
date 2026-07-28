@@ -982,8 +982,21 @@ before being leaned on; that verification has not been done.
   credit". Still open: this is per-path/local (`bin/cli` only, gitignored
   file, no server-side aggregation) and per-write-history only — it does not
   yet flag a *project* the way Sonar's manual setting does, nor does it feed
-  the whole-repo quality gate (Phase 3); a mutation-testing score is the one
-  remaining leg of this still to build.
+  the whole-repo quality gate (Phase 3). Correction to this entry's first
+  draft: the mutation-testing leg of the "Bob gauntlet" was not actually
+  missing — `.github/workflows/ci.yml`'s `mutation-gate` job already ran
+  `cargo mutants -p yunq-agent-policy`, converted its output to the Stryker
+  report schema, and gated on the crate's mutation score before any of this
+  session's work started; it was just never written up here. That job caught
+  a real regression from the provenance/Gherkin work above: `Evaluation::is_empty`
+  and `AgentPolicy::enabled` were only ever asserted `true` in the existing
+  suite, so cargo-mutants' "replace body with `true`" mutant survived both —
+  fixed by adding the missing false-case assertion for each (verified
+  locally: `cargo mutants -p yunq-agent-policy` now reports 0 missed, 44
+  caught, 8 unviable). Still genuinely open: the mutation gate is scoped to
+  `yunq-agent-policy` alone (the highest-consequence, smallest, fastest-to-
+  mutate crate); widening it crate-by-crate as each proves fast enough is
+  unstarted.
   ✅ **(2026-07-28) Gherkin evidence gate** — the second leg. `[[gherkin_required]]`
   (new array-of-tables in `yunq-policy.toml`, same shape as `protected_path`:
   glob `pattern` + `reason`) denies an agent write to a matching path unless
