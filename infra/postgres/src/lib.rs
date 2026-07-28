@@ -48,6 +48,7 @@ mod coverage;
 mod gate;
 mod llm_config;
 mod measures;
+mod new_code_overrides;
 mod permission;
 mod profile;
 mod queue;

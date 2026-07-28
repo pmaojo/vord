@@ -214,6 +214,27 @@ impl NewCodeAnalysis {
             _ => None,
         }
     }
+
+    /// Every `new_*` measure, keyed by metric key — the persisted
+    /// counterpart to `AnalysisReport::all_measures()`, appended onto a
+    /// completed analysis' measure set once a `Baseline` is available so
+    /// measure history/component-tree queries see new-code counts too.
+    pub fn all_measures(&self) -> Vec<(String, f64)> {
+        const KEYS: [&str; 6] = [
+            "new_issue_total",
+            "new_blocker_issues",
+            "new_critical_issues",
+            "new_major_issues",
+            "new_minor_issues",
+            "new_info_issues",
+        ];
+        KEYS.iter()
+            .map(|raw| {
+                let key = MetricKey::new(raw).expect("all_measures keys are valid MetricKeys by construction");
+                (raw.to_string(), self.measure(&key).expect("all_measures keys are all handled by measure()"))
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -261,6 +282,24 @@ mod tests {
         assert_eq!(new_code.measure(&key("new_blocker_issues")), Some(1.0));
         assert_eq!(new_code.measure(&key("new_major_issues")), Some(0.0));
         assert_eq!(new_code.measure(&key("blocker_issues")), None);
+    }
+
+    #[test]
+    fn all_measures_covers_every_new_severity_bucket() {
+        let old = issue("old problem", Severity::Major);
+        let baseline = Baseline::from_report(&AnalysisReport::new(vec![old], vec![], Metrics::new()));
+        let fresh = issue("brand new problem", Severity::Blocker);
+        let report = AnalysisReport::new(vec![fresh], vec![], Metrics::new());
+
+        let new_code = NewCodeAnalysis::classify(&report, &baseline);
+        let measures: std::collections::BTreeMap<String, f64> = new_code.all_measures().into_iter().collect();
+        assert_eq!(measures.get("new_issue_total"), Some(&1.0));
+        assert_eq!(measures.get("new_blocker_issues"), Some(&1.0));
+        assert_eq!(measures.get("new_critical_issues"), Some(&0.0));
+        assert_eq!(measures.get("new_major_issues"), Some(&0.0));
+        assert_eq!(measures.get("new_minor_issues"), Some(&0.0));
+        assert_eq!(measures.get("new_info_issues"), Some(&0.0));
+        assert_eq!(measures.len(), 6);
     }
 
     #[test]

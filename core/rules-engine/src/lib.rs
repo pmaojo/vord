@@ -39,7 +39,8 @@ pub use domain::{
 pub use gate_defaults::default_gate;
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
 pub use new_code_overrides::{
-    NewCodeOverride, OverrideScope, OverrideSource, resolve_new_code_definition,
+    NewCodeOverride, OverrideScope, OverrideSource, resolve_baseline,
+    resolve_baseline_for_new_code_definition, resolve_new_code_definition,
 };
 pub use portfolios::{
     PortfolioNode, PortfolioRollup, ProjectRollupInput,
@@ -49,7 +50,7 @@ pub use project::{
     InvalidPullRequestNumberError, NewCodeDefinition, ProjectKey, PullRequestNumber,
 };
 pub use ports::{
-    AnalysisCache, AstParser, CacheKey, CachedAnalysis, ComponentMeasures, ComponentTree,
+    AnalysisCache, AnalysisHistoryReader, AstParser, CacheKey, CachedAnalysis, ComponentMeasures, ComponentTree,
     ComponentTreeReader, CoverageResultReader, CoverageResultSummary, CoverageStorage,
     FileBlameLineReader, FileBlameLineStorage, FileBlameLines, FileCoverageLineReader,
     FileCoverageLineStorage, FileCoverageLines, GateResultReader, GateResultSummary, HotspotReader,

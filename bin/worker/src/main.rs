@@ -15,8 +15,9 @@ use yunq_parser_python::PythonParser;
 use yunq_parser_rust::RustParser;
 use yunq_parser_typescript::TypeScriptParser;
 use yunq_rules_engine::{
-    AnalysisReport, AnalyzerService, HotspotStorage, IssueScope, IssueStorage, MeasureStorage,
-    MetricsTracker, QueueError, Rule, ScanJob,
+    AnalysisReport, AnalyzerService, Baseline, HotspotStorage, IssueScope, IssueStorage,
+    MeasureStorage, MetricsTracker, NewCodeAnalysis, NewCodeDefinition, QueueError, Rule, ScanJob,
+    resolve_baseline_for_new_code_definition,
 };
 
 /// Every scan is recorded against this branch; matches the rest of the
@@ -181,10 +182,12 @@ async fn resolve_scan_scope(bookkeeping: &ScanBookkeeping, job: &ScanJob) -> Iss
 }
 
 /// Evaluates the project's assigned gate (or the built-in default, if none
-/// was assigned) against this analysis' measures, and persists the outcome
-/// so the status badge reflects a real result instead of a hardcoded
-/// value. Best-effort: a failure here must not fail the scan job itself
-/// (the issues/hotspots/metrics are already durable).
+/// was assigned) against this analysis' measures — including `new_*`
+/// measures once the project/branch's configured New Code definition
+/// resolves to a baseline — and persists the outcome so the status badge
+/// reflects a real result instead of a hardcoded value. Best-effort: a
+/// failure here must not fail the scan job itself (the issues/hotspots/
+/// metrics are already durable).
 async fn persist_gate_result(
     bookkeeping: &ScanBookkeeping,
     job: &ScanJob,
@@ -196,14 +199,14 @@ async fn persist_gate_result(
         return;
     };
 
-    let gate =
-        bookkeeping.config.gate_for_project(project_id).await.unwrap_or_else(|_| yunq_rules_engine::default_gate());
-    let evaluation = gate.evaluate(|key| report.measure(key));
     let lines_of_code = report.metrics().lines_of_code() as i64;
     let issue_total = report.metrics().issue_total() as i32;
 
     // If `resolve_scan_scope` already created the analysis row (the common
     // case), backfill its real metrics rather than creating a second row.
+    // Resolved before gate evaluation because New Code classification below
+    // needs this analysis' own id, to exclude it when it would otherwise
+    // look like its own "previous analysis".
     let analysis_id = match scope.analysis_id {
         Some(id) => {
             if let Err(e) = bookkeeping.analyses.finalize_analysis(id, lines_of_code, issue_total).await {
@@ -224,6 +227,12 @@ async fn persist_gate_result(
         },
     };
 
+    let new_code = new_code_analysis(bookkeeping, job, analysis_id, report).await;
+
+    let gate =
+        bookkeeping.config.gate_for_project(project_id).await.unwrap_or_else(|_| yunq_rules_engine::default_gate());
+    let evaluation = gate.evaluate(|key| new_code.measure(key).or_else(|| report.measure(key)));
+
     if let Err(e) = bookkeeping.analyses.save_gate_result(analysis_id, &evaluation).await {
         eprintln!("warning: could not persist gate result: {e}");
     } else {
@@ -232,17 +241,52 @@ async fn persist_gate_result(
 
     // Measure history / component tree (issue #26): persist this analysis'
     // full measure set — project-level and, where derivable from the
-    // issues already in `report`, per-file — so the server's measure
-    // history and component-tree endpoints have real data instead of
-    // nothing. Best-effort, same rationale as the gate result above: a
-    // failure here must not fail the scan job.
-    if let Err(e) = bookkeeping
-        .analyses
-        .save_measures(analysis_id, &report.all_measures(), &report.file_issue_measures())
-        .await
+    // issues already in `report`, per-file — plus the `new_*` measures New
+    // Code classification just produced, so the server's measure history
+    // and component-tree endpoints have real data instead of nothing.
+    // Best-effort, same rationale as the gate result above: a failure here
+    // must not fail the scan job.
+    let mut measures = report.all_measures();
+    measures.extend(new_code.all_measures());
+    if let Err(e) =
+        bookkeeping.analyses.save_measures(analysis_id, &measures, &report.file_issue_measures()).await
     {
         eprintln!("warning: could not persist measures: {e}");
     }
+}
+
+/// Resolves the project/branch's configured New Code definition (an admin
+/// setting — see `PgAnalysisStore::resolve_new_code_definition_by_key`,
+/// defaulting to `PreviousAnalysis` if unset) and classifies `report`'s
+/// issues against the `Baseline` it resolves to. Best-effort: a resolution
+/// failure just means no `new_*` measures for this analysis (same as a
+/// project whose gate has no new-code conditions at all), not a failed scan.
+async fn new_code_analysis(
+    bookkeeping: &ScanBookkeeping,
+    job: &ScanJob,
+    analysis_id: i64,
+    report: &AnalysisReport,
+) -> NewCodeAnalysis {
+    let definition = bookkeeping
+        .analyses
+        .resolve_new_code_definition_by_key(job.project(), DEFAULT_BRANCH)
+        .await
+        .unwrap_or(NewCodeDefinition::PreviousAnalysis);
+
+    let baseline = resolve_baseline_for_new_code_definition(
+        &bookkeeping.analyses,
+        job.project(),
+        DEFAULT_BRANCH,
+        analysis_id,
+        &definition,
+    )
+    .await
+    .unwrap_or_else(|e| {
+        eprintln!("warning: could not resolve new-code baseline: {e}");
+        Baseline::default()
+    });
+
+    NewCodeAnalysis::classify(report, &baseline)
 }
 
 /// Best-effort activity log write — a failure here (e.g. the project row

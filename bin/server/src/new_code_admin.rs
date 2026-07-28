@@ -1,0 +1,208 @@
+//! Per-project (and optionally per-branch) New Code definition: which prior
+//! analysis a scan's issues get classified against for the `new_*` gate
+//! measures (see `yunq_rules_engine::NewCodeAnalysis`, wired into the
+//! worker's `persist_gate_result`).
+//!
+//! Same shape as `ops.rs`'s other project-scoped admin writes (retention,
+//! permission grants): `AdminAccess`-gated, audit-logged, backed by
+//! `state.ops` (the `OpsStore` port). Kept in its own file for the same
+//! reason `ai_provider_admin` is — one focused admin surface rather than
+//! ops.rs accreting every project setting.
+
+use std::sync::Arc;
+
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::Json;
+use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
+use yunq_rules_engine::{BranchName, NewCodeDefinition};
+
+use crate::auth::permissions::{is_allowed, Caller};
+use crate::auth::Permission;
+use crate::AppState;
+
+/// Matches `DEFAULT_BRANCH` in `bin/worker`: every scan is currently
+/// recorded against this branch, so it's the one whose effective
+/// definition actually drives a real gate evaluation until scans carry a
+/// real branch name.
+const DEFAULT_BRANCH: &str = "main";
+
+fn actor_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    state.auth.authenticate(headers).ok().map(|user| user.username().to_string())
+}
+
+fn forbidden(permission: Permission) -> (StatusCode, String) {
+    (StatusCode::FORBIDDEN, format!("missing permission: {permission:?}"))
+}
+
+/// JSON shape of a `NewCodeDefinition`. `rename_all = "snake_case"` on the
+/// `kind` tag happens to match the Postgres `kind` column's own encoding
+/// (`new_code_definitions.kind`) exactly.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum NewCodeDefinitionDto {
+    /// New code is everything since the previous analysis on this branch.
+    PreviousAnalysis,
+    /// New code is everything from the last `days` days.
+    NumberOfDays { days: u32 },
+    /// New code is the diff against a long-lived reference branch.
+    ReferenceBranch { branch: String },
+    /// New code is everything since a specific analysis id.
+    SpecificAnalysis { analysis_id: String },
+}
+
+impl NewCodeDefinitionDto {
+    fn into_domain(self) -> Result<NewCodeDefinition, (StatusCode, String)> {
+        Ok(match self {
+            Self::PreviousAnalysis => NewCodeDefinition::PreviousAnalysis,
+            Self::NumberOfDays { days } => NewCodeDefinition::NumberOfDays(days),
+            Self::ReferenceBranch { branch } => NewCodeDefinition::ReferenceBranch(
+                BranchName::new(&branch).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?,
+            ),
+            Self::SpecificAnalysis { analysis_id } => NewCodeDefinition::SpecificAnalysis(analysis_id),
+        })
+    }
+
+    fn from_domain(definition: NewCodeDefinition) -> Self {
+        match definition {
+            NewCodeDefinition::PreviousAnalysis => Self::PreviousAnalysis,
+            NewCodeDefinition::NumberOfDays(days) => Self::NumberOfDays { days },
+            NewCodeDefinition::ReferenceBranch(branch) => {
+                Self::ReferenceBranch { branch: branch.as_str().to_string() }
+            }
+            NewCodeDefinition::SpecificAnalysis(analysis_id) => Self::SpecificAnalysis { analysis_id },
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct NewCodeDefinitionResponseDto {
+    project_key: String,
+    /// The branch this effective definition was resolved for (or, for a
+    /// `PUT` with no `for_branch`, the project-wide default's own label).
+    branch: String,
+    definition: NewCodeDefinitionDto,
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct NewCodeDefinitionQueryDto {
+    /// Branch to resolve the effective definition for. Defaults to `main`
+    /// — every scan is currently recorded against that branch (see
+    /// `DEFAULT_BRANCH`), so it's the one whose effective definition
+    /// actually drives a real gate evaluation.
+    branch: Option<String>,
+}
+
+/// Reads the effective New Code definition for a project/branch: its own
+/// branch-specific override, else the project-wide default, else the
+/// built-in default (`previous_analysis`) — same precedence
+/// `PgAnalysisStore::resolve_new_code_definition` applies at scan time.
+#[utoipa::path(
+    get,
+    path = "/api/projects/{key}/new-code-definition",
+    params(
+        ("key" = String, Path, description = "Project key"),
+        NewCodeDefinitionQueryDto,
+    ),
+    responses(
+        (status = 200, description = "The effective New Code definition", body = NewCodeDefinitionResponseDto),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn get_new_code_definition(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+    Query(query): Query<NewCodeDefinitionQueryDto>,
+    Caller(caller): Caller,
+) -> Result<Json<NewCodeDefinitionResponseDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
+    let branch = query.branch.unwrap_or_else(|| DEFAULT_BRANCH.to_string());
+
+    let definition = state
+        .ops
+        .new_code_definition(key.clone(), branch.clone())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(NewCodeDefinitionResponseDto {
+        project_key: key,
+        branch,
+        definition: NewCodeDefinitionDto::from_domain(definition),
+    }))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct SetNewCodeDefinitionRequestDto {
+    /// Branch this override applies to; omit to set the project-wide
+    /// default that any branch without its own override falls back to.
+    for_branch: Option<String>,
+    #[serde(flatten)]
+    definition: NewCodeDefinitionDto,
+}
+
+/// Assigns a project's (or one branch's) New Code definition; audit-logged
+/// as `project.new_code_definition_updated`.
+#[utoipa::path(
+    put,
+    path = "/api/projects/{key}/new-code-definition",
+    params(("key" = String, Path, description = "Project key")),
+    request_body = SetNewCodeDefinitionRequestDto,
+    responses(
+        (status = 200, description = "The definition after the update", body = NewCodeDefinitionResponseDto),
+        (status = 400, description = "Invalid branch name"),
+        (status = 401, description = "Missing or invalid bearer token"),
+        (status = 403, description = "Caller lacks AdminAccess"),
+        (status = 502, description = "Storage backend unavailable"),
+    )
+)]
+pub(crate) async fn set_new_code_definition(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+    headers: HeaderMap,
+    Caller(caller): Caller,
+    Json(request): Json<SetNewCodeDefinitionRequestDto>,
+) -> Result<Json<NewCodeDefinitionResponseDto>, (StatusCode, String)> {
+    if !is_allowed(&caller, Permission::AdminAccess) {
+        return Err(forbidden(Permission::AdminAccess));
+    }
+    let actor = actor_from_headers(&state, &headers);
+    let definition = request.definition.into_domain()?;
+
+    state
+        .ops
+        .set_new_code_definition(key.clone(), request.for_branch.clone(), definition.clone())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    let entity_id = match &request.for_branch {
+        Some(branch) => format!("{key}:{branch}"),
+        None => key.clone(),
+    };
+    state
+        .ops
+        .record_audit(
+            actor,
+            "project.new_code_definition_updated".to_string(),
+            "project".to_string(),
+            entity_id,
+            None,
+            Some(serde_json::json!({
+                "branch": request.for_branch,
+                "definition": NewCodeDefinitionDto::from_domain(definition.clone()),
+            })),
+        )
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(NewCodeDefinitionResponseDto {
+        project_key: key,
+        branch: request.for_branch.unwrap_or_else(|| DEFAULT_BRANCH.to_string()),
+        definition: NewCodeDefinitionDto::from_domain(definition),
+    }))
+}

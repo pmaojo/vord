@@ -24,11 +24,12 @@ use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 use yunq_infra_postgres::{
     AuditLogEntry, AuditLogQuery, CompareProfileError, CopyProfileError, LlmConfigError,
-    PgAuditStore, PgConfigStore, ProjectLlmConfig, PurgeReport, RestoreProfileError, SystemSnapshot,
+    PgAnalysisStore, PgAuditStore, PgConfigStore, ProjectLlmConfig, PurgeReport, RestoreProfileError,
+    SystemSnapshot,
 };
 use yunq_rules_engine::{
-    ComparisonOperator, MetricKey, Page, ProfileBackup, ProfileDiff, QualityProfile, RuleId,
-    Severity, StorageError,
+    ComparisonOperator, MetricKey, NewCodeDefinition, Page, ProfileBackup, ProfileDiff,
+    QualityProfile, RuleId, Severity, StorageError,
 };
 
 use crate::auth::permissions::{is_allowed, Caller};
@@ -155,6 +156,25 @@ pub(crate) trait OpsStore: Send + Sync {
     /// Resolves the project key that owns an issue, so the Remediation
     /// Agent can route to that project's BYOK config.
     fn project_key_for_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<Option<String>, StorageError>>;
+
+    /// The effective New Code definition for a project/branch: its own
+    /// branch-specific override, else the project-wide default, else the
+    /// built-in default (`PreviousAnalysis`) — same precedence
+    /// `PgAnalysisStore::resolve_new_code_definition` applies at scan time.
+    fn new_code_definition(
+        &self,
+        project_key: String,
+        branch: String,
+    ) -> BoxFuture<'_, Result<NewCodeDefinition, StorageError>>;
+
+    /// Assigns a project's New Code definition, optionally scoped to one
+    /// branch (`None` sets the project-wide default).
+    fn set_new_code_definition(
+        &self,
+        project_key: String,
+        branch: Option<String>,
+        definition: NewCodeDefinition,
+    ) -> BoxFuture<'_, Result<(), StorageError>>;
 }
 
 /// The administration surface the ops API needs, which spans two of the
@@ -167,11 +187,12 @@ pub(crate) trait OpsStore: Send + Sync {
 pub struct PgOpsStore {
     config: PgConfigStore,
     audit: PgAuditStore,
+    analyses: PgAnalysisStore,
 }
 
 impl PgOpsStore {
-    pub fn new(config: PgConfigStore, audit: PgAuditStore) -> Self {
-        Self { config, audit }
+    pub fn new(config: PgConfigStore, audit: PgAuditStore, analyses: PgAnalysisStore) -> Self {
+        Self { config, audit, analyses }
     }
 }
 
@@ -316,6 +337,33 @@ impl OpsStore for PgOpsStore {
 
     fn project_key_for_issue(&self, issue_id: i64) -> BoxFuture<'_, Result<Option<String>, StorageError>> {
         Box::pin(async move { PgConfigStore::project_key_for_issue(&self.config, issue_id).await })
+    }
+
+    fn new_code_definition(
+        &self,
+        project_key: String,
+        branch: String,
+    ) -> BoxFuture<'_, Result<NewCodeDefinition, StorageError>> {
+        Box::pin(async move {
+            PgAnalysisStore::resolve_new_code_definition_by_key(&self.analyses, &project_key, &branch).await
+        })
+    }
+
+    fn set_new_code_definition(
+        &self,
+        project_key: String,
+        branch: Option<String>,
+        definition: NewCodeDefinition,
+    ) -> BoxFuture<'_, Result<(), StorageError>> {
+        Box::pin(async move {
+            PgAnalysisStore::set_new_code_definition_by_key(
+                &self.analyses,
+                &project_key,
+                branch.as_deref(),
+                &definition,
+            )
+            .await
+        })
     }
 }
 
