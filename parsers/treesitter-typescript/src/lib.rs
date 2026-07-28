@@ -31,7 +31,7 @@ impl AstParser for TypeScriptParser {
         &self,
         file: &SourceFile,
         normalization: yunq_cpd::TokenNormalization,
-    ) -> Vec<(u32, String)> {
+    ) -> yunq_cpd::TokenizedSource {
         yunq_treesitter_adapter::tokenize_with(&grammar_for(file), file, normalization)
     }
 }

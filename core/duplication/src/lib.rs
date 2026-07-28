@@ -52,6 +52,37 @@ const PRIME_BASE: u64 = 31;
 pub struct TokenizedFile {
     pub path: String,
     pub lines: Vec<(u32, String)>,
+    /// Lines where a function/method body begins, from the file's AST.
+    ///
+    /// A token stream cannot tell copied logic from the shape a type's
+    /// declarations happen to share — both are just matching tokens. This
+    /// is the structural context that can, and it is why an AST-aware
+    /// detector beats a purely lexical one here. Empty when the language
+    /// has no registered parser, which simply disables the check.
+    pub declaration_lines: Vec<u32>,
+}
+
+impl TokenizedFile {
+    /// A tokenized file with no declaration boundaries known — the
+    /// degraded form used when no parser is registered for the language.
+    pub fn new(path: String, lines: Vec<(u32, String)>) -> Self {
+        Self { path, lines, declaration_lines: Vec::new() }
+    }
+
+    /// How many declaration boundaries fall inside an inclusive line range.
+    fn declarations_within(&self, start_line: u32, end_line: u32) -> usize {
+        self.declaration_lines.iter().filter(|l| (start_line..=end_line).contains(l)).count()
+    }
+}
+
+/// What a tokenizer produces for one file: the normalized token lines, and
+/// the declaration boundaries the same tree walk observed. Returned
+/// together because they come from one parse — computing the boundaries
+/// separately would mean parsing every file twice.
+#[derive(Clone, Debug, Default)]
+pub struct TokenizedSource {
+    pub lines: Vec<(u32, String)>,
+    pub declaration_lines: Vec<u32>,
 }
 
 /// Non-language-aware fallback: each non-blank trimmed source line is its
@@ -88,6 +119,20 @@ pub struct DuplicationConfig {
     pub min_lines: usize,
     /// How far tokens are normalized before hashing.
     pub normalization: TokenNormalization,
+    /// The most declaration boundaries one reported region may span.
+    ///
+    /// A copied body lives inside a single declaration, so a region that
+    /// straddles several is not evidence of copying — it is the shape the
+    /// surrounding type imposes. A trait forces every implementer to
+    /// declare the same methods in the same order, so N implementations
+    /// match across their whole declaration run while sharing no logic at
+    /// all; on this repo that was 204 of 324 findings, none of them
+    /// actionable, because no refactoring can remove a method a trait
+    /// requires. One boundary still permits a whole single function to be
+    /// reported, which is the common real case. Raising this asks for
+    /// multi-declaration regions back; the individual bodies inside them
+    /// are reported on their own merits either way.
+    pub max_declarations_spanned: usize,
     /// Whether test code participates in duplication detection.
     ///
     /// Off by default, for the same reason every rule in this engine skips
@@ -105,6 +150,7 @@ impl Default for DuplicationConfig {
             block_size: 5,
             min_lines: 10,
             normalization: TokenNormalization::default(),
+            max_declarations_spanned: 1,
             include_test_code: false,
         }
     }
@@ -406,6 +452,11 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
                     blocks_start,
                     blocks_end,
                 );
+                if files[file].declarations_within(region.start_line, region.end_line)
+                    > config.max_declarations_spanned
+                {
+                    continue;
+                }
                 by_content.entry(key).or_default().insert(region);
             }
         }
@@ -452,7 +503,7 @@ mod tests {
 
     fn file(path: &str, content: &str) -> TokenizedFile {
         let source = SourceFile::new(path, content, LanguageIdentifier::rust()).unwrap();
-        TokenizedFile { path: source.path().to_string(), lines: fallback_tokenize(&source) }
+        TokenizedFile::new(source.path().to_string(), fallback_tokenize(&source))
     }
 
     fn block_body(prefix: &str) -> String {
@@ -570,6 +621,53 @@ mod tests {
     }
 
     #[test]
+    fn a_run_of_separate_declarations_is_not_reported_as_a_clone() {
+        // The regression this guards: a trait forces every implementer to
+        // declare the same methods, so N implementations match across their
+        // whole declaration run while sharing no logic — nothing anyone can
+        // act on, since the methods cannot be removed. On this repo that
+        // was 204 of 324 findings. A token stream cannot tell this from a
+        // copied body; the declaration boundaries from the AST can.
+        let decls = |a: &str, b: &str| -> Vec<(u32, String)> {
+            vec![
+                (1, "fn id ( & self ) -> & RuleId {".into()),
+                (2, "& self . id".into()),
+                (3, "}".into()),
+                (4, "fn severity ( & self ) -> Severity {".into()),
+                (5, format!("Severity :: {a}")),
+                (6, "}".into()),
+                (7, "fn metadata ( & self ) -> Meta {".into()),
+                (8, format!("Meta {{ text : {b} }}")),
+                (9, "}".into()),
+                (10, "}".into()),
+                (11, "impl X {".into()),
+                (12, "fn other ( ) { }".into()),
+            ]
+        };
+        let with_bounds = |path: &str| TokenizedFile {
+            path: path.into(),
+            lines: decls("Major", "STR"),
+            declaration_lines: vec![1, 4, 7, 12],
+        };
+        let files = [with_bounds("a.rs"), with_bounds("b.rs")];
+        let config = DuplicationConfig { min_lines: 5, ..Default::default() };
+        assert!(
+            find_duplicates(&files, config).clone_sets.is_empty(),
+            "a run of separate declarations must not be reported as copied code"
+        );
+
+        // The guard on that: the identical tokens *inside one* declaration
+        // are still a clone, so the filter cannot be hiding real copies.
+        let one_body = |path: &str| TokenizedFile {
+            path: path.into(),
+            lines: decls("Major", "STR"),
+            declaration_lines: vec![1],
+        };
+        let inside = [one_body("a.rs"), one_body("b.rs")];
+        assert_eq!(find_duplicates(&inside, config).clone_sets.len(), 1);
+    }
+
+    #[test]
     fn identifier_normalization_is_what_catches_a_renamed_copy() {
         // The Type-1/Type-2 boundary, asserted from both sides so neither
         // can silently change: with identifiers intact a renamed copy is
@@ -587,7 +685,7 @@ mod tests {
                 })
                 .collect();
             let _ = body(prefix);
-            TokenizedFile { path: path.into(), lines }
+            TokenizedFile::new(path.into(), lines)
         };
 
         let type_1 = [tokenize("a.rs", "alpha", false), tokenize("b.rs", "beta", false)];
@@ -614,8 +712,8 @@ mod tests {
         let body: Vec<(u32, String)> = (0..6)
             .map(|i| (i + 2, format!("total += weights [ {i} ] * LIT ;")))
             .collect();
-        let a = TokenizedFile { path: "a.rs".into(), lines: body.clone() };
-        let b = TokenizedFile { path: "b.rs".into(), lines: body };
+        let a = TokenizedFile::new("a.rs".into(), body.clone());
+        let b = TokenizedFile::new("b.rs".into(), body);
         let report = find_duplicates(&[a, b], DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
         assert_eq!(report.clone_sets.len(), 1);
         assert_eq!(report.clone_sets[0].lines, 6);

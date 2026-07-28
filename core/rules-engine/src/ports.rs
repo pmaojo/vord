@@ -38,9 +38,12 @@ pub trait AstParser: Send + Sync {
         &self,
         file: &SourceFile,
         normalization: yunq_cpd::TokenNormalization,
-    ) -> Vec<(u32, String)> {
+    ) -> yunq_cpd::TokenizedSource {
         let _ = normalization;
-        yunq_cpd::fallback_tokenize(file)
+        yunq_cpd::TokenizedSource {
+            lines: yunq_cpd::fallback_tokenize(file),
+            declaration_lines: Vec::new(),
+        }
     }
 }
 

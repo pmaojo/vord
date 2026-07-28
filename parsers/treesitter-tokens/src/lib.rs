@@ -23,7 +23,7 @@
 //! stop affecting the hash — only leading/trailing whitespace mattered
 //! before this, via `str::trim`.
 
-pub use yunq_cpd::{TokenNormalization, IDENTIFIER_PLACEHOLDER};
+pub use yunq_cpd::{TokenNormalization, TokenizedSource, IDENTIFIER_PLACEHOLDER};
 
 const STRING_PLACEHOLDER: &str = "\u{0}STR\u{0}";
 const NUMBER_PLACEHOLDER: &str = "\u{0}NUM\u{0}";
@@ -42,6 +42,39 @@ pub fn statement_lines_with(
     source: &str,
     normalization: TokenNormalization,
 ) -> Vec<(u32, String)> {
+    tokenize(tree, source, normalization).lines
+}
+
+/// Whether a grammar kind names a *declaration* — a named function or
+/// method — as opposed to a closure/lambda, which lives inside a body
+/// rather than bounding one. Grammars name these consistently enough for
+/// one rule to hold across all of them (`function_item`,
+/// `function_definition`, `function_declaration`, `method_definition`, ...
+/// versus `closure_expression`, `arrow_function`, `lambda`).
+fn is_declaration(kind: &str) -> bool {
+    let k = kind.to_ascii_lowercase();
+    (k.contains("function") || k.contains("method"))
+        && !(k.contains("closure") || k.contains("arrow") || k.contains("lambda"))
+}
+
+/// Tokens plus the declaration boundaries seen in the same walk.
+pub fn tokenize(
+    tree: &tree_sitter::Tree,
+    source: &str,
+    normalization: TokenNormalization,
+) -> TokenizedSource {
+    let mut declaration_lines = Vec::new();
+    let mut cursor = tree.walk();
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        if is_declaration(node.kind()) {
+            declaration_lines.push(node.start_position().row as u32 + 1);
+        }
+        stack.extend(node.children(&mut cursor));
+    }
+    declaration_lines.sort_unstable();
+    declaration_lines.dedup();
+
     let mut tokens: Vec<(u32, &str)> = Vec::new();
     walk(tree.root_node(), source.as_bytes(), normalization, &mut tokens);
 
@@ -55,7 +88,7 @@ pub fn statement_lines_with(
             _ => grouped.push((line, token.to_string())),
         }
     }
-    grouped
+    TokenizedSource { lines: grouped, declaration_lines }
 }
 
 fn walk<'a>(

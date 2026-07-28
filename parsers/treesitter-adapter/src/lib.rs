@@ -22,7 +22,7 @@
 use std::sync::Arc;
 
 use yunq_ast::{AstNode, NodeKind, SourceFile, Span};
-use yunq_cpd::TokenNormalization;
+use yunq_cpd::{TokenNormalization, TokenizedSource};
 use yunq_rules_engine::ParseError;
 
 /// Maps one grammar's node-kind name onto the neutral AST. The only piece
@@ -76,15 +76,19 @@ pub fn tokenize_with(
     language: &tree_sitter::Language,
     file: &SourceFile,
     normalization: TokenNormalization,
-) -> Vec<(u32, String)> {
+) -> TokenizedSource {
+    let degraded = || TokenizedSource {
+        lines: yunq_cpd::fallback_tokenize(file),
+        declaration_lines: Vec::new(),
+    };
     let mut parser = tree_sitter::Parser::new();
     if parser.set_language(language).is_err() {
-        return yunq_cpd::fallback_tokenize(file);
+        return degraded();
     }
     let Some(tree) = parser.parse(file.content(), None) else {
-        return yunq_cpd::fallback_tokenize(file);
+        return degraded();
     };
-    yunq_treesitter_tokens::statement_lines_with(&tree, file.content(), normalization)
+    yunq_treesitter_tokens::tokenize(&tree, file.content(), normalization)
 }
 
 /// Declares a whole `AstParser` adapter from the two things that actually
@@ -132,7 +136,7 @@ macro_rules! declare_parser {
                 &self,
                 file: &$crate::__reexport::SourceFile,
                 normalization: $crate::__reexport::TokenNormalization,
-            ) -> ::std::vec::Vec<(u32, ::std::string::String)> {
+            ) -> $crate::__reexport::TokenizedSource {
                 $crate::tokenize_with(&$grammar.into(), file, normalization)
             }
         }
@@ -144,6 +148,6 @@ macro_rules! declare_parser {
 #[doc(hidden)]
 pub mod __reexport {
     pub use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-    pub use yunq_cpd::TokenNormalization;
+    pub use yunq_cpd::{TokenNormalization, TokenizedSource};
     pub use yunq_rules_engine::{AstParser, ParseError};
 }

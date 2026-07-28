@@ -48,6 +48,10 @@ pub struct DuplicationSettings {
     /// Let test code participate in duplication detection. Off by default —
     /// repetition in a test suite is usually deliberate.
     pub include_test_code: Option<bool>,
+    /// Most declaration boundaries one reported clone may span (engine
+    /// default 1). Raise it to see regions that cover several adjacent
+    /// declarations, e.g. a whole trait implementation.
+    pub max_declarations_spanned: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
