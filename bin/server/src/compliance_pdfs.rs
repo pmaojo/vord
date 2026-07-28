@@ -137,6 +137,8 @@ impl ComplianceReportGenerator {
         let mut pdf = Vec::with_capacity(4096);
         pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
 
+        let rows = self.build_cwe_top25_rows(report);
+
         // Build text stream
         let mut text = String::new();
         text.push_str("BT /F1 16 Tf 50 750 Td (CWE Top 25 - Most Dangerous Software Weaknesses) Tj ET\n");
@@ -146,16 +148,15 @@ impl ComplianceReportGenerator {
         text.push_str(&format!("BT /F1 10 Tf 50 650 Td (Total Hotspots: {}) Tj ET\n", report.hotspots().len()));
 
         let mut y: i32 = 620;
-        for issue in report.issues().iter().take(25) {
-            let severity = match issue.severity() {
-                yunq_rules_engine::Severity::Blocker => "Blocker",
-                yunq_rules_engine::Severity::Critical => "Critical",
-                yunq_rules_engine::Severity::Major => "Major",
-                yunq_rules_engine::Severity::Minor => "Minor",
-                yunq_rules_engine::Severity::Info => "Info",
+        for row in rows.iter().take(25) {
+            let severity = match row.max_severity {
+                Severity::Blocker => "Blocker",
+                Severity::Critical => "Critical",
+                Severity::Major => "Major",
+                Severity::Minor => "Minor",
+                Severity::Info => "Info",
             };
-            let line = format!("[{severity}] {} in {}:{}",
-                issue.rule().as_str(), issue.file(), issue.span().start_line);
+            let line = format!("{} - {} [{severity}] ({} finding(s))", row.cwe_id, row.name, row.count);
             let escaped = line.replace('(', "\\(").replace(')', "\\)");
             let _ = std::fmt::Write::write_fmt(&mut text, format_args!(
                 "BT /F1 9 Tf 50 {y} Td ({escaped}) Tj ET\n"
@@ -168,6 +169,78 @@ impl ComplianceReportGenerator {
         let offsets = self.write_pdf_objects(&mut pdf, stream_bytes);
         self.write_xref_trailer(&mut pdf, &offsets);
         Ok(pdf)
+    }
+
+    /// Group `report`'s issues by CWE, keeping the highest severity and the
+    /// finding count observed per weakness, ranked by count descending (ties
+    /// broken by CWE id) and capped at 25 rows.
+    fn build_cwe_top25_rows(&self, report: &AnalysisReport) -> Vec<CweTop25Row> {
+        let mut rows: std::collections::HashMap<&'static str, CweTop25Row> = std::collections::HashMap::new();
+        for issue in report.issues() {
+            let (cwe_id, name) = Self::cwe_lookup(issue.rule().as_str());
+            let severity = Self::to_local_severity(issue.severity());
+            let row = rows.entry(cwe_id).or_insert_with(|| CweTop25Row {
+                cwe_id: cwe_id.to_string(),
+                name: name.to_string(),
+                max_severity: severity,
+                count: 0,
+            });
+            row.count += 1;
+            if Self::severity_rank(severity) > Self::severity_rank(row.max_severity) {
+                row.max_severity = severity;
+            }
+        }
+        let mut rows: Vec<CweTop25Row> = rows.into_values().collect();
+        rows.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.cwe_id.cmp(&b.cwe_id)));
+        rows.truncate(25);
+        rows
+    }
+
+    /// Maps a rule id to its CWE id + human-readable weakness name. Falls
+    /// back to an "unclassified" bucket for rules without a known mapping.
+    fn cwe_lookup(rule_id: &str) -> (&'static str, &'static str) {
+        if rule_id.contains("sqli") || rule_id.contains("sql-injection") || rule_id.contains("injection") {
+            ("CWE-89", "SQL Injection")
+        } else if rule_id.contains("xss") || rule_id.contains("inner-html") {
+            ("CWE-79", "Cross-Site Scripting")
+        } else if rule_id.contains("secret") || rule_id.contains("credential") {
+            ("CWE-798", "Use of Hard-coded Credentials")
+        } else if rule_id.contains("weak-crypto") || rule_id.contains("weak-random") {
+            ("CWE-327", "Use of a Broken or Risky Cryptographic Algorithm")
+        } else if rule_id.contains("eval") || rule_id.contains("command-execution") {
+            ("CWE-78", "OS Command Injection")
+        } else if rule_id.contains("deserialization") || rule_id.contains("unsafe-yaml") {
+            ("CWE-502", "Deserialization of Untrusted Data")
+        } else if rule_id.contains("cors") {
+            ("CWE-942", "Permissive Cross-domain Policy")
+        } else if rule_id.contains("cert-validation") {
+            ("CWE-295", "Improper Certificate Validation")
+        } else {
+            ("CWE-000", "Unclassified Weakness")
+        }
+    }
+
+    fn to_local_severity(severity: yunq_rules_engine::Severity) -> Severity {
+        match severity {
+            yunq_rules_engine::Severity::Blocker => Severity::Blocker,
+            yunq_rules_engine::Severity::Critical => Severity::Critical,
+            yunq_rules_engine::Severity::Major => Severity::Major,
+            yunq_rules_engine::Severity::Minor => Severity::Minor,
+            yunq_rules_engine::Severity::Info => Severity::Info,
+        }
+    }
+
+    /// Ranks local `Severity` from least (0) to most (4) severe — the enum's
+    /// declared (and derived `Ord`) order is display order, not severity
+    /// order, so "highest severity observed" needs this instead of `Ord`.
+    fn severity_rank(severity: Severity) -> u8 {
+        match severity {
+            Severity::Info => 0,
+            Severity::Minor => 1,
+            Severity::Major => 2,
+            Severity::Critical => 3,
+            Severity::Blocker => 4,
+        }
     }
 
     fn generate_pci_dss_pdf(&self, report: &AnalysisReport) -> Result<Vec<u8>, ComplianceError> {
@@ -327,8 +400,12 @@ mod tests {
     #[test]
     fn cwe_top25_maps_known_cwe_id_to_name() {
         // CWE-89 ("SQL Injection") must resolve to a non-empty name.
-        let _report = one_finding_report("owasp:sqli", Severity::Critical);
-        // TODO: call generate() and assert CWE-89 row has name == SQL Injection
+        let cg = ComplianceReportGenerator::new("Acme Corp");
+        let report = one_finding_report("owasp:sqli", Severity::Critical);
+        let bytes = cg.generate(&report, ComplianceReportKind::CweTop25).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("CWE-89"), "expected CWE-89 in rendered report");
+        assert!(text.contains("SQL Injection"), "expected mapped CWE name in rendered report");
     }
 
     #[test]
