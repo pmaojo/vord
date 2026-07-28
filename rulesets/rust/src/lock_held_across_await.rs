@@ -12,6 +12,27 @@ fn locks_a_mutex(decl: &AstNode) -> bool {
     })
 }
 
+/// Whether the guard is taken from an *async* lock — `m.lock().await`
+/// rather than `m.lock()`/`m.lock().unwrap()`.
+///
+/// `tokio::sync::Mutex`/`RwLock` exist precisely so a guard *can* be held
+/// across an `.await`: their `lock()` is itself a future, and the tokio
+/// docs direct you to them for exactly the case where the lock must
+/// survive an await point. Holding one across `.await` is the intended
+/// design, not the defect this rule looks for — the defect is a
+/// *blocking* `std::sync`/`parking_lot` guard, which parks the OS thread
+/// and can deadlock the executor. Awaiting the acquisition is what tells
+/// the two apart.
+fn awaits_the_lock(decl: &AstNode) -> bool {
+    decl.descendants().any(|node| {
+        is_other(node.kind(), "await_expression")
+            && node.descendants().any(|inner| {
+                *inner.kind() == NodeKind::MemberAccess
+                    && inner.text().rsplit('.').next() == Some("lock")
+            })
+    })
+}
+
 fn declared_identifier(decl: &AstNode) -> Option<&str> {
     decl.children().iter().find(|c| *c.kind() == NodeKind::Identifier).map(AstNode::text)
 }
@@ -64,7 +85,7 @@ fn scan_block(block: &AstNode) -> Vec<Span> {
             collect_awaits(stmt, &mut awaits);
             spans.extend(awaits.into_iter().map(AstNode::span));
         }
-        if *stmt.kind() == NodeKind::VariableDecl && locks_a_mutex(stmt) {
+        if *stmt.kind() == NodeKind::VariableDecl && locks_a_mutex(stmt) && !awaits_the_lock(stmt) {
             if let Some(name) = declared_identifier(stmt) {
                 held.push(name);
             }
@@ -161,6 +182,31 @@ mod tests {
     fn flags_guard_held_across_await() {
         let findings = check(
             "async fn f(m: std::sync::Mutex<i32>) { let g = m.lock().unwrap(); other().await; drop(g); }\n",
+        );
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn ignores_a_tokio_async_lock_held_across_await() {
+        // The regression this guards: `tokio::sync::Mutex` exists so a
+        // guard *can* be held across `.await` — its `lock()` is a future,
+        // and tokio's own docs point you at it for exactly this case.
+        // Flagging it reported correct, idiomatic async code as a CRITICAL
+        // bug (it fired on this repo's own test helpers and failed the
+        // quality gate). Awaiting the acquisition is what distinguishes it
+        // from a blocking `std::sync` guard.
+        assert!(check(
+            "async fn f(m: tokio::sync::Mutex<i32>) { let g = m.lock().await; other().await; drop(g); }\n"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn still_flags_a_blocking_guard_in_a_function_that_also_awaits_a_lock() {
+        // The guard on the exemption above: an awaited lock elsewhere in
+        // the function must not excuse a genuinely blocking guard.
+        let findings = check(
+            "async fn f(a: tokio::sync::Mutex<i32>, b: std::sync::Mutex<i32>) { let x = a.lock().await; let g = b.lock().unwrap(); other().await; }\n",
         );
         assert_eq!(findings.len(), 1);
     }

@@ -2,7 +2,7 @@
 //! #30): `GET /api/admin/queue/status` exposes the real `scan_jobs` queue
 //! depth by status, the oldest still-pending job's age, and the jobs that
 //! have actually failed (dead-lettered or still eligible for retry) —
-//! backed by `PgIssueStorage::queue_status` (`infra/postgres/src/queue.rs`,
+//! backed by `PgAuditStore::queue_status` (`infra/postgres/src/queue.rs`,
 //! which is also where the dead-letter/attempt-tracking logic that makes
 //! this data meaningful lives). Requires `AdminAccess`: the failure list
 //! includes internal error text, same sensitivity level as the audit log.
@@ -20,23 +20,23 @@ use axum::Json;
 use futures::future::BoxFuture;
 use serde::Serialize;
 use utoipa::ToSchema;
-use yunq_infra_postgres::{FailedJob, PgIssueStorage, QueueStatus};
+use yunq_infra_postgres::{FailedJob, PgAuditStore, QueueStatus};
 use yunq_rules_engine::QueueError;
 
 use crate::auth::permissions::{is_allowed, Caller};
 use crate::auth::Permission;
 use crate::AppState;
 
-/// Object-safe HTTP-facing adapter over `PgIssueStorage::queue_status` —
+/// Object-safe HTTP-facing adapter over `PgAuditStore::queue_status` —
 /// same "one trait per composition-root need" pattern as `OpsStore`/
 /// `ScanQueuePort` in `main.rs`.
 pub(crate) trait QueueDiagnosticsPort: Send + Sync {
     fn queue_status(&self) -> BoxFuture<'_, Result<QueueStatus, QueueError>>;
 }
 
-impl QueueDiagnosticsPort for PgIssueStorage {
+impl QueueDiagnosticsPort for PgAuditStore {
     fn queue_status(&self) -> BoxFuture<'_, Result<QueueStatus, QueueError>> {
-        Box::pin(PgIssueStorage::queue_status(self))
+        Box::pin(PgAuditStore::queue_status(self))
     }
 }
 

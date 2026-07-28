@@ -1,7 +1,7 @@
 //! Per-project activity log (Fase 4, issue #30): `GET
 //! /api/projects/{key}/activity` reads back what the worker did for a
 //! project's background scan jobs (started/succeeded/failed), written by
-//! `bin/worker`'s `PgIssueStorage::record_activity`. Same "no permission
+//! `bin/worker`'s `PgAuditStore::record_activity`. Same "no permission
 //! check, project key is the only scope" convention as the other
 //! project-scoped read endpoints (`measures`, `sources`, `coverage`).
 
@@ -14,12 +14,12 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
-use yunq_infra_postgres::{ActivityLogEntry, ActivityLogQuery, PgIssueStorage};
+use yunq_infra_postgres::{ActivityLogEntry, ActivityLogQuery, PgAuditStore};
 use yunq_rules_engine::{Page, StorageError};
 
 use crate::AppState;
 
-/// Object-safe HTTP-facing adapter over `PgIssueStorage::list_activity` —
+/// Object-safe HTTP-facing adapter over `PgAuditStore::list_activity` —
 /// same "one trait per composition-root need" pattern as `OpsStore`/
 /// `ScanQueuePort` in `main.rs`.
 pub(crate) trait ActivityPort: Send + Sync {
@@ -30,13 +30,13 @@ pub(crate) trait ActivityPort: Send + Sync {
     ) -> BoxFuture<'_, Result<Page<ActivityLogEntry>, StorageError>>;
 }
 
-impl ActivityPort for PgIssueStorage {
+impl ActivityPort for PgAuditStore {
     fn list_activity(
         &self,
         project_key: String,
         query: ActivityLogQuery,
     ) -> BoxFuture<'_, Result<Page<ActivityLogEntry>, StorageError>> {
-        Box::pin(async move { PgIssueStorage::list_activity(self, &project_key, &query).await })
+        Box::pin(async move { PgAuditStore::list_activity(self, &project_key, &query).await })
     }
 }
 

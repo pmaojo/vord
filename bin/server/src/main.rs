@@ -25,7 +25,7 @@ use utoipa::{IntoParams, Modify, OpenApi, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
-use yunq_infra_postgres::PgIssueStorage;
+use yunq_infra_postgres::{PgAnalysisStore, PgAuditStore, PgConfigStore, PgIssueStorage};
 use yunq_rules_engine::{
     BulkOutcome, ChangelogAction,
     ChangelogEntry, GateResultReader,
@@ -336,14 +336,22 @@ fn build_app_state() -> anyhow::Result<Arc<AppState>> {
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-    let storage = PgIssueStorage::connect_lazy(&database_url)?;
-    let reader: Arc<dyn IssueApiStore> = Arc::new(storage.clone());
-    let gate: Arc<dyn GateBadgePort> = Arc::new(storage.clone());
-    let coverage: Arc<dyn CoveragePort> = Arc::new(storage.clone());
-    let ops: Arc<dyn OpsStore> = Arc::new(storage.clone());
-    let activity: Arc<dyn ActivityPort> = Arc::new(storage.clone());
-    let queue_diagnostics: Arc<dyn QueueDiagnosticsPort> = Arc::new(storage.clone());
-    let queue: Arc<dyn ScanQueuePort> = Arc::new(storage);
+    // One pool, four contexts. Each port is served by the adapter that
+    // owns the data behind it, so a handler that reads issues cannot
+    // reach the audit log or the quality-profile writes by accident.
+    let issues = PgIssueStorage::connect_lazy(&database_url)?;
+    let pool = issues.pool().clone();
+    let analyses = PgAnalysisStore::new(pool.clone());
+    let config = PgConfigStore::new(pool.clone());
+    let audit = PgAuditStore::new(pool);
+
+    let reader: Arc<dyn IssueApiStore> = Arc::new(issues);
+    let gate: Arc<dyn GateBadgePort> = Arc::new(analyses.clone());
+    let coverage: Arc<dyn CoveragePort> = Arc::new(analyses.clone());
+    let ops: Arc<dyn OpsStore> = Arc::new(ops::PgOpsStore::new(config, audit.clone()));
+    let activity: Arc<dyn ActivityPort> = Arc::new(audit.clone());
+    let queue_diagnostics: Arc<dyn QueueDiagnosticsPort> = Arc::new(audit);
+    let queue: Arc<dyn ScanQueuePort> = Arc::new(analyses);
     let default_retention_days = std::env::var("YUNQ_DEFAULT_RETENTION_DAYS")
         .ok()
         .and_then(|raw| raw.parse::<i32>().ok());

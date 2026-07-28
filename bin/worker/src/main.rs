@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use yunq_infra_postgres::{PgIssueStorage, PgJobConsumer};
+use yunq_infra_postgres::{PgAnalysisStore, PgAuditStore, PgConfigStore, PgIssueStorage, PgJobConsumer};
 use yunq_parser_go::GoParser;
 use yunq_parser_java::JavaParser;
 use yunq_parser_python::PythonParser;
@@ -30,25 +30,44 @@ async fn main() -> anyhow::Result<()> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
 
-    // 1. Instantiate adapters.
-    let storage = PgIssueStorage::connect_lazy(&database_url)?;
-    storage.migrate().await?;
+    // 1. Instantiate adapters — one pool, one context each. The worker
+    // touches four of them, and naming them here is what makes it obvious
+    // which parts of the database a scan job actually writes to.
+    let issues = PgIssueStorage::connect_lazy(&database_url)?;
+    issues.migrate().await?;
+    let pool = issues.pool().clone();
+    let analyses = PgAnalysisStore::new(pool.clone());
+    let bookkeeping = ScanBookkeeping {
+        config: PgConfigStore::new(pool.clone()),
+        activity: PgAuditStore::new(pool.clone()),
+        analyses: analyses.clone(),
+    };
 
-    // 2. Inject them into the pure domain service. A separate handle to the
-    // same pool persists the quality gate outcome once analysis finishes —
-    // gate persistence is a Postgres-specific concern, not a core port, so it
-    // stays outside the generic `AnalyzerService`.
-    let consumer = PgJobConsumer::new(storage.pool().clone());
-    let gate_storage = storage.clone();
-    let service = default_service(storage.clone(), storage);
+    // 2. Inject them into the pure domain service. The analysis context
+    // doubles as the metrics tracker; gate/analysis bookkeeping is a
+    // Postgres-specific concern, not a core port, so it stays outside the
+    // generic `AnalyzerService`.
+    let consumer = PgJobConsumer::new(pool.clone());
+    let service = default_service(issues, analyses);
 
     // 3. Boot. Housekeeping runs on its own timer alongside the job-consume
     // loop rather than blocking it — a purge is unrelated to, and much
     // rarer than, scan-job throughput.
-    tokio::spawn(run_housekeeping_loop(gate_storage.clone()));
+    tokio::spawn(run_housekeeping_loop(PgAuditStore::new(pool)));
     println!("yunq-worker consuming scan jobs");
-    consumer.listen(|job| handle_job(&service, &gate_storage, job)).await?;
+    consumer.listen(|job| handle_job(&service, &bookkeeping, job)).await?;
     Ok(())
+}
+
+/// The contexts a scan job writes to besides the issues themselves: the
+/// analysis lifecycle it records, the gate definition it is judged
+/// against, and the activity feed it reports to. Bundled so the job path
+/// passes one value rather than three, while each call site still names
+/// the context it is talking to.
+struct ScanBookkeeping {
+    analyses: PgAnalysisStore,
+    config: PgConfigStore,
+    activity: PgAuditStore,
 }
 
 /// Periodically deletes analyses, issues and hotspots past each project's
@@ -57,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
 /// untouched — retention is opt-in, not a silent default, since deletion
 /// isn't reversible. Runs once at startup, then every
 /// `YUNQ_HOUSEKEEPING_INTERVAL_HOURS` (default 24).
-async fn run_housekeeping_loop(storage: PgIssueStorage) {
+async fn run_housekeeping_loop(storage: PgAuditStore) {
     let default_days = std::env::var("YUNQ_DEFAULT_RETENTION_DAYS")
         .ok()
         .and_then(|raw| raw.parse::<i32>().ok());
@@ -141,8 +160,8 @@ where
 /// hotspots just land less scoped) rather than failing the job — same
 /// "storage is already durable, gate/analysis bookkeeping is advisory"
 /// contract `persist_gate_result` has always had.
-async fn resolve_scan_scope(gate_storage: &PgIssueStorage, job: &ScanJob) -> IssueScope {
-    let project_id = match gate_storage.ensure_project(job.project()).await {
+async fn resolve_scan_scope(bookkeeping: &ScanBookkeeping, job: &ScanJob) -> IssueScope {
+    let project_id = match bookkeeping.analyses.ensure_project(job.project()).await {
         Ok(id) => id,
         Err(e) => {
             eprintln!("warning: could not resolve project {}: {e}", job.project());
@@ -150,7 +169,7 @@ async fn resolve_scan_scope(gate_storage: &PgIssueStorage, job: &ScanJob) -> Iss
         }
     };
 
-    let analysis_id = match gate_storage.record_analysis_pending(project_id, DEFAULT_BRANCH).await {
+    let analysis_id = match bookkeeping.analyses.record_analysis_pending(project_id, DEFAULT_BRANCH).await {
         Ok(id) => Some(id),
         Err(e) => {
             eprintln!("warning: could not pre-record analysis for {}: {e}", job.project());
@@ -167,7 +186,7 @@ async fn resolve_scan_scope(gate_storage: &PgIssueStorage, job: &ScanJob) -> Iss
 /// value. Best-effort: a failure here must not fail the scan job itself
 /// (the issues/hotspots/metrics are already durable).
 async fn persist_gate_result(
-    gate_storage: &PgIssueStorage,
+    bookkeeping: &ScanBookkeeping,
     job: &ScanJob,
     scope: IssueScope,
     report: &AnalysisReport,
@@ -178,7 +197,7 @@ async fn persist_gate_result(
     };
 
     let gate =
-        gate_storage.gate_for_project(project_id).await.unwrap_or_else(|_| yunq_rules_engine::default_gate());
+        bookkeeping.config.gate_for_project(project_id).await.unwrap_or_else(|_| yunq_rules_engine::default_gate());
     let evaluation = gate.evaluate(|key| report.measure(key));
     let lines_of_code = report.metrics().lines_of_code() as i64;
     let issue_total = report.metrics().issue_total() as i32;
@@ -187,12 +206,13 @@ async fn persist_gate_result(
     // case), backfill its real metrics rather than creating a second row.
     let analysis_id = match scope.analysis_id {
         Some(id) => {
-            if let Err(e) = gate_storage.finalize_analysis(id, lines_of_code, issue_total).await {
+            if let Err(e) = bookkeeping.analyses.finalize_analysis(id, lines_of_code, issue_total).await {
                 eprintln!("warning: could not finalize analysis: {e}");
             }
             id
         }
-        None => match gate_storage
+        None => match bookkeeping
+            .analyses
             .record_analysis(project_id, DEFAULT_BRANCH, lines_of_code, issue_total)
             .await
         {
@@ -204,7 +224,7 @@ async fn persist_gate_result(
         },
     };
 
-    if let Err(e) = gate_storage.save_gate_result(analysis_id, &evaluation).await {
+    if let Err(e) = bookkeeping.analyses.save_gate_result(analysis_id, &evaluation).await {
         eprintln!("warning: could not persist gate result: {e}");
     } else {
         println!("quality gate for {}: {}", job.project(), evaluation.status());
@@ -216,7 +236,8 @@ async fn persist_gate_result(
     // history and component-tree endpoints have real data instead of
     // nothing. Best-effort, same rationale as the gate result above: a
     // failure here must not fail the scan job.
-    if let Err(e) = gate_storage
+    if let Err(e) = bookkeeping
+        .analyses
         .save_measures(analysis_id, &report.all_measures(), &report.file_issue_measures())
         .await
     {
@@ -227,27 +248,27 @@ async fn persist_gate_result(
 /// Best-effort activity log write — a failure here (e.g. the project row
 /// couldn't be created) must never fail the scan job it's describing, same
 /// contract as `persist_gate_result`'s own warnings.
-async fn log_activity(gate_storage: &PgIssueStorage, job: &ScanJob, event_type: &str, message: &str) {
-    if let Err(e) = gate_storage.record_activity(job.project(), event_type, message, None).await {
+async fn log_activity(bookkeeping: &ScanBookkeeping, job: &ScanJob, event_type: &str, message: &str) {
+    if let Err(e) = bookkeeping.activity.record_activity(job.project(), event_type, message, None).await {
         eprintln!("warning: could not record activity log entry: {e}");
     }
 }
 
 async fn handle_job<S, M>(
     service: &AnalyzerService<S, M>,
-    gate_storage: &PgIssueStorage,
+    bookkeeping: &ScanBookkeeping,
     job: ScanJob,
 ) -> Result<(), QueueError>
 where
     S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
-    log_activity(gate_storage, &job, "scan.started", &format!("scan started for {}", job.path())).await;
+    log_activity(bookkeeping, &job, "scan.started", &format!("scan started for {}", job.path())).await;
 
-    match run_scan(service, gate_storage, &job).await {
+    match run_scan(service, bookkeeping, &job).await {
         Ok(report) => {
             log_activity(
-                gate_storage,
+                bookkeeping,
                 &job,
                 "scan.succeeded",
                 &format!(
@@ -260,7 +281,7 @@ where
             Ok(())
         }
         Err(e) => {
-            log_activity(gate_storage, &job, "scan.failed", &e.0).await;
+            log_activity(bookkeeping, &job, "scan.failed", &e.0).await;
             Err(e)
         }
     }
@@ -271,7 +292,7 @@ where
 /// it fails (source collection or analysis itself).
 async fn run_scan<S, M>(
     service: &AnalyzerService<S, M>,
-    gate_storage: &PgIssueStorage,
+    bookkeeping: &ScanBookkeeping,
     job: &ScanJob,
 ) -> Result<AnalysisReport, QueueError>
 where
@@ -281,7 +302,7 @@ where
     let sources = yunq_infra_fs::collect_sources(Path::new(job.path()))
         .map_err(|e| QueueError(e.to_string()))?;
 
-    let scope = resolve_scan_scope(gate_storage, job).await;
+    let scope = resolve_scan_scope(bookkeeping, job).await;
 
     let report = service
         .analyze_files_scoped(&sources, scope)
@@ -294,7 +315,7 @@ where
         report.metrics().issue_total()
     );
 
-    persist_gate_result(gate_storage, job, scope, &report).await;
+    persist_gate_result(bookkeeping, job, scope, &report).await;
 
     Ok(report)
 }

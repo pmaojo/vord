@@ -12,7 +12,7 @@ use yunq_rules_engine::{
     StorageError,
 };
 
-use crate::PgIssueStorage;
+use crate::{PgAnalysisStore, PgConfigStore};
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
@@ -92,56 +92,11 @@ fn new_code_definition_from_row(
     }
 }
 
-impl PgIssueStorage {
-    /// Looks up a project by key, creating it (with no gate assignment —
-    /// resolved to the default gate at read time) on first sight. Idempotent:
-    /// a project already on file is returned unchanged.
-    pub async fn ensure_project(&self, key: &str) -> Result<i64, StorageError> {
-        let row = sqlx::query(
-            "INSERT INTO projects (key, name) VALUES ($1, $1)
-             ON CONFLICT (key) DO UPDATE SET key = EXCLUDED.key
-             RETURNING id",
-        )
-        .bind(key)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(storage_err)?;
-        row.try_get::<i64, _>("id").map_err(storage_err)
-    }
-
-    /// The effective quality gate for a project: the one explicitly assigned
-    /// to it, or the instance-wide default gate row, or (if neither row
-    /// exists — a fresh database with migrations not yet seeded) the
-    /// built-in `default_gate()` baked into the binary.
-    /// The gate id explicitly assigned to the project, or (if unassigned)
-    /// the instance-wide default gate's id, or `None` if neither row exists
-    /// (a fresh database with migrations not yet seeded).
-    async fn resolved_gate_id(&self, project_id: i64) -> Result<Option<i64>, StorageError> {
-        let assigned: Option<i64> =
-            sqlx::query("SELECT gate_id FROM projects WHERE id = $1")
-                .bind(project_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(storage_err)?
-                .map(|row: PgRow| row.try_get::<Option<i64>, _>("gate_id"))
-                .transpose()
-                .map_err(storage_err)?
-                .flatten();
-
-        match assigned {
-            Some(id) => Ok(Some(id)),
-            None => sqlx::query("SELECT id FROM quality_gates WHERE is_default LIMIT 1")
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(storage_err)?
-                .map(|row| row.try_get::<i64, _>("id"))
-                .transpose()
-                .map_err(storage_err),
-        }
-    }
-
+/// The gate *definition* a project resolves to — configuration, read
+/// during an analysis but written by administrators.
+impl PgConfigStore {
     pub async fn gate_for_project(&self, project_id: i64) -> Result<QualityGate, StorageError> {
-        let Some(gate_id) = self.resolved_gate_id(project_id).await? else {
+        let Some(gate_id) = crate::shared::resolved_gate_id(&self.pool, project_id).await? else {
             return Ok(default_gate());
         };
 
@@ -171,6 +126,18 @@ impl PgIssueStorage {
             gate = gate.with_condition(Condition::new(metric, operator, threshold));
         }
         Ok(gate)
+    }
+}
+
+/// The analysis lifecycle and the results one run produces.
+impl PgAnalysisStore {
+    /// Looks up a project by key, creating it on first sight. Idempotent.
+    /// Lives here because creating the project is the first step of
+    /// recording an analysis against it; the configuration context reaches
+    /// the same helper internally when a setting names a project that has
+    /// not been scanned yet.
+    pub async fn ensure_project(&self, key: &str) -> Result<i64, StorageError> {
+        crate::shared::ensure_project(&self.pool, key).await
     }
 
     /// Records one analysis run and returns its id — the unit the gate
@@ -338,7 +305,7 @@ fn rows_to_conditions(rows: &[PgRow]) -> Result<Vec<(String, ComparisonOperator,
     Ok(conditions)
 }
 
-impl PgIssueStorage {
+impl PgConfigStore {
     /// Replaces the full condition set of a gate: deletes all existing rows,
     /// then inserts `conditions` in order.
     async fn replace_gate_conditions(
@@ -409,7 +376,7 @@ impl PgIssueStorage {
     }
 }
 
-impl GateResultReader for PgIssueStorage {
+impl GateResultReader for PgAnalysisStore {
     async fn latest_gate_result(
         &self,
         project_key: &str,

@@ -2,7 +2,7 @@
 //! the CLI's `--blame-output` (issue #33), ingested via
 //! `POST /api/projects/{key}/blame` so the `sources` endpoint (issue #26)
 //! can annotate lines with who last touched them. Lives alongside
-//! `PgIssueStorage`/`coverage.rs` (same pool, same database, same
+//! `PgAnalysisStore`/`coverage.rs` (same pool, same database, same
 //! per-analysis-line-detail shape).
 
 use std::collections::BTreeMap;
@@ -13,7 +13,7 @@ use yunq_rules_engine::{
     StorageError,
 };
 
-use crate::PgIssueStorage;
+use crate::PgAnalysisStore;
 
 fn storage_err(e: impl std::fmt::Display) -> StorageError {
     StorageError(e.to_string())
@@ -24,7 +24,7 @@ fn storage_err(e: impl std::fmt::Display) -> StorageError {
 /// already uses.
 const BLAME_LINE_BATCH_ROWS: usize = 700;
 
-impl FileBlameLineStorage for PgIssueStorage {
+impl FileBlameLineStorage for PgAnalysisStore {
     async fn save_file_blame_lines(
         &self,
         analysis_id: i64,
@@ -71,7 +71,7 @@ impl FileBlameLineStorage for PgIssueStorage {
     }
 }
 
-impl FileBlameLineReader for PgIssueStorage {
+impl FileBlameLineReader for PgAnalysisStore {
     async fn file_blame_lines(
         &self,
         project_key: &str,
@@ -125,12 +125,12 @@ impl FileBlameLineReader for PgIssueStorage {
 #[cfg(test)]
 mod live_db_tests {
     use super::*;
-    use crate::PgIssueStorage;
+    use crate::PgAnalysisStore;
 
-    async fn connected_storage() -> PgIssueStorage {
+    async fn connected_storage() -> PgAnalysisStore {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://yunq:yunq@localhost:5432/yunq".to_string());
-        let storage = PgIssueStorage::connect_lazy(&database_url).unwrap();
+        let storage = PgAnalysisStore::connect_lazy(&database_url).unwrap();
         storage.migrate().await.unwrap();
         storage
     }

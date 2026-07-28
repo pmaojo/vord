@@ -4,7 +4,7 @@
 
 use sqlx::Row;
 
-use crate::PgIssueStorage;
+use crate::PgAuditStore;
 
 /// Postgres reachability plus a handful of cheap counters. Every field
 /// fails open (defaults reported instead of an error) — this endpoint is a
@@ -18,7 +18,7 @@ pub struct SystemSnapshot {
     pub pending_scan_jobs: i64,
 }
 
-impl PgIssueStorage {
+impl PgAuditStore {
     pub async fn system_snapshot(&self) -> SystemSnapshot {
         let postgres_version = sqlx::query("SELECT version() AS v")
             .fetch_one(&self.pool)
