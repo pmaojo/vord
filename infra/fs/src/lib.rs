@@ -22,7 +22,7 @@ mod worktree;
 pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura, parse_cobertura_report};
-pub use config::{DuplicationSettings, YunqConfig};
+pub use config::{ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings, YunqConfig};
 pub use coverage::{CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report};
 pub use diff::changed_lines_from_unified_diff;
 pub use gherkin::{COVERS_TAG, GherkinCoverageError, GherkinCoverageIndex, extract_covers_patterns};

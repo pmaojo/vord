@@ -2565,6 +2565,7 @@ dependencies = [
  "tokio",
  "yunq-agent-policy",
  "yunq-ast",
+ "yunq-import-graph",
  "yunq-infra-fs",
  "yunq-infra-github",
  "yunq-infra-llm",

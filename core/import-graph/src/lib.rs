@@ -6,12 +6,21 @@
 //! TypeScript/JS and Python only for now (see `resolve` module docs for
 //! what's resolved and what's deliberately left external); other languages
 //! contribute no edges (harmless, not an error).
+//!
+//! Also home to `component` (roadmap D1: components derived from path
+//! topology) and `boundary` (roadmap D2: declared boundaries between those
+//! components) — both consumers of the same edge set this module builds.
 
+mod boundary;
+mod component;
 mod resolve;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use yunq_ast::{AstNode, NodeKind, Span};
+
+pub use boundary::{ArchitectureConfig, BoundaryViolation, DependencyEdge, ViolationKind};
+pub use component::component_of;
 
 /// One resolved dependency edge: `from` imports `to`, at `span` in `from`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,6 +130,18 @@ impl ImportGraph {
 
     pub fn edges(&self) -> &[ImportEdge] {
         &self.edges
+    }
+
+    /// File-level edges collapsed to component-level edges
+    /// (`component::component_of`), deduplicated and with same-component
+    /// edges dropped — the input `boundary::ArchitectureConfig::violations`
+    /// checks declared boundaries against.
+    pub fn component_edges(&self) -> BTreeSet<(String, String)> {
+        self.edges
+            .iter()
+            .map(|e| (component_of(&e.from), component_of(&e.to)))
+            .filter(|(from, to)| from != to)
+            .collect()
     }
 
     /// The span of the import statement responsible for the `from -> to`

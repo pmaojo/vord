@@ -67,6 +67,11 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("owasp:cross-file-injection"), Severity::Blocker),
         // rulesets/architecture — cross-file rule, runs once per scan.
         (rule("architecture:dependency-cycle"), Severity::Major),
+        // rulesets/architecture — cross-file, config-driven, only ever
+        // registered (bin/cli::scan_with_project_config) when `yunq.toml`
+        // declares `[architecture]` boundaries; listed here so it's active
+        // whenever it is registered, same as every other built-in rule.
+        (rule("architecture:boundary-violation"), Severity::Major),
         // rulesets/code-smells — applies_to true for every language.
         (rule("smells:todo-comment"), Severity::Info),
         (rule("smells:long-function"), Severity::Minor),
