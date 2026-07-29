@@ -426,7 +426,26 @@ against it.
   test that exercises it (`ArchitectureConfig::default().violations(...)
   .is_empty()`) passes either way when both dependency lists are already
   empty — left as follow-up under this same item rather than blocking
-  admission, same precedent as `profiles`' survivors.
+  admission, same precedent as `profiles`' survivors. `yunq-cpd` admitted
+  next: matrix grows to `[..., yunq-import-graph, yunq-cpd]`. `cargo mutants
+  -p yunq-cpd` runs 147 mutants in ~2m20s (measured in-sandbox, including a
+  4s baseline build), clears the 60% bar at **84%** (115 killed + 2 timeout
+  = 117 detected / 139 viable, 8 unviable). The 22 survivors cluster in three
+  places: arithmetic-operator swaps (`+`/`*`, `-`/`+`, `-`/`/`) inside window
+  and hash-chunking math (`collapse_repeats`, `chunk_blocks`,
+  `group_matches_by_delta`, `find_duplicates`) where no test asserts on the
+  exact numeric output of the internal indexing, only on which duplicate
+  spans get reported; a `>`/`==`/`<`/`>=` boundary swap at
+  `collapse_repeats`'s repeat-count comparison; and
+  `CloneRegion::overlaps`'s body replaceable with a bare `false` plus both
+  its `<=` comparisons flippable to `>`, meaning nothing currently exercises
+  the overlap-merging path directly. Verified end-to-end locally with the
+  same `cargo-mutants` → `jq` → `yunq scan --mutation-report --enforce-gate`
+  pipeline, exit 0. Left as follow-up under this same item, same precedent
+  as the other two crates' survivors — `CloneRegion::overlaps` is the one
+  worth prioritizing first, since an unmerged/wrongly-merged clone region is
+  a correctness bug in the reported findings themselves, not just an
+  internal accounting detail.
 - **E2** Mutation score as a first-class gate metric (the default gate
   already reserves it) and a mandatory condition on any crate `yunq agent`
   writes to.

@@ -87,8 +87,9 @@ jobs:
     # consequence code in the repo) shipped first; yunq-profiles (gates,
     # severities, ratings — also small and I/O-free) next; yunq-import-graph
     # (cycle detection, cross-file edge extraction, architecture boundaries)
-    # is next in that order. Remaining widening (duplication → taint →
-    # rules-engine) is just more matrix entries.
+    # next; yunq-cpd (rolling-window duplicate detection) is next in that
+    # order. Remaining widening (taint → rules-engine) is just more matrix
+    # entries.
     strategy:
       fail-fast: false
       matrix:
@@ -99,6 +100,8 @@ jobs:
             path: core/profiles
           - crate: yunq-import-graph
             path: core/import-graph
+          - crate: yunq-cpd
+            path: core/duplication
     steps:
       - uses: actions/checkout@v4
 
@@ -172,9 +175,9 @@ jobs:
 
       # Enforced: every crate in the matrix clears the default gate's 60%
       # bar comfortably (yunq-agent-policy ~95%, yunq-profiles ~72%,
-      # yunq-import-graph ~92% as of this crate's introduction), so unlike
-      # the workspace-wide coverage job above, there's no reason to hold
-      # this one back from actually gating.
+      # yunq-import-graph ~92%, yunq-cpd ~84% as of this crate's
+      # introduction), so unlike the workspace-wide coverage job above,
+      # there's no reason to hold this one back from actually gating.
       - name: Gate on ${{ matrix.crate }}'s mutation score
         run: ./target/debug/yunq scan ${{ matrix.path }} --mutation-report mutation-report.json --enforce-gate
 
