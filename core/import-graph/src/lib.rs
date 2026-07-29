@@ -145,6 +145,15 @@ fn rust_path_root(node: &AstNode) -> Option<String> {
 /// index — anything else not found in it is an external (non-workspace)
 /// dependency, left unresolved like an external TS/Python specifier.
 ///
+/// Test code is excluded the same way `core/duplication` already excludes
+/// it (`yunq_rules_engine::test_code`): a standalone integration-test file
+/// (`tests/*.rs`) contributes no edges at all, and a `#[cfg(test)] mod
+/// tests { ... }` block inside an ordinary source file is excluded only for
+/// the `use`s inside it — a dev-dependency reachable solely from a crate's
+/// own tests (exercising a port against a real adapter, a legitimate,
+/// Cargo-sanctioned pattern) must not read as a production boundary
+/// violation just because the crate graph technically allows the import.
+///
 /// Deliberately not extended to `DependencyCycleRule`: Cargo's own
 /// dependency graph already forbids a real crate-level cycle from existing
 /// at all (a workspace with one fails to build), so there is no signal a
@@ -152,7 +161,14 @@ fn rust_path_root(node: &AstNode) -> Option<String> {
 /// the boundary-violation check, which catches something Cargo doesn't
 /// enforce at all (an edge's *direction*, not just its declaredness).
 fn extract_rust_edges(path: &str, ast: &AstNode, crate_index: &HashMap<String, String>, edges: &mut Vec<ImportEdge>) {
+    if yunq_rules_engine::is_test_only_path(path) {
+        return;
+    }
+    let test_ranges = yunq_rules_engine::rust_test_module_ranges(ast.text());
     for node in ast.descendants().filter(|n| is_other(n, "use_declaration")) {
+        if yunq_rules_engine::in_ranges(&test_ranges, node.span().start_line) {
+            continue;
+        }
         let Some(path_node) = node.children().iter().find(|c| !is_other(c, "visibility_modifier")) else {
             continue;
         };
@@ -527,5 +543,36 @@ mod tests {
         let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
         let graph = ImportGraph::build_with_rust_crates(&files, &index);
         assert_eq!(graph.component_edges(), BTreeSet::from([("core/a".to_string(), "infra/fs".to_string())]));
+    }
+
+    #[test]
+    fn a_standalone_integration_test_file_contributes_no_rust_edges() {
+        let a = parse_rust("core/a/tests/it.rs", "use yunq_infra_fs::Thing;\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
+        assert!(ImportGraph::build_with_rust_crates(&files, &index).edges().is_empty());
+    }
+
+    #[test]
+    fn a_use_inside_a_cfg_test_module_contributes_no_edge_but_production_code_still_does() {
+        let code = "\
+use yunq_infra_fs::Production;
+
+#[cfg(test)]
+mod tests {
+    use yunq_infra_fs::TestOnlyDevDep;
+
+    #[test]
+    fn uses_it() {
+        let _ = TestOnlyDevDep;
+    }
+}
+";
+        let a = parse_rust("core/a/src/lib.rs", code);
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
+        let graph = ImportGraph::build_with_rust_crates(&files, &index);
+        assert_eq!(graph.edges().len(), 1);
+        assert!(graph.edges()[0].span.start_line < 3);
     }
 }
