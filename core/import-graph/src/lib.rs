@@ -116,28 +116,60 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
     }
 }
 
-/// The leftmost identifier of a `use` path expression — the crate name (or
-/// `crate`/`self`/`super`) every shape a Rust `use_declaration` can take
-/// ultimately roots at: a bare `Identifier`, a nested `scoped_identifier`
-/// (`a::b::c`), a `scoped_use_list` (`a::b::{C, D}` — its own first child is
-/// already the shared prefix, so no need to look inside the list), a
-/// `use_as_clause` (`a::b as c` — first child is the aliased path, second
-/// is the new name, ignored here), or a `use_wildcard` (`a::b::*`).
+/// The leftmost identifier of a Rust path expression — the crate name (or
+/// `crate`/`self`/`super`) every shape this walks ultimately roots at: a
+/// bare `Identifier`, a nested `scoped_identifier` (`a::b::c`, the general
+/// path form — a `use` path, a call target, a bare reference with no `use`
+/// at all), a `scoped_type_identifier` (the same thing in type position —
+/// `x: a::b::Type`, `-> a::b::Type`), a `scoped_use_list` (`a::b::{C, D}` —
+/// its own first child is already the shared prefix, no need to look inside
+/// the list), a `use_as_clause` (`a::b as c` — first child is the aliased
+/// path, second is the new name, ignored here), or a `use_wildcard`
+/// (`a::b::*`).
 fn rust_path_root(node: &AstNode) -> Option<String> {
     match node.kind() {
         NodeKind::Identifier => Some(node.text().to_string()),
         NodeKind::Other(kind) => match kind.as_ref() {
             "crate" | "self" | "super" => Some(node.text().to_string()),
-            "scoped_identifier" | "scoped_use_list" | "use_as_clause" | "use_wildcard" => {
-                node.first_child().and_then(rust_path_root)
-            }
+            "scoped_identifier" | "scoped_type_identifier" | "scoped_use_list" | "use_as_clause"
+            | "use_wildcard" => node.first_child().and_then(rust_path_root),
             _ => None,
         },
         _ => None,
     }
 }
 
-/// Rust `use` edges: only cross-*crate* references resolve, via
+/// Resolves `path_node`'s leftmost segment against `crate_index` and, if it
+/// names a distinct workspace crate not already recorded for this file,
+/// pushes one `ImportEdge`. `seen` dedupes by target: a single fully-
+/// qualified reference nests several matching path nodes (`a::b::c::new()`
+/// visits `a::b::c::new`, `a::b::c` and `a::b` in turn, all resolving to the
+/// same crate `a`), and a crate can legitimately be referenced dozens of
+/// times in one file — one edge per (file, crate) pair is the useful unit,
+/// not one per AST node or per call site.
+fn push_rust_edge(
+    path: &str,
+    path_node: &AstNode,
+    span: Span,
+    crate_index: &HashMap<String, String>,
+    seen: &mut HashSet<String>,
+    edges: &mut Vec<ImportEdge>,
+) {
+    let Some(segment) = rust_path_root(path_node) else { return };
+    if matches!(segment.as_str(), "crate" | "self" | "super" | "std" | "core" | "alloc") {
+        return;
+    }
+    let Some(crate_dir) = crate_index.get(&segment) else { return };
+    let target = format!("{crate_dir}/Cargo.toml");
+    if component_of(&target) == component_of(path) {
+        return;
+    }
+    if seen.insert(target.clone()) {
+        edges.push(ImportEdge { from: path.to_string(), to: target, span });
+    }
+}
+
+/// Rust cross-crate references: only cross-*crate* references resolve, via
 /// `crate_index` (crate identifier -> directory,
 /// `yunq_infra_fs::discover_rust_crates`'s output). `crate`/`self`/`super`
 /// paths are always intra-crate and `std`/`core`/`alloc` are always the
@@ -145,14 +177,25 @@ fn rust_path_root(node: &AstNode) -> Option<String> {
 /// index — anything else not found in it is an external (non-workspace)
 /// dependency, left unresolved like an external TS/Python specifier.
 ///
+/// Two passes, because Rust has two distinct ways to reach another crate's
+/// items: `use_declaration` (handling the shapes `rust_path_root` docs —
+/// plain, list, aliased, wildcard), and — unlike TypeScript/Python, where a
+/// module's names don't exist in scope without an `import`/`from ...
+/// import` first — a bare fully-qualified path with no `use` anywhere in
+/// the file at all (`yunq_infra_fs::Thing::new()`, or a
+/// `scoped_type_identifier` in a signature). Both passes walk the same
+/// `rust_path_root`/`push_rust_edge` resolution; the second one is strictly
+/// additive; a `use`'d reference is already caught by the first pass and
+/// `push_rust_edge`'s dedup makes the overlap harmless.
+///
 /// Test code is excluded the same way `core/duplication` already excludes
 /// it (`yunq_rules_engine::test_code`): a standalone integration-test file
 /// (`tests/*.rs`) contributes no edges at all, and a `#[cfg(test)] mod
 /// tests { ... }` block inside an ordinary source file is excluded only for
-/// the `use`s inside it — a dev-dependency reachable solely from a crate's
-/// own tests (exercising a port against a real adapter, a legitimate,
-/// Cargo-sanctioned pattern) must not read as a production boundary
-/// violation just because the crate graph technically allows the import.
+/// the references inside it — a dev-dependency reachable solely from a
+/// crate's own tests (exercising a port against a real adapter, a
+/// legitimate, Cargo-sanctioned pattern) must not read as a production
+/// boundary violation just because the crate graph technically allows it.
 ///
 /// Deliberately not extended to `DependencyCycleRule`: Cargo's own
 /// dependency graph already forbids a real crate-level cycle from existing
@@ -165,6 +208,8 @@ fn extract_rust_edges(path: &str, ast: &AstNode, crate_index: &HashMap<String, S
         return;
     }
     let test_ranges = yunq_rules_engine::rust_test_module_ranges(ast.text());
+    let mut seen = HashSet::new();
+
     for node in ast.descendants().filter(|n| is_other(n, "use_declaration")) {
         if yunq_rules_engine::in_ranges(&test_ranges, node.span().start_line) {
             continue;
@@ -172,16 +217,16 @@ fn extract_rust_edges(path: &str, ast: &AstNode, crate_index: &HashMap<String, S
         let Some(path_node) = node.children().iter().find(|c| !is_other(c, "visibility_modifier")) else {
             continue;
         };
-        let Some(segment) = rust_path_root(path_node) else { continue };
-        if matches!(segment.as_str(), "crate" | "self" | "super" | "std" | "core" | "alloc") {
+        push_rust_edge(path, path_node, node.span(), crate_index, &mut seen, edges);
+    }
+
+    for node in
+        ast.descendants().filter(|n| is_other(n, "scoped_identifier") || is_other(n, "scoped_type_identifier"))
+    {
+        if yunq_rules_engine::in_ranges(&test_ranges, node.span().start_line) {
             continue;
         }
-        let Some(crate_dir) = crate_index.get(&segment) else { continue };
-        let target = format!("{crate_dir}/Cargo.toml");
-        if component_of(&target) == component_of(path) {
-            continue;
-        }
-        edges.push(ImportEdge { from: path.to_string(), to: target, span: node.span() });
+        push_rust_edge(path, node, node.span(), crate_index, &mut seen, edges);
     }
 }
 
@@ -489,17 +534,75 @@ mod tests {
         assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
     }
 
-    #[test]
-    fn resolves_use_list_use_as_clause_and_wildcard_shapes() {
-        let a = parse_rust(
-            "core/a/src/lib.rs",
-            "use yunq_infra_fs::{FileAnalysisCache, YunqConfig};\nuse yunq_infra_fs as fs;\nuse yunq_infra_fs::Thing as Renamed;\nuse yunq_infra_fs::*;\n",
-        );
+    fn resolves_single_rust_statement(code: &str) -> ImportGraph {
+        let a = parse_rust("core/a/src/lib.rs", code);
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
         let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
-        let graph = ImportGraph::build_with_rust_crates(&files, &index);
-        assert_eq!(graph.edges().len(), 4);
-        assert!(graph.edges().iter().all(|e| e.to == "infra/fs/Cargo.toml"));
+        ImportGraph::build_with_rust_crates(&files, &index)
+    }
+
+    #[test]
+    fn resolves_a_use_list_shape() {
+        let graph = resolves_single_rust_statement("use yunq_infra_fs::{FileAnalysisCache, YunqConfig};\n");
+        assert_eq!(graph.edges().len(), 1);
+        assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
+    }
+
+    #[test]
+    fn resolves_a_use_as_clause_renaming_the_crate() {
+        let graph = resolves_single_rust_statement("use yunq_infra_fs as fs;\n");
+        assert_eq!(graph.edges().len(), 1);
+        assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
+    }
+
+    #[test]
+    fn resolves_a_use_as_clause_renaming_an_item() {
+        let graph = resolves_single_rust_statement("use yunq_infra_fs::Thing as Renamed;\n");
+        assert_eq!(graph.edges().len(), 1);
+        assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
+    }
+
+    #[test]
+    fn resolves_a_use_wildcard_shape() {
+        let graph = resolves_single_rust_statement("use yunq_infra_fs::*;\n");
+        assert_eq!(graph.edges().len(), 1);
+        assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
+    }
+
+    #[test]
+    fn repeated_references_to_the_same_crate_dedupe_to_one_edge() {
+        let graph = resolves_single_rust_statement(
+            "use yunq_infra_fs::{FileAnalysisCache, YunqConfig};\nuse yunq_infra_fs as fs;\nuse yunq_infra_fs::Thing as Renamed;\nuse yunq_infra_fs::*;\n",
+        );
+        assert_eq!(graph.edges().len(), 1);
+        assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
+    }
+
+    #[test]
+    fn a_bare_fully_qualified_call_with_no_use_statement_is_still_an_edge() {
+        // Rust needs no `use` at all — any crate's items are reachable by
+        // full path from anywhere, unlike TS/Python where a name doesn't
+        // exist in scope without an import first.
+        let graph = resolves_single_rust_statement(
+            "pub fn open() -> yunq_infra_fs::Thing {\n    yunq_infra_fs::Thing::new()\n}\n",
+        );
+        assert_eq!(graph.edges().len(), 1);
+        assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
+    }
+
+    #[test]
+    fn a_bare_reference_inside_a_cfg_test_module_is_still_excluded() {
+        let code = "\
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn uses_it() {
+        let _ = yunq_infra_fs::Thing::new();
+    }
+}
+";
+        let graph = resolves_single_rust_statement(code);
+        assert!(graph.edges().is_empty());
     }
 
     #[test]

@@ -181,4 +181,23 @@ mod tests {
         };
         assert!(BoundaryViolationRule::new(config, HashMap::new()).check(&files).is_empty());
     }
+
+    #[test]
+    fn flags_a_forbidden_rust_dependency_with_no_use_statement_at_all() {
+        // The gap found while verifying the test-code fix: Rust needs no
+        // `use` at all to reach another crate's items, unlike TS/Python.
+        let files = parsed_rust(&[(
+            "core/rules-engine/src/lib.rs",
+            "pub fn open() -> yunq_infra_fs::Thing {\n    yunq_infra_fs::Thing::new()\n}\n",
+        )]);
+        let config = ArchitectureConfig {
+            forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
+            ..Default::default()
+        };
+        let rust_crates: HashMap<String, String> =
+            HashMap::from([("yunq_infra_fs".to_string(), "infra/fs".to_string())]);
+        let findings = BoundaryViolationRule::new(config, rust_crates).check(&files);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].1.message.contains("`core/rules-engine` depends on `infra/fs`"));
+    }
 }

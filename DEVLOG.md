@@ -1424,11 +1424,47 @@ one — a fully-qualified path is exactly as valid as a `use`'d one, and today
 only the latter is seen. That makes this rule's real risk profile a
 false-*negative* one layered on top of the false-positive one just fixed: a
 genuine production boundary violation written with no `use` statement would
-pass through silently. Surfaced, not fixed, in this pass — closing it means
-walking `scoped_identifier` expressions generally, not only ones rooted in
-a `use_declaration`, deduped per `(from, to)` pair so one file's repeated
-references to the same external crate don't produce a finding per
-reference.
+pass through silently.
+
+Closed immediately rather than left as a stated gap. `extract_rust_edges`
+now runs a second pass over `scoped_identifier` (the general path-expression
+form — call target, bare reference, anything) and `scoped_type_identifier`
+(the same thing in type position, e.g. a function signature) wherever they
+appear in the file, not only nested inside a `use_declaration`. Both passes
+go through the same `rust_path_root` resolution and the same
+test-code-exclusion check; `rust_path_root` grew one more recursable case
+(`scoped_type_identifier`) to match, confirmed against the grammar directly
+rather than assumed — probing `x: yunq_infra_fs::cache::FileAnalysisCache`
+showed a 3-segment type path is `scoped_type_identifier` wrapping a nested
+`scoped_identifier`, the same shape `use` paths already nest. The two passes
+overlap on purpose: a `use`'d reference is already caught by the first pass,
+and the second pass's `scoped_identifier` walk would re-find it — harmless,
+because `push_rust_edge` (new, factored out of both passes) dedupes by
+`(file, target crate)` before pushing an edge. That dedup turned out to be
+load-bearing for a reason beyond tidiness: a single fully-qualified
+reference like `a::b::c::new()` nests three matching path nodes at
+different depths (`a::b::c::new`, `a::b::c`, `a::b`), all resolving to the
+same crate `a` — without dedup, one call site would have produced three
+identical edges, and a file referencing the same crate a dozen times would
+have produced a dozen near-duplicate findings.
+
+Verified three ways again, same discipline as the first pass: unit tests
+for each `use` shape individually (list, `as`-renaming the crate, `as`-
+renaming an item, wildcard — split out from one combined test into five,
+since the combined version's edge count assertion no longer held once
+dedup collapsed four statements targeting the same crate into one edge) and
+two new tests for the bare-path case (a fully-qualified call with no `use`
+anywhere still produces an edge; the same call inside `#[cfg(test)]` still
+doesn't); a genuine two-crate Cargo workspace fixture with *zero* `use`
+statements anywhere — both the return type and the constructor call
+written as fully-qualified paths — caught by the real `yunq` binary, one
+finding, correct file and line; and yunq's own tree re-scanned with the
+*entire* hexagon now declared as forbidden pairs (`core`/`parsers`/
+`rulesets` → `infra`/`bin`, `infra` → `bin` — eight pairs, not the one this
+item shipped with originally), still zero findings, and this time a
+meaningful zero rather than an accidental one, since the same run over the
+same tree before this fix landed would have missed exactly the pattern this
+codebase actually uses.
 
 D3 (Instability/Abstractness, the main sequence) and D4 (`yunq arch`, the
 layered viewer) build on this same component model next.
