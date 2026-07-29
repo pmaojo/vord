@@ -288,7 +288,8 @@ could add value is *planning-time*, before the agent has even proposed an
 edit — a read-only resource an agent's system prompt ingests up front (the
 active policy, the architecture blueprint) — but that is a complement to the
 hook, never a substitute for it: anything that must actually stop a write
-stays on `PreToolUse`. See [ROADMAP.md](ROADMAP.md) Phase 6c.
+stays on `PreToolUse`. See [DEVLOG.md](DEVLOG.md) Phase 6c for how the
+guardrail was built, and [ROADMAP.md](ROADMAP.md) for where it goes next.
 
 ### The Agent Permission Policy
 
@@ -397,4 +398,13 @@ The engine, storage and parsers remain untouched.
 
 ## Roadmap
 
-More languages, deeper duplication detection, quality gates/profiles, issue lifecycle, GitHub PR decoration — plus an AI **Remediation Agent** with a verify-before-suggest loop. See [ROADMAP.md](ROADMAP.md).
+yunq is becoming the agent runtime that cannot approve its own work: a native
+`yunq agent` whose every write is judged in-process by the same
+`core/agent-policy` that gates third-party agents, and whose definition of
+"done" is the analyzer agreeing — never a self-assessment turn. Alongside it:
+multi-agent orchestration with per-role policy scopes, CRAP risk scoring
+(complexity × untestedness), declared architecture boundaries enforced at
+write time, and widened mutation testing.
+
+See [ROADMAP.md](ROADMAP.md) for the plan and [DEVLOG.md](DEVLOG.md) for the
+build history and design rationale.
