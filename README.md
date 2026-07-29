@@ -17,8 +17,7 @@ yunq/
 │   └── duplication/            # yunq-cpd: copy-paste detection (rolling-window hashes)
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
-│   ├── fs/                     # gitignore-aware source loader, LCOV parser, caches
-│   └── postgres/               # sqlx IssueStorage/IssueReader/MetricsTracker/changelog + JobQueue (scan_jobs table)
+│   └── fs/                     # gitignore-aware source loader, LCOV parser, caches
 ├── parsers/                    # INBOUND ADAPTERS (tree-sitter → neutral AST)
 │   ├── treesitter-typescript/
 │   ├── treesitter-rust/
@@ -30,9 +29,10 @@ yunq/
 │   └── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
     ├── cli/                    # yunq scan — local end-to-end analysis
-    ├── server/                 # axum API: scans, issues, hotspots, rules catalog
-    └── worker/                 # scan_jobs consumer → AnalyzerService → Postgres
+    └── lsp/                    # editor-facing language server
 ```
+
+The hosted API server, background worker, Postgres storage adapter, and web frontend live in a separate private repository (`yunq-cloud`) and are not part of this open-source core.
 
 Dependency direction is enforced by Cargo: `bin → {infra, parsers, rulesets} → core`. The core defines **ports** (`AstParser`, `IssueStorage`, `IssueReader`, `IssueFacetReader`, `IssueWorkflow`, `HotspotStorage`, `MetricsTracker`, `JobQueue`, `AnalysisCache`); adapters implement them (DIP). Domain types are validated newtypes with fallible constructors and **no `serde::Deserialize`** — every edge (HTTP, Postgres, tree-sitter) owns its DTOs and translates in. Adding a language or ruleset means a new crate registered at a composition root; the engine never changes (OCP).
 
@@ -42,8 +42,6 @@ Proof of purity: `cargo tree -p yunq-rules-engine` — only core crates and `thi
 graph TD
     subgraph bin["bin/ — composition roots"]
         CLI[yunq-cli]
-        SERVER[yunq-server]
-        WORKER[yunq-worker]
     end
     subgraph parsers["parsers/ — inbound adapters"]
         PTS[yunq-parser-typescript]
@@ -56,7 +54,6 @@ graph TD
         RSM[yunq-rules-smells]
     end
     subgraph infra["infra/ — outbound adapters"]
-        IPG[yunq-infra-postgres]
         IMEM[yunq-infra-memory]
         IFS[yunq-infra-fs]
     end
@@ -75,16 +72,6 @@ graph TD
     CLI --> RSM
     CLI --> IMEM
     CLI --> IFS
-    SERVER --> IPG
-    SERVER --> ROW
-    SERVER --> RSM
-    WORKER --> IPG
-    WORKER --> PTS
-    WORKER --> PRS
-    WORKER --> PPY
-    WORKER --> PGO
-    WORKER --> ROW
-    WORKER --> RSM
     PTS --> AST
     PRS --> AST
     PPY --> AST
@@ -92,7 +79,6 @@ graph TD
     ROW --> ENGINE
     ROW --> TAINT
     RSM --> ENGINE
-    IPG --> ENGINE
     IMEM --> ENGINE
     IFS --> ENGINE
     ENGINE --> AST
@@ -405,7 +391,7 @@ tool) still has to produce the report yunq consumes.
 
 1. Create (or extend) a crate under `rulesets/`.
 2. Implement `yunq_rules_engine::Rule` (`id`, `applies_to`, `default_severity`, `check`).
-3. Register it in the composition roots (`bin/cli`, `bin/worker`).
+3. Register it in the composition root (`bin/cli`).
 
 The engine, storage and parsers remain untouched.
 

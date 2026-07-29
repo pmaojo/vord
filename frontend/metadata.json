@@ -1,6 +1,0 @@
-{
-  "name": "yunq Static Analysis Platform",
-  "description": "High-performance hexagonal static analysis platform with multi-language AST parsers, Quality Gates, REST API & OpenAPI inspector, Claude AI remediation, and enterprise administration control plane.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
