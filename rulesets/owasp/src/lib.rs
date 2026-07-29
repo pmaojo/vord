@@ -11,6 +11,7 @@ mod eval_usage;
 mod hardcoded_secret;
 mod injection;
 mod insecure_deserialization;
+mod path_traversal;
 mod permissive_cors;
 mod weak_crypto;
 mod xss;
@@ -24,6 +25,7 @@ pub use eval_usage::EvalUsageRule;
 pub use hardcoded_secret::HardcodedSecretRule;
 pub use injection::InjectionRule;
 pub use insecure_deserialization::InsecureDeserializationRule;
+pub use path_traversal::PathTraversalRule;
 pub use permissive_cors::PermissiveCorsRule;
 pub use weak_crypto::WeakCryptoRule;
 pub use xss::XssRule;
@@ -43,6 +45,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(DisabledCertValidationRule::new()),
         Box::new(XssRule::new()),
         Box::new(PermissiveCorsRule::new()),
+        Box::new(PathTraversalRule::new()),
     ]
 }
 
