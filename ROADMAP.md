@@ -389,9 +389,27 @@ prompt and hopes. A surviving mutant is the mechanical proof, which is the
 only version of the rule that survives contact with a system optimising
 against it.
 
-- **E1** Widen crate by crate, cheapest first, admitting each only once it
-  proves fast enough to stay in CI: `profiles` → `import-graph` →
-  `duplication` → `taint` → `rules-engine`.
+- **E1** 🚧 **in progress.** Widen crate by crate, cheapest first, admitting
+  each only once it proves fast enough to stay in CI: `profiles` →
+  `import-graph` → `duplication` → `taint` → `rules-engine`. `profiles`
+  admitted: `dogfood-mutation` (`.github/workflows/ci.yml`) is now a
+  `strategy.matrix` over `[yunq-agent-policy, yunq-profiles]` rather than a
+  single hardcoded crate, so widening further is an added matrix entry, not
+  new job plumbing — `cargo mutants -p yunq-profiles` runs 170 mutants in
+  ~90s (measured in-sandbox), well inside budget, and clears the default
+  gate's 60% mutation-score bar at ~72% (92 killed / 128 viable). The 36
+  survivors are concentrated in `Display`/`as_str`/`symbol` accessors and
+  `Severity::parse`'s match arms — real, if low-severity, assertion gaps
+  worth closing in a follow-up rather than blocking this crate's admission,
+  since the roadmap's own bar is "clears the gate", not 100%. Also fixed in
+  passing: every `--enforce-gate` invocation in this workflow (`dogfood-gate`,
+  `dogfood-coverage`, and this job) called `./target/debug/yunq-cli`, a
+  binary that has never existed — the crate is `yunq-cli` but its `[[bin]]`
+  is deliberately named `yunq` (so `hook install`'s generated commands
+  resolve on PATH). Confirmed via the live run history
+  (`gh`/GitHub Actions API) that this has been failing on every push to
+  `main` since the mutation-gate job was introduced, silently, because nothing
+  was watching CI. Fixed to `./target/debug/yunq` throughout.
 - **E2** Mutation score as a first-class gate metric (the default gate
   already reserves it) and a mandatory condition on any crate `yunq agent`
   writes to.

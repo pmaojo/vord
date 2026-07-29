@@ -45,7 +45,7 @@ jobs:
         # the coverage/mutation jobs below for why those aren't enforced yet.
         # This still gates on the part of the default gate the project does
         # meet today: zero blocker/critical issues, zero parse failures.
-        run: ./target/debug/yunq-cli scan . --enforce-gate
+        run: ./target/debug/yunq scan . --enforce-gate
 
   dogfood-coverage:
     name: yunq's own test coverage (measured, not yet gated)
@@ -76,11 +76,26 @@ jobs:
       # `--enforce-gate` belongs here once coverage actually clears the bar,
       # not before.
       - name: Report coverage against yunq's own gate threshold
-        run: ./target/debug/yunq-cli scan . --coverage-report lcov.info
+        run: ./target/debug/yunq scan . --coverage-report lcov.info
 
   dogfood-mutation:
-    name: Mutation-test the agent guardrail's policy core
+    name: Mutation-test ${{ matrix.crate }}
     runs-on: ubuntu-latest
+    # Widened crate by crate (roadmap item E1), cheapest/purest first, each
+    # admitted only once it proves fast enough to stay in CI:
+    # yunq-agent-policy (the guardrail's own decision logic, the highest-
+    # consequence code in the repo) shipped first; yunq-profiles (gates,
+    # severities, ratings — also small and I/O-free) is next in that order.
+    # Remaining widening (import-graph → duplication → taint → rules-engine)
+    # is just more matrix entries.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - crate: yunq-agent-policy
+            path: core/agent-policy
+          - crate: yunq-profiles
+            path: core/profiles
     steps:
       - uses: actions/checkout@v4
 
@@ -88,6 +103,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: mutants-${{ matrix.crate }}
 
       - name: Install cargo-mutants
         uses: taiki-e/install-action@cargo-mutants
@@ -95,14 +112,6 @@ jobs:
       - name: Build yunq
         run: cargo build -p yunq-cli
 
-      # Scoped to yunq-agent-policy rather than the whole workspace: that
-      # crate is the guardrail's actual decision logic (what may an agent
-      # write, escalate or deny) — the highest-consequence code in the
-      # repository per the "Bob" philosophy this feature set is inspired
-      # by — and it's small and pure enough (~700 lines, no I/O) that full
-      # mutation testing finishes in under two minutes. Mutation-testing the
-      # full 60k-line workspace this way would take hours per run; widen
-      # this scope crate-by-crate as each one proves fast enough.
       # No --output flag: cargo-mutants' own `-o`/`--output <dir>` creates a
       # `mutants.out` *within* `<dir>` rather than treating `<dir>` as the
       # output itself, so a prior `--output mutants.out` here actually wrote
@@ -111,8 +120,8 @@ jobs:
       # "No such file or directory". Omitting the flag uses cargo-mutants'
       # own default (`mutants.out` in the current directory, i.e. the repo
       # root here), which is exactly the path the next step already expects.
-      - name: Mutation-test yunq-agent-policy
-        run: cargo mutants -p yunq-agent-policy
+      - name: Mutation-test ${{ matrix.crate }}
+        run: cargo mutants -p ${{ matrix.crate }}
 
       # cargo-mutants' own report schema isn't Stryker's; converts each
       # mutant outcome to the Stryker Mutation Testing Elements shape
@@ -141,12 +150,13 @@ jobs:
             )
           }' mutants.out/outcomes.json > mutation-report.json
 
-      # Enforced: yunq-agent-policy's mutation score clears the default
-      # gate's 60% bar comfortably (~95% as of this job's introduction), so
-      # unlike the workspace-wide coverage job above, there's no reason to
-      # hold this one back from actually gating.
-      - name: Gate on the agent-policy crate's mutation score
-        run: ./target/debug/yunq-cli scan core/agent-policy --mutation-report mutation-report.json --enforce-gate
+      # Enforced: both crates in the matrix clear the default gate's 60%
+      # bar comfortably (yunq-agent-policy ~95%, yunq-profiles ~72% as of
+      # this crate's introduction), so unlike the workspace-wide coverage
+      # job above, there's no reason to hold this one back from actually
+      # gating.
+      - name: Gate on ${{ matrix.crate }}'s mutation score
+        run: ./target/debug/yunq scan ${{ matrix.path }} --mutation-report mutation-report.json --enforce-gate
 
   benchmark-gate:
     name: Benchmark regression gate
