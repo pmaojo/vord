@@ -11,6 +11,7 @@ use yunq_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 
 mod blame;
 mod ci_detect;
+mod crap;
 mod hook_install;
 mod monorepo_scan;
 mod wizard;
@@ -811,6 +812,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     ingest_sarif(&args, &mut report)?;
     ingest_coverage(&args)?.apply_to(&mut report);
     let coverage_new_code = coverage_new_code_measure(args.coverage.coverage_diff.clone(), &report)?;
+    crap::apply(&mut report);
 
     let test_report = load_test_report(args.reports.junit.clone())?;
     if let Some(summary) = &test_report {

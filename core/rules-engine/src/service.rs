@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use yunq_ast::{LanguageIdentifier, SourceFile};
 use yunq_profiles::{IssueType, QualityProfile, RuleId};
 
-use crate::domain::{AnalysisReport, Hotspot, Issue, Metrics};
+use crate::domain::{AnalysisReport, FileFunctionComplexity, Hotspot, Issue, Metrics};
 use crate::ports::{
     AnalysisCache, AstParser, CacheKey, CachedAnalysis, HotspotStorage, IssueScope, IssueStorage,
     MetricsTracker, StorageError,
@@ -51,9 +51,10 @@ fn fold_outcomes(
     outcomes: Vec<FileOutcome>,
     metrics: &mut Metrics,
     classifications: &HashMap<RuleId, (IssueType, u32)>,
-) -> (Vec<Issue>, Vec<Hotspot>) {
+) -> (Vec<Issue>, Vec<Hotspot>, Vec<FileFunctionComplexity>) {
     let mut issues: Vec<Issue> = Vec::new();
     let mut hotspots: Vec<Hotspot> = Vec::new();
+    let mut function_complexities: Vec<FileFunctionComplexity> = Vec::new();
     for outcome in outcomes {
         match outcome {
             FileOutcome::Skipped => metrics.add_skipped_file(),
@@ -64,6 +65,7 @@ fn fold_outcomes(
                 issues: file_issues,
                 hotspots: file_hotspots,
                 structural,
+                function_complexities: file_complexities,
                 from_cache,
             } => {
                 metrics.add_file(lines);
@@ -86,10 +88,11 @@ fn fold_outcomes(
                     issues.push(issue);
                 }
                 hotspots.extend(file_hotspots);
+                function_complexities.extend(file_complexities);
             }
         }
     }
-    (issues, hotspots)
+    (issues, hotspots, function_complexities)
 }
 
 impl<S, M> AnalyzerService<S, M>
@@ -245,7 +248,8 @@ where
     ) -> Result<AnalysisReport, AnalyzeError> {
         let mut metrics = Metrics::new();
         let classifications = self.rule_classifications();
-        let (mut issues, hotspots) = fold_outcomes(self.analyze_all(files), &mut metrics, &classifications);
+        let (mut issues, hotspots, function_complexities) =
+            fold_outcomes(self.analyze_all(files), &mut metrics, &classifications);
 
         let duplication = self.detect_duplication(files);
         metrics.set_duplication(duplication.duplicated_lines, duplication.clone_sets.len());
@@ -257,6 +261,7 @@ where
         self.metrics.record(&metrics).await?;
         let mut report = AnalysisReport::new(issues, hotspots, metrics);
         report.set_duplications(duplication);
+        report.set_function_complexities(function_complexities);
         Ok(report)
     }
 
@@ -382,6 +387,7 @@ where
                 issues: hit.issues,
                 hotspots: hit.hotspots,
                 structural: hit.structural,
+                function_complexities: hit.function_complexities,
                 from_cache: true,
             };
         }
@@ -393,6 +399,14 @@ where
             return FileOutcome::ParseFailed;
         };
         let structural = crate::structural_metrics::compute(&ast);
+        let function_complexities: Vec<FileFunctionComplexity> = crate::function_complexity::compute(&ast)
+            .into_iter()
+            .map(|fc| FileFunctionComplexity {
+                path: file.path().to_string(),
+                span: fc.span,
+                cyclomatic: fc.cyclomatic,
+            })
+            .collect();
         let (issues, hotspots, debt_minutes) = self.run_rules_on_file(file, &ast);
 
         let lines = file.line_count();
@@ -405,10 +419,19 @@ where
                     issues: issues.clone(),
                     hotspots: hotspots.clone(),
                     structural,
+                    function_complexities: function_complexities.clone(),
                 },
             );
         }
-        FileOutcome::Analyzed { lines, debt_minutes, issues, hotspots, structural, from_cache: false }
+        FileOutcome::Analyzed {
+            lines,
+            debt_minutes,
+            issues,
+            hotspots,
+            structural,
+            function_complexities,
+            from_cache: false,
+        }
     }
 
     /// Covers everything that changes analysis output besides file content:
@@ -448,6 +471,7 @@ enum FileOutcome {
         issues: Vec<Issue>,
         hotspots: Vec<Hotspot>,
         structural: crate::structural_metrics::StructuralCounts,
+        function_complexities: Vec<FileFunctionComplexity>,
         from_cache: bool,
     },
 }

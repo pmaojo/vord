@@ -3,8 +3,8 @@
 
 use serde::Serialize;
 use yunq_rules_engine::{
-    AnalysisReport, CloneSet, ConditionStatus, CoverageSummary, GateEvaluation, GateStatus,
-    Hotspot, Issue, Metrics, MutationSummary, NewCodeAnalysis, RemediationEffortSummary,
+    AnalysisReport, CloneSet, ConditionStatus, CoverageSummary, CrapFinding, GateEvaluation,
+    GateStatus, Hotspot, Issue, Metrics, MutationSummary, NewCodeAnalysis, RemediationEffortSummary,
     TestReportSummary,
 };
 
@@ -20,6 +20,10 @@ pub struct ReportDto {
     /// Issues not present in the previous analysis (None on first scan).
     pub new_issue_total: Option<usize>,
     pub duplications: Vec<DuplicationDto>,
+    /// The CRAP-ranked refactor list (roadmap item C3), worst score first.
+    /// Empty until a coverage report is ingested — see
+    /// `AnalysisReport::compute_crap_findings`.
+    pub crap: Vec<CrapFindingDto>,
     /// Present when a coverage report (LCOV/Cobertura/JaCoCo/llvm-cov/Istanbul) was ingested.
     pub coverage: Option<CoverageDto>,
     /// Present when a JUnit test report was ingested.
@@ -46,6 +50,29 @@ pub struct ScanContextDto {
     pub project: Option<String>,
     pub branch: Option<String>,
     pub pull_request: Option<u32>,
+}
+
+/// One `CrapFinding`, flattened for the wire — `CC² × (1−coverage)³ + CC`
+/// alongside both inputs, so a consumer doesn't need to re-derive the score.
+#[derive(Serialize)]
+pub struct CrapFindingDto {
+    pub path: String,
+    pub line: u32,
+    pub cyclomatic: u32,
+    pub coverage_percent: f64,
+    pub score: f64,
+}
+
+impl From<&CrapFinding> for CrapFindingDto {
+    fn from(f: &CrapFinding) -> Self {
+        Self {
+            path: f.path.clone(),
+            line: f.span.start_line,
+            cyclomatic: f.cyclomatic,
+            coverage_percent: f.coverage_percent,
+            score: f.score,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -361,10 +388,23 @@ impl ReportDto {
             mutation: report.mutation().map(MutationDto::from),
             coverage_new_code,
             duplications: report.duplications().iter().map(DuplicationDto::from).collect(),
+            crap: sorted_crap_findings(report),
             metrics: MetricsDto::from(report.metrics()),
             context,
         }
     }
+}
+
+/// `AnalysisReport::crap_findings`, worst score first — the ranked refactor
+/// list is the deliverable (roadmap item C3), not merely a set.
+fn sorted_crap(report: &AnalysisReport) -> Vec<&CrapFinding> {
+    let mut findings: Vec<&CrapFinding> = report.crap_findings().iter().collect();
+    findings.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    findings
+}
+
+fn sorted_crap_findings(report: &AnalysisReport) -> Vec<CrapFindingDto> {
+    sorted_crap(report).into_iter().map(CrapFindingDto::from).collect()
 }
 
 fn render_issues_text(out: &mut String, report: &AnalysisReport) {
@@ -466,6 +506,29 @@ fn render_duplications_text(out: &mut String, report: &AnalysisReport) {
                 region.file, region.start_line, region.end_line
             ));
         }
+    }
+}
+
+/// The ranked refactor list CRAP exists to produce (roadmap item C3): every
+/// `crap:high-risk-function` finding, worst score first, alongside its two
+/// inputs — a raw `blocker_issues`-style count says nothing about *where*
+/// the untested code is, which is the whole point of multiplying complexity
+/// by untestedness instead of reporting either alone.
+fn render_crap_text(out: &mut String, report: &AnalysisReport) {
+    let findings = sorted_crap(report);
+    if findings.is_empty() {
+        return;
+    }
+    out.push_str(&format!("\nRisk hotspots (CRAP), worst first — {} function(s):\n", findings.len()));
+    for finding in findings {
+        out.push_str(&format!(
+            "  {:>6.1}  {}:{}  (cyclomatic complexity {}, {:.0}% line coverage)\n",
+            finding.score,
+            finding.path,
+            finding.span.start_line,
+            finding.cyclomatic,
+            finding.coverage_percent,
+        ));
     }
 }
 
@@ -571,6 +634,7 @@ pub fn render_text(
     render_hotspots_text(&mut out, report);
     render_metrics_summary_text(&mut out, report);
     render_duplications_text(&mut out, report);
+    render_crap_text(&mut out, report);
     render_coverage_text(&mut out, report, coverage_new_code);
     if let Some(new_code) = new_code {
         out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));

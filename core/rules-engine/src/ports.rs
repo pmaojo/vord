@@ -10,9 +10,9 @@ use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_profiles::{GateStatus, RuleId, Severity};
 
 use crate::domain::{
-    BlameLineInfo, BulkOutcome, ChangelogEntry, CoverageSummary, FileBlame, FileCoverage, Hotspot,
-    HotspotStatus, InvalidTransitionError, Issue, IssueFacets, IssueStatus, IssueTransition,
-    Metrics, ScanJob, StoredHotspot, StoredIssue,
+    BlameLineInfo, BulkOutcome, ChangelogEntry, CoverageSummary, FileBlame, FileCoverage,
+    FileFunctionComplexity, Hotspot, HotspotStatus, InvalidTransitionError, Issue, IssueFacets,
+    IssueStatus, IssueTransition, Metrics, ScanJob, StoredHotspot, StoredIssue,
 };
 use crate::new_code::Baseline;
 use crate::structural_metrics::StructuralCounts;
@@ -340,6 +340,7 @@ pub struct CachedAnalysis {
     pub issues: Vec<Issue>,
     pub hotspots: Vec<Hotspot>,
     pub structural: StructuralCounts,
+    pub function_complexities: Vec<FileFunctionComplexity>,
 }
 
 /// Outbound port: memoizes per-file analysis so unchanged files are never

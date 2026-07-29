@@ -137,6 +137,13 @@ pub fn default_quality_gate() -> QualityGate {
         // NoValue (ignored) unless a mutation-testing report was ingested
         // (`--mutation-report`). 60 mirrors Stryker's own conventional "low" threshold.
         .with_condition(Condition::new(metric("mutation_score"), ComparisonOperator::LessThan, 60.0))
+        // NoValue (ignored) unless a coverage report was ingested. Counts
+        // only functions already past crap4clj's "complex *and* untested"
+        // band (CRAP score > 30) — the same zero-tolerance treatment
+        // blocker/critical issues get, since the threshold has already done
+        // the filtering a raw coverage percentage can't: it says *where*
+        // the untested code is, not just how much of it there is.
+        .with_condition(Condition::new(metric("crap_high_risk_functions"), ComparisonOperator::GreaterThan, 0.0))
 }
 
 /// Resolves an issue's `(file, line)` to that source line's content hash for

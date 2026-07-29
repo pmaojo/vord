@@ -1,31 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
-
-/// Grammar node kinds (per tree-sitter grammar) that add a decision point.
-const BRANCH_KINDS: &[&str] = &[
-    "if_statement",
-    "if_expression",
-    "elif_clause",
-    "while_statement",
-    "while_expression",
-    "for_statement",
-    "for_expression",
-    "for_in_statement",
-    "loop_expression",
-    "match_arm",
-    "case_clause",
-    "switch_case",
-    "expression_case",
-    "catch_clause",
-    "except_clause",
-    "conditional_expression",
-    "ternary_expression",
-    "boolean_operator",
-    "enhanced_for_statement", // Groovy/Java-family for-each
-    "switch_label", // Groovy's per-case switch marker
-    "repeat_statement", // Lua's `repeat ... until`
-    "elseif_statement", // Lua's `elseif` (no wrapping `elif_clause` node)
-];
 
 /// Flags functions whose cyclomatic complexity exceeds a threshold.
 /// Complexity = 1 + decision points in the function body, excluding nested
@@ -45,23 +19,6 @@ impl Default for ComplexityRule {
     fn default() -> Self {
         Self::new(10)
     }
-}
-
-fn decision_points(node: &AstNode) -> u32 {
-    node.children()
-        .iter()
-        .map(|child| {
-            // Nested functions are rated independently.
-            if *child.kind() == NodeKind::FunctionDef {
-                return 0;
-            }
-            let own = match child.kind() {
-                NodeKind::Other(kind) if BRANCH_KINDS.contains(&kind.as_ref()) => 1,
-                _ => 0,
-            };
-            own + decision_points(child)
-        })
-        .sum()
 }
 
 impl Rule for ComplexityRule {
@@ -91,19 +48,17 @@ impl Rule for ComplexityRule {
     }
 
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        ast.descendants()
-            .filter(|n| *n.kind() == NodeKind::FunctionDef)
-            .filter_map(|function| {
-                let complexity = 1 + decision_points(function);
-                (complexity > self.max).then(|| {
-                    Finding::new(
-                        format!(
-                            "function has cyclomatic complexity {complexity} (max {})",
-                            self.max
-                        ),
-                        function.span(),
-                    )
-                })
+        yunq_rules_engine::function_complexities(ast)
+            .into_iter()
+            .filter(|fc| fc.cyclomatic > self.max)
+            .map(|fc| {
+                Finding::new(
+                    format!(
+                        "function has cyclomatic complexity {} (max {})",
+                        fc.cyclomatic, self.max
+                    ),
+                    fc.span,
+                )
             })
             .collect()
     }

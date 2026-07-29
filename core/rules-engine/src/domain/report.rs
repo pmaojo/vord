@@ -325,6 +325,19 @@ impl FileCoverage {
     }
 }
 
+/// One function's cyclomatic complexity, tagged with the file it came from.
+/// Computed once per parsed file inside `AnalyzerService::analyze_one`
+/// (`crate::function_complexity::compute`) and threaded onto the report the
+/// same way `Issue`s are, so a CRAP-style risk score can be computed later
+/// by joining this against [`FileCoverage`] without a second parse — see
+/// `AnalysisReport::function_complexities`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileFunctionComplexity {
+    pub path: String,
+    pub span: yunq_ast::Span,
+    pub cyclomatic: u32,
+}
+
 /// One source line's SCM blame: which commit last touched it and who
 /// authored that commit. Field-for-field the same shape as the CLI's
 /// `blame::BlameLine` (`bin/cli/src/blame.rs`, issue #33) so a
@@ -554,6 +567,8 @@ pub struct AnalysisReport {
     metrics: Metrics,
     test_report: Option<TestReportSummary>,
     mutation: Option<MutationSummary>,
+    function_complexities: Vec<FileFunctionComplexity>,
+    crap_findings: Vec<yunq_crap::CrapFinding>,
 }
 
 impl AnalysisReport {
@@ -567,6 +582,8 @@ impl AnalysisReport {
             metrics,
             test_report: None,
             mutation: None,
+            function_complexities: Vec::new(),
+            crap_findings: Vec::new(),
         }
     }
 
@@ -685,6 +702,54 @@ impl AnalysisReport {
 
     pub fn duplications(&self) -> &[CloneSet] {
         &self.duplications
+    }
+
+    /// Stores every function's cyclomatic complexity, computed once per
+    /// parsed file inside `AnalyzerService::analyze_one` — the input CRAP
+    /// (`Self::compute_crap_findings`) joins against per-line coverage once
+    /// both are present on the same report.
+    pub fn set_function_complexities(&mut self, complexities: Vec<FileFunctionComplexity>) {
+        self.function_complexities = complexities;
+    }
+
+    pub fn function_complexities(&self) -> &[FileFunctionComplexity] {
+        &self.function_complexities
+    }
+
+    /// Joins `function_complexities` with `coverage_report` into CRAP
+    /// (`CC² × (1−coverage)³ + CC`, `yunq_crap::crap_score`) findings.
+    /// `None` when no coverage report has been ingested at all — matching
+    /// the "absent means not computed" convention every other
+    /// coverage-derived measure on this report already uses. A function
+    /// with no instrumented line of its own is silently skipped rather than
+    /// scored as 0%-covered (`yunq_crap::score_function`'s own contract).
+    pub fn compute_crap_findings(&self) -> Option<Vec<yunq_crap::CrapFinding>> {
+        let coverage_report = self.coverage_report.as_ref()?;
+        let files_by_path: BTreeMap<&str, &FileCoverage> =
+            coverage_report.files().iter().map(|f| (f.path(), f)).collect();
+        Some(
+            self.function_complexities
+                .iter()
+                .filter_map(|fc| {
+                    let file_coverage = files_by_path.get(fc.path.as_str())?;
+                    yunq_crap::score_function(&fc.path, fc.span, fc.cyclomatic, file_coverage.lines())
+                })
+                .collect(),
+        )
+    }
+
+    /// Stores the CRAP findings a caller already computed via
+    /// [`Self::compute_crap_findings`] and (typically) also folded into
+    /// `issues` via [`Self::add_external_issues`] — kept separately so the
+    /// `crap_worst_score`/`crap_high_risk_functions` gate measures can read
+    /// the real score rather than re-parsing it back out of an `Issue`'s
+    /// message text.
+    pub fn set_crap_findings(&mut self, findings: Vec<yunq_crap::CrapFinding>) {
+        self.crap_findings = findings;
+    }
+
+    pub fn crap_findings(&self) -> &[yunq_crap::CrapFinding] {
+        &self.crap_findings
     }
 
     pub fn metrics(&self) -> &Metrics {
@@ -850,6 +915,14 @@ const MEASURE_TABLE: &[(&str, MeasureFn)] = &[
     ("maintainability_rating", |r| Some(rating_measure(r.rating()))),
     ("reliability_rating", |r| Some(rating_measure(r.metrics.reliability_rating()))),
     ("security_rating", |r| Some(rating_measure(r.metrics.security_rating()))),
+    ("crap_worst_score", |r| {
+        r.coverage_report.as_ref()?;
+        Some(r.crap_findings.iter().map(|f| f.score).fold(0.0, f64::max))
+    }),
+    ("crap_high_risk_functions", |r| {
+        r.coverage_report.as_ref()?;
+        Some(r.crap_findings.iter().filter(|f| f.score > yunq_crap::HIGH_RISK_THRESHOLD).count() as f64)
+    }),
 ];
 
 #[cfg(test)]
@@ -907,6 +980,50 @@ mod tests {
     fn mutation_score_is_none_with_no_valid_mutants() {
         let summary = MutationSummary { ignored_mutants: 3, ..Default::default() };
         assert_eq!(summary.mutation_score(), None);
+    }
+
+    #[test]
+    fn crap_measures_are_none_without_a_coverage_report() {
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        report.set_function_complexities(vec![FileFunctionComplexity {
+            path: "a.rs".into(),
+            span: yunq_ast::Span::new(1, 1, 5, 1),
+            cyclomatic: 20,
+        }]);
+        assert_eq!(report.compute_crap_findings(), None);
+        let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
+        assert_eq!(measure("crap_worst_score"), None);
+        assert_eq!(measure("crap_high_risk_functions"), None);
+    }
+
+    #[test]
+    fn crap_joins_complexity_and_coverage_into_findings_and_measures() {
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
+        report.set_function_complexities(vec![
+            FileFunctionComplexity {
+                path: "a.rs".into(),
+                span: yunq_ast::Span::new(2, 1, 2, 1),
+                cyclomatic: 10, // line 2 alone is 0% covered -> 100 + 10 = 110, high risk.
+            },
+            FileFunctionComplexity {
+                path: "a.rs".into(),
+                span: yunq_ast::Span::new(1, 1, 1, 1),
+                cyclomatic: 1, // line 1 alone is fully covered -> score 1, below the refactor band.
+            },
+        ]);
+        let mut file_coverage = FileCoverage::new("a.rs");
+        file_coverage.record_line(1, 1);
+        file_coverage.record_line(2, 0);
+        report.set_coverage_report(CoverageReport::new(vec![file_coverage], 1, 2, 0, 0));
+
+        let findings = report.compute_crap_findings().expect("coverage report present");
+        assert_eq!(findings.len(), 1, "the low-complexity fully-covered function stays silent");
+        assert_eq!(findings[0].cyclomatic, 10);
+
+        report.set_crap_findings(findings);
+        let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
+        assert_eq!(measure("crap_high_risk_functions"), Some(1.0));
+        assert!(measure("crap_worst_score").unwrap() > yunq_crap::HIGH_RISK_THRESHOLD);
     }
 
     #[test]

@@ -1231,6 +1231,47 @@ before being leaned on; that verification has not been done.
   editable, never a silent new default. Extending to Cargo.toml/go.mod/Gemfile
   is another `match` arm and parser, not a new concept.
 
+**CRAP: risk as complexity × untestedness** ✅ **(2026-07-29)**. Roadmap item
+C. Both inputs — cyclomatic complexity and per-line coverage — already
+existed and had never been multiplied: `CRAP(f) = CC(f)² × (1 −
+coverage(f))³ + CC(f)`, from crap4clj. The roadmap draft assumed this would
+be a `Rule` "reading per-function coverage from the analysis context"; that
+turned out not to hold up against the real pipeline. Every `Rule::check(file,
+ast)` call finishes executing *inside* `AnalyzerService::analyze_files`,
+which returns a complete `AnalysisReport` before `bin/cli`'s `ingest_coverage`
+has even read a coverage file off disk (it runs strictly after
+`scan_with_project_config`) — there is no coverage in scope for a `Rule` of
+any kind to read, no matter how the trait is extended. Shipped instead as
+`core/crap` (`yunq-crap`), a plain algorithm crate exactly like
+`core/duplication` is: pure `std`-only formula plus the "coverage restricted
+to a function's own lines" join, invoked directly rather than through the
+`Rule` trait. Per-function cyclomatic complexity — previously computed
+inline and discarded by `rulesets/code-smells::ComplexityRule` — moved into
+`core/rules-engine::function_complexity` so the existing rule and the new
+metric share one AST walk; it's now computed once per file inside
+`AnalyzerService::analyze_one` alongside `structural_metrics` and threaded
+onto `AnalysisReport::function_complexities` (also plumbed through
+`CachedAnalysis`/`FileAnalysisCache::CachedFileDto` with the same
+`#[serde(default)]` fail-open migration every earlier cache-format addition
+uses). `AnalysisReport::compute_crap_findings()` joins that against
+`coverage_report` the same way the existing `coverage_on_new_code` already
+joins two already-stored fields on the report — silent for any function with
+no instrumented line of its own, never scored as 0%-covered, matching the
+fail-open convention the roadmap's own design note called for. `bin/cli`'s
+new `crap` module calls it right after `ingest_coverage`, turns findings
+above the refactor-candidate band (score > 5) into ordinary
+`crap:high-risk-function` issues via `add_external_issues` (Major for
+5–30, Critical for 30+) — same SARIF/PR-decoration/agent-policy reuse the
+gate-gaming and supply-chain findings already get — and stores the raw
+scores separately so `crap_worst_score`/`crap_high_risk_functions` gate
+measures don't need to re-parse them out of an issue's message text. The
+default gate now includes `crap_high_risk_functions > 0` (`NoValue`-ignored
+without a coverage report, same convention as `mutation_score`); `yunq scan`
+prints a "Risk hotspots (CRAP)" section and `--format json` exposes a
+matching `crap` array, both worst-score-first — the ranked refactor list is
+the deliverable, left alongside the main issue list's severity-ordered sort
+rather than overloading it with one rule's own metric.
+
 ## Phase 7 — Enterprise platform
 
 - **Portfolios**: hierarchical aggregation across projects with rollup

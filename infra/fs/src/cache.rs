@@ -10,8 +10,8 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use yunq_ast::Span;
 use yunq_rules_engine::{
-    AnalysisCache, CacheKey, CachedAnalysis, Hotspot, HotspotStatus, Issue, RuleId, Severity,
-    StructuralCounts,
+    AnalysisCache, CacheKey, CachedAnalysis, FileFunctionComplexity, Hotspot, HotspotStatus, Issue,
+    RuleId, Severity, StructuralCounts,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -37,6 +37,16 @@ struct CachedHotspotDto {
     end_col: u32,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct CachedFunctionComplexityDto {
+    path: String,
+    start_line: u32,
+    start_col: u32,
+    end_line: u32,
+    end_col: u32,
+    cyclomatic: u32,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct CachedFileDto {
     lines: usize,
@@ -56,6 +66,11 @@ struct CachedFileDto {
     comment_lines: usize,
     #[serde(default)]
     max_nesting_depth: usize,
+    // Added after the initial cache format shipped (CRAP, roadmap item C);
+    // entries written by older yunq versions come back empty, the same
+    // fail-open migration the fields above already use.
+    #[serde(default)]
+    function_complexities: Vec<CachedFunctionComplexityDto>,
 }
 
 pub struct FileAnalysisCache {
@@ -118,6 +133,15 @@ fn to_domain(dto: &CachedFileDto) -> Option<CachedAnalysis> {
             ))
         })
         .collect::<Option<Vec<_>>>()?;
+    let function_complexities = dto
+        .function_complexities
+        .iter()
+        .map(|fc| FileFunctionComplexity {
+            path: fc.path.clone(),
+            span: Span::new(fc.start_line, fc.start_col, fc.end_line, fc.end_col),
+            cyclomatic: fc.cyclomatic,
+        })
+        .collect();
     Some(CachedAnalysis {
         lines: dto.lines,
         debt_minutes: dto.debt_minutes,
@@ -130,6 +154,7 @@ fn to_domain(dto: &CachedFileDto) -> Option<CachedAnalysis> {
             comment_lines: dto.comment_lines,
             max_nesting_depth: dto.max_nesting_depth,
         },
+        function_complexities,
     })
 }
 
@@ -167,6 +192,18 @@ fn to_dto(value: &CachedAnalysis) -> CachedFileDto {
                 start_col: issue.span().start_col,
                 end_line: issue.span().end_line,
                 end_col: issue.span().end_col,
+            })
+            .collect(),
+        function_complexities: value
+            .function_complexities
+            .iter()
+            .map(|fc| CachedFunctionComplexityDto {
+                path: fc.path.clone(),
+                start_line: fc.span.start_line,
+                start_col: fc.span.start_col,
+                end_line: fc.span.end_line,
+                end_col: fc.span.end_col,
+                cyclomatic: fc.cyclomatic,
             })
             .collect(),
     }
@@ -218,6 +255,11 @@ mod tests {
                 "a.ts",
                 Span::new(1, 2, 3, 4),
             )],
+            function_complexities: vec![FileFunctionComplexity {
+                path: "a.ts".into(),
+                span: Span::new(1, 1, 5, 1),
+                cyclomatic: 3,
+            }],
         };
 
         let cache = FileAnalysisCache::open(&path);
@@ -234,6 +276,7 @@ mod tests {
         assert_eq!(hit.hotspots.len(), 1);
         assert_eq!(hit.hotspots[0].status(), HotspotStatus::ToReview);
         assert_eq!(hit.structural, value.structural);
+        assert_eq!(hit.function_complexities, value.function_complexities);
 
         std::fs::remove_dir_all(&dir).ok();
     }
