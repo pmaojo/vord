@@ -11,6 +11,7 @@ mod eval_usage;
 mod hardcoded_secret;
 mod injection;
 mod insecure_deserialization;
+mod insecure_random;
 mod path_traversal;
 mod permissive_cors;
 mod ssrf;
@@ -26,6 +27,7 @@ pub use eval_usage::EvalUsageRule;
 pub use hardcoded_secret::HardcodedSecretRule;
 pub use injection::InjectionRule;
 pub use insecure_deserialization::InsecureDeserializationRule;
+pub use insecure_random::InsecureRandomRule;
 pub use path_traversal::PathTraversalRule;
 pub use permissive_cors::PermissiveCorsRule;
 pub use ssrf::SsrfRule;
@@ -44,6 +46,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(DockerfileRootUserRule::new()),
         Box::new(WeakCryptoRule::new()),
         Box::new(InsecureDeserializationRule::new()),
+        Box::new(InsecureRandomRule::new()),
         Box::new(DisabledCertValidationRule::new()),
         Box::new(XssRule::new()),
         Box::new(PermissiveCorsRule::new()),
