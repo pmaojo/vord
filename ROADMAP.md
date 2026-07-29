@@ -35,7 +35,7 @@ Verified against the tree, not remembered:
 | Rules | 133 `Rule`/`CrossFileRule` impls across 14 ruleset crates |
 | Tests | ~1156 test functions in-workspace |
 | Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph` |
-| Agent guardrail | `core/agent-policy` (1039 LOC): blocking/advisory rules, protected paths, provenance, Gherkin evidence, circuit breaker, loop guard, single-use escalation tokens, audit log |
+| Agent guardrail | `core/agent-policy` (1039 LOC): blocking/advisory rules, protected paths (incl. its own policy/gate config files), provenance, Gherkin evidence, circuit breaker, loop guard, single-use escalation tokens, audit log, gate-gaming detection (suppressions, skipped tests) |
 | Guardrail host | `yunq hook {claude-code, check, install, approve, audit, reset-*}` — ~7ms p50 per write |
 | Remediation | `core/remediation`: `RemediationEngine` over `LlmProvider` + `Sandbox` ports, generate → sandbox → re-scan → verdict |
 | LLM adapters | `infra/llm`: Anthropic Messages API + OpenAI-compatible (Groq/DeepSeek/Ollama/vLLM/LiteLLM) |
@@ -281,14 +281,48 @@ was to pass that gate.
 The sharpest case is the self-referential one: an agent denied by
 `yunq-policy.toml` editing `yunq-policy.toml` to move the offending rule into
 `advisory_rules`. That is not a hypothetical — it is the single
-highest-leverage move available to anything optimising for "the write lands",
-and today nothing stops it. `hook install`'s generated template should list
-the policy file itself as a `protected_path`. A referee whose rulebook the
-players can edit is not a referee.
+highest-leverage move available to anything optimising for "the write lands".
+A referee whose rulebook the players can edit is not a referee.
 
-- **E4** Gate-gaming rules in `rulesets/ai-agent` (the crate already exists).
-- **E5** `yunq-policy.toml`, gate config and CI workflow definitions as
-  default-protected paths in the `hook install` template.
+- **E4** ✅ **done.** `ai:suppression-added` and `ai:test-skipped` in
+  `bin/cli/src/hook.rs` (`suppression_added_findings`/`test_skip_added_findings`),
+  following the diff-against-on-disk shape `new_dependency_findings` set for
+  the supply-chain guard — a suppression/skip already on a line before this
+  write is not a finding, the same line introduced by it is. Covers
+  `#[allow(...)]`, `eslint-disable`, `# noqa`, `# type: ignore`,
+  `# pylint: disable`, `//nolint`, `# pragma: no cover`, `// istanbul ignore`
+  (suppressions and coverage exclusions, one rule) and `#[ignore]`,
+  `@pytest.mark.skip`, `@unittest.skip`, `.skip(`, `xit(`, `xdescribe(`
+  (skipped tests, the other). Both `Severity::Major`, neither in the default
+  policy's `blocking_rules` — opt-in via `advisory_rules`/`blocking_rules`,
+  documented in `hook_install.rs`'s `POLICY_TEMPLATE`. Not attempted here:
+  deleting a failing test outright and weakening an existing assertion — both
+  need identifying *which* test/assertion changed meaning, not just spotting a
+  new marker substring, and are open follow-ups under this same item.
+- **E5** ✅ **done.** `hook install`'s `POLICY_TEMPLATE`
+  (`bin/cli/src/hook_install.rs`) lists `yunq-policy.toml` (the rulebook
+  itself) and `yunq.toml` (gate thresholds/exclusions) as `[[protected_path]]`
+  entries alongside the pre-existing `.github/workflows/**`, so an agent
+  denied by its own policy cannot resolve the denial by editing the policy.
+
+**Bug found by dogfooding, not on this list, fixed alongside it:**
+`bin/cli/src/hook.rs::analyze_content` mapped only `report.issues()` into
+policy findings, never `report.hotspots()`. `owasp:command-execution` is
+`FindingKind::Hotspot` by design (`rulesets/owasp/src/command_exec.rs`) and
+is one of six rules in `AgentPolicy::default()`'s own built-in
+`blocking_rules` — meaning the zero-config guardrail's flagship README
+example ("an agent that tries to write a shell-injection sink gets its own
+tool call denied") was not actually true out of the box; hotspot-classified
+rules could never deny a write regardless of policy. Found by installing
+`hook install` on this repository and hand-verifying `yunq hook claude-code`
+against a real `os.system(user_input)` payload, which returned silent
+`exit 0` where it should have denied. Fixed by folding `report.hotspots()`
+into the same mapping, borrowing each hotspot's severity from the active
+quality profile (`Hotspot` itself carries none — that is what distinguishes
+it from an `Issue`) since `block_at_or_above` still needs one to compare
+against, while `blocking_rules`/`escalate_rules` match by rule id regardless.
+Regression-tested (`a_hotspot_rule_is_included_in_analyze_content_findings`,
+`the_built_in_default_policy_actually_denies_a_hotspot_blocking_rule`).
 
 **Design constraint, and why this is not just another rule:** every one of
 these findings needs a *before* state, and the `Rule` trait deliberately sees
@@ -368,10 +402,11 @@ target.
 ## Sequencing
 
 ```
-now ──► E4–E5 (gate-gaming)   ─┐   ← precondition for trusting A and B
-        C1–C3 (CRAP)           ├─► independent, ship in any order
-        D1–D2 (boundaries)     │
-        E1  (mutation widen)  ─┘
+done ──► E4–E5 (gate-gaming)
+
+now  ──► C1–C3 (CRAP)          ─┐
+         D1–D2 (boundaries)     ├─► independent, ship in any order
+         E1  (mutation widen)  ─┘
 
 then ─► A1–A4 (agent runtime core) ─► A5 (PR feedback loop) ─► A6 (TUI)
                 │
@@ -383,13 +418,13 @@ parallel ─► F (performance)  — continuous, gated in CI
             G — opportunistic
 ```
 
-Everything in the first group is startable immediately and touches nothing
-the agent work touches. **E4–E5 come first within it**, not because they are
-the largest but because they are the precondition for the rest: every gate A
-and B are measured against is only worth building if the agent cannot quietly
-edit it. A is the long pole and everything in B depends on A running
-headless. F is continuous and already gated. D3–D4 need D1's component model
-first.
+E4–E5 shipped first, ahead of everything else in their group, because they
+are the precondition for the rest: every gate A and B are measured against is
+only worth building if the agent cannot quietly edit it. What's left in the
+first group (C1–C3, D1–D2, E1) is startable immediately and still touches
+nothing the agent work touches — pick any of them next. A is the long pole
+and everything in B depends on A running headless. F is continuous and
+already gated. D3–D4 need D1's component model first.
 
 ## Non-goals
 

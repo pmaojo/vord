@@ -5,6 +5,17 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+# The crate is `yunq-cli` (matches every other workspace member's
+# `yunq-<thing>` naming), but the compiled binary is the bare `yunq` every
+# doc, hook command (`yunq hook claude-code`) and policy template assumes is
+# on PATH. Without this, `cargo install --path bin/cli` — the only install
+# path for anyone not using a prebuilt release artifact — silently produces
+# a binary named `yunq-cli`, and every hook wired via `hook install` fails to
+# resolve its own command.
+[[bin]]
+name = "yunq"
+path = "src/main.rs"
+
 [dependencies]
 yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }

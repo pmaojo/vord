@@ -1,0 +1,88 @@
+# yunq Agent Permission Policy
+#
+# Governs what an autonomous coding agent (Claude Code, and any host wired to
+# `yunq hook check`) is allowed to write. This is not the quality gate: the
+# gate asks "is this project releasable?", this asks "may this one write
+# land?" — and answers before the bytes reach disk.
+#
+# Verify any change here with:  yunq hook check <file>
+
+[agent]
+enabled = true
+
+# Deny a write introducing a finding at or above this severity.
+# info | minor | major | critical | blocker
+block_at_or_above = "critical"
+
+# Rules an agent may never introduce, whatever severity the quality profile
+# gives them. This is the list that makes an agent policy different from a
+# severity threshold: an agent writing a shell sink is categorically riskier
+# than a human doing it under review, even when the rule scores as a warning.
+blocking_rules = [
+  "ai:llm-output-injection",
+  "owasp:command-execution",
+  "owasp:eval-usage",
+  "python:subprocess-shell-true",
+  "php:eval-usage",
+  "php:command-execution",
+]
+
+# Rules that report but never deny. The escape hatch for a rule that is noisy
+# in this repository — outranks both the blocking list and the threshold.
+# Also where to opt into rules that are not AST findings, e.g.
+# "supply-chain:new-dependency" (flags a package.json/requirements.txt
+# dependency an agent's write adds that was not there before — never denies
+# by default, since most new dependencies are legitimate), or the
+# gate-gaming rules "ai:suppression-added" (a new #[allow(...)]/eslint-disable/
+# noqa/nolint/coverage-exclusion this write introduces) and "ai:test-skipped"
+# (a test newly marked #[ignore]/skip in this write) — never denies by
+# default, since a suppression or a skipped test is sometimes the right call
+# and this is the mechanism to surface it for human review rather than ban it
+# outright.
+advisory_rules = []
+
+# Rules that block like `blocking_rules`, but a human can lift the block for
+# one specific write with `yunq hook approve <token>` (the token is printed
+# in the denial). Use this for findings that are too risky to let an agent
+# resolve unsupervised but are not always wrong — a blanket block would just
+# get the policy edited to remove the rule.
+escalate_rules = []
+
+# Stricter threshold for a path yunq has already seen an agent write to (or
+# attempt to write to) before — tracked automatically in
+# .yunq-provenance.json, no manual "mark this file as AI-generated" step
+# required. Only the threshold tightens here; blocking_rules/escalate_rules/
+# advisory_rules above apply the same regardless of a path's provenance.
+[agent.ai_touched]
+block_at_or_above = "major"
+
+# Paths an agent may not touch at all, with no finding required. Delete any
+# entry that does not fit how this repository works; an agent that cannot do
+# its job will be given a wider blast radius by whoever is annoyed enough.
+[[protected_path]]
+pattern = ".github/workflows/**"
+reason = "CI definitions gate every other control; changes need human review."
+
+[[protected_path]]
+pattern = "**/*.tf"
+reason = "Terraform changes can rewrite IAM and networking; human review required."
+
+[[protected_path]]
+pattern = "yunq-policy.toml"
+reason = "This is the rulebook an agent is judged against; an agent that can edit its own referee is not governed by one."
+
+[[protected_path]]
+pattern = "yunq.toml"
+reason = "Quality-gate thresholds and exclusions live here; loosening them is a quieter way to make a gate pass than fixing the code it flags."
+
+# Requires at least one Gherkin scenario tagged `@covers(<glob>)` somewhere
+# in the repository's .feature files before an agent may write to a matching
+# path — yunq scans for the tag, it does not run the scenario. Commented out
+# by default: unlike protected_path, turning this on immediately denies every
+# matching write until real .feature coverage exists, so it needs the
+# repository to already have (or be ready to add) BDD scenarios, not just a
+# glob. Uncomment and adjust once that coverage is in place.
+#
+# [[gherkin_required]]
+# pattern = "core/domain/**"
+# reason = "Domain logic changes must be described by a Gherkin scenario before an agent may land them."

@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/yunq-cli${{ matrix.binary_suffix }} dist/yunq-${{ matrix.target }}${{ matrix.binary_suffix }}
+          cp target/${{ matrix.target }}/release/yunq${{ matrix.binary_suffix }} dist/yunq-${{ matrix.target }}${{ matrix.binary_suffix }}
           cp target/${{ matrix.target }}/release/yunq-server${{ matrix.binary_suffix }} dist/yunq-server-${{ matrix.target }}${{ matrix.binary_suffix }}
 
       - name: Upload Release Artifacts

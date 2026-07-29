@@ -1,0 +1,12 @@
+{
+  "name": "yunq-guardrail",
+  "displayName": "yunq Guardrail",
+  "version": "0.1.1",
+  "description": "Gates every Edit/Write in this session against yunq's Agent Permission Policy (yunq-policy.toml) before the bytes reach disk.",
+  "author": { "name": "yunq" },
+  "homepage": "https://github.com/pmaojo/yunq",
+  "repository": "https://github.com/pmaojo/yunq",
+  "license": "MIT",
+  "keywords": ["static-analysis", "security", "guardrail", "agent-policy", "rust"],
+  "hooks": "./hooks/hooks.json"
+}

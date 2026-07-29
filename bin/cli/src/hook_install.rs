@@ -62,7 +62,13 @@ blocking_rules = [
 # Also where to opt into rules that are not AST findings, e.g.
 # "supply-chain:new-dependency" (flags a package.json/requirements.txt
 # dependency an agent's write adds that was not there before — never denies
-# by default, since most new dependencies are legitimate).
+# by default, since most new dependencies are legitimate), or the
+# gate-gaming rules "ai:suppression-added" (a new #[allow(...)]/eslint-disable/
+# noqa/nolint/coverage-exclusion this write introduces) and "ai:test-skipped"
+# (a test newly marked #[ignore]/skip in this write) — never denies by
+# default, since a suppression or a skipped test is sometimes the right call
+# and this is the mechanism to surface it for human review rather than ban it
+# outright.
 advisory_rules = []
 
 # Rules that block like `blocking_rules`, but a human can lift the block for
@@ -90,6 +96,14 @@ reason = "CI definitions gate every other control; changes need human review."
 [[protected_path]]
 pattern = "**/*.tf"
 reason = "Terraform changes can rewrite IAM and networking; human review required."
+
+[[protected_path]]
+pattern = "yunq-policy.toml"
+reason = "This is the rulebook an agent is judged against; an agent that can edit its own referee is not governed by one."
+
+[[protected_path]]
+pattern = "yunq.toml"
+reason = "Quality-gate thresholds and exclusions live here; loosening them is a quieter way to make a gate pass than fixing the code it flags."
 
 # Requires at least one Gherkin scenario tagged `@covers(<glob>)` somewhere
 # in the repository's .feature files before an agent may write to a matching
@@ -289,6 +303,8 @@ mod tests {
         assert!(policy.enabled());
         assert!(policy.evaluate(".github/workflows/ci.yml", &[]).is_denied());
         assert!(policy.evaluate("infra/main.tf", &[]).is_denied());
+        assert!(policy.evaluate("yunq-policy.toml", &[]).is_denied(), "the policy must protect its own rulebook");
+        assert!(policy.evaluate("yunq.toml", &[]).is_denied(), "the gate config must protect its own thresholds");
         assert!(!policy.evaluate("src/app.ts", &[]).is_denied());
         assert!(
             !policy.has_gherkin_requirements(),
