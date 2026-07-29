@@ -32,7 +32,7 @@ Verified against the tree, not remembered:
 |---|---|
 | Workspace | Hexagonal, enforced by Cargo: `bin → {infra, parsers, rulesets} → core` |
 | Languages | 24 tree-sitter grammars (`parsers/`, plus `treesitter-adapter` + `treesitter-tokens`) |
-| Rules | 133 `Rule`/`CrossFileRule` impls across 14 ruleset crates |
+| Rules | 134 `Rule`/`CrossFileRule` impls across 14 ruleset crates |
 | Tests | ~1156 test functions in-workspace |
 | Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph`, `crap` (CC² × (1−coverage)³ + CC risk scoring) |
 | Agent guardrail | `core/agent-policy` (1039 LOC): blocking/advisory rules, protected paths (incl. its own policy/gate config files), provenance, Gherkin evidence, circuit breaker, loop guard, single-use escalation tokens, audit log, gate-gaming detection (suppressions, skipped tests) |
@@ -236,17 +236,91 @@ else is convention.
 `core/import-graph` already builds the edge set and detects cycles. What is
 missing is the layer above it: components, declared boundaries, and metrics.
 
-- **D1 — Components from topology.** Derive a component per source subtree
-  (dependency-checker derives from the second namespace segment; yunq's
-  equivalent is the workspace member / directory tier). No new config to
-  state what is already on disk.
-- **D2 — Declared boundaries.** `[architecture]` in `yunq.toml`:
-  `allowed_dependencies` (anything unlisted is a violation) and
-  `forbidden_dependencies` (explicitly blocked edges), plus per-edge
-  exceptions. A violation is an ordinary `Issue`, so it flows into gates,
-  SARIF, PR decoration and the agent policy with zero new plumbing — an agent
-  that adds a `core → infra` import gets denied *at write time*, which is the
-  whole point.
+- **D1** ✅ **done.** `component_of` (`core/import-graph::component`) derives a
+  component from the first two directory segments of a path
+  (`core/rules-engine/src/lib.rs` → `"core/rules-engine"`) — deep enough to
+  separate crates under the same tier, shallow enough that a `src/`-nested
+  file still resolves to its crate rather than one component per
+  subdirectory. No new config: the directory structure is already the
+  input. `ImportGraph::component_edges()` collapses the existing file-level
+  edge set to component-level edges (self-edges dropped), the input D2's
+  boundary check runs against.
+- **D2** ✅ **done.** `[architecture]` in `yunq.toml`: `allowed_dependencies`
+  (once non-empty, whitelist mode — anything unlisted is a violation),
+  `forbidden_dependencies` (explicitly blocked edges, independent of
+  whitelist mode), and `exceptions` (overrides either list for a specific
+  declared edge). Matching is tier-first (`core/import-graph::boundary`):
+  a pattern with no component-name segment, e.g. `"core"`, matches every
+  component under that tier, not only one literally named `"core"` — so the
+  roadmap's own example (`core → infra` denied at write time) is one config
+  line, not one per crate. `ArchitectureSettings`/`DependencyEdgeConfig`
+  (`infra/fs::config`) are the `yunq.toml`-facing, fully-optional shape
+  (`#[serde(default)]` throughout, same fail-open convention
+  `DuplicationSettings` set); `bin/cli::architecture_config` bridges to the
+  engine-facing `yunq_import_graph::ArchitectureConfig`
+  `rulesets/architecture::BoundaryViolationRule` takes. Unlike
+  `DependencyCycleRule`, this rule carries config, so it can't live in
+  `all_cross_rules()`'s zero-config chain (nothing in that call site has
+  `yunq.toml` in scope) — `scan_with_project_config` constructs and
+  registers it itself, once per scan, only when `[architecture]` declared
+  something (an empty config registers nothing, not an always-on no-op
+  rule). Its findings are ordinary `Issue`s via the same
+  `run_cross_file_rules` fold every other cross-file rule gets, so gates,
+  SARIF, PR decoration and the agent policy see a boundary violation with
+  zero new plumbing, verified end-to-end with a real `yunq scan` against a
+  two-file TS fixture (`core → infra` forbidden, and separately an
+  allow-list catching the same edge as undeclared) — text and
+  `--format json` output both confirmed, not just the unit tests. Rust `use`
+  edges followed immediately after (below) rather than being left as a gap:
+  self-enforcing yunq's own `bin → {infra, parsers, rulesets} → core` rule
+  turned out to matter for a reason sharper than dogfooding — Cargo enforces
+  *declared* dependencies and forbids *cycles*, but nothing in Cargo stops
+  `core/rules-engine`'s `Cargo.toml` from adding `yunq-infra-fs` and
+  importing it; that compiles fine. Direction is pure convention until this
+  rule can see it. `yunq.toml` now carries `core → infra` as a real
+  `forbidden_dependencies` entry, verified against the actual tree (zero
+  findings — no core crate depends on any infra crate today) and against a
+  genuine two-crate Cargo workspace fixture with a real, compiling violation
+  (one finding, correct file/line).
+  - **Rust `use` resolution** (`core/import-graph::extract_rust_edges`,
+    `rust_path_root`) walks every `use_declaration` shape the grammar
+    produces (`scoped_identifier`, `scoped_use_list`, `use_as_clause`,
+    `use_wildcard`) down to its leftmost identifier — the crate name (or
+    `crate`/`self`/`super`, always intra-crate, skipped before ever
+    consulting anything). Resolving *that* to a directory is a genuinely
+    different problem than TS/Python's relative-specifier resolution: a
+    crate's Rust identifier has no fixed relationship to its directory
+    (`rulesets/architecture`'s package is `yunq-rules-architecture`, not
+    `yunq-rulesets-architecture`) and needs each `Cargo.toml`'s declared
+    `[package] name`, which is I/O — so it lives in `infra/fs`
+    (`discover_rust_crates`, walks the scanned root, honors `.gitignore`
+    like `discover_projects` does, skips virtual/workspace-only manifests
+    with no `[package]` table) and is passed into
+    `ImportGraph::build_with_rust_crates` as a plain
+    `HashMap<String, String>` — `core/import-graph` stays I/O-free; the
+    index is just data, built elsewhere. `BoundaryViolationRule` grew a
+    second constructor argument for it (empty for a project with no Rust,
+    same "unresolved specifier is harmless" convention as everything else);
+    `DependencyCycleRule` deliberately did **not** — a real crate-level
+    cycle can't exist in a workspace that builds at all (Cargo's own
+    dependency graph forbids it), so extending cycle detection to Rust adds
+    engineering cost for a check Cargo already subsumes, unlike boundary
+    violation, which catches something Cargo doesn't enforce at all.
+  - **Known limitation, stated plainly rather than glossed over**: this
+    doesn't distinguish `#[cfg(test)]`/test-only code from production code
+    the way `core/duplication`'s `include_test_code` does. A dev-dependency
+    used only inside a crate's own tests (a common, Cargo-sanctioned pattern
+    for exercising a port against a real adapter) would misfire as a
+    forbidden edge if one were declared for that pair — yunq's own tree
+    happens to have zero such cases for `core → infra` specifically (every
+    `core/*` crate that depends on a `parsers/*` crate for test fixtures
+    does so via `parsers`, a tier this dogfood config leaves undeclared for
+    exactly that reason), so the shipped config is safe, but the gap is
+    real and unaddressed here — a future pass needs to plumb the same
+    test-code detection `smells`/`duplication` already have into this rule
+    before a tier like `core → parsers` could be safely declared.
+  D3 (I/A metrics, main sequence) and D4 (`yunq arch` viewer) build on this
+  component model next.
 - **D3 — Instability / Abstractness and the main sequence.** Per component:
   I = Ce/(Ca+Ce), A = abstract types / total types, D = |A+I−1|. Classify
   into the zone of pain (concrete + stable) and the zone of uselessness
@@ -430,9 +504,9 @@ target.
 ```
 done ──► E4–E5 (gate-gaming)
          C1–C3 (CRAP)
+         D1–D2 (boundaries)
 
-now  ──► D1–D2 (boundaries)     ─┐
-         E1  (mutation widen)   ─┘ independent, ship in any order
+now  ──► E1  (mutation widen) — startable immediately, untouched by D or A/B
 
 then ─► A1–A4 (agent runtime core) ─► A5 (PR feedback loop) ─► A6 (TUI)
                 │
@@ -440,18 +514,22 @@ then ─► A1–A4 (agent runtime core) ─► A5 (PR feedback loop) ─► A6 
 
 parallel ─► F (performance)  — continuous, gated in CI
             C4 (run coverage) — now startable, C1–C3 shipped
-            D3–D4 (I/A + arch view) — after D1–D2
+            D3–D4 (I/A + arch view) — now startable, D1–D2 shipped
             G — opportunistic
 ```
 
 E4–E5 shipped first, ahead of everything else in their group, because they
 are the precondition for the rest: every gate A and B are measured against is
 only worth building if the agent cannot quietly edit it. C1–C3 (CRAP) shipped
-next — cheapest high-value item, both inputs already existed. What's left in
-the first group (D1–D2, E1) is startable immediately and still touches
-nothing the agent work touches — pick either next. A is the long pole
-and everything in B depends on A running headless. F is continuous and
-already gated. D3–D4 need D1's component model first.
+next — cheapest high-value item, both inputs already existed. D1–D2
+(boundaries) shipped next — components fall out of the same directory
+topology the workspace already enforces via Cargo, and a violation reuses
+every pipeline CRAP's findings already flow through, so the whole feature
+added one config table and one cross-file rule. E1 (mutation widen) is what's
+left in that original group, still untouched by anything D or A/B does. A is
+the long pole and everything in B depends on A running headless. F is
+continuous and already gated. D3–D4 (I/A metrics, `yunq arch` viewer) can
+start now that D1's component model exists.
 
 ## Non-goals
 

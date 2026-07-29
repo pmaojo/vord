@@ -2565,6 +2565,7 @@ dependencies = [
  "tokio",
  "yunq-agent-policy",
  "yunq-ast",
+ "yunq-import-graph",
  "yunq-infra-fs",
  "yunq-infra-github",
  "yunq-infra-llm",
@@ -2632,6 +2633,7 @@ version = "0.1.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-python",
+ "yunq-parser-rust",
  "yunq-parser-typescript",
  "yunq-rules-engine",
 ]
@@ -3105,6 +3107,7 @@ dependencies = [
  "yunq-ast",
  "yunq-import-graph",
  "yunq-parser-python",
+ "yunq-parser-rust",
  "yunq-parser-typescript",
  "yunq-rules-engine",
 ]

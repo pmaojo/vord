@@ -202,7 +202,7 @@ pub async fn scan_with_exclusions(
     cache: Option<Arc<FileAnalysisCache>>,
     exclusions: &[String],
 ) -> anyhow::Result<AnalysisReport> {
-    scan_with_project_config(path, cache, &[], exclusions, &Default::default()).await
+    scan_with_project_config(path, cache, &[], exclusions, &Default::default(), &Default::default()).await
 }
 
 /// Scans with an optional incremental cache, `yunq.toml`'s
@@ -215,10 +215,22 @@ pub async fn scan_with_project_config(
     source_dirs: &[String],
     exclusions: &[String],
     duplication: &yunq_infra_fs::DuplicationSettings,
+    architecture: &yunq_infra_fs::ArchitectureSettings,
 ) -> anyhow::Result<AnalysisReport> {
     let sources = yunq_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
     let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
         .with_duplication_config(duplication_config(duplication));
+    let boundaries = architecture_config(architecture);
+    if !boundaries.is_empty() {
+        // Only discovered when there's a boundary to check against — this
+        // walks every Cargo.toml under `path`, wasted work for a project
+        // with no `[architecture]` table declared.
+        let rust_crates = yunq_infra_fs::discover_rust_crates(path);
+        service = service.register_cross_rule(Box::new(yunq_rules_architecture::BoundaryViolationRule::new(
+            boundaries,
+            rust_crates,
+        )));
+    }
     if let Some(cache) = cache {
         service = service.with_cache(cache);
     }
@@ -243,6 +255,22 @@ pub fn duplication_config(
         max_declarations_spanned: settings
             .max_declarations_spanned
             .unwrap_or(defaults.max_declarations_spanned),
+    }
+}
+
+/// Converts `[architecture]` from `yunq.toml` into the engine-facing
+/// `yunq_import_graph::ArchitectureConfig` `BoundaryViolationRule` takes —
+/// same shape of bridge `duplication_config` is for `[duplication]`, just
+/// with no defaults to overlay (an empty list stays an empty list; there is
+/// nothing to declare a boundary that means "no boundary declared").
+pub fn architecture_config(
+    settings: &yunq_infra_fs::ArchitectureSettings,
+) -> yunq_import_graph::ArchitectureConfig {
+    let edge = |e: &yunq_infra_fs::DependencyEdgeConfig| yunq_import_graph::DependencyEdge::new(&e.from, &e.to);
+    yunq_import_graph::ArchitectureConfig {
+        allowed_dependencies: settings.allowed_dependencies.iter().map(edge).collect(),
+        forbidden_dependencies: settings.forbidden_dependencies.iter().map(edge).collect(),
+        exceptions: settings.exceptions.iter().map(edge).collect(),
     }
 }
 

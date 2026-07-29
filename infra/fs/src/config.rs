@@ -14,6 +14,8 @@ pub struct YunqConfig {
     pub rules: RulesConfig,
     #[serde(default)]
     pub duplication: DuplicationSettings,
+    #[serde(default)]
+    pub architecture: ArchitectureSettings,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -52,6 +54,39 @@ pub struct DuplicationSettings {
     /// default 1). Raise it to see regions that cover several adjacent
     /// declarations, e.g. a whole trait implementation.
     pub max_declarations_spanned: Option<usize>,
+}
+
+/// `[architecture]` in `yunq.toml` — declared component boundaries (roadmap
+/// D2). Components are derived automatically from directory topology
+/// (`yunq_import_graph::component_of`, roadmap D1), so there is nothing to
+/// declare here except the edges themselves. All three lists default to
+/// empty, meaning no boundaries declared — the architecture rule is then a
+/// silent no-op, the same fail-open convention `[duplication]` follows.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArchitectureSettings {
+    /// Once non-empty, switches the check into whitelist mode: any
+    /// component-level edge not listed here is a violation.
+    #[serde(default)]
+    pub allowed_dependencies: Vec<DependencyEdgeConfig>,
+    /// Component-level edges that are always a violation, regardless of
+    /// `allowed_dependencies`.
+    #[serde(default)]
+    pub forbidden_dependencies: Vec<DependencyEdgeConfig>,
+    /// Specific edges exempted from both lists above — the escape hatch for
+    /// a deliberate, reviewed exception to an otherwise-general rule.
+    #[serde(default)]
+    pub exceptions: Vec<DependencyEdgeConfig>,
+}
+
+/// One `{ from = "...", to = "..." }` entry in an `[architecture]` list.
+/// `from`/`to` name a component (`component_of`'s output, e.g.
+/// `"core/rules-engine"`) or a whole tier with no component-name segment
+/// (e.g. `"core"`, matching every component under it) — see
+/// `yunq_import_graph::DependencyEdge` for the matching rule.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DependencyEdgeConfig {
+    pub from: String,
+    pub to: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,6 +197,7 @@ severity = "minor"
         assert_eq!(config.project.key.as_deref(), Some("my-awesome-repo"));
         assert_eq!(config.rules.custom.len(), 1);
         assert_eq!(config.rules.custom[0].pattern, "console.log");
+        assert!(config.architecture.forbidden_dependencies.is_empty());
     }
 
     #[test]
@@ -177,5 +213,33 @@ sonar.exclusions=**/vendor/**
         assert_eq!(config.project.key.as_deref(), Some("legacy-sonar-key"));
         assert_eq!(config.project.name.as_deref(), Some("Legacy App"));
         assert_eq!(config.analysis.sources.unwrap(), vec!["src", "lib"]);
+    }
+
+    #[test]
+    fn parses_architecture_boundaries() {
+        let toml_content = r#"
+[[architecture.allowed_dependencies]]
+from = "bin"
+to = "core"
+
+[[architecture.forbidden_dependencies]]
+from = "core"
+to = "infra"
+
+[[architecture.exceptions]]
+from = "core/legacy"
+to = "infra"
+"#;
+        let config: YunqConfig = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.architecture.allowed_dependencies.len(), 1);
+        assert_eq!(config.architecture.allowed_dependencies[0].from, "bin");
+        assert_eq!(config.architecture.forbidden_dependencies[0].to, "infra");
+        assert_eq!(config.architecture.exceptions[0].from, "core/legacy");
+    }
+
+    #[test]
+    fn architecture_table_is_optional() {
+        let config: YunqConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
+        assert_eq!(config.architecture, ArchitectureSettings::default());
     }
 }

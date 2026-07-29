@@ -67,6 +67,7 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
             &source_dirs,
             &exclusions,
             &config.duplication,
+            &config.architecture,
         )
         .await?;
         if let Some(cache) = &cache
