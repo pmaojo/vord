@@ -94,7 +94,23 @@ is pure and unit-testable, the I/O is the binary's problem.
   agent's own stopping conditions. Add a token/turn budget with an explicit
   exhaustion verdict. A runtime that can burn an unbounded budget against the
   same wall is not shippable.
-- **A5 — TUI.** Last, deliberately. A headless `yunq agent run --task` that
+- **A5 — Late feedback is part of done.** A3 defines "done" as the analyzer
+  agreeing, which is true right up until the agent opens a PR — at which
+  point review bots and CI post minutes after the push, and a PR that looked
+  clean the instant it was pushed is not a PR that is finished. The agent
+  needs to wait out that window rather than declaring victory into it: a
+  backoff schedule, a settle window so one review batch is collected as one
+  batch, and a ledger of already-triaged items so a re-run does not
+  re-report what it already handled. Four terminal states, not two — quiet,
+  new feedback, bot all-clear, and **inconclusive**. That last one carries
+  the weight: "we looked and saw nothing" and "we could not look" must never
+  collapse into the same exit code, which is the same discipline the rest of
+  the codebase's fail-open behaviour needs everywhere. Fail-open must not
+  mean fail-blind. Every ALM API call is status-checked on the way in for
+  the same reason: error bodies arrive on the same channel as data, so an
+  unchecked call reports a rate-limit page as findings. Lives in
+  `infra/github` with the other ALM adapters.
+- **A6 — TUI.** Last, deliberately. A headless `yunq agent run --task` that
   is scriptable and CI-usable is worth more than a chat interface, and it is
   what the swarm in workstream B drives.
 
@@ -163,6 +179,19 @@ line → hit count). Per-function coverage is the intersection of a function's
 - **C3** Sort `yunq scan` output by CRAP when coverage is present. The ranked
   refactor list is the actual deliverable; the rule is just how it is
   computed.
+- **C4** Run coverage, don't only ingest it. Today CRAP needs a report piped
+  in, which means the metric is only seen by people who already configured
+  it — the ones who need it least. Detect the project's coverage command from
+  its build files (`Cargo.toml` → `cargo llvm-cov --lcov`, `go.mod` → `go
+  test -coverprofile`, `pom.xml` → JaCoCo, `pyproject.toml` → coverage.py,
+  `package.json` → the runner's own flag) so CRAP works on first invocation.
+  Config wins over detection, and a detected command is *offered* for
+  persistence in `yunq.toml` rather than silently re-detected each run.
+  **Opt-in, always** (`--run-coverage` or explicit config): a static analyzer
+  that executes a repository's build commands on a bare `yunq scan` is a
+  footgun, and the whole value of the analyzer is that running it is safe.
+  Of the formats a survey of the ecosystem turns up, the only real ingest gap
+  is Go's native coverprofile — the other four are already in.
 
 **Design note:** a function with no coverage data must not be scored as
 0%-covered — that would make every repository without a coverage report look
@@ -203,7 +232,15 @@ missing is the layer above it: components, declared boundaries, and metrics.
   and renders as a self-contained HTML file rather than a desktop window —
   it must work over SSH and attach to a PR comment.
 
-## E. Mutation testing, widened
+## E. Gate integrity — mutation testing and anti-gaming
+
+Two halves of one question: **is this gate load-bearing, or does it only look
+like it?** Mutation testing asks whether the suite would notice a regression.
+Anti-gaming asks whether the gate is still there at all. An agent optimising
+for a gate has two strategies available — satisfy it, or remove it — and
+right now the second is both cheaper and invisible.
+
+### Mutation testing, widened
 
 The CI mutation gate exists and works — it caught a real regression in
 `yunq-agent-policy` (`Evaluation::is_empty` and `AgentPolicy::enabled` had
@@ -212,8 +249,13 @@ both). It is scoped to exactly one crate.
 
 Coverage says a line ran. Mutation says a test would have *noticed*. With A
 and B shipping code written by yunq's own agent, that distinction stops being
-academic: the agent optimises for whatever gate we hand it, and a coverage
-gate is trivially satisfiable with assertion-free tests.
+academic: a coverage gate is trivially satisfiable with assertion-free tests.
+The standard worth stating plainly is that **the suite must be able to catch
+a revert of the change** — a test that passes whether or not the change is
+there asserts nothing. Every mature agent workflow states that as a rule in a
+prompt and hopes. A surviving mutant is the mechanical proof, which is the
+only version of the rule that survives contact with a system optimising
+against it.
 
 - **E1** Widen crate by crate, cheapest first, admitting each only once it
   proves fast enough to stay in CI: `profiles` → `import-graph` →
@@ -224,6 +266,40 @@ gate is trivially satisfiable with assertion-free tests.
 - **E3** Evaluate `clj-mutate`/`mutate4go`-style scoping so a PR mutates only
   what it touched. Full-workspace mutation will not fit in a PR's time
   budget; diff-scoped mutation might.
+
+### Gate-gaming detection
+
+The forbidden shortcut is not writing bad code — it is quietly lowering the
+bar and then clearing it. Concretely: adding a coverage exclusion, adding a
+suppression (`#[allow]`, `// nolint`, `# noqa`, `eslint-disable`,
+`# type: ignore`), marking a test `#[ignore]`/`skip`, deleting a failing
+test, weakening an assertion, or lowering a threshold in the project's own
+config. Each is legitimate when a human does it deliberately and reviewably;
+each is a silent gate bypass when it appears inside a change whose purpose
+was to pass that gate.
+
+The sharpest case is the self-referential one: an agent denied by
+`yunq-policy.toml` editing `yunq-policy.toml` to move the offending rule into
+`advisory_rules`. That is not a hypothetical — it is the single
+highest-leverage move available to anything optimising for "the write lands",
+and today nothing stops it. `hook install`'s generated template should list
+the policy file itself as a `protected_path`. A referee whose rulebook the
+players can edit is not a referee.
+
+- **E4** Gate-gaming rules in `rulesets/ai-agent` (the crate already exists).
+- **E5** `yunq-policy.toml`, gate config and CI workflow definitions as
+  default-protected paths in the `hook install` template.
+
+**Design constraint, and why this is not just another rule:** every one of
+these findings needs a *before* state, and the `Rule` trait deliberately sees
+only one file's current content — a suppression that was always there is not
+a finding, and the same line added in this change is. So these follow the
+precedent `hook.rs::new_dependency_findings` already set for the supply-chain
+guard: diff against the on-disk version at `PreToolUse` time and emit an
+ordinary `Finding` that flows through `AgentPolicy::evaluate` like any other.
+Same shape, second instance — which is a good sign the shape is right, and a
+signal it may deserve to be a named abstraction rather than a third
+hand-rolled copy.
 
 ## F. Performance debt (carried forward, unchanged in priority)
 
@@ -284,26 +360,34 @@ target.
 | Roles get policy scopes | swarm-forge enforces discipline through workflow structure and says so explicitly. yunq has actual access controls and should use them. |
 | CRAP before any new coverage work | Both inputs already exist and have never been multiplied. Highest ratio of signal to new code on the roadmap. |
 | Architecture rules emit ordinary `Issue`s | Free reuse of gates, SARIF, PR decoration, and — critically — the agent policy, so a boundary violation is denied at write time rather than reported after merge. |
+| Gates are values, not instructions | Surveying the agent-workflow ecosystem (e.g. `theam/claude-dev-kit`, Apache-2.0 — a ~2500-line Claude Code plugin) shows the state of the art enforcing gates by *asking*: "never report a gate as passed without having run it" is a prompt line a model can violate silently. yunq is the one project positioned to make that structurally true, because the judge is a separate deterministic artifact. Learn the pipeline shape from such kits; do not adopt their enforcement architecture. |
+| The policy file is itself a protected path | The highest-leverage move for anything optimising to make a write land is editing the rulebook, not the code. |
+| Reimplement borrowed designs; do not vendor them | Useful prior art in this space is largely Apache-2.0 while yunq is MIT. Apache's attribution/NOTICE/patent terms travel with copied source; behaviour learned from reading it does not. |
 | ROADMAP split from DEVLOG | 1280 lines of session narrative made the plan unfindable. The rationale is worth keeping; it just is not a plan. |
 
 ## Sequencing
 
 ```
-now ──► C (CRAP)            ─┐
-        D1–D2 (boundaries)   ├─► independent, ship in any order
-        E1 (mutation widen) ─┘
+now ──► E4–E5 (gate-gaming)   ─┐   ← precondition for trusting A and B
+        C1–C3 (CRAP)           ├─► independent, ship in any order
+        D1–D2 (boundaries)     │
+        E1  (mutation widen)  ─┘
 
-then ─► A1–A4 (agent runtime core)   ─► A5 (TUI)
+then ─► A1–A4 (agent runtime core) ─► A5 (PR feedback loop) ─► A6 (TUI)
                 │
                 └─► B1–B4 (swarm)  [needs headless A]
 
 parallel ─► F (performance)  — continuous, gated in CI
+            C4 (run coverage) — after C1–C3
             D3–D4 (I/A + arch view) — after D1–D2
             G — opportunistic
 ```
 
-C, D1–D2 and E1 are startable immediately and touch nothing the agent work
-touches. A is the long pole and everything in B depends on A running
+Everything in the first group is startable immediately and touches nothing
+the agent work touches. **E4–E5 come first within it**, not because they are
+the largest but because they are the precondition for the rest: every gate A
+and B are measured against is only worth building if the agent cannot quietly
+edit it. A is the long pole and everything in B depends on A running
 headless. F is continuous and already gated. D3–D4 need D1's component model
 first.
 
