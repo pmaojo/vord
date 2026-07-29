@@ -56,6 +56,57 @@ enum Command {
         #[command(subcommand)]
         action: HookAction,
     },
+    /// yunq's own coding agent: edits this repository under the same policy
+    /// `yunq hook` enforces on third-party agents, and reports a task
+    /// complete only when the analyzer agrees.
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentAction {
+    /// Run one headless session against a task. Exits 0 (the analyzer agrees),
+    /// 3 (incomplete), 4 (budget exhausted), 5 (circuit breaker tripped),
+    /// 6 (the agent looped) or 1 (yunq itself failed).
+    Run {
+        /// What the agent should do.
+        #[arg(long)]
+        task: String,
+        /// Path the analyzer takes its baseline over and re-scans to decide
+        /// completion.
+        #[arg(long, default_value = ".")]
+        scope: String,
+        /// A rule the task must eliminate; the task cannot complete while it
+        /// still fires anywhere in scope.
+        #[arg(long)]
+        rule: Option<String>,
+        /// Model turns this run may take (overrides `yunq.toml`'s `[agent]`).
+        #[arg(long)]
+        max_turns: Option<u32>,
+        /// Tokens this run may spend (overrides `yunq.toml`'s `[agent]`).
+        #[arg(long)]
+        max_tokens: Option<u64>,
+        /// Model name, overriding the provider's configured default.
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// Wait out the late-feedback window on a pull request: poll with
+    /// backoff, collect one review batch as one batch, and report quiet, new
+    /// feedback, a bot all-clear, or inconclusive. Exits 0 (quiet or
+    /// all-clear), 3 (new feedback to triage) or 1 (could not look).
+    WatchPr {
+        /// Pull request number.
+        #[arg(long)]
+        pr: u64,
+        /// `owner/repo`; defaults to `GITHUB_REPOSITORY`.
+        #[arg(long)]
+        repo: Option<String>,
+        /// Total seconds to keep watching before calling it quiet.
+        #[arg(long)]
+        window_secs: Option<u64>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -279,6 +330,28 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Scan(args)) => run_scan(*args).await,
         Some(Command::Fix { path, issue, model }) => run_fix(path, issue, model).await,
         Some(Command::Hook { action }) => run_hook(action).await,
+        Some(Command::Agent { action }) => run_agent(action).await,
+    }
+}
+
+/// `yunq agent`'s entry points. Unlike the hook, these do **not** fail open:
+/// a run that could not judge, could not analyse or could not reach the model
+/// exits 1, distinct from every verdict, because an agent that reports
+/// success when it could not check is worse than one that reports nothing.
+async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
+    let root = std::env::current_dir()?;
+    match action {
+        AgentAction::Run { task, scope, rule, max_turns, max_tokens, model } => {
+            let args = yunq_cli::agent::AgentArgs { task, scope, rule, max_turns, max_tokens, model };
+            let outcome = yunq_cli::agent::run(&root, args).await?;
+            yunq_cli::agent::report(&outcome);
+            Ok(ExitCode::from(outcome.exit_code()))
+        }
+        AgentAction::WatchPr { pr, repo, window_secs } => {
+            let outcome = yunq_cli::agent::watch_pull_request(repo, pr, window_secs).await?;
+            yunq_cli::agent::report_feedback(&outcome);
+            Ok(ExitCode::from(outcome.exit_code()))
+        }
     }
 }
 

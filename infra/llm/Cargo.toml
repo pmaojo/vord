@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 yunq-remediation = { workspace = true }
+yunq-agent = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

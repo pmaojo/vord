@@ -39,6 +39,7 @@ use yunq_rules_engine::{
     MetricKey, MetricsTracker, QualityGate, Rule,
 };
 
+pub mod agent;
 pub mod hook;
 pub mod output;
 

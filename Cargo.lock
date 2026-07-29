@@ -2520,6 +2520,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-agent"
+version = "0.1.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "yunq-agent-policy",
+ "yunq-profiles",
+]
+
+[[package]]
 name = "yunq-agent-policy"
 version = "0.1.1"
 dependencies = [
@@ -2563,6 +2575,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "yunq-agent",
  "yunq-agent-policy",
  "yunq-ast",
  "yunq-import-graph",
@@ -2667,10 +2680,12 @@ dependencies = [
  "globset",
  "ignore",
  "quick-xml",
+ "regex",
  "serde",
  "serde_json",
  "thiserror",
  "toml",
+ "yunq-agent",
  "yunq-ast",
  "yunq-remediation",
  "yunq-rules-engine",
@@ -2686,6 +2701,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "yunq-agent",
  "yunq-ast",
  "yunq-profiles",
  "yunq-rules-engine",
@@ -2711,6 +2727,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "yunq-agent",
  "yunq-remediation",
 ]
 

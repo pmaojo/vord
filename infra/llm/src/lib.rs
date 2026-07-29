@@ -5,16 +5,21 @@
 //!   compatible with LiteLLM proxy, Ollama, vLLM, OpenAI, Groq, DeepSeek, LocalAI, etc.
 //! - `AnthropicAdapter`: native Anthropic Messages API (`/v1/messages`).
 //! - `MockLlmAdapter`: deterministic offline testing.
+//! - `AnthropicChatModel` / `OpenAiChatModel` (`chat` module): the
+//!   tool-calling `yunq_agent::ChatModel` port, for `yunq agent`'s session
+//!   loop rather than the Remediation Agent's one-shot fix prompt.
 //! - `LlmProviderConfig` / `AnyLlmProvider` (`provider` module): picks
 //!   between the two at runtime, so callers (and per-project BYOK config)
 //!   can choose a provider without being generic over its concrete type.
 
 mod anthropic;
+mod chat;
 mod common;
 mod openai_compatible;
 mod provider;
 
 pub use anthropic::AnthropicAdapter;
+pub use chat::{AnthropicChatModel, AnyChatModel, OpenAiChatModel};
 pub use openai_compatible::OpenAiCompatibleAdapter;
 pub use provider::{AnyLlmProvider, LlmProviderConfig, LlmProviderKind};
 

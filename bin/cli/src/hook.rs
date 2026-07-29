@@ -163,6 +163,18 @@ pub enum Verdict {
 }
 
 impl Verdict {
+    /// The evaluation behind this verdict, for a caller that wants the
+    /// policy's answer rather than the guardrail's phrasing of it — `yunq
+    /// agent`'s in-process gate, which renders its own agent-facing text.
+    /// [`Verdict::Silent`] yields an empty evaluation: nothing to say is the
+    /// same answer as no violations.
+    pub fn into_evaluation(self) -> Evaluation {
+        match self {
+            Verdict::Silent => Evaluation::default(),
+            Verdict::Deny { evaluation, .. } | Verdict::Advise { evaluation, .. } => evaluation,
+        }
+    }
+
     fn from_evaluation(path: String, evaluation: Evaluation) -> Self {
         if evaluation.is_empty() {
             Verdict::Silent
