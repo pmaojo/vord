@@ -225,6 +225,15 @@ cargo run -p yunq-cli -- hook reset-loop-guard              # clear a tripped lo
 cargo run -p yunq-cli -- hook audit --limit 20               # tail the guardrail's decision log
 ```
 
+`hook install` writes the hook wiring directly into the current repository.
+[`integrations/claude-code-plugin`](integrations/claude-code-plugin) packages
+the same wiring as an installable Claude Code plugin instead — this
+repository doubles as its own marketplace (`/plugin marketplace add
+pmaojo/yunq`, then `/plugin install yunq-guardrail@yunq`) for anyone who
+wants the hook without running the installer by hand. Either path still
+needs the `yunq` binary on `PATH` (`cargo install --path bin/cli`, or a
+release artifact).
+
 Once installed, an agent that tries to write a shell-injection sink gets its
 own tool call denied and the reason fed straight back into its context:
 
@@ -315,6 +324,23 @@ meaningfully "sandbox-test" an arbitrary already-compiled shell command or
 native npm/pip package before it runs, so this guardrail instead surfaces
 the dependency for human review rather than claiming to have executed it
 safely.
+
+**Gate-gaming detection: suppressions and skipped tests.** An agent
+optimising for "the gate is green" has two strategies available: satisfy the
+gate, or quietly narrow what it can see. The second is both cheaper and,
+without this, invisible. Same before/after shape as the supply-chain guard
+above (no `Rule` sees a diff, only a file's current content) and the same
+two-finding split it produces: `ai:suppression-added` fires when a write
+introduces a new `#[allow(...)]`/`eslint-disable`/`noqa`/`type: ignore`/
+`nolint`/`pragma: no cover`/`istanbul ignore` that was not on that line
+before, and `ai:test-skipped` fires when a write newly marks a test
+`#[ignore]`/`@pytest.mark.skip`/`.skip(`/`xit(`/`xdescribe(`. Both report
+nothing by default (a suppression is sometimes the right call) — opt in via
+`advisory_rules`/`blocking_rules` like any other rule id. The sharpest case
+this closes: `hook install`'s template lists `yunq-policy.toml` and
+`yunq.toml` themselves as `[[protected_path]]` entries, so an agent denied by
+its own policy cannot resolve the denial by editing the policy — a referee
+whose rulebook the players can edit is not a referee.
 
 **Escalation: block pending human approval.** `blocking_rules` and
 `block_at_or_above` are binary — always denied, no exceptions. `escalate_rules`
