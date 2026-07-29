@@ -53,6 +53,14 @@ function get(url, redirectsLeft = 10) {
 }
 
 async function main() {
+  // The committed version is a placeholder; the release job runs `npm version`
+  // from the tag before publishing. Reaching here at 0.0.0 means the package
+  // was published without that step, and every download URL it builds would
+  // point at a v0.0.0 release that does not exist.
+  if (version === '0.0.0') {
+    fail('this package was published without a real version — report it at https://github.com/pmaojo/yunq/issues');
+  }
+
   const key = `${process.platform}-${process.arch}`;
   const target = TARGETS[key];
   if (!target) fail(`unsupported platform ${key}`);
