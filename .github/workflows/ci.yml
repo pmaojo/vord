@@ -120,8 +120,25 @@ jobs:
       # "No such file or directory". Omitting the flag uses cargo-mutants'
       # own default (`mutants.out` in the current directory, i.e. the repo
       # root here), which is exactly the path the next step already expects.
+      #
+      # cargo-mutants itself exits 2 whenever any mutant survives — its own
+      # pass/fail signal, separate from this workflow's actual gate (the
+      # `yunq scan --mutation-report --enforce-gate` step below, which checks
+      # the score against the quality gate's threshold). Letting that
+      # non-zero code abort the job here would skip the report-conversion
+      # and gate steps entirely, so a crate with *any* surviving mutant would
+      # never reach the check that's supposed to judge it — masked so far
+      # only because yunq-agent-policy currently has zero survivors. Any
+      # other exit code (build failure, timeout, tool crash) still fails the
+      # job immediately, as it should.
       - name: Mutation-test ${{ matrix.crate }}
-        run: cargo mutants -p ${{ matrix.crate }}
+        run: |
+          cargo mutants -p ${{ matrix.crate }} || {
+            code=$?
+            if [ "$code" -ne 2 ]; then
+              exit "$code"
+            fi
+          }
 
       # cargo-mutants' own report schema isn't Stryker's; converts each
       # mutant outcome to the Stryker Mutation Testing Elements shape
