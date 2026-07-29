@@ -11,3 +11,35 @@ profile = "yunq way"
 [[architecture.forbidden_dependencies]]
 from = "core"
 to = "infra"
+
+[[architecture.forbidden_dependencies]]
+from = "core"
+to = "parsers"
+
+[[architecture.forbidden_dependencies]]
+from = "core"
+to = "rulesets"
+
+[[architecture.forbidden_dependencies]]
+from = "core"
+to = "bin"
+
+[[architecture.forbidden_dependencies]]
+from = "parsers"
+to = "infra"
+
+[[architecture.forbidden_dependencies]]
+from = "parsers"
+to = "bin"
+
+[[architecture.forbidden_dependencies]]
+from = "rulesets"
+to = "infra"
+
+[[architecture.forbidden_dependencies]]
+from = "rulesets"
+to = "bin"
+
+[[architecture.forbidden_dependencies]]
+from = "infra"
+to = "bin"

@@ -306,19 +306,51 @@ missing is the layer above it: components, declared boundaries, and metrics.
     dependency graph forbids it), so extending cycle detection to Rust adds
     engineering cost for a check Cargo already subsumes, unlike boundary
     violation, which catches something Cargo doesn't enforce at all.
-  - **Known limitation, stated plainly rather than glossed over**: this
-    doesn't distinguish `#[cfg(test)]`/test-only code from production code
-    the way `core/duplication`'s `include_test_code` does. A dev-dependency
-    used only inside a crate's own tests (a common, Cargo-sanctioned pattern
-    for exercising a port against a real adapter) would misfire as a
-    forbidden edge if one were declared for that pair — yunq's own tree
-    happens to have zero such cases for `core → infra` specifically (every
-    `core/*` crate that depends on a `parsers/*` crate for test fixtures
-    does so via `parsers`, a tier this dogfood config leaves undeclared for
-    exactly that reason), so the shipped config is safe, but the gap is
-    real and unaddressed here — a future pass needs to plumb the same
-    test-code detection `smells`/`duplication` already have into this rule
-    before a tier like `core → parsers` could be safely declared.
+  - **Fixed, same session**: the test/production distinction above is no
+    longer a gap. `extract_rust_edges` now reuses
+    `yunq_rules_engine::test_code` (`is_test_only_path`,
+    `rust_test_module_ranges`, `in_ranges`) exactly as `core/duplication`
+    does: a standalone `tests/*.rs` file contributes no edges at all, and a
+    `#[cfg(test)] mod tests { ... }` block inside an ordinary source file is
+    excluded only for the lines inside it. `core/import-graph` picked up
+    `yunq-rules-engine` as a real (not dev) dependency to reuse this —
+    `core/remediation` already establishes core-crate-depends-on-core-crate
+    as a normal pattern here, so this isn't a new kind of edge in the
+    dependency graph.
+  - **What verifying the fix actually found, and closed the same session**:
+    re-running `core → parsers`/`core → rulesets` as forbidden against
+    yunq's own tree, both before and after the fix, produced zero findings
+    *either way* — not because the fix was unneeded, but because it exposed
+    a second, more consequential gap. `extract_rust_edges` only walked
+    `use_declaration` nodes; yunq's own codebase never actually writes
+    `use yunq_parser_typescript::...;` anywhere — every cross-crate
+    reference goes through a fully-qualified inline path instead
+    (`yunq_parser_typescript::TypeScriptParser::new()`), with no `use`
+    statement at all, so those edges were invisible regardless of the fix.
+    This has no TS/Python analogue — both require an actual
+    `import`/`from...import` before a module's names are reachable, so
+    there is no "reference without importing" path for them to miss. For
+    Rust it's real: a fully-qualified reference with no `use` is exactly as
+    valid as one with a `use`. Closed by walking `scoped_identifier` (the
+    general path-expression form — a call target, a bare reference,
+    anything) and `scoped_type_identifier` (the same thing in type
+    position — a signature, a field type) anywhere in the file, not only
+    ones rooted in a `use_declaration`, through the same
+    `rust_path_root`/test-code-exclusion logic; a single fully-qualified
+    reference nests several matching path nodes at different depths
+    (`a::b::c::new()` visits `a::b::c::new`, `a::b::c` and `a::b` in turn,
+    all resolving to the same crate) and a crate can legitimately be
+    referenced dozens of times in one file, so `push_rust_edge` dedupes by
+    `(file, target crate)` — one edge per pair is the useful unit, not one
+    per AST node or call site. Verified against a real, compiling two-crate
+    fixture with *zero* `use` statements anywhere (every reference
+    fully-qualified) — caught, correct file/line — and yunq's own tree
+    stayed at zero findings with the *entire* hexagon now declared
+    (`core`/`parsers`/`rulesets` → `infra`/`bin`, `infra` → `bin`, eight
+    forbidden pairs in `yunq.toml`, up from the one this item shipped with
+    originally), which is only a meaningful zero because this pass proved
+    the detection is no longer silently blind to how those crates are
+    actually referenced.
   D3 (I/A metrics, main sequence) and D4 (`yunq arch` viewer) build on this
   component model next.
 - **D3 — Instability / Abstractness and the main sequence.** Per component:
