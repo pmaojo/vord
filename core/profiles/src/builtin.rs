@@ -134,6 +134,7 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("owasp:eval-usage"), Severity::Critical),
         (rule("owasp:injection"), Severity::Blocker),
         (rule("owasp:disabled-cert-validation"), Severity::Critical),
+        (rule("owasp:ssrf"), Severity::Blocker),
         // rulesets/react — all applies_to typescript.
         (rule("react:rules-of-hooks-naming"), Severity::Major),
         (rule("react:rules-of-hooks-conditional"), Severity::Critical),

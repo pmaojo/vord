@@ -13,6 +13,7 @@ mod injection;
 mod insecure_deserialization;
 mod path_traversal;
 mod permissive_cors;
+mod ssrf;
 mod weak_crypto;
 mod xss;
 
@@ -27,6 +28,7 @@ pub use injection::InjectionRule;
 pub use insecure_deserialization::InsecureDeserializationRule;
 pub use path_traversal::PathTraversalRule;
 pub use permissive_cors::PermissiveCorsRule;
+pub use ssrf::SsrfRule;
 pub use weak_crypto::WeakCryptoRule;
 pub use xss::XssRule;
 
@@ -46,6 +48,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(XssRule::new()),
         Box::new(PermissiveCorsRule::new()),
         Box::new(PathTraversalRule::new()),
+        Box::new(SsrfRule::new()),
     ]
 }
 
