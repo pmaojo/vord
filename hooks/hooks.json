@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "yunq hook claude-code",
+            "timeout": 30,
+            "statusMessage": "yunq guardrail"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "yunq hook claude-code",
+            "timeout": 30,
+            "statusMessage": "yunq guardrail"
+          }
+        ]
+      }
+    ]
+  }
+}
