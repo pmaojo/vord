@@ -7,6 +7,10 @@
 //! PAT with "Commit statuses: write"), via `GITHUB_TOKEN` — exactly what
 //! GitHub Actions injects into every workflow run for free.
 
+pub mod pr_feedback;
+
+pub use pr_feedback::PullRequestFeedbackReader;
+
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use yunq_rules_engine::{

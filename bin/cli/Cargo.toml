@@ -65,6 +65,7 @@ yunq-rules-typescript = { workspace = true }
 yunq-rules-php = { workspace = true }
 yunq-rules-go = { workspace = true }
 yunq-agent-policy = { workspace = true }
+yunq-agent = { workspace = true }
 yunq-infra-memory = { workspace = true }
 yunq-infra-fs = { workspace = true }
 yunq-infra-github = { workspace = true }

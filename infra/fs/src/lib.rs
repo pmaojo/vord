@@ -2,6 +2,7 @@
 //! translates readable files in supported languages into validated
 //! [`SourceFile`]s. Unsupported and non-UTF-8 files are skipped.
 
+mod agent_workspace;
 mod baseline;
 mod cache;
 mod cobertura;
@@ -20,10 +21,11 @@ mod rust_crates;
 mod sarif;
 mod worktree;
 
+pub use agent_workspace::RepoWorkspace;
 pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura, parse_cobertura_report};
-pub use config::{ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings, YunqConfig};
+pub use config::{AgentSettings, ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings, YunqConfig};
 pub use coverage::{CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report};
 pub use diff::changed_lines_from_unified_diff;
 pub use gherkin::{COVERS_TAG, GherkinCoverageError, GherkinCoverageIndex, extract_covers_patterns};
