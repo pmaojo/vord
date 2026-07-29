@@ -1,0 +1,44 @@
+{
+  "name": "yunq",
+  "version": "0.0.0",
+  "description": "Ultraperformant static analysis and an agent guardrail that judges a write before it reaches disk — 24 languages, one static binary",
+  "keywords": [
+    "static-analysis",
+    "sast",
+    "code-quality",
+    "security",
+    "linter",
+    "ai-agent",
+    "guardrail",
+    "claude-code"
+  ],
+  "homepage": "https://github.com/pmaojo/yunq",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pmaojo/yunq.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "yunq": "bin/yunq.js"
+  },
+  "files": [
+    "bin/yunq.js",
+    "install.js",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

@@ -1,46 +1,191 @@
-name: Release Build & Distribution
+name: Release
+
+# Every distribution channel hangs off a tag: the GitHub Action, the install
+# script, the npm wrapper, the Homebrew formula and the CI templates all
+# resolve binaries from `releases/latest/download/yunq-<target>`. Renaming an
+# asset here breaks all of them at once.
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build, for a dry run that publishes nothing'
+        required: true
+
+permissions:
+  contents: write
+  packages: write
 
 jobs:
-  release-binaries:
-    name: Build & Release Binaries
+  binaries:
+    name: build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
+      # One target failing must not withhold the four that built. A release
+      # missing an arch is recoverable by re-running that job; a release with
+      # no assets at all breaks every install path downstream.
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            binary_suffix: ""
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            binary_suffix: ""
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary_suffix: ".exe"
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-musl,  ext: '' }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, ext: '' }
+          - { os: macos-13,         target: x86_64-apple-darwin,        ext: '' }
+          - { os: macos-latest,     target: aarch64-apple-darwin,       ext: '' }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,     ext: '.exe' }
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Build Release Binaries
-        run: cargo build --release --target ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
-      - name: Archive Binaries
+      # The 24 tree-sitter grammars are C. Without a musl C toolchain the
+      # link step fails on every musl target — which is what silently made
+      # this workflow unrunnable before it had ever been tagged.
+      - name: Install musl toolchain
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p yunq-cli -p yunq-lsp
+
+      - name: Stage artifacts
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/yunq-cli${{ matrix.binary_suffix }} dist/yunq-${{ matrix.target }}${{ matrix.binary_suffix }}
-          cp target/${{ matrix.target }}/release/yunq-server${{ matrix.binary_suffix }} dist/yunq-server-${{ matrix.target }}${{ matrix.binary_suffix }}
+          bin="target/${{ matrix.target }}/release"
+          cp "$bin/yunq-cli${{ matrix.ext }}"  "dist/yunq-${{ matrix.target }}${{ matrix.ext }}"
+          cp "$bin/yunq-lsp${{ matrix.ext }}"  "dist/yunq-lsp-${{ matrix.target }}${{ matrix.ext }}"
+          cd dist
+          # Homebrew and install.sh both verify against these.
+          for f in yunq-*; do
+            if command -v sha256sum >/dev/null; then sha256sum "$f" >> "$f.sha256"
+            else shasum -a 256 "$f" >> "$f.sha256"; fi
+          done
+          ls -l
 
-      - name: Upload Release Artifacts
-        uses: softprops/action-gh-release@v1
+      - name: Smoke-test the binary
+        # Only where the runner can execute what it just built — never assert
+        # a cross-built artifact runs here.
+        if: matrix.target != 'aarch64-unknown-linux-musl' || runner.arch == 'ARM64'
+        shell: bash
+        run: ./dist/yunq-${{ matrix.target }}${{ matrix.ext }} --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+
+      - name: Publish to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          generate_release_notes: true
+
+  docker:
+    name: publish container
+    needs: binaries
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: cli
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  npm:
+    name: publish npm wrapper
+    needs: binaries
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Align the package version with the tag
+        working-directory: npm
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
+      - name: Publish
+        working-directory: npm
+        # Absent NPM_TOKEN this is a no-op with a clear message rather than a
+        # red X on an otherwise good release.
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::warning::NPM_TOKEN is not set — skipping the npm publish."
+            exit 0
+          fi
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  homebrew:
+    name: update homebrew tap
+    needs: binaries
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Render the formula
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}" \
+          bash packaging/homebrew/render-formula.sh artifacts > yunq.rb
+          cat yunq.rb
+      - name: Push to the tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set — formula rendered but not pushed."
+            exit 0
+          fi
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp yunq.rb tap/Formula/yunq.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/yunq.rb
+          git commit -m "yunq ${GITHUB_REF_NAME}" || { echo "formula unchanged"; exit 0; }
+          git push
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: yunq.rb

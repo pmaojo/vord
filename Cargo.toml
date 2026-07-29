@@ -7,66 +7,71 @@ version = "0.1.1"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
+repository = "https://github.com/pmaojo/yunq"
+homepage = "https://github.com/pmaojo/yunq"
+readme = "README.md"
+keywords = ["static-analysis", "sast", "code-quality", "security", "linter"]
+categories = ["development-tools", "development-tools::testing"]
 
 [workspace.dependencies]
 # Internal crates
-yunq-ast = { path = "core/ast" }
-yunq-profiles = { path = "core/profiles" }
-yunq-rules-engine = { path = "core/rules-engine" }
-yunq-taint = { path = "core/taint" }
-yunq-symbols = { path = "core/symbols" }
-yunq-import-graph = { path = "core/import-graph" }
-yunq-agent-policy = { path = "core/agent-policy" }
-yunq-parser-typescript = { path = "parsers/treesitter-typescript" }
-yunq-parser-rust = { path = "parsers/treesitter-rust" }
-yunq-parser-python = { path = "parsers/treesitter-python" }
-yunq-parser-go = { path = "parsers/treesitter-go" }
-yunq-parser-java = { path = "parsers/treesitter-java" }
-yunq-parser-c = { path = "parsers/treesitter-c" }
-yunq-parser-cpp = { path = "parsers/treesitter-cpp" }
-yunq-parser-php = { path = "parsers/treesitter-php" }
-yunq-parser-dockerfile = { path = "parsers/treesitter-dockerfile" }
-yunq-parser-csharp = { path = "parsers/treesitter-csharp" }
-yunq-parser-ruby = { path = "parsers/treesitter-ruby" }
-yunq-parser-kotlin = { path = "parsers/treesitter-kotlin" }
-yunq-parser-swift = { path = "parsers/treesitter-swift" }
-yunq-parser-scala = { path = "parsers/treesitter-scala" }
-yunq-parser-html = { path = "parsers/treesitter-html" }
-yunq-parser-css = { path = "parsers/treesitter-css" }
-yunq-parser-xml = { path = "parsers/treesitter-xml" }
-yunq-parser-json = { path = "parsers/treesitter-json" }
-yunq-parser-yaml = { path = "parsers/treesitter-yaml" }
-yunq-parser-hcl = { path = "parsers/treesitter-hcl" }
-yunq-parser-bash = { path = "parsers/treesitter-bash" }
-yunq-parser-groovy = { path = "parsers/treesitter-groovy" }
-yunq-parser-lua = { path = "parsers/treesitter-lua" }
-yunq-parser-elixir = { path = "parsers/treesitter-elixir" }
-yunq-treesitter-tokens = { path = "parsers/treesitter-tokens" }
-yunq-cpd = { path = "core/duplication" }
-yunq-rules-owasp = { path = "rulesets/owasp" }
-yunq-rules-smells = { path = "rulesets/code-smells" }
-yunq-rules-iac = { path = "rulesets/iac" }
-yunq-rules-a11y = { path = "rulesets/a11y" }
-yunq-rules-react = { path = "rulesets/react" }
-yunq-rules-secrets = { path = "rulesets/secrets" }
-yunq-rules-rust = { path = "rulesets/rust" }
-yunq-rules-python = { path = "rulesets/python" }
-yunq-rules-architecture = { path = "rulesets/architecture" }
-yunq-rules-reactive = { path = "rulesets/reactive" }
-yunq-rules-typescript = { path = "rulesets/typescript" }
-yunq-rules-php = { path = "rulesets/php" }
-yunq-rules-go = { path = "rulesets/go" }
-yunq-rules-ai-agent = { path = "rulesets/ai-agent" }
-yunq-infra-memory = { path = "infra/memory" }
-yunq-cli = { path = "bin/cli" }
-yunq-infra-fs = { path = "infra/fs" }
-yunq-infra-github = { path = "infra/github" }
-yunq-infra-gitlab = { path = "infra/gitlab" }
-yunq-infra-bitbucket = { path = "infra/bitbucket" }
-yunq-infra-azure = { path = "infra/azure" }
-yunq-infra-pdf = { path = "infra/pdf" }
-yunq-remediation = { path = "core/remediation" }
-yunq-infra-llm = { path = "infra/llm" }
+yunq-ast = { path = "core/ast", version = "0.1.1" }
+yunq-profiles = { path = "core/profiles", version = "0.1.1" }
+yunq-rules-engine = { path = "core/rules-engine", version = "0.1.1" }
+yunq-taint = { path = "core/taint", version = "0.1.1" }
+yunq-symbols = { path = "core/symbols", version = "0.1.1" }
+yunq-import-graph = { path = "core/import-graph", version = "0.1.1" }
+yunq-agent-policy = { path = "core/agent-policy", version = "0.1.1" }
+yunq-parser-typescript = { path = "parsers/treesitter-typescript", version = "0.1.1" }
+yunq-parser-rust = { path = "parsers/treesitter-rust", version = "0.1.1" }
+yunq-parser-python = { path = "parsers/treesitter-python", version = "0.1.1" }
+yunq-parser-go = { path = "parsers/treesitter-go", version = "0.1.1" }
+yunq-parser-java = { path = "parsers/treesitter-java", version = "0.1.1" }
+yunq-parser-c = { path = "parsers/treesitter-c", version = "0.1.1" }
+yunq-parser-cpp = { path = "parsers/treesitter-cpp", version = "0.1.1" }
+yunq-parser-php = { path = "parsers/treesitter-php", version = "0.1.1" }
+yunq-parser-dockerfile = { path = "parsers/treesitter-dockerfile", version = "0.1.1" }
+yunq-parser-csharp = { path = "parsers/treesitter-csharp", version = "0.1.1" }
+yunq-parser-ruby = { path = "parsers/treesitter-ruby", version = "0.1.1" }
+yunq-parser-kotlin = { path = "parsers/treesitter-kotlin", version = "0.1.1" }
+yunq-parser-swift = { path = "parsers/treesitter-swift", version = "0.1.1" }
+yunq-parser-scala = { path = "parsers/treesitter-scala", version = "0.1.1" }
+yunq-parser-html = { path = "parsers/treesitter-html", version = "0.1.1" }
+yunq-parser-css = { path = "parsers/treesitter-css", version = "0.1.1" }
+yunq-parser-xml = { path = "parsers/treesitter-xml", version = "0.1.1" }
+yunq-parser-json = { path = "parsers/treesitter-json", version = "0.1.1" }
+yunq-parser-yaml = { path = "parsers/treesitter-yaml", version = "0.1.1" }
+yunq-parser-hcl = { path = "parsers/treesitter-hcl", version = "0.1.1" }
+yunq-parser-bash = { path = "parsers/treesitter-bash", version = "0.1.1" }
+yunq-parser-groovy = { path = "parsers/treesitter-groovy", version = "0.1.1" }
+yunq-parser-lua = { path = "parsers/treesitter-lua", version = "0.1.1" }
+yunq-parser-elixir = { path = "parsers/treesitter-elixir", version = "0.1.1" }
+yunq-treesitter-tokens = { path = "parsers/treesitter-tokens", version = "0.1.1" }
+yunq-cpd = { path = "core/duplication", version = "0.1.1" }
+yunq-rules-owasp = { path = "rulesets/owasp", version = "0.1.1" }
+yunq-rules-smells = { path = "rulesets/code-smells", version = "0.1.1" }
+yunq-rules-iac = { path = "rulesets/iac", version = "0.1.1" }
+yunq-rules-a11y = { path = "rulesets/a11y", version = "0.1.1" }
+yunq-rules-react = { path = "rulesets/react", version = "0.1.1" }
+yunq-rules-secrets = { path = "rulesets/secrets", version = "0.1.1" }
+yunq-rules-rust = { path = "rulesets/rust", version = "0.1.1" }
+yunq-rules-python = { path = "rulesets/python", version = "0.1.1" }
+yunq-rules-architecture = { path = "rulesets/architecture", version = "0.1.1" }
+yunq-rules-reactive = { path = "rulesets/reactive", version = "0.1.1" }
+yunq-rules-typescript = { path = "rulesets/typescript", version = "0.1.1" }
+yunq-rules-php = { path = "rulesets/php", version = "0.1.1" }
+yunq-rules-go = { path = "rulesets/go", version = "0.1.1" }
+yunq-rules-ai-agent = { path = "rulesets/ai-agent", version = "0.1.1" }
+yunq-infra-memory = { path = "infra/memory", version = "0.1.1" }
+yunq-cli = { path = "bin/cli", version = "0.1.1" }
+yunq-infra-fs = { path = "infra/fs", version = "0.1.1" }
+yunq-infra-github = { path = "infra/github", version = "0.1.1" }
+yunq-infra-gitlab = { path = "infra/gitlab", version = "0.1.1" }
+yunq-infra-bitbucket = { path = "infra/bitbucket", version = "0.1.1" }
+yunq-infra-azure = { path = "infra/azure", version = "0.1.1" }
+yunq-infra-pdf = { path = "infra/pdf", version = "0.1.1" }
+yunq-remediation = { path = "core/remediation", version = "0.1.1" }
+yunq-infra-llm = { path = "infra/llm", version = "0.1.1" }
 
 # External
 thiserror = "2"

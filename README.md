@@ -1,6 +1,68 @@
 # yunq
 
-A static analysis platform in Rust.
+A static analysis platform in Rust — and a guardrail that judges an AI agent's
+write *before* it reaches disk. One static binary, 24 languages, no JVM, no
+server required.
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/pmaojo/yunq/main/scripts/install.sh | sh
+```
+
+<details>
+<summary>Other channels</summary>
+
+```sh
+npx yunq scan .                          # npm, no install step
+brew install pmaojo/tap/yunq             # Homebrew (macOS/Linux)
+cargo install yunq-cli                   # crates.io
+docker run --rm -v "$PWD:/src" ghcr.io/pmaojo/yunq scan .
+```
+
+Or download a binary for your platform directly from
+[Releases](https://github.com/pmaojo/yunq/releases/latest) — `yunq-<target>`
+for the CLI, `yunq-lsp-<target>` for the language server. Every asset ships a
+`.sha256` beside it, which the install script and the Homebrew formula both
+verify.
+
+</details>
+
+Then:
+
+```sh
+yunq scan .              # analyze this repository
+yunq hook install        # gate an AI agent's writes before they land
+yunq init                # add the CI workflow
+yunq                     # interactive wizard (in a TTY)
+```
+
+### In CI
+
+```yaml
+- uses: pmaojo/yunq@v0                   # GitHub Actions
+  with:
+    enforce-gate: 'true'
+```
+
+Ready-made pipelines for other platforms live in
+[`ci-templates/`](ci-templates/) (GitHub Actions, GitLab CI).
+
+### As a Claude Code plugin
+
+The guardrail installs as a plugin whose hooks call the binary:
+
+```
+/plugin marketplace add pmaojo/yunq
+/plugin install yunq-guardrail
+```
+
+The plugin needs `yunq` on your PATH (the install script above puts it there).
+Note that `yunq hook install` remains the stronger option for a team: it writes
+`.claude/settings.json` and `yunq-policy.toml` **into the repository**, so the
+policy is versioned and reviewed in the same pull request as the code it
+governs, on every teammate's machine and in CI. A plugin lives in one user's
+configuration, where turning it off leaves no trace in a diff.
 
 ## Topology
 
@@ -95,7 +157,10 @@ graph TD
 
 No arrow ever points into `core/`. The core defines ports; everything else implements or consumes them.
 
-## Quickstart
+## Quickstart (from source)
+
+Every command below works against an installed binary too — replace
+`cargo run -p yunq-cli --` with `yunq`.
 
 ```sh
 cargo run -p yunq-cli                  # no args, in a terminal: interactive wizard

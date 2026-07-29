@@ -1,23 +1,102 @@
 name: 'yunq Static Analysis'
-description: 'Fast, language-agnostic static analysis with Clean as You Code quality model'
+description: 'Fast, language-agnostic static analysis with a Clean as You Code quality model and an agent guardrail'
 author: 'pmaojo'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+# Downloads the released binary rather than building from source. The previous
+# version ran `cargo run --bin yunq`, which could never work: a composite
+# action executes inside the *consumer's* checkout, where yunq's sources — and
+# usually Cargo itself — do not exist, and the bin target is `yunq-cli` anyway.
+
 inputs:
+  version:
+    description: 'yunq release tag to use, or "latest"'
+    required: false
+    default: 'latest'
+  path:
+    description: 'Directory to analyze'
+    required: false
+    default: '.'
+  args:
+    description: 'Extra arguments appended to `yunq scan` (e.g. --monorepo --coverage lcov.info)'
+    required: false
+    default: ''
+  format:
+    description: 'Output format: text, json or sarif'
+    required: false
+    default: 'text'
+  enforce-gate:
+    description: 'Fail the job when the quality gate fails'
+    required: false
+    default: 'true'
   github-token:
-    description: 'GitHub Token for posting commit status & PR comments'
+    description: 'Token used to post the commit status and PR review'
     required: false
     default: '${{ github.token }}'
   commit-sha:
-    description: 'Commit SHA to attach analysis status to'
+    description: 'Commit SHA to attach the analysis status to (auto-detected when empty)'
     required: false
-    default: '${{ github.sha }}'
+    default: ''
   repository:
-    description: 'GitHub repository (owner/repo)'
+    description: 'owner/repo to decorate (auto-detected when empty)'
     required: false
-    default: '${{ github.repository }}'
+    default: ''
+
+outputs:
+  exit-code:
+    description: 'Exit status of the scan (0 = gate passed)'
+    value: ${{ steps.scan.outputs.exit-code }}
+
 runs:
   using: 'composite'
   steps:
-    - name: Run yunq Analysis
+    - name: Install yunq
       shell: bash
       run: |
-        cargo run --bin yunq scan --commit-sha "${{ inputs.commit-sha }}" --github-token "${{ inputs.github-token }}" --github-repo "${{ inputs.repository }}"
+        set -euo pipefail
+        case "$(uname -s)/$(uname -m)" in
+          Linux/x86_64)  target="x86_64-unknown-linux-musl" ;;
+          Linux/aarch64) target="aarch64-unknown-linux-musl" ;;
+          Darwin/x86_64) target="x86_64-apple-darwin" ;;
+          Darwin/arm64)  target="aarch64-apple-darwin" ;;
+          *) echo "::error::unsupported runner: $(uname -s)/$(uname -m)"; exit 1 ;;
+        esac
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          base="https://github.com/pmaojo/yunq/releases/latest/download"
+        else
+          base="https://github.com/pmaojo/yunq/releases/download/${{ inputs.version }}"
+        fi
+        dir="${RUNNER_TEMP}/yunq-bin"
+        mkdir -p "$dir"
+        curl -fsSL "$base/yunq-${target}" -o "$dir/yunq"
+        if curl -fsSL "$base/yunq-${target}.sha256" -o "$dir/sum"; then
+          echo "$(awk '{print $1}' "$dir/sum")  $dir/yunq" | sha256sum -c - \
+            || { echo "::error::yunq checksum mismatch — refusing to run"; exit 1; }
+        else
+          echo "::warning::no published checksum for yunq-${target} — not verified"
+        fi
+        chmod +x "$dir/yunq"
+        echo "$dir" >> "$GITHUB_PATH"
+
+    - name: Run yunq scan
+      id: scan
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -uo pipefail
+        args=(scan "${{ inputs.path }}" --format "${{ inputs.format }}")
+        [ "${{ inputs.enforce-gate }}" = "true" ] && args+=(--enforce-gate)
+        [ -n "${{ inputs.commit-sha }}" ] && args+=(--commit-sha "${{ inputs.commit-sha }}")
+        [ -n "${{ inputs.repository }}" ] && args+=(--github-repo "${{ inputs.repository }}")
+        # Branch, PR number, commit and repo are auto-detected from the
+        # Actions environment when not passed explicitly (see ci_detect.rs).
+        read -r -a extra <<< "${{ inputs.args }}"
+        [ ${#extra[@]} -gt 0 ] && args+=("${extra[@]}")
+
+        yunq "${args[@]}"
+        code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        exit $code
