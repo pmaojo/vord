@@ -1,4 +1,5 @@
 /target
+/mutants.out
 **/*.rs.bk
 .env
 .yunq-cache.json

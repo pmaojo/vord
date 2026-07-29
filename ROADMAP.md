@@ -409,7 +409,24 @@ against it.
   resolve on PATH). Confirmed via the live run history
   (`gh`/GitHub Actions API) that this has been failing on every push to
   `main` since the mutation-gate job was introduced, silently, because nothing
-  was watching CI. Fixed to `./target/debug/yunq` throughout.
+  was watching CI. Fixed to `./target/debug/yunq` throughout. `import-graph`
+  admitted next: `dogfood-mutation`'s matrix grows to
+  `[yunq-agent-policy, yunq-profiles, yunq-import-graph]`, still zero new job
+  plumbing. `cargo mutants -p yunq-import-graph` runs 130 mutants in ~2min
+  (measured in-sandbox), clears the 60% bar at **92%** (115 killed / 125
+  viable, 5 unviable) — comfortably the strongest score of the three admitted
+  so far, unsurprising for a crate that's pure graph algorithms with no I/O.
+  Verified end-to-end locally, not just estimated: ran the same
+  `cargo-mutants` → Stryker-shape `jq` conversion → `yunq scan
+  --mutation-report --enforce-gate` pipeline the CI job runs, and it exits 0.
+  The 10 survivors are real, low-severity gaps — an `||`/`&&` swap in
+  `strip_quotes`, an `!=`/`==` swap in `extract_py_edges`, a deleted
+  `"crate" | "self" | "super"` match arm in `rust_path_root`, and
+  `ArchitectureConfig::is_empty` surviving a forced `false` because the one
+  test that exercises it (`ArchitectureConfig::default().violations(...)
+  .is_empty()`) passes either way when both dependency lists are already
+  empty — left as follow-up under this same item rather than blocking
+  admission, same precedent as `profiles`' survivors.
 - **E2** Mutation score as a first-class gate metric (the default gate
   already reserves it) and a mandatory condition on any crate `yunq agent`
   writes to.
