@@ -20,9 +20,20 @@ names are the public contract, more so than any API in the codebase.
 
 ## Cutting a release
 
-1. Bump `version` in `[workspace.package]` (all crates inherit it) and in
-   `.claude-plugin/plugin.json`. The npm package version is set from the tag
-   at publish time and does not need editing.
+1. Bump the version — **never by hand**:
+   ```sh
+   scripts/bump-version.sh 0.2.0
+   ```
+   The number lives in 60 places, not one. Cargo does not allow
+   `version.workspace = true` inside a `[workspace.dependencies]` entry, so
+   each of the ~57 internal dependencies carries it literally beside its path
+   — and a path dependency with no version cannot be published at all, so
+   they cannot simply be dropped. Editing `[workspace.package]` alone
+   produces crates at the new version declaring dependencies on the old one.
+   The script also rewrites `Cargo.lock`, `yunq.toml` and
+   `.claude-plugin/plugin.json`, and refuses to finish if any of them is left
+   behind. `npm/package.json` stays at `0.0.0` by design — the release job
+   sets it from the tag.
 2. `cargo test --workspace` and `cargo clippy --workspace --all-targets`.
 3. Commit, then tag and push:
    ```sh
