@@ -1,0 +1,14 @@
+[package]
+name = "yunq-crap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "CRAP (change risk anti-patterns) scoring: cyclomatic complexity x untestedness"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+yunq-ast = { workspace = true }

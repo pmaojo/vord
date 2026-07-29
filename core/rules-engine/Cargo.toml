@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 yunq-ast = { workspace = true }
+yunq-crap = { workspace = true }
 yunq-profiles = { workspace = true }
 yunq-cpd = { workspace = true }
 thiserror = { workspace = true }

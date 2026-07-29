@@ -6,6 +6,7 @@ mod alm;
 mod alm_gateway;
 pub mod branches;
 mod domain;
+mod function_complexity;
 mod gate_defaults;
 mod new_code;
 mod new_code_overrides;
@@ -30,12 +31,13 @@ pub use branches::{Branch, BranchRef, PullRequest};
 
 pub use domain::{
     AnalysisReport, BlameLineInfo, BulkOutcome, ChangelogAction, ChangelogEntry, CoverageReport,
-    CoverageSummary, ExternalIssue, FileBlame, FileCoverage, Hotspot, HotspotStatus,
-    InvalidCoverageError, InvalidIssueStateError, InvalidScanJobError, InvalidTransitionError,
-    Issue, IssueFacets,
+    CoverageSummary, ExternalIssue, FileBlame, FileCoverage, FileFunctionComplexity, Hotspot,
+    HotspotStatus, InvalidCoverageError, InvalidIssueStateError, InvalidScanJobError,
+    InvalidTransitionError, Issue, IssueFacets,
     IssueStatus, IssueTransition, Metrics, MutationSummary, Resolution, ScanJob, StoredHotspot,
     StoredIssue, TestReportSummary, TestSuiteSummary,
 };
+pub use function_complexity::{compute as function_complexities, FunctionComplexity};
 pub use gate_defaults::default_gate;
 pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
 pub use new_code_overrides::{
@@ -66,6 +68,8 @@ pub use test_code::{LineRange, in_ranges, is_test_only_path, rust_test_module_ra
 
 // Re-export duplication vocabulary so consumers depend on one facade.
 pub use yunq_cpd::{CloneRegion, CloneSet, DuplicationConfig, TokenNormalization};
+// Re-export CRAP vocabulary so consumers depend on one facade.
+pub use yunq_crap::{CrapFinding, HIGH_RISK_THRESHOLD, REFACTOR_CANDIDATE_THRESHOLD};
 pub use service::{AnalyzeError, AnalyzerService};
 
 // Re-export the quality model so consumers depend on one facade.

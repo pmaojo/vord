@@ -48,6 +48,7 @@ yunq-parser-lua = { path = "parsers/treesitter-lua", version = "0.1.1" }
 yunq-parser-elixir = { path = "parsers/treesitter-elixir", version = "0.1.1" }
 yunq-treesitter-tokens = { path = "parsers/treesitter-tokens", version = "0.1.1" }
 yunq-cpd = { path = "core/duplication", version = "0.1.1" }
+yunq-crap = { path = "core/crap", version = "0.1.1" }
 yunq-rules-owasp = { path = "rulesets/owasp", version = "0.1.1" }
 yunq-rules-smells = { path = "rulesets/code-smells", version = "0.1.1" }
 yunq-rules-iac = { path = "rulesets/iac", version = "0.1.1" }

@@ -34,7 +34,7 @@ Verified against the tree, not remembered:
 | Languages | 24 tree-sitter grammars (`parsers/`, plus `treesitter-adapter` + `treesitter-tokens`) |
 | Rules | 133 `Rule`/`CrossFileRule` impls across 14 ruleset crates |
 | Tests | ~1156 test functions in-workspace |
-| Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph` |
+| Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph`, `crap` (CC² × (1−coverage)³ + CC risk scoring) |
 | Agent guardrail | `core/agent-policy` (1039 LOC): blocking/advisory rules, protected paths (incl. its own policy/gate config files), provenance, Gherkin evidence, circuit breaker, loop guard, single-use escalation tokens, audit log, gate-gaming detection (suppressions, skipped tests) |
 | Guardrail host | `yunq hook {claude-code, check, install, approve, audit, reset-*}` — ~7ms p50 per write |
 | Remediation | `core/remediation`: `RemediationEngine` over `LlmProvider` + `Sandbox` ports, generate → sandbox → re-scan → verdict |
@@ -170,15 +170,41 @@ five ingest formats and is already exposed as `FileLineCoverage` (1-based
 line → hit count). Per-function coverage is the intersection of a function's
 `Span` with that map — no new ingest, no new parser, no new port.
 
-- **C1** `rulesets/crap`: a `Rule` computing per-function CC, reading
-  per-function coverage from the analysis context, emitting
-  `crap:high-risk-function` with the score and both inputs in the message.
-- **C2** `crap` as a gate-condition metric (worst score, and count above
-  threshold), so a quality gate can fail on risk rather than on raw coverage —
-  a coverage number alone says nothing about *where* the untested code is.
-- **C3** Sort `yunq scan` output by CRAP when coverage is present. The ranked
-  refactor list is the actual deliverable; the rule is just how it is
-  computed.
+- **C1** ✅ **done, as `core/crap`, not `rulesets/crap`.** Turned out `Rule`
+  cannot read "the analysis context" as this bullet originally assumed:
+  `AnalyzerService::analyze_files` returns a complete `AnalysisReport` before
+  `bin/cli` has even read a coverage file off disk (`ingest_coverage` runs
+  strictly after `scan_with_project_config`), so no `Rule::check(file, ast)`
+  call ever has coverage in scope, regardless of how the trait is extended.
+  Shipped instead as a plain algorithm crate (`yunq-crap`, mirroring
+  `core/duplication`'s role: a pure engine `AnalyzerService`/the composition
+  root invoke directly, not a `Rule` impl) plus plumbing: per-function
+  cyclomatic complexity, extracted from `rulesets/code-smells::ComplexityRule`
+  into `core/rules-engine::function_complexity` so both the existing rule and
+  the new metric share one walk, is now computed once per file inside
+  `AnalyzerService::analyze_one` and threaded onto
+  `AnalysisReport::function_complexities` the same way `structural_metrics`
+  already is (also plumbed through `CachedAnalysis`/`FileAnalysisCache` with
+  the same fail-open migration older field additions use). `bin/cli`'s
+  `crap` module calls `AnalysisReport::compute_crap_findings()` — a method on
+  the report itself, mirroring the existing `coverage_on_new_code` precedent
+  of joining two already-stored fields — right after `ingest_coverage`, and
+  folds the results into ordinary `crap:high-risk-function` issues via
+  `add_external_issues` (Major 5–30, Critical 30+), so they flow into SARIF,
+  PR decoration and the agent policy with zero new plumbing, same as the
+  gate-gaming findings did.
+- **C2** ✅ **done.** `crap_worst_score` and `crap_high_risk_functions` (count
+  scoring above the 30-point high-risk band) are ordinary measures on
+  `MEASURE_TABLE`, `None` until a coverage report is ingested. The default
+  gate now includes `crap_high_risk_functions > 0` — zero-tolerance, the same
+  treatment blocker/critical issues get, defensible because the threshold has
+  already done the filtering a raw coverage percentage can't.
+- **C3** ✅ **done.** `render_text` prints a "Risk hotspots (CRAP)" section,
+  worst score first; `--format json`'s `crap` array is the same ranked list,
+  each entry carrying the score and both inputs (`sorted_crap`,
+  `output.rs`). Left the main issue list's severity → file → line sort
+  untouched rather than overloading it with one rule's own metric — the
+  ranked list lives alongside it, not instead of it.
 - **C4** Run coverage, don't only ingest it. Today CRAP needs a report piped
   in, which means the metric is only seen by people who already configured
   it — the ones who need it least. Detect the project's coverage command from
@@ -403,26 +429,27 @@ target.
 
 ```
 done ──► E4–E5 (gate-gaming)
+         C1–C3 (CRAP)
 
-now  ──► C1–C3 (CRAP)          ─┐
-         D1–D2 (boundaries)     ├─► independent, ship in any order
-         E1  (mutation widen)  ─┘
+now  ──► D1–D2 (boundaries)     ─┐
+         E1  (mutation widen)   ─┘ independent, ship in any order
 
 then ─► A1–A4 (agent runtime core) ─► A5 (PR feedback loop) ─► A6 (TUI)
                 │
                 └─► B1–B4 (swarm)  [needs headless A]
 
 parallel ─► F (performance)  — continuous, gated in CI
-            C4 (run coverage) — after C1–C3
+            C4 (run coverage) — now startable, C1–C3 shipped
             D3–D4 (I/A + arch view) — after D1–D2
             G — opportunistic
 ```
 
 E4–E5 shipped first, ahead of everything else in their group, because they
 are the precondition for the rest: every gate A and B are measured against is
-only worth building if the agent cannot quietly edit it. What's left in the
-first group (C1–C3, D1–D2, E1) is startable immediately and still touches
-nothing the agent work touches — pick any of them next. A is the long pole
+only worth building if the agent cannot quietly edit it. C1–C3 (CRAP) shipped
+next — cheapest high-value item, both inputs already existed. What's left in
+the first group (D1–D2, E1) is startable immediately and still touches
+nothing the agent work touches — pick either next. A is the long pole
 and everything in B depends on A running headless. F is continuous and
 already gated. D3–D4 need D1's component model first.
 

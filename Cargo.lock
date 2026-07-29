@@ -2620,6 +2620,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "yunq-crap"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+]
+
+[[package]]
 name = "yunq-import-graph"
 version = "0.1.1"
 dependencies = [
@@ -3112,6 +3119,7 @@ dependencies = [
  "thiserror",
  "yunq-ast",
  "yunq-cpd",
+ "yunq-crap",
  "yunq-profiles",
 ]
 
