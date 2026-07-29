@@ -85,9 +85,10 @@ jobs:
     # admitted only once it proves fast enough to stay in CI:
     # yunq-agent-policy (the guardrail's own decision logic, the highest-
     # consequence code in the repo) shipped first; yunq-profiles (gates,
-    # severities, ratings — also small and I/O-free) is next in that order.
-    # Remaining widening (import-graph → duplication → taint → rules-engine)
-    # is just more matrix entries.
+    # severities, ratings — also small and I/O-free) next; yunq-import-graph
+    # (cycle detection, cross-file edge extraction, architecture boundaries)
+    # is next in that order. Remaining widening (duplication → taint →
+    # rules-engine) is just more matrix entries.
     strategy:
       fail-fast: false
       matrix:
@@ -96,6 +97,8 @@ jobs:
             path: core/agent-policy
           - crate: yunq-profiles
             path: core/profiles
+          - crate: yunq-import-graph
+            path: core/import-graph
     steps:
       - uses: actions/checkout@v4
 
@@ -167,11 +170,11 @@ jobs:
             )
           }' mutants.out/outcomes.json > mutation-report.json
 
-      # Enforced: both crates in the matrix clear the default gate's 60%
-      # bar comfortably (yunq-agent-policy ~95%, yunq-profiles ~72% as of
-      # this crate's introduction), so unlike the workspace-wide coverage
-      # job above, there's no reason to hold this one back from actually
-      # gating.
+      # Enforced: every crate in the matrix clears the default gate's 60%
+      # bar comfortably (yunq-agent-policy ~95%, yunq-profiles ~72%,
+      # yunq-import-graph ~92% as of this crate's introduction), so unlike
+      # the workspace-wide coverage job above, there's no reason to hold
+      # this one back from actually gating.
       - name: Gate on ${{ matrix.crate }}'s mutation score
         run: ./target/debug/yunq scan ${{ matrix.path }} --mutation-report mutation-report.json --enforce-gate
 
