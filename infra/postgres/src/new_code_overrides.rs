@@ -154,7 +154,7 @@ mod live_db_tests {
             Span::new(10, 1, 10, 20),
         );
         issues
-            .save_issues(&[issue.clone()], IssueScope { project_id: Some(project_id), analysis_id: Some(analysis_id) })
+            .save_issues(std::slice::from_ref(&issue), IssueScope { project_id: Some(project_id), analysis_id: Some(analysis_id) })
             .await
             .unwrap();
 
