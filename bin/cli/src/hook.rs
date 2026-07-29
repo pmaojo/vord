@@ -613,7 +613,7 @@ pub fn proposed_content(tool_name: &str, tool_input: &serde_json::Value, file: &
 }
 
 /// Runs the full analyzer over a single in-memory file and maps its issues
-/// into policy findings.
+/// *and hotspots* into policy findings.
 ///
 /// `relative` must be repository-relative: `SourceFile` rejects absolute
 /// paths, and the policy's path globs are written against repository-relative
@@ -622,6 +622,19 @@ pub fn proposed_content(tool_name: &str, tool_input: &serde_json::Value, file: &
 /// Returns an empty vector for a file whose extension maps to no language —
 /// there is nothing to parse, which is not an error, and the path half of
 /// the policy still gets its say.
+///
+/// Hotspots are included alongside issues, not just issues: `Rule::check` can
+/// mark a finding `FindingKind::Hotspot` ("security-sensitive, needs human
+/// review" rather than "definite problem"), and several rules in the default
+/// policy's own shipped `blocking_rules` — `owasp:command-execution` among
+/// them — are hotspot-only by design. `report.issues()` alone never contains
+/// those, so a policy naming a hotspot rule in `blocking_rules` would
+/// silently never deny anything for it. A hotspot carries no severity of its
+/// own (that is the point of the distinction — nothing has judged it yet),
+/// so each one borrows the severity the active profile would assign it as an
+/// ordinary issue, via the same quality profile the analyzer ran with;
+/// `blocking_rules`/`escalate_rules` match by rule id regardless of
+/// severity, so this only matters for `block_at_or_above`.
 pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Vec<Finding>> {
     let extension = Path::new(relative).extension().and_then(|e| e.to_str()).unwrap_or("");
     let Some(language) = yunq_ast::LanguageIdentifier::from_extension(extension) else {
@@ -632,17 +645,22 @@ pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Ve
 
     let service = crate::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
     let report = service.analyze_files(std::slice::from_ref(&source)).await?;
+    let profile = yunq_rules_engine::default_profile();
 
-    Ok(report
-        .issues()
-        .iter()
-        .map(|issue| Finding {
-            rule: issue.rule().clone(),
-            severity: issue.severity(),
-            message: issue.message().to_string(),
-            line: issue.span().start_line,
-        })
-        .collect())
+    let issue_findings = report.issues().iter().map(|issue| Finding {
+        rule: issue.rule().clone(),
+        severity: issue.severity(),
+        message: issue.message().to_string(),
+        line: issue.span().start_line,
+    });
+    let hotspot_findings = report.hotspots().iter().map(|hotspot| Finding {
+        rule: hotspot.rule().clone(),
+        severity: profile.severity_of(hotspot.rule()).unwrap_or(yunq_rules_engine::Severity::Major),
+        message: hotspot.message().to_string(),
+        line: hotspot.span().start_line,
+    });
+
+    Ok(issue_findings.chain(hotspot_findings).collect())
 }
 
 /// Names every dependency a manifest file declares, keyed by ecosystem
@@ -704,6 +722,97 @@ fn new_dependency_findings(relative: &str, old_content: Option<&str>, new_conten
             message: format!(
                 "agent introduced new dependency `{name}` in {relative} — review provenance and check for \
                  typosquatting before this lands"
+            ),
+            line: 1,
+        })
+        .collect()
+}
+
+/// Suppression / exclusion directives across ecosystems that let code look
+/// gate-clean by hiding it from the gate rather than by actually passing it.
+/// Each entry is matched as a plain substring of a source line — the same
+/// granularity `new_dependency_findings` above uses for manifest names —
+/// since these are conventionally single-line pragmas, not AST nodes.
+const SUPPRESSION_MARKERS: &[&str] = &[
+    "#[allow(",           // Rust
+    "// eslint-disable",  // JS/TS, line form
+    "/* eslint-disable",  // JS/TS, block form
+    "# noqa",             // Python (ruff/flake8)
+    "# type: ignore",     // Python (mypy)
+    "# pylint: disable",  // Python
+    "//nolint",           // Go (golangci-lint)
+    "// nolint",          // Go (golangci-lint, spaced)
+    "# pragma: no cover", // Python (coverage.py)
+    "// istanbul ignore", // JS/TS (Istanbul/nyc coverage)
+];
+
+/// Markers that mark a test skipped/ignored rather than fixed. Grouped
+/// separately from [`SUPPRESSION_MARKERS`] because it earns its own rule id —
+/// "a test was silenced" is a distinct signal from "a lint was silenced",
+/// even though both are gate-gaming's same underlying move.
+const TEST_SKIP_MARKERS: &[&str] =
+    &["#[ignore]", "@pytest.mark.skip", "@unittest.skip", ".skip(", "xit(", "xdescribe("];
+
+/// Lines matching one of `markers` that appear in `new_content` but not in
+/// `old_content` — the mechanical form of "this suppression was added by this
+/// write", the same before/after distinction [`new_dependency_findings`]
+/// draws for manifests. A line already present before this write is not a
+/// finding; the identical line introduced by it is.
+fn new_marker_lines(old_content: &str, new_content: &str, markers: &[&str]) -> Vec<String> {
+    let matches = |line: &&str| markers.iter().any(|m| line.contains(m));
+    let old_lines: HashSet<&str> = old_content.lines().filter(matches).collect();
+    new_content.lines().filter(matches).filter(|l| !old_lines.contains(l)).map(|l| l.trim().to_string()).collect()
+}
+
+/// Findings for a suppression or coverage-exclusion directive a proposed
+/// write adds that was not there before — a `#[allow(...)]`, an
+/// `eslint-disable`, a `# noqa`, a `# pragma: no cover`, and their siblings
+/// across ecosystems. An agent optimising for "the gate is green" has two
+/// strategies: satisfy the gate, or quietly narrow what it can see. This
+/// makes the second one an ordinary, reviewable finding instead of an
+/// invisible one — no `Rule` in `core/rules-engine` can see it, since that
+/// trait analyses one file's *current* content with no concept of "before
+/// this write" (same reasoning as `new_dependency_findings` above). Absent
+/// `old_content` (a brand-new file) is treated as empty rather than skipped:
+/// unlike a bootstrapping dependency set, every suppression in a file an
+/// agent just created was, in fact, added by this write. Not in the default
+/// policy's `blocking_rules` — see `yunq-policy.toml`'s template for how to
+/// opt into `advisory_rules`/`escalate_rules`.
+fn suppression_added_findings(relative: &str, old_content: Option<&str>, new_content: &str) -> Vec<Finding> {
+    let old_content = old_content.unwrap_or("");
+    let rule = RuleId::new("ai:suppression-added").expect("valid rule id");
+    new_marker_lines(old_content, new_content, SUPPRESSION_MARKERS)
+        .into_iter()
+        .map(|line| Finding {
+            rule: rule.clone(),
+            severity: yunq_rules_engine::Severity::Major,
+            message: format!(
+                "agent added a new suppression/exclusion directive in {relative}: `{line}` — a gate that is \
+                 silenced is not a gate that is satisfied; fix the underlying finding or justify the suppression in \
+                 review"
+            ),
+            line: 1,
+        })
+        .collect()
+}
+
+/// Findings for a test a proposed write newly marks skipped/ignored rather
+/// than fixed — `#[ignore]`, `@pytest.mark.skip`, `.skip(`, and their
+/// siblings. Same before/after shape as [`suppression_added_findings`]: a
+/// skip that was already there is not a finding, the same annotation added by
+/// this write is. Not in the default policy's `blocking_rules` — see
+/// `yunq-policy.toml`'s template for how to opt in.
+fn test_skip_added_findings(relative: &str, old_content: Option<&str>, new_content: &str) -> Vec<Finding> {
+    let old_content = old_content.unwrap_or("");
+    let rule = RuleId::new("ai:test-skipped").expect("valid rule id");
+    new_marker_lines(old_content, new_content, TEST_SKIP_MARKERS)
+        .into_iter()
+        .map(|line| Finding {
+            rule: rule.clone(),
+            severity: yunq_rules_engine::Severity::Major,
+            message: format!(
+                "agent marked a test skipped/ignored in {relative}: `{line}` — a skipped test proves nothing; the \
+                 suite must still be able to catch a revert of the change it was meant to guard"
             ),
             line: 1,
         })
@@ -778,6 +887,8 @@ pub async fn judge(
     if let Some(content) = content {
         let old_content = std::fs::read_to_string(file).ok();
         findings.extend(new_dependency_findings(&relative, old_content.as_deref(), content));
+        findings.extend(suppression_added_findings(&relative, old_content.as_deref(), content));
+        findings.extend(test_skip_added_findings(&relative, old_content.as_deref(), content));
     }
     let provenance = provenance_for(&load_provenance(root), &relative);
     let has_scenario = has_covering_gherkin_scenario(policy, root, &relative);
@@ -1154,6 +1265,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_hotspot_rule_is_included_in_analyze_content_findings() {
+        // `owasp:command-execution` is `FindingKind::Hotspot`, not `Issue` —
+        // it must still reach the agent policy, or the shipped default
+        // `blocking_rules` entry naming it can never actually deny anything.
+        let findings =
+            analyze_content("app.py", "import os\nos.system(user_input)\n").await.expect("analysis runs");
+        assert!(
+            findings.iter().any(|f| f.rule.as_str() == "owasp:command-execution"),
+            "hotspot-classified rules must still reach the agent policy, got {findings:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_built_in_default_policy_actually_denies_a_hotspot_blocking_rule() {
+        // Regression test for the bug this session fixed: `analyze_content`
+        // used to map only `report.issues()`, so `AgentPolicy::default()`'s
+        // own built-in `blocking_rules` (which names `owasp:command-execution`,
+        // a hotspot-only rule) silently never denied anything for it — the
+        // README's flagship "shell-injection sink gets denied" example was
+        // not actually true out of the box.
+        let policy = AgentPolicy::default();
+        let root = Path::new("/repo");
+        let verdict =
+            judge(&policy, root, Path::new("/repo/app.py"), Some("import os\nos.system(user_input)\n"))
+                .await
+                .expect("judged");
+        assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
+    }
+
+    #[tokio::test]
     async fn a_blocking_rule_in_proposed_content_denies_before_the_file_exists() {
         let policy = AgentPolicy::default();
         let root = Path::new("/repo");
@@ -1499,6 +1640,83 @@ mod tests {
     #[test]
     fn an_unrelated_file_is_never_diffed_for_dependencies() {
         assert!(new_dependency_findings("src/app.py", Some("x = 1"), "x = 2").is_empty());
+    }
+
+    #[test]
+    fn a_newly_added_allow_attribute_is_flagged() {
+        let old = "fn risky() {\n    x.unwrap();\n}\n";
+        let new = "#[allow(clippy::unwrap_used)]\nfn risky() {\n    x.unwrap();\n}\n";
+        let findings = suppression_added_findings("src/lib.rs", Some(old), new);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "ai:suppression-added");
+        assert!(findings[0].message.contains("#[allow(clippy::unwrap_used)]"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn a_pre_existing_allow_attribute_is_not_re_flagged() {
+        let content = "#[allow(dead_code)]\nfn unused() {}\n";
+        assert!(suppression_added_findings("src/lib.rs", Some(content), content).is_empty());
+    }
+
+    #[test]
+    fn every_suppression_in_a_brand_new_file_is_flagged() {
+        // Unlike a brand-new manifest's dependency set, a suppression in a
+        // file that did not exist before was still, in fact, added by this
+        // write — there is no "this file always had it" case to protect.
+        let new = "# noqa: E501\nprint('x' * 1000)\n";
+        let findings = suppression_added_findings("scratch.py", None, new);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("# noqa"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn a_coverage_exclusion_pragma_is_flagged() {
+        let old = "def untested():\n    pass\n";
+        let new = "def untested():  # pragma: no cover\n    pass\n";
+        let findings = suppression_added_findings("app.py", Some(old), new);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "ai:suppression-added");
+    }
+
+    #[test]
+    fn a_newly_ignored_rust_test_is_flagged() {
+        let old = "#[test]\nfn it_works() {\n    assert!(true);\n}\n";
+        let new = "#[test]\n#[ignore]\nfn it_works() {\n    assert!(true);\n}\n";
+        let findings = test_skip_added_findings("src/lib.rs", Some(old), new);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "ai:test-skipped");
+        assert!(findings[0].message.contains("#[ignore]"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn a_newly_skipped_jest_test_is_flagged() {
+        let old = "it('adds', () => { expect(1 + 1).toBe(2); });\n";
+        let new = "it.skip('adds', () => { expect(1 + 1).toBe(2); });\n";
+        let findings = test_skip_added_findings("app.test.ts", Some(old), new);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains(".skip("), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn a_pre_existing_ignore_is_not_re_flagged() {
+        let content = "#[test]\n#[ignore]\nfn flaky() {}\n";
+        assert!(test_skip_added_findings("src/lib.rs", Some(content), content).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_new_suppression_is_wired_into_the_full_judge_pipeline() {
+        let dir = std::env::temp_dir().join(format!("yunq-hook-suppression-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("lib.rs");
+        std::fs::write(&file, "fn f() {}\n").expect("write");
+
+        let policy =
+            AgentPolicy::parse("[agent]\nblocking_rules = [\"ai:suppression-added\"]\n").expect("parses");
+        let new_content = "#[allow(dead_code)]\nfn f() {}\n";
+        let verdict = judge(&policy, &dir, &file, Some(new_content)).await.expect("judged");
+        assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]
