@@ -60,7 +60,6 @@ yunq-rules-ai-agent = { path = "rulesets/ai-agent" }
 yunq-infra-memory = { path = "infra/memory" }
 yunq-cli = { path = "bin/cli" }
 yunq-infra-fs = { path = "infra/fs" }
-yunq-infra-postgres = { path = "infra/postgres" }
 yunq-infra-github = { path = "infra/github" }
 yunq-infra-gitlab = { path = "infra/gitlab" }
 yunq-infra-bitbucket = { path = "infra/bitbucket" }

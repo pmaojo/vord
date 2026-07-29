@@ -1,5 +1,10 @@
 # yunq Roadmap — the ultraperformant ultimate code analysis platform
 
+> This is a historical development log. References below to `bin/server`,
+> `bin/worker`, and `infra/postgres` describe work done before those
+> components were split into the private `yunq-cloud` repo — they no longer
+> exist in this repo's history.
+
 Mission: **a complete code-quality platform that beats the incumbents** — on
 performance, on architecture, on developer experience, and on agent-native
 automation. Phase 1 (hexagonal workspace, working analyzer, CLI, SQS/Postgres
