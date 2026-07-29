@@ -8,6 +8,8 @@
 //! `default_service` builds the zero-config rule set, not baked into the
 //! registry itself).
 
+use std::collections::HashMap;
+
 use yunq_ast::{AstNode, SourceFile};
 use yunq_import_graph::{component_of, ArchitectureConfig, ImportGraph, ViolationKind};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
@@ -15,11 +17,16 @@ use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata,
 pub struct BoundaryViolationRule {
     id: RuleId,
     config: ArchitectureConfig,
+    rust_crates: HashMap<String, String>,
 }
 
 impl BoundaryViolationRule {
-    pub fn new(config: ArchitectureConfig) -> Self {
-        Self { id: RuleId::new("architecture:boundary-violation").expect("valid rule id"), config }
+    /// `rust_crates` is `yunq_infra_fs::discover_rust_crates`'s output
+    /// (crate identifier -> directory) — empty for a project with no Rust
+    /// (or none discovered), in which case Rust files simply contribute no
+    /// edges, same as any other unresolved specifier.
+    pub fn new(config: ArchitectureConfig, rust_crates: HashMap<String, String>) -> Self {
+        Self { id: RuleId::new("architecture:boundary-violation").expect("valid rule id"), config, rust_crates }
     }
 }
 
@@ -54,7 +61,7 @@ impl CrossFileRule for BoundaryViolationRule {
             return Vec::new();
         }
         let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
-        let graph = ImportGraph::build(&views);
+        let graph = ImportGraph::build_with_rust_crates(&views, &self.rust_crates);
         let mut findings = Vec::new();
         for violation in self.config.violations(&graph) {
             let reason = match violation.kind {
@@ -105,10 +112,22 @@ mod tests {
             .collect()
     }
 
+    fn parsed_rust(files: &[(&str, &str)]) -> Vec<(SourceFile, AstNode)> {
+        let parser = yunq_parser_rust::RustParser::new();
+        files
+            .iter()
+            .map(|(path, code)| {
+                let file = SourceFile::new(*path, *code, LanguageIdentifier::rust()).unwrap();
+                let ast = parser.parse(&file).unwrap();
+                (file, ast)
+            })
+            .collect()
+    }
+
     #[test]
     fn silent_with_no_architecture_config() {
         let files = parsed(&[("core/a.ts", "import { b } from '../infra/b';\n"), ("infra/b.ts", "export const b = 1;\n")]);
-        let rule = BoundaryViolationRule::new(ArchitectureConfig::default());
+        let rule = BoundaryViolationRule::new(ArchitectureConfig::default(), HashMap::new());
         assert!(rule.check(&files).is_empty());
     }
 
@@ -119,7 +138,7 @@ mod tests {
             forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
             ..Default::default()
         };
-        let findings = BoundaryViolationRule::new(config).check(&files);
+        let findings = BoundaryViolationRule::new(config, HashMap::new()).check(&files);
         assert_eq!(findings.len(), 1);
         let (index, finding) = &findings[0];
         assert_eq!(*index, 0);
@@ -133,6 +152,33 @@ mod tests {
             allowed_dependencies: vec![DependencyEdge::new("bin", "core")],
             ..Default::default()
         };
-        assert!(BoundaryViolationRule::new(config).check(&files).is_empty());
+        assert!(BoundaryViolationRule::new(config, HashMap::new()).check(&files).is_empty());
+    }
+
+    #[test]
+    fn flags_a_forbidden_rust_crate_dependency_via_the_crate_index() {
+        let files = parsed_rust(&[
+            ("core/rules-engine/src/lib.rs", "use yunq_infra_fs::Thing;\n"),
+            ("infra/fs/src/lib.rs", "pub struct Thing;\n"),
+        ]);
+        let config = ArchitectureConfig {
+            forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
+            ..Default::default()
+        };
+        let rust_crates: HashMap<String, String> =
+            HashMap::from([("yunq_infra_fs".to_string(), "infra/fs".to_string())]);
+        let findings = BoundaryViolationRule::new(config, rust_crates).check(&files);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].1.message.contains("`core/rules-engine` depends on `infra/fs`"));
+    }
+
+    #[test]
+    fn silent_on_rust_use_with_no_matching_crate_index_entry() {
+        let files = parsed_rust(&[("core/rules-engine/src/lib.rs", "use yunq_infra_fs::Thing;\n")]);
+        let config = ArchitectureConfig {
+            forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
+            ..Default::default()
+        };
+        assert!(BoundaryViolationRule::new(config, HashMap::new()).check(&files).is_empty());
     }
 }

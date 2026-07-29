@@ -1335,11 +1335,78 @@ plumbing — verified by actually running `yunq scan` against a two-file
 TypeScript fixture in both modes (a `core -> infra` edge caught by
 `forbidden_dependencies`, and separately by omission from
 `allowed_dependencies`), checking both text and `--format json` output, not
-just the unit tests. Scoped by `ImportGraph`'s own current reach —
-TypeScript/JS and Python import edges only — so this doesn't yet self-enforce
-yunq's own `bin -> {infra, parsers, rulesets} -> core` rule against its Rust
-`use` graph; that's still Cargo's job until import-graph learns Rust. D3
-(Instability/Abstractness, the main sequence) and D4 (`yunq arch`, the
+just the unit tests. That last gap — Rust's own `use` graph, and therefore
+yunq's own workspace, not being covered — didn't sit right as a "later"
+item: raised in the same conversation, and worth closing immediately once
+the actual reason surfaced. It isn't dogfooding for its own sake. Cargo
+enforces two things: that a dependency is declared, and that the crate
+graph has no cycle. It enforces neither *direction* nor *layering* — nothing
+stops `core/rules-engine`'s `Cargo.toml` from adding `yunq-infra-fs` and a
+file in it writing `use yunq_infra_fs::Thing;`; that compiles and runs fine.
+"The directory structure is the architecture" was, for the Rust half of
+yunq's own tree, still enforced by code review alone.
+
+Closing it needed a genuinely different resolution mechanism than TS/Python
+get, not just a new grammar to walk. A relative specifier (`./foo`) names
+its target file directly; a Rust `use other_crate::Thing;` names a *crate
+identifier* (hyphens replaced with underscores) that has no fixed
+relationship to that crate's directory — `rulesets/architecture`'s package
+is `yunq-rules-architecture`, not `yunq-rulesets-architecture` — so
+resolving it needs each crate's own `Cargo.toml` `[package] name`, and
+reading manifests is I/O `core/import-graph` deliberately doesn't do.
+`infra/fs::discover_rust_crates` (new, mirrors `discover_projects`'s
+`WalkBuilder`/`.gitignore` conventions exactly) walks the scanned root once
+and builds a plain `{crate_identifier: directory}` map, skipping any
+`Cargo.toml` with no `[package]` table (a workspace root's own virtual
+manifest, correctly not a crate). `core/import-graph` gained
+`extract_rust_edges`/`rust_path_root`: every `use_declaration` shape the
+`tree-sitter-rust` grammar actually produces — probed directly rather than
+guessed — walks down to a leftmost identifier (`scoped_identifier`,
+`scoped_use_list` — whose own first child is already the shared prefix, no
+need to look inside the list — `use_as_clause`, `use_wildcard`), with
+`crate`/`self`/`super` always intra-crate and `std`/`core`/`alloc` always
+the implicit-prelude crates, both skipped before ever consulting the index.
+`ImportGraph::build_with_rust_crates` takes the index as a plain
+`HashMap<String, String>` argument — the crate stays exactly as I/O-free as
+before, the index is just data built elsewhere — with `build()` itself
+unchanged (delegates with an empty map, so a `.rs` file with no index still
+contributes no edges, the same "harmless, not an error" convention every
+other unmatched specifier already follows). `BoundaryViolationRule` grew a
+second constructor argument for the index (`scan_with_project_config` only
+bothers calling `discover_rust_crates` — a real directory walk — when
+`[architecture]` actually declared something).
+
+Deliberately not extended to `DependencyCycleRule`: a real crate-level cycle
+can't exist in a workspace that builds at all — Cargo's own dependency graph
+forbids it before `yunq` ever gets a chance to see the source. Adding Rust
+support there would be real engineering cost for a check Cargo has already
+subsumed; the boundary-violation check earns its keep precisely because it
+catches something Cargo does *not* enforce.
+
+Verified three ways before calling it done, in increasing order of realism:
+the unit-test shapes above; a genuine two-crate Cargo workspace fixture
+(`core/domain` depending on `infra/db`, an actual compiling violation) run
+through the real `yunq` binary end-to-end, one finding, correct file and
+line; and `yunq scan` against yunq's own tree with `[architecture]
+forbidden_dependencies = [{from = "core", to = "infra"}]` now genuinely
+added to yunq's own `yunq.toml` — zero findings, confirmed rather than
+assumed, since no `core/*` crate depends on any `infra/*` crate today.
+
+One honestly-stated gap survives this pass: the rule doesn't distinguish
+`#[cfg(test)]` code from production code the way `core/duplication`'s
+`include_test_code` does, so a dev-dependency used only inside a crate's own
+tests (a legitimate, common pattern — exercising a port against a real
+adapter) would misfire as a forbidden edge if a tier pair covering it were
+ever declared. That's real for `core -> parsers` specifically (several
+`core/*` crates use `parsers/*` crates as dev-dependencies for fixture
+parsing in their tests) — which is exactly why the shipped dogfood config
+declares only `core -> infra` (zero such cases exist there) and leaves
+`core -> parsers`/`core -> rulesets` undeclared rather than papering over a
+known false-positive source. Closing that gap needs the same test-code
+detection `smells`/`duplication` already have, plumbed into this rule; not
+attempted here.
+
+D3 (Instability/Abstractness, the main sequence) and D4 (`yunq arch`, the
 layered viewer) build on this same component model next.
 
 ## Phase 7 — Enterprise platform

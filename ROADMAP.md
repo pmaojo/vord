@@ -270,13 +270,57 @@ missing is the layer above it: components, declared boundaries, and metrics.
   zero new plumbing, verified end-to-end with a real `yunq scan` against a
   two-file TS fixture (`core → infra` forbidden, and separately an
   allow-list catching the same edge as undeclared) — text and
-  `--format json` output both confirmed, not just the unit tests. Scoped by
-  `ImportGraph`'s own current reach: TypeScript/JS and Python import edges
-  only (see `resolve` module docs) — Rust's own `use` graph, and therefore
-  yunq's own workspace, isn't covered yet, so this doesn't self-enforce
-  yunq's `bin → {infra, parsers, rulesets} → core` rule (that's still
-  Cargo's job). D3 (I/A metrics, main sequence) and D4 (`yunq arch` viewer)
-  build on this component model next.
+  `--format json` output both confirmed, not just the unit tests. Rust `use`
+  edges followed immediately after (below) rather than being left as a gap:
+  self-enforcing yunq's own `bin → {infra, parsers, rulesets} → core` rule
+  turned out to matter for a reason sharper than dogfooding — Cargo enforces
+  *declared* dependencies and forbids *cycles*, but nothing in Cargo stops
+  `core/rules-engine`'s `Cargo.toml` from adding `yunq-infra-fs` and
+  importing it; that compiles fine. Direction is pure convention until this
+  rule can see it. `yunq.toml` now carries `core → infra` as a real
+  `forbidden_dependencies` entry, verified against the actual tree (zero
+  findings — no core crate depends on any infra crate today) and against a
+  genuine two-crate Cargo workspace fixture with a real, compiling violation
+  (one finding, correct file/line).
+  - **Rust `use` resolution** (`core/import-graph::extract_rust_edges`,
+    `rust_path_root`) walks every `use_declaration` shape the grammar
+    produces (`scoped_identifier`, `scoped_use_list`, `use_as_clause`,
+    `use_wildcard`) down to its leftmost identifier — the crate name (or
+    `crate`/`self`/`super`, always intra-crate, skipped before ever
+    consulting anything). Resolving *that* to a directory is a genuinely
+    different problem than TS/Python's relative-specifier resolution: a
+    crate's Rust identifier has no fixed relationship to its directory
+    (`rulesets/architecture`'s package is `yunq-rules-architecture`, not
+    `yunq-rulesets-architecture`) and needs each `Cargo.toml`'s declared
+    `[package] name`, which is I/O — so it lives in `infra/fs`
+    (`discover_rust_crates`, walks the scanned root, honors `.gitignore`
+    like `discover_projects` does, skips virtual/workspace-only manifests
+    with no `[package]` table) and is passed into
+    `ImportGraph::build_with_rust_crates` as a plain
+    `HashMap<String, String>` — `core/import-graph` stays I/O-free; the
+    index is just data, built elsewhere. `BoundaryViolationRule` grew a
+    second constructor argument for it (empty for a project with no Rust,
+    same "unresolved specifier is harmless" convention as everything else);
+    `DependencyCycleRule` deliberately did **not** — a real crate-level
+    cycle can't exist in a workspace that builds at all (Cargo's own
+    dependency graph forbids it), so extending cycle detection to Rust adds
+    engineering cost for a check Cargo already subsumes, unlike boundary
+    violation, which catches something Cargo doesn't enforce at all.
+  - **Known limitation, stated plainly rather than glossed over**: this
+    doesn't distinguish `#[cfg(test)]`/test-only code from production code
+    the way `core/duplication`'s `include_test_code` does. A dev-dependency
+    used only inside a crate's own tests (a common, Cargo-sanctioned pattern
+    for exercising a port against a real adapter) would misfire as a
+    forbidden edge if one were declared for that pair — yunq's own tree
+    happens to have zero such cases for `core → infra` specifically (every
+    `core/*` crate that depends on a `parsers/*` crate for test fixtures
+    does so via `parsers`, a tier this dogfood config leaves undeclared for
+    exactly that reason), so the shipped config is safe, but the gap is
+    real and unaddressed here — a future pass needs to plumb the same
+    test-code detection `smells`/`duplication` already have into this rule
+    before a tier like `core → parsers` could be safely declared.
+  D3 (I/A metrics, main sequence) and D4 (`yunq arch` viewer) build on this
+  component model next.
 - **D3 — Instability / Abstractness and the main sequence.** Per component:
   I = Ce/(Ca+Ce), A = abstract types / total types, D = |A+I−1|. Classify
   into the zone of pain (concrete + stable) and the zone of uselessness

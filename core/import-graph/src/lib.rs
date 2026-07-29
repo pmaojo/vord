@@ -3,9 +3,13 @@
 //! no I/O, works purely off the neutral AST and a list of candidate file
 //! paths (the same file set a `CrossFileRule` already receives).
 //!
-//! TypeScript/JS and Python only for now (see `resolve` module docs for
-//! what's resolved and what's deliberately left external); other languages
-//! contribute no edges (harmless, not an error).
+//! TypeScript/JS and Python resolve via relative specifiers against the
+//! candidate file set (see `resolve` module docs for what's resolved and
+//! what's deliberately left external); Rust resolves `use` edges against a
+//! crate-name index instead (`build_with_rust_crates`, see its own doc
+//! comment — this crate stays I/O-free, so the index itself is built
+//! elsewhere, `yunq_infra_fs::discover_rust_crates`). Every other language
+//! contributes no edges (harmless, not an error).
 //!
 //! Also home to `component` (roadmap D1: components derived from path
 //! topology) and `boundary` (roadmap D2: declared boundaries between those
@@ -112,10 +116,76 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
     }
 }
 
+/// The leftmost identifier of a `use` path expression — the crate name (or
+/// `crate`/`self`/`super`) every shape a Rust `use_declaration` can take
+/// ultimately roots at: a bare `Identifier`, a nested `scoped_identifier`
+/// (`a::b::c`), a `scoped_use_list` (`a::b::{C, D}` — its own first child is
+/// already the shared prefix, so no need to look inside the list), a
+/// `use_as_clause` (`a::b as c` — first child is the aliased path, second
+/// is the new name, ignored here), or a `use_wildcard` (`a::b::*`).
+fn rust_path_root(node: &AstNode) -> Option<String> {
+    match node.kind() {
+        NodeKind::Identifier => Some(node.text().to_string()),
+        NodeKind::Other(kind) => match kind.as_ref() {
+            "crate" | "self" | "super" => Some(node.text().to_string()),
+            "scoped_identifier" | "scoped_use_list" | "use_as_clause" | "use_wildcard" => {
+                node.first_child().and_then(rust_path_root)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Rust `use` edges: only cross-*crate* references resolve, via
+/// `crate_index` (crate identifier -> directory,
+/// `yunq_infra_fs::discover_rust_crates`'s output). `crate`/`self`/`super`
+/// paths are always intra-crate and `std`/`core`/`alloc` are always the
+/// implicit-prelude crates, so both are skipped before ever consulting the
+/// index — anything else not found in it is an external (non-workspace)
+/// dependency, left unresolved like an external TS/Python specifier.
+///
+/// Deliberately not extended to `DependencyCycleRule`: Cargo's own
+/// dependency graph already forbids a real crate-level cycle from existing
+/// at all (a workspace with one fails to build), so there is no signal a
+/// cycle check could add there that isn't already a build failure — unlike
+/// the boundary-violation check, which catches something Cargo doesn't
+/// enforce at all (an edge's *direction*, not just its declaredness).
+fn extract_rust_edges(path: &str, ast: &AstNode, crate_index: &HashMap<String, String>, edges: &mut Vec<ImportEdge>) {
+    for node in ast.descendants().filter(|n| is_other(n, "use_declaration")) {
+        let Some(path_node) = node.children().iter().find(|c| !is_other(c, "visibility_modifier")) else {
+            continue;
+        };
+        let Some(segment) = rust_path_root(path_node) else { continue };
+        if matches!(segment.as_str(), "crate" | "self" | "super" | "std" | "core" | "alloc") {
+            continue;
+        }
+        let Some(crate_dir) = crate_index.get(&segment) else { continue };
+        let target = format!("{crate_dir}/Cargo.toml");
+        if component_of(&target) == component_of(path) {
+            continue;
+        }
+        edges.push(ImportEdge { from: path.to_string(), to: target, span: node.span() });
+    }
+}
+
 impl ImportGraph {
     /// Builds the graph from a file set — the same `&[(path, ast)]` shape
-    /// `core/taint::CrossFileTaint::find_flows` takes.
+    /// `core/taint::CrossFileTaint::find_flows` takes. Rust files contribute
+    /// no edges this way (no crate index to resolve `use` paths against);
+    /// see [`Self::build_with_rust_crates`].
     pub fn build(files: &[(&str, &AstNode)]) -> Self {
+        Self::build_with_rust_crates(files, &HashMap::new())
+    }
+
+    /// Same as [`Self::build`], plus Rust `use` edges resolved against
+    /// `rust_crates` (crate identifier, hyphens replaced with underscores,
+    /// e.g. `"yunq_infra_fs"` -> that crate's directory —
+    /// `yunq_infra_fs::discover_rust_crates`'s shape exactly). An empty map
+    /// behaves exactly like [`Self::build`]: every `use` path is left
+    /// unresolved, harmless rather than an error, the same convention every
+    /// unmatched specifier in `resolve` already follows.
+    pub fn build_with_rust_crates(files: &[(&str, &AstNode)], rust_crates: &HashMap<String, String>) -> Self {
         let candidates: Vec<&str> = files.iter().map(|(path, _)| *path).collect();
         let mut edges = Vec::new();
         for (path, ast) in files {
@@ -123,6 +193,8 @@ impl ImportGraph {
                 extract_ts_edges(path, ast, &candidates, &mut edges);
             } else if path.ends_with(".py") {
                 extract_py_edges(path, ast, &candidates, &mut edges);
+            } else if path.ends_with(".rs") {
+                extract_rust_edges(path, ast, rust_crates, &mut edges);
             }
         }
         Self { edges }
@@ -295,6 +367,12 @@ mod tests {
         (file, ast)
     }
 
+    fn parse_rust(path: &str, code: &str) -> (SourceFile, AstNode) {
+        let file = SourceFile::new(path, code, LanguageIdentifier::rust()).unwrap();
+        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        (file, ast)
+    }
+
     #[test]
     fn detects_a_two_file_ts_cycle() {
         let a = parse_ts("a.ts", "import { b } from './b';\nexport const a = 1;\n");
@@ -372,5 +450,82 @@ mod tests {
         let graph = ImportGraph::build(&files);
         let span = graph.edge_span("a.ts", "b.ts").unwrap();
         assert_eq!(span.start_line, 2);
+    }
+
+    fn rust_crate_index(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        entries.iter().map(|(name, dir)| (name.to_string(), dir.to_string())).collect()
+    }
+
+    #[test]
+    fn plain_build_leaves_rust_use_paths_unresolved() {
+        let a = parse_rust("core/a/src/lib.rs", "use yunq_infra_fs::Thing;\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        assert!(ImportGraph::build(&files).edges().is_empty());
+    }
+
+    #[test]
+    fn resolves_a_plain_cross_crate_use_against_the_crate_index() {
+        let a = parse_rust("core/a/src/lib.rs", "use yunq_infra_fs::Thing;\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
+        let graph = ImportGraph::build_with_rust_crates(&files, &index);
+        assert_eq!(graph.edges().len(), 1);
+        assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
+    }
+
+    #[test]
+    fn resolves_use_list_use_as_clause_and_wildcard_shapes() {
+        let a = parse_rust(
+            "core/a/src/lib.rs",
+            "use yunq_infra_fs::{FileAnalysisCache, YunqConfig};\nuse yunq_infra_fs as fs;\nuse yunq_infra_fs::Thing as Renamed;\nuse yunq_infra_fs::*;\n",
+        );
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
+        let graph = ImportGraph::build_with_rust_crates(&files, &index);
+        assert_eq!(graph.edges().len(), 4);
+        assert!(graph.edges().iter().all(|e| e.to == "infra/fs/Cargo.toml"));
+    }
+
+    #[test]
+    fn crate_self_and_super_paths_produce_no_edge() {
+        let a = parse_rust(
+            "core/a/src/lib.rs",
+            "use crate::foo::Bar;\nuse self::sibling;\nuse super::baz::Qux;\nuse std::collections::HashMap;\n",
+        );
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        // Even an index that (implausibly) had entries named "crate"/"std"
+        // must never be consulted for these — they're skipped up front.
+        let index = rust_crate_index(&[("crate", "should/never/resolve"), ("std", "should/never/resolve")]);
+        let graph = ImportGraph::build_with_rust_crates(&files, &index);
+        assert!(graph.edges().is_empty());
+    }
+
+    #[test]
+    fn a_crate_importing_its_own_external_name_is_not_an_edge() {
+        // `core/rules-engine` referring to itself as `yunq_rules_engine`
+        // (an unusual but legal absolute self-reference) resolves to the
+        // same component as the importer and must not count as crossing a
+        // boundary.
+        let a = parse_rust("core/rules-engine/src/lib.rs", "use yunq_rules_engine::Other;\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        let index = rust_crate_index(&[("yunq_rules_engine", "core/rules-engine")]);
+        assert!(ImportGraph::build_with_rust_crates(&files, &index).edges().is_empty());
+    }
+
+    #[test]
+    fn an_external_non_workspace_crate_produces_no_edge() {
+        let a = parse_rust("core/a/src/lib.rs", "use serde::Serialize;\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
+        assert!(ImportGraph::build_with_rust_crates(&files, &index).edges().is_empty());
+    }
+
+    #[test]
+    fn rust_component_edges_report_a_cross_tier_dependency() {
+        let a = parse_rust("core/a/src/lib.rs", "use yunq_infra_fs::Thing;\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
+        let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
+        let graph = ImportGraph::build_with_rust_crates(&files, &index);
+        assert_eq!(graph.component_edges(), BTreeSet::from([("core/a".to_string(), "infra/fs".to_string())]));
     }
 }

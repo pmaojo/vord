@@ -7,3 +7,7 @@ version = "0.1.1"
 sources = ["bin", "core", "infra", "parsers", "rulesets"]
 exclusions = ["**/fixtures/**", "**/target/**"]
 profile = "yunq way"
+
+[[architecture.forbidden_dependencies]]
+from = "core"
+to = "infra"

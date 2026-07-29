@@ -222,8 +222,14 @@ pub async fn scan_with_project_config(
         .with_duplication_config(duplication_config(duplication));
     let boundaries = architecture_config(architecture);
     if !boundaries.is_empty() {
-        service = service
-            .register_cross_rule(Box::new(yunq_rules_architecture::BoundaryViolationRule::new(boundaries)));
+        // Only discovered when there's a boundary to check against — this
+        // walks every Cargo.toml under `path`, wasted work for a project
+        // with no `[architecture]` table declared.
+        let rust_crates = yunq_infra_fs::discover_rust_crates(path);
+        service = service.register_cross_rule(Box::new(yunq_rules_architecture::BoundaryViolationRule::new(
+            boundaries,
+            rust_crates,
+        )));
     }
     if let Some(cache) = cache {
         service = service.with_cache(cache);

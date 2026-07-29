@@ -17,3 +17,4 @@ yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }
 yunq-parser-typescript = { workspace = true }
 yunq-parser-python = { workspace = true }
+yunq-parser-rust = { workspace = true }

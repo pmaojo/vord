@@ -18,3 +18,4 @@ yunq-import-graph = { workspace = true }
 [dev-dependencies]
 yunq-parser-typescript = { workspace = true }
 yunq-parser-python = { workspace = true }
+yunq-parser-rust = { workspace = true }
