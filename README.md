@@ -404,7 +404,9 @@ yunq is becoming the agent runtime that cannot approve its own work: a native
 "done" is the analyzer agreeing — never a self-assessment turn. Alongside it:
 multi-agent orchestration with per-role policy scopes, CRAP risk scoring
 (complexity × untestedness), declared architecture boundaries enforced at
-write time, and widened mutation testing.
+write time, and gate integrity — mutation testing to prove a suite would
+notice a regression, plus detection of an agent quietly lowering the bar
+instead of clearing it.
 
 See [ROADMAP.md](ROADMAP.md) for the plan and [DEVLOG.md](DEVLOG.md) for the
 build history and design rationale.
