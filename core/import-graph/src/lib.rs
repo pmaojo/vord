@@ -22,6 +22,7 @@
 
 mod boundary;
 mod component;
+mod infra;
 mod layer;
 mod metrics;
 mod resolve;
@@ -32,6 +33,7 @@ use yunq_ast::{AstNode, NodeKind, Span};
 
 pub use boundary::{ArchitectureConfig, BoundaryViolation, DependencyEdge, ViolationKind};
 pub use component::component_of;
+pub use infra::{imported_modules, infra_roster, matches_module, ImportedModule, InfraModule};
 pub use layer::{inward_dependency_violations, layer_of, HexLayer, LayerViolation};
 pub use metrics::{
     component_metrics, stability_violations, ComponentMetrics, StabilityViolation, TypeCensus,

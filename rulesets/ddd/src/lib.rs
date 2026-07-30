@@ -15,24 +15,39 @@
 //! four strings. Reporting them everywhere would be reporting noise; reporting
 //! them on an aggregate root is reporting a design defect.
 
+mod aggregate_reference;
 mod anemic_domain_model;
+mod bdd_step_reaches_infra;
 mod common;
+mod domain_jargon_naming;
 mod entity_setter;
 mod exposed_collection;
+mod one_aggregate_per_transaction;
 mod persistence_in_domain;
 mod primitive_obsession;
+mod value_object_mutation;
 
+pub use aggregate_reference::AggregateReferenceByIdRule;
 pub use anemic_domain_model::AnemicDomainModelRule;
+pub use bdd_step_reaches_infra::BddStepReachesInfraRule;
+pub use domain_jargon_naming::DomainJargonNamingRule;
 pub use entity_setter::PublicEntitySetterRule;
 pub use exposed_collection::ExposedCollectionRule;
+pub use one_aggregate_per_transaction::OneAggregatePerTransactionRule;
 pub use persistence_in_domain::PersistenceInDomainRule;
 pub use primitive_obsession::PrimitiveObsessionRule;
+pub use value_object_mutation::ValueObjectMutationRule;
 
 use yunq_rules_engine::{CrossFileRule, Rule};
 
 /// Every per-file rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
-    vec![Box::new(PersistenceInDomainRule::new())]
+    vec![
+        Box::new(PersistenceInDomainRule::new()),
+        Box::new(DomainJargonNamingRule::new()),
+        Box::new(OneAggregatePerTransactionRule::new()),
+        Box::new(BddStepReachesInfraRule::new()),
+    ]
 }
 
 /// Every whole-program rule in this ruleset, for composition roots. These need
@@ -45,5 +60,7 @@ pub fn all_cross_rules() -> Vec<Box<dyn CrossFileRule>> {
         Box::new(PublicEntitySetterRule::new()),
         Box::new(PrimitiveObsessionRule::default()),
         Box::new(ExposedCollectionRule::new()),
+        Box::new(ValueObjectMutationRule::new()),
+        Box::new(AggregateReferenceByIdRule::new()),
     ]
 }

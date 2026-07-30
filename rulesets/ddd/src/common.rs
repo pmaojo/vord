@@ -19,9 +19,38 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind};
+use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
 use yunq_import_graph::{layer_of, HexLayer};
-use yunq_symbols::{ClassInfo, MethodInfo};
+use yunq_symbols::{ClassInfo, MemberInfo, MethodInfo};
+
+/// Field names and type suffixes that mean "this type has identity" — the mark
+/// of an entity rather than a value object.
+const IDENTITY_FIELDS: &[&str] = &["id", "_id", "uuid", "guid", "key", "identifier"];
+const IDENTITY_TYPE_SUFFIXES: &[&str] = &["Id", "ID", "Uuid", "UUID", "Guid"];
+
+/// Whether a type is a value object: it has no identity, only values.
+///
+/// Shared between `ddd:primitive-obsession` (where it marks a constructor as
+/// the boundary where primitives *become* a concept, not a smell) and
+/// `ddd:value-object-mutation` (where it marks every other method as one that
+/// must never write to `self`).
+pub fn is_value_object(class: &ClassInfo<'_>) -> bool {
+    if class.fields.is_empty() {
+        // No declared fields is no evidence, not evidence of no identity — a
+        // TypeScript class can carry its whole state in constructor parameter
+        // properties, and a Rust unit struct declares nothing at all. Claiming
+        // "value object" here would exempt exactly the constructors
+        // `primitive-obsession` exists to look at.
+        return false;
+    }
+    !class.fields.iter().any(|field| {
+        let name = field.name.trim_start_matches('_').to_ascii_lowercase();
+        IDENTITY_FIELDS.contains(&name.as_str())
+            || field.declared_type.as_deref().is_some_and(|declared| {
+                IDENTITY_TYPE_SUFFIXES.iter().any(|suffix| declared.trim_end_matches('>').ends_with(suffix))
+            })
+    })
+}
 
 /// Whether a method is the constructor of the type that declares it, whatever
 /// its language calls one (`yunq_symbols::is_constructor_name`: `constructor`,
@@ -43,6 +72,33 @@ pub fn is_other(node: &AstNode, kind: &str) -> bool {
 /// design, not an anemic one.
 pub fn is_domain_path(path: &str) -> bool {
     layer_of(path) == HexLayer::Domain
+}
+
+/// Whether a path names code in the application layer — where a use case
+/// orchestrates domain objects and opens transaction boundaries, but is not
+/// itself part of the model. `ddd:one-aggregate-per-transaction` is scoped
+/// here rather than to [`is_domain_path`]: a transaction boundary is an
+/// application-layer concern by construction (a well-formed aggregate holds
+/// no repository of its own to call in the first place), unlike every other
+/// rule in this crate, which asks whether the *model* is a model.
+pub fn is_application_path(path: &str) -> bool {
+    layer_of(path) == HexLayer::Application
+}
+
+/// A field's declared type, falling back to its constructor parameter of the
+/// same name when the field itself carries none.
+///
+/// Load-bearing for Python: `core/symbols::classes::python` infers a field
+/// from a `self.x = ..` assignment with `declared_type: None` unconditionally
+/// (Python's own grammar has no field-declaration node to read a type off of),
+/// while the *parameter* that value came from, `def __init__(self, x:
+/// Customer)`, is annotated and already resolved. The same fallback is a
+/// no-op everywhere else: TypeScript and Rust field declarations already
+/// carry their own type.
+pub fn field_declared_type<'a>(class: &'a ClassInfo<'_>, field: &'a MemberInfo) -> Option<&'a str> {
+    field.declared_type.as_deref().or_else(|| {
+        class.constructor()?.params.iter().find(|param| param.name == field.name)?.declared_type.as_deref()
+    })
 }
 
 /// The statements making up a method's body: TS `statement_block`, Python and
@@ -141,7 +197,7 @@ fn unwrap_pass_through_call(expression: &AstNode) -> &AstNode {
 /// The field a `<instance>.<field>` access reads, where `<instance>` is whatever
 /// this language calls the current object: `this`, `self`, or the declared name
 /// of a Go receiver (`func (o *Order) ..` -> `o`).
-fn accessed_field<'a>(expression: &'a AstNode, receiver: Option<&str>) -> Option<&'a str> {
+pub(crate) fn accessed_field<'a>(expression: &'a AstNode, receiver: Option<&str>) -> Option<&'a str> {
     if *expression.kind() != NodeKind::MemberAccess {
         return None;
     }
@@ -200,6 +256,34 @@ pub fn accessor_of(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Option
         kind: AccessorKind::Getter,
         returns_mutable_reference: mutable,
     })
+}
+
+/// Every assignment anywhere in `method`'s body — not only when it is the
+/// method's single statement, unlike [`accessor_of`] — that writes to one of
+/// `fields` on the method's own instance.
+///
+/// Exists for `ddd:value-object-mutation`, which must catch a mutation that is
+/// one statement among several (an `apply`/`update` method that validates
+/// first and only then writes) and a compound one (`self.total += amount`),
+/// because a value object is not allowed either shape in any method but its
+/// constructor — where `accessor_of` narrowly targets the *is this whole
+/// method just a setter* question, this targets *does this method write to
+/// `self` at all*. Walks every descendant rather than `body_statements`'s
+/// top level for the same reason: the write can sit inside an `if` or a
+/// `for` the top level never sees.
+pub fn field_mutations(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Vec<Span> {
+    let receiver = method.receiver.as_deref();
+    method
+        .node
+        .descendants()
+        .filter(|node| *node.kind() == NodeKind::Assignment)
+        .filter_map(|assignment| {
+            let target = assignment.first_child()?;
+            let (target, _) = returned_expression(target);
+            let field = accessed_field(target, receiver)?;
+            fields.contains(field).then(|| assignment.span())
+        })
+        .collect()
 }
 
 /// How one language spells "reachable from outside this type".
@@ -298,6 +382,77 @@ pub fn wire_dto_names(ast: &AstNode) -> BTreeSet<String> {
             if let Some(declared) = declared {
                 if let Some(name) = declared.children().iter().find(|c| is_other(c, "type_identifier")) {
                     names.insert(name.text().to_string());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// The declaration node kinds this codebase's four grammars use for a
+/// class-like *or* interface-like type — deliberately wider than
+/// `ClassRegistry`'s own `EXTRACTORS` table, which skips a TypeScript
+/// `interface` and a Rust `trait` because neither carries fields or a body
+/// an OOP-smell rule needs. A repository port is exactly one of the shapes
+/// `ClassRegistry` skips, so [`repository_backed_names`] has to look at the
+/// raw AST directly rather than going through the registry.
+const TYPE_DECLARATION_KINDS: &[&str] = &[
+    "class_declaration",          // TypeScript
+    "interface_declaration",      // TypeScript
+    "abstract_class_declaration", // TypeScript
+    "class_definition",           // Python
+    "struct_item",                // Rust
+    "trait_item",                 // Rust
+    "type_spec",                  // Go
+];
+
+/// The name of a node built from one of [`TYPE_DECLARATION_KINDS`]: a Python
+/// class's `Identifier`, or the `type_identifier` every other grammar here
+/// uses (same lookup `core/symbols::classes`'s per-language `build`
+/// functions and `common::wire_dto_names` already use).
+fn declared_type_name(node: &AstNode) -> Option<&str> {
+    node.children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::Identifier || is_other(c, "type_identifier"))
+        .map(|c| c.text())
+}
+
+/// Every class/interface/trait/type declared in `ast`, with the name and the
+/// span of the whole declaration — wider than `ClassRegistry`, which skips a
+/// bare TypeScript `interface` or Rust `trait` because neither carries a body
+/// an OOP-smell rule needs. [`repository_backed_names`] and
+/// `ddd:domain-jargon-naming` both need exactly the shape `ClassRegistry`
+/// drops: a port is usually an interface or a trait, and a naming check has
+/// no use for a class's fields or methods at all.
+pub fn declared_types(ast: &AstNode) -> Vec<(&str, Span)> {
+    ast.descendants()
+        .filter(|node| TYPE_DECLARATION_KINDS.iter().any(|kind| is_other(node, kind)))
+        .filter_map(|node| declared_type_name(node).map(|name| (name, node.span())))
+        .collect()
+}
+
+/// The prefixes of every `<Prefix>Repository`-named type declared anywhere in
+/// `files` — a project-wide scan, not limited to the domain layer, since a
+/// repository port conventionally lives in `application`/`ports`, not next to
+/// the aggregate it persists.
+///
+/// This is the evidence `ddd:aggregate-reference-by-id` needs to tell "a
+/// child entity that is part of *this* aggregate" (composite/tree shapes —
+/// legitimate, no repository of its own) apart from "a different aggregate
+/// root reached by a direct object reference instead of its id" (the type
+/// this project persists on its own, proven by the repository that exists
+/// for it). Naming convention rather than a stronger signal deliberately: it
+/// is the one piece of evidence available without also asking every project
+/// to mark aggregate roots explicitly, and it is the same `<Name>Repository`
+/// shape this codebase's own examples already use (see
+/// `smells:constructor-over-injection`'s `OrderRepository` fixtures).
+pub fn repository_backed_names(files: &[(SourceFile, AstNode)]) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for (_, ast) in files {
+        for (name, _) in declared_types(ast) {
+            if let Some(prefix) = name.strip_suffix("Repository") {
+                if !prefix.is_empty() {
+                    names.insert(prefix.to_string());
                 }
             }
         }

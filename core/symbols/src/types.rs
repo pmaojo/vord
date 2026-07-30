@@ -104,7 +104,7 @@ const TRANSPARENT_NAMES: &[&str] = &[
 /// The type names written inside a declared-type text, with the tokens that
 /// are never type names dropped: lifetimes (`'a`), single-letter generic
 /// parameters (`T`, `S`) and numeric literals in const generics.
-fn type_identifiers(declared: &str) -> Vec<&str> {
+pub fn type_identifiers(declared: &str) -> Vec<&str> {
     let bytes = declared.as_bytes();
     let mut names = Vec::new();
     let mut index = 0;
