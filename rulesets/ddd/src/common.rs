@@ -390,6 +390,20 @@ fn declared_type_name(node: &AstNode) -> Option<&str> {
         .map(|c| c.text())
 }
 
+/// Every class/interface/trait/type declared in `ast`, with the name and the
+/// span of the whole declaration — wider than `ClassRegistry`, which skips a
+/// bare TypeScript `interface` or Rust `trait` because neither carries a body
+/// an OOP-smell rule needs. [`repository_backed_names`] and
+/// `ddd:domain-jargon-naming` both need exactly the shape `ClassRegistry`
+/// drops: a port is usually an interface or a trait, and a naming check has
+/// no use for a class's fields or methods at all.
+pub fn declared_types(ast: &AstNode) -> Vec<(&str, Span)> {
+    ast.descendants()
+        .filter(|node| TYPE_DECLARATION_KINDS.iter().any(|kind| is_other(node, kind)))
+        .filter_map(|node| declared_type_name(node).map(|name| (name, node.span())))
+        .collect()
+}
+
 /// The prefixes of every `<Prefix>Repository`-named type declared anywhere in
 /// `files` — a project-wide scan, not limited to the domain layer, since a
 /// repository port conventionally lives in `application`/`ports`, not next to
@@ -408,11 +422,7 @@ fn declared_type_name(node: &AstNode) -> Option<&str> {
 pub fn repository_backed_names(files: &[(SourceFile, AstNode)]) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     for (_, ast) in files {
-        for node in ast.descendants() {
-            if !TYPE_DECLARATION_KINDS.iter().any(|kind| is_other(node, kind)) {
-                continue;
-            }
-            let Some(name) = declared_type_name(node) else { continue };
+        for (name, _) in declared_types(ast) {
             if let Some(prefix) = name.strip_suffix("Repository") {
                 if !prefix.is_empty() {
                     names.insert(prefix.to_string());

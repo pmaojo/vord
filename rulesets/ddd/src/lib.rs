@@ -18,6 +18,7 @@
 mod aggregate_reference;
 mod anemic_domain_model;
 mod common;
+mod domain_jargon_naming;
 mod entity_setter;
 mod exposed_collection;
 mod persistence_in_domain;
@@ -26,6 +27,7 @@ mod value_object_mutation;
 
 pub use aggregate_reference::AggregateReferenceByIdRule;
 pub use anemic_domain_model::AnemicDomainModelRule;
+pub use domain_jargon_naming::DomainJargonNamingRule;
 pub use entity_setter::PublicEntitySetterRule;
 pub use exposed_collection::ExposedCollectionRule;
 pub use persistence_in_domain::PersistenceInDomainRule;
@@ -36,7 +38,7 @@ use yunq_rules_engine::{CrossFileRule, Rule};
 
 /// Every per-file rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
-    vec![Box::new(PersistenceInDomainRule::new())]
+    vec![Box::new(PersistenceInDomainRule::new()), Box::new(DomainJargonNamingRule::new())]
 }
 
 /// Every whole-program rule in this ruleset, for composition roots. These need
