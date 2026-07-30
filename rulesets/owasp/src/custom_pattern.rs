@@ -11,7 +11,12 @@ pub struct CustomPatternRule {
 }
 
 impl CustomPatternRule {
-    pub fn new(id_str: &str, message: impl Into<String>, pattern: impl Into<String>, severity: Severity) -> Option<Self> {
+    pub fn new(
+        id_str: &str,
+        message: impl Into<String>,
+        pattern: impl Into<String>,
+        severity: Severity,
+    ) -> Option<Self> {
         let id = RuleId::new(id_str).ok()?;
         Some(Self {
             id,
@@ -51,7 +56,12 @@ impl Rule for CustomPatternRule {
             if line.contains(&self.pattern) {
                 findings.push(Finding::new(
                     &self.message,
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    yunq_ast::Span::new(
+                        (idx + 1) as u32,
+                        1,
+                        (idx + 1) as u32,
+                        line.len().max(1) as u32,
+                    ),
                 ));
             }
         }
@@ -67,8 +77,19 @@ mod tests {
     fn flags_custom_pattern() {
         let code = "console.log('hello world');\n";
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
-        let rule = CustomPatternRule::new("custom:no-console-log", "Remove console.log", "console.log", Severity::Minor).unwrap();
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
+        let rule = CustomPatternRule::new(
+            "custom:no-console-log",
+            "Remove console.log",
+            "console.log",
+            Severity::Minor,
+        )
+        .unwrap();
 
         let findings = rule.check(&file, &ast);
         assert_eq!(findings.len(), 1);

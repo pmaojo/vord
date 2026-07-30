@@ -67,7 +67,12 @@ mod tests {
     fn flags_dockerfile_without_user() {
         let code = "FROM alpine:3.18\nRUN echo hi\n";
         let file = SourceFile::new("Dockerfile", code, LanguageIdentifier::dockerfile()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 3, 1), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 3, 1),
+            code,
+            vec![],
+        );
         let rule = DockerfileRootUserRule::new();
 
         let findings = rule.check(&file, &ast);

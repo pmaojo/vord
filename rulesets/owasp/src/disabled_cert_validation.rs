@@ -19,7 +19,9 @@ pub struct DisabledCertValidationRule {
 
 impl DisabledCertValidationRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("owasp:disabled-cert-validation").expect("valid rule id") }
+        Self {
+            id: RuleId::new("owasp:disabled-cert-validation").expect("valid rule id"),
+        }
     }
 }
 
@@ -61,7 +63,8 @@ impl Rule for DisabledCertValidationRule {
             }
 
             let matched_marker = MARKERS.iter().find(|m| line.contains(*m));
-            let matched_verify_false = line.contains("verify=False") || line.contains("verify = False");
+            let matched_verify_false =
+                line.contains("verify=False") || line.contains("verify = False");
 
             if let Some(marker) = matched_marker {
                 findings.push(Finding::new(
@@ -87,7 +90,12 @@ mod tests {
     fn flags_node_reject_unauthorized_false() {
         let code = "https.request({ rejectUnauthorized: false }, cb);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = DisabledCertValidationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -96,16 +104,27 @@ mod tests {
     fn flags_python_requests_verify_false() {
         let code = "resp = requests.get(url, verify=False)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = DisabledCertValidationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn flags_go_insecure_skip_verify() {
-        let code = "tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}\n";
+        let code =
+            "tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}\n";
         let file = SourceFile::new("main.go", code, LanguageIdentifier::go()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = DisabledCertValidationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -114,7 +133,12 @@ mod tests {
     fn allows_default_validation() {
         let code = "https.request({ rejectUnauthorized: true }, cb);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = DisabledCertValidationRule::new().check(&file, &ast);
         assert!(findings.is_empty());
     }

@@ -1,8 +1,15 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-const SUSPICIOUS_NAMES: &[&str] =
-    &["password", "passwd", "secret", "apikey", "api_key", "token", "credential"];
+const SUSPICIOUS_NAMES: &[&str] = &[
+    "password",
+    "passwd",
+    "secret",
+    "apikey",
+    "api_key",
+    "token",
+    "credential",
+];
 
 /// (marker, minimum literal length, provider) — substring signatures of
 /// well-known credential formats. Length guards cut false positives from
@@ -46,7 +53,9 @@ pub struct HardcodedSecretRule {
 
 impl HardcodedSecretRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("owasp:hardcoded-secret").expect("valid rule id") }
+        Self {
+            id: RuleId::new("owasp:hardcoded-secret").expect("valid rule id"),
+        }
     }
 }
 
@@ -103,7 +112,9 @@ fn credential_assignment_findings(ast: &AstNode, in_test: &impl Fn(u32) -> bool)
         .descendants()
         .filter(|n| matches!(n.kind(), NodeKind::VariableDecl | NodeKind::Assignment))
     {
-        let Some(target) = node.first_child() else { continue };
+        let Some(target) = node.first_child() else {
+            continue;
+        };
         if *target.kind() != NodeKind::Identifier {
             continue;
         }
@@ -117,7 +128,10 @@ fn credential_assignment_findings(ast: &AstNode, in_test: &impl Fn(u32) -> bool)
                     continue;
                 }
                 findings.push(Finding::new(
-                    format!("credential-looking variable `{}` holds a hardcoded string literal", target.text()),
+                    format!(
+                        "credential-looking variable `{}` holds a hardcoded string literal",
+                        target.text()
+                    ),
                     literal.span(),
                 ));
             }
@@ -131,7 +145,10 @@ fn credential_assignment_findings(ast: &AstNode, in_test: &impl Fn(u32) -> bool)
 /// private keys).
 fn provider_signature_findings(ast: &AstNode, in_test: &impl Fn(u32) -> bool) -> Vec<Finding> {
     let mut findings = Vec::new();
-    for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+    for literal in ast
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::StringLiteral)
+    {
         if in_test(literal.span().start_line) {
             continue;
         }
@@ -140,7 +157,10 @@ fn provider_signature_findings(ast: &AstNode, in_test: &impl Fn(u32) -> bool) ->
             .iter()
             .find(|(marker, min_len, _)| text.contains(marker) && text.len() >= *min_len)
         {
-            findings.push(Finding::new(format!("string literal looks like a {provider}"), literal.span()));
+            findings.push(Finding::new(
+                format!("string literal looks like a {provider}"),
+                literal.span(),
+            ));
         }
     }
     findings
@@ -155,7 +175,9 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         HardcodedSecretRule::new().check(&file, &ast)
     }
 
@@ -233,7 +255,13 @@ mod tests {
         // A literal reached only through a receiver chain (never through a
         // call's *argument* position) is still the variable's own value —
         // must stay flagged.
-        assert_eq!(check_rust("fn f() {\n    let password = \"hunter2\".to_string();\n}\n").len(), 1);
-        assert_eq!(check_rust("fn f() {\n    let token: String = \"hunter2\".into();\n}\n").len(), 1);
+        assert_eq!(
+            check_rust("fn f() {\n    let password = \"hunter2\".to_string();\n}\n").len(),
+            1
+        );
+        assert_eq!(
+            check_rust("fn f() {\n    let token: String = \"hunter2\".into();\n}\n").len(),
+            1
+        );
     }
 }

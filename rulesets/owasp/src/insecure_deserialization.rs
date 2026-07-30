@@ -19,7 +19,9 @@ pub struct InsecureDeserializationRule {
 
 impl InsecureDeserializationRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("owasp:insecure-deserialization").expect("valid rule id") }
+        Self {
+            id: RuleId::new("owasp:insecure-deserialization").expect("valid rule id"),
+        }
     }
 }
 
@@ -71,7 +73,10 @@ impl Rule for InsecureDeserializationRule {
                 continue;
             }
 
-            if line.contains("yaml.load(") && !line.contains("Loader=") && !line.contains("safe_load") {
+            if line.contains("yaml.load(")
+                && !line.contains("Loader=")
+                && !line.contains("safe_load")
+            {
                 findings.push(Finding::new(
                     "yaml.load() without a restricted Loader can execute arbitrary code; use yaml.safe_load() or Loader=yaml.SafeLoader",
                     yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
@@ -90,7 +95,12 @@ mod tests {
     fn flags_python_pickle_loads() {
         let code = "data = pickle.loads(request.body)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = InsecureDeserializationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -99,7 +109,12 @@ mod tests {
     fn flags_unsafe_yaml_load() {
         let code = "cfg = yaml.load(stream)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = InsecureDeserializationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -108,7 +123,12 @@ mod tests {
     fn allows_safe_yaml_load() {
         let code = "cfg = yaml.safe_load(stream)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = InsecureDeserializationRule::new().check(&file, &ast);
         assert!(findings.is_empty());
     }
@@ -117,7 +137,12 @@ mod tests {
     fn flags_java_object_input_stream() {
         let code = "Object o = new ObjectInputStream(in).readObject();\n";
         let file = SourceFile::new("App.java", code, LanguageIdentifier::java()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = InsecureDeserializationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }

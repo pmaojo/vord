@@ -9,7 +9,9 @@ pub struct PermissiveCorsRule {
 
 impl PermissiveCorsRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("owasp:permissive-cors").expect("valid rule id") }
+        Self {
+            id: RuleId::new("owasp:permissive-cors").expect("valid rule id"),
+        }
     }
 }
 
@@ -58,7 +60,12 @@ impl Rule for PermissiveCorsRule {
             if mentions_cors && allows_any_origin {
                 findings.push(Finding::new(
                     "CORS configured to allow any origin ('*'); restrict to a known allowlist",
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    yunq_ast::Span::new(
+                        (idx + 1) as u32,
+                        1,
+                        (idx + 1) as u32,
+                        line.len().max(1) as u32,
+                    ),
                 ));
             }
         }
@@ -74,7 +81,12 @@ mod tests {
     fn flags_wildcard_access_control_header() {
         let code = "res.setHeader('Access-Control-Allow-Origin', '*');\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = PermissiveCorsRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -83,7 +95,12 @@ mod tests {
     fn flags_cors_middleware_origin_true() {
         let code = "app.use(cors({ origin: true }));\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = PermissiveCorsRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -92,7 +109,12 @@ mod tests {
     fn allows_restricted_origin() {
         let code = "res.setHeader('Access-Control-Allow-Origin', 'https://example.com');\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = PermissiveCorsRule::new().check(&file, &ast);
         assert!(findings.is_empty());
     }
