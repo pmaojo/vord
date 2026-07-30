@@ -23,6 +23,7 @@ yunq-symbols = { path = "core/symbols", version = "0.1.1" }
 yunq-import-graph = { path = "core/import-graph", version = "0.1.1" }
 yunq-agent-policy = { path = "core/agent-policy", version = "0.1.1" }
 yunq-agent = { path = "core/agent", version = "0.1.1" }
+yunq-swarm = { path = "core/swarm", version = "0.1.1" }
 yunq-parser-typescript = { path = "parsers/treesitter-typescript", version = "0.1.1" }
 yunq-parser-rust = { path = "parsers/treesitter-rust", version = "0.1.1" }
 yunq-parser-python = { path = "parsers/treesitter-python", version = "0.1.1" }

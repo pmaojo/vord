@@ -584,6 +584,84 @@ impl AgentPolicy {
         }
         evaluation
     }
+
+    /// Layers a swarm role's [`RoleScope`] on top of this policy (roadmap
+    /// B3), without re-parsing `yunq-policy.toml`. Every field on
+    /// `RoleScope` only *adds* restriction — there is deliberately no way to
+    /// narrow `blocking_rules` or drop a `protected_path` here, because a
+    /// role config an agent could edit to widen its own permissions would be
+    /// exactly the self-referential gap E5 already closes for the base
+    /// policy file itself.
+    ///
+    /// Rebuilds the compiled `GlobSet` from the union of the base policy's
+    /// stored `(pattern, reason)` pairs and the role's own, the same way
+    /// [`Self::parse`] builds it from `PolicyFile` — `GlobSet` has no
+    /// "add one more glob" operation, so this is the only way to extend one
+    /// without going back through TOML text.
+    pub fn with_role_scope(&self, scope: &RoleScope) -> Result<AgentPolicy, PolicyError> {
+        let mut builder = GlobSetBuilder::new();
+        let mut protected_meta = self.protected_meta.clone();
+        for (pattern, _) in &protected_meta {
+            let glob =
+                Glob::new(pattern).map_err(|source| PolicyError::Glob { pattern: pattern.clone(), source })?;
+            builder.add(glob);
+        }
+        for (pattern, reason) in &scope.protected_paths {
+            let glob =
+                Glob::new(pattern).map_err(|source| PolicyError::Glob { pattern: pattern.clone(), source })?;
+            builder.add(glob);
+            protected_meta.push((pattern.clone(), reason.clone()));
+        }
+        let protected =
+            builder.build().map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
+
+        let mut blocking_rules = self.blocking_rules.clone();
+        for rule in &scope.blocking_rules {
+            if !blocking_rules.contains(rule) {
+                blocking_rules.push(rule.clone());
+            }
+        }
+        let mut escalate_rules = self.escalate_rules.clone();
+        for rule in &scope.escalate_rules {
+            if !escalate_rules.contains(rule) {
+                escalate_rules.push(rule.clone());
+            }
+        }
+
+        Ok(AgentPolicy {
+            enabled: self.enabled,
+            block_at_or_above: self.block_at_or_above,
+            ai_touched_block_at_or_above: self.ai_touched_block_at_or_above,
+            blocking_rules,
+            advisory_rules: self.advisory_rules.clone(),
+            escalate_rules,
+            protected,
+            protected_meta,
+            gherkin_required: self.gherkin_required.clone(),
+            gherkin_required_meta: self.gherkin_required_meta.clone(),
+        })
+    }
+}
+
+/// One swarm role's additional access restriction, on top of whatever the
+/// repository's base `yunq-policy.toml` already forbids (roadmap B3).
+///
+/// `protected_path` already expresses "this path is off-limits to agents" —
+/// the swarm just needs to resolve that per role instead of globally, so a
+/// QA role can be denied every write path (`protected_paths: [("**", "QA is
+/// read-only")]`) while a coder role stays scoped to the base policy plus its
+/// own narrower exclusions (`.github/workflows/**` for a cleaner role, the
+/// ruleset crate that judges the coder for a coder role, and so on).
+#[derive(Clone, Debug, Default)]
+pub struct RoleScope {
+    /// Extra `(pattern, reason)` pairs, same shape as `[[protected_path]]`.
+    pub protected_paths: Vec<(String, String)>,
+    /// Extra rule ids this role may never introduce, beyond the base
+    /// policy's `blocking_rules`.
+    pub blocking_rules: Vec<RuleId>,
+    /// Extra rule ids this role's writes escalate to, beyond the base
+    /// policy's `escalate_rules`.
+    pub escalate_rules: Vec<RuleId>,
 }
 
 #[cfg(test)]
@@ -1035,5 +1113,63 @@ reason = "CI changes need a human reviewer."
         assert_eq!(breaker.count_for(&rule("owasp:eval-usage")), 2);
         let restored: Vec<_> = breaker.counts().map(|(r, c)| (r.clone(), c)).collect();
         assert_eq!(restored, vec![(rule("owasp:eval-usage"), 2)]);
+    }
+
+    #[test]
+    fn a_role_scope_adds_a_protected_path_without_losing_the_base_ones() {
+        let base = AgentPolicy::parse(
+            "[[protected_path]]\npattern = \".github/workflows/**\"\nreason = \"CI needs review.\"\n",
+        )
+        .expect("parses");
+        let scope = RoleScope {
+            protected_paths: vec![("docs/**".to_string(), "QA is read-only".to_string())],
+            ..RoleScope::default()
+        };
+        let scoped = base.with_role_scope(&scope).expect("scoping succeeds");
+
+        assert!(scoped.evaluate(".github/workflows/ci.yml", &[]).is_denied(), "the base restriction still applies");
+        assert!(scoped.evaluate("docs/readme.md", &[]).is_denied(), "the role's own restriction applies");
+        assert!(!base.evaluate("docs/readme.md", &[]).is_denied(), "the base policy itself is untouched");
+    }
+
+    #[test]
+    fn a_role_scope_adds_a_blocking_rule_without_losing_the_base_ones() {
+        let base = AgentPolicy::default();
+        let scope = RoleScope { blocking_rules: vec![rule("smells:long-method")], ..RoleScope::default() };
+        let scoped = base.with_role_scope(&scope).expect("scoping succeeds");
+
+        assert!(
+            scoped.evaluate("a.py", &[finding("smells:long-method", Severity::Minor)]).is_denied(),
+            "the role's extra blocking rule denies regardless of severity"
+        );
+        assert!(
+            scoped.evaluate("a.py", &[finding("owasp:eval-usage", Severity::Critical)]).is_denied(),
+            "the base blocking rule still applies"
+        );
+        assert!(
+            !base.evaluate("a.py", &[finding("smells:long-method", Severity::Minor)]).is_denied(),
+            "the base policy itself is untouched"
+        );
+    }
+
+    #[test]
+    fn a_role_scope_adds_an_escalate_rule_without_losing_the_base_ones() {
+        let base = AgentPolicy::default();
+        let scope = RoleScope { escalate_rules: vec![rule("smells:god-class")], ..RoleScope::default() };
+        let scoped = base.with_role_scope(&scope).expect("scoping succeeds");
+
+        let evaluation = scoped.evaluate("a.ts", &[finding("smells:god-class", Severity::Minor)]);
+        assert_eq!(evaluation.escalations().count(), 1);
+    }
+
+    #[test]
+    fn scoping_twice_is_additive_not_a_reset() {
+        let base = AgentPolicy::default();
+        let first = RoleScope { blocking_rules: vec![rule("smells:long-method")], ..RoleScope::default() };
+        let second = RoleScope { blocking_rules: vec![rule("smells:god-class")], ..RoleScope::default() };
+        let scoped = base.with_role_scope(&first).expect("scoping succeeds").with_role_scope(&second).expect("scoping succeeds");
+
+        assert!(scoped.evaluate("a.py", &[finding("smells:long-method", Severity::Minor)]).is_denied());
+        assert!(scoped.evaluate("a.py", &[finding("smells:god-class", Severity::Minor)]).is_denied());
     }
 }

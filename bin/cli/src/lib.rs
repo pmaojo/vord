@@ -42,6 +42,7 @@ use yunq_rules_engine::{
 pub mod agent;
 pub mod hook;
 pub mod output;
+pub mod swarm;
 
 /// Every parser the default service registers. Its own flat data literal
 /// (complexity 1) so `default_service` doesn't carry the whole fluent

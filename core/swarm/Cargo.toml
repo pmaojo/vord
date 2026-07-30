@@ -1,0 +1,16 @@
+[package]
+name = "yunq-swarm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "yunq swarm — worktree-per-agent isolation, role scoping and durable handoffs for multi-agent orchestration"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

@@ -18,6 +18,8 @@ pub struct YunqConfig {
     pub architecture: ArchitectureSettings,
     #[serde(default)]
     pub agent: AgentSettings,
+    #[serde(default)]
+    pub swarm: SwarmSettings,
 }
 
 /// `[agent]` in `yunq.toml` — the `yunq agent` runtime's limits.
@@ -46,6 +48,60 @@ pub struct AgentSettings {
     /// Wall-clock seconds a `run` command may take before it is killed
     /// (adapter default 300).
     pub command_timeout_secs: Option<u64>,
+}
+
+/// `[swarm]` in `yunq.toml` — worktree-per-agent isolation and role config
+/// for `yunq swarm` (roadmap B1). Every role gets its own git worktree so
+/// concurrent agents never contend on the index, and its own [`RoleScope`]
+/// policy narrowing (roadmap B3) so a role's access is scoped to what it
+/// actually needs — the cleaner may not touch `.github/workflows/**`, QA
+/// gets no write access at all.
+///
+/// Absent (or with no `[[swarm.role]]` entries) means `yunq swarm` has
+/// nothing configured to run — the same opt-in-until-configured convention
+/// `[architecture]` and `[duplication]` already use.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SwarmSettings {
+    /// Directory (repository-relative) worktrees are created under.
+    /// Defaults to `.yunq/worktrees` when unset.
+    pub worktree_root: Option<String>,
+    #[serde(default, rename = "role")]
+    pub roles: Vec<RoleSettings>,
+}
+
+/// One `[[swarm.role]]` entry: a named role, its own worktree/branch naming,
+/// and the access restrictions layered onto the base `yunq-policy.toml` for
+/// writes made from inside that role's worktree.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RoleSettings {
+    pub name: String,
+    /// Worktree directory for this role, relative to `worktree_root`.
+    /// Defaults to the role's own `name` when unset.
+    pub worktree: Option<String>,
+    /// Branch the worktree is created on. Defaults to `yunq/swarm/<name>`
+    /// when unset.
+    pub branch: Option<String>,
+    /// Extra paths this role may never write to, beyond the base policy's
+    /// own `[[protected_path]]` entries.
+    #[serde(default)]
+    pub protected_paths: Vec<RoleProtectedPath>,
+    /// Extra rule ids this role may never introduce, beyond the base
+    /// policy's `blocking_rules`.
+    #[serde(default)]
+    pub blocking_rules: Vec<String>,
+    /// Extra rule ids this role's writes escalate to, beyond the base
+    /// policy's `escalate_rules`.
+    #[serde(default)]
+    pub escalate_rules: Vec<String>,
+}
+
+/// Same shape as `yunq-policy.toml`'s `[[protected_path]]`, declared inline
+/// under a role instead of in the policy file — a role's scope lives beside
+/// its other settings in `yunq.toml`, not split across two files.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RoleProtectedPath {
+    pub pattern: String,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -294,5 +350,45 @@ command_timeout_secs = 60
     fn the_agent_table_is_optional() {
         let config: YunqConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
         assert_eq!(config.agent, AgentSettings::default());
+    }
+
+    #[test]
+    fn parses_swarm_roles() {
+        let toml_content = r#"
+[swarm]
+worktree_root = ".yunq/worktrees"
+
+[[swarm.role]]
+name = "coder"
+
+[[swarm.role]]
+name = "qa"
+branch = "yunq/swarm/qa-custom"
+blocking_rules = ["owasp:eval-usage"]
+escalate_rules = ["smells:god-class"]
+
+[[swarm.role.protected_paths]]
+pattern = "**"
+reason = "QA is read-only"
+"#;
+        let config: YunqConfig = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.swarm.worktree_root.as_deref(), Some(".yunq/worktrees"));
+        assert_eq!(config.swarm.roles.len(), 2);
+        assert_eq!(config.swarm.roles[0].name, "coder");
+        assert!(config.swarm.roles[0].protected_paths.is_empty());
+        let qa = &config.swarm.roles[1];
+        assert_eq!(qa.name, "qa");
+        assert_eq!(qa.branch.as_deref(), Some("yunq/swarm/qa-custom"));
+        assert_eq!(qa.blocking_rules, vec!["owasp:eval-usage".to_string()]);
+        assert_eq!(qa.escalate_rules, vec!["smells:god-class".to_string()]);
+        assert_eq!(qa.protected_paths.len(), 1);
+        assert_eq!(qa.protected_paths[0].pattern, "**");
+    }
+
+    #[test]
+    fn the_swarm_table_is_optional() {
+        let config: YunqConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
+        assert_eq!(config.swarm, SwarmSettings::default());
+        assert!(config.swarm.roles.is_empty());
     }
 }

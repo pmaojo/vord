@@ -18,6 +18,7 @@ use yunq_agent_policy::{AgentPolicy, Finding};
 use yunq_profiles::Severity;
 
 use super::*;
+use crate::observer::{AgentEvent, Observer};
 use crate::session::TokenUsage;
 
 /// The marker a rule fires on, standing in for a real AST vulnerability.
@@ -254,6 +255,59 @@ async fn a_clean_write_lands_and_the_analyzer_closes_the_task() {
     assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
     assert_eq!(outcome.exit_code(), 0);
     assert_eq!(tree.get("src/a.rs").as_deref(), Some("fn a() { safe(x) }"));
+}
+
+/// Collects every event handed to it, in order, for a test to assert against
+/// — the observer-port analogue of `FakeWorkspace`'s `executed` log.
+#[derive(Default)]
+struct SpyObserver {
+    events: Mutex<Vec<AgentEvent>>,
+}
+
+impl Observer for SpyObserver {
+    fn on_event(&self, event: AgentEvent) {
+        self.events.lock().expect("test mutex is never poisoned").push(event);
+    }
+}
+
+#[tokio::test]
+async fn a_run_reports_its_events_to_the_observer_in_order() {
+    let tree = Tree::with(&[("src/a.rs", "fn a() { eval(x) }")]);
+    let model = ScriptedModel::new(vec![Ok(write_turn("src/a.rs", "fn a() { safe(x) }"))]);
+    let spy = Arc::new(SpyObserver::default());
+    let runtime = runtime(model, tree, MarkerJudge::new(), config()).with_observer(spy.clone());
+
+    let outcome = runtime.run().await;
+    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
+
+    let events = spy.events.lock().expect("test mutex is never poisoned");
+    let kinds: Vec<&str> = events
+        .iter()
+        .map(|e| match e {
+            AgentEvent::TurnStarted { .. } => "turn_started",
+            AgentEvent::ModelResponded { .. } => "model_responded",
+            AgentEvent::ToolCallStarted { .. } => "tool_call_started",
+            AgentEvent::ToolCallFinished { .. } => "tool_call_finished",
+            AgentEvent::WriteJudged { .. } => "write_judged",
+            AgentEvent::Adjudicated { .. } => "adjudicated",
+            AgentEvent::Finished { .. } => "finished",
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "turn_started",
+            "model_responded",
+            "tool_call_started",
+            "write_judged",
+            "tool_call_finished",
+            "turn_started",
+            "model_responded",
+            "adjudicated",
+            "finished",
+        ]
+    );
+    assert!(matches!(events.last(), Some(AgentEvent::Finished { outcome: RunOutcome::Completed { .. } })));
 }
 
 #[tokio::test]
