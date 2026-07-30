@@ -25,7 +25,7 @@ use yunq_ast::{AstNode, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use yunq_symbols::ClassRegistry;
 
-use crate::common::{accessor_of, declared_methods, field_names, is_domain_path};
+use crate::common::{accessor_of, declared_methods, field_names, is_domain_path, wire_dto_names};
 
 pub struct AnemicDomainModelRule {
     id: RuleId,
@@ -84,8 +84,13 @@ impl CrossFileRule for AnemicDomainModelRule {
             return Vec::new();
         }
         let registry = ClassRegistry::build_cross_file(&views);
+        let dtos: std::collections::BTreeSet<String> =
+            views.iter().flat_map(|(_, ast)| wire_dto_names(ast)).collect();
         let mut findings = Vec::new();
         for class in registry.iter() {
+            if dtos.contains(&class.name) {
+                continue; // a type deserialized from outside is meant to be flat
+            }
             if class.fields.len() < self.min_fields {
                 continue;
             }

@@ -568,7 +568,6 @@ pub struct AnalysisReport {
     test_report: Option<TestReportSummary>,
     mutation: Option<MutationSummary>,
     function_complexities: Vec<FileFunctionComplexity>,
-    crap_findings: Vec<yunq_crap::CrapFinding>,
 }
 
 impl AnalysisReport {
@@ -583,7 +582,6 @@ impl AnalysisReport {
             test_report: None,
             mutation: None,
             function_complexities: Vec::new(),
-            crap_findings: Vec::new(),
         }
     }
 
@@ -708,8 +706,13 @@ impl AnalysisReport {
     /// parsed file inside `AnalyzerService::analyze_one` — the input CRAP
     /// (`Self::compute_crap_findings`) joins against per-line coverage once
     /// both are present on the same report.
-    pub fn set_function_complexities(&mut self, complexities: Vec<FileFunctionComplexity>) {
+    /// Consuming builder rather than a setter: the complexities are known
+    /// once, at the end of the per-file phase that computed them, and a report
+    /// nobody can mutate after it is handed over is one fewer way for a measure
+    /// to disagree with the analysis it came from.
+    pub fn with_function_complexities(mut self, complexities: Vec<FileFunctionComplexity>) -> Self {
         self.function_complexities = complexities;
+        self
     }
 
     pub fn function_complexities(&self) -> &[FileFunctionComplexity] {
@@ -738,18 +741,19 @@ impl AnalysisReport {
         )
     }
 
-    /// Stores the CRAP findings a caller already computed via
-    /// [`Self::compute_crap_findings`] and (typically) also folded into
-    /// `issues` via [`Self::add_external_issues`] — kept separately so the
-    /// `crap_worst_score`/`crap_high_risk_functions` gate measures can read
-    /// the real score rather than re-parsing it back out of an `Issue`'s
-    /// message text.
-    pub fn set_crap_findings(&mut self, findings: Vec<yunq_crap::CrapFinding>) {
-        self.crap_findings = findings;
-    }
-
-    pub fn crap_findings(&self) -> &[yunq_crap::CrapFinding] {
-        &self.crap_findings
+    /// The CRAP findings this report's own data implies — derived, not stored.
+    ///
+    /// Everything needed is already here (`function_complexities` from the
+    /// per-file phase, `coverage_report` from ingestion), so a cached copy
+    /// filled in by an external setter could only ever be a second answer to a
+    /// question the report can answer itself, and the
+    /// `crap_worst_score`/`crap_high_risk_functions` measures would then report
+    /// whether someone remembered to call the setter rather than what the code
+    /// is. Empty when no coverage report has been ingested — the same "absent
+    /// means not computed" convention every other coverage-derived measure
+    /// uses.
+    pub fn crap_findings(&self) -> Vec<yunq_crap::CrapFinding> {
+        self.compute_crap_findings().unwrap_or_default()
     }
 
     pub fn metrics(&self) -> &Metrics {
@@ -917,11 +921,11 @@ const MEASURE_TABLE: &[(&str, MeasureFn)] = &[
     ("security_rating", |r| Some(rating_measure(r.metrics.security_rating()))),
     ("crap_worst_score", |r| {
         r.coverage_report.as_ref()?;
-        Some(r.crap_findings.iter().map(|f| f.score).fold(0.0, f64::max))
+        Some(r.crap_findings().iter().map(|f| f.score).fold(0.0, f64::max))
     }),
     ("crap_high_risk_functions", |r| {
         r.coverage_report.as_ref()?;
-        Some(r.crap_findings.iter().filter(|f| f.score > yunq_crap::HIGH_RISK_THRESHOLD).count() as f64)
+        Some(r.crap_findings().iter().filter(|f| f.score > yunq_crap::HIGH_RISK_THRESHOLD).count() as f64)
     }),
 ];
 
@@ -984,12 +988,12 @@ mod tests {
 
     #[test]
     fn crap_measures_are_none_without_a_coverage_report() {
-        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
-        report.set_function_complexities(vec![FileFunctionComplexity {
-            path: "a.rs".into(),
-            span: yunq_ast::Span::new(1, 1, 5, 1),
-            cyclomatic: 20,
-        }]);
+        let report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new())
+            .with_function_complexities(vec![FileFunctionComplexity {
+                path: "a.rs".into(),
+                span: yunq_ast::Span::new(1, 1, 5, 1),
+                cyclomatic: 20,
+            }]);
         assert_eq!(report.compute_crap_findings(), None);
         let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
         assert_eq!(measure("crap_worst_score"), None);
@@ -998,19 +1002,19 @@ mod tests {
 
     #[test]
     fn crap_joins_complexity_and_coverage_into_findings_and_measures() {
-        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
-        report.set_function_complexities(vec![
-            FileFunctionComplexity {
-                path: "a.rs".into(),
-                span: yunq_ast::Span::new(2, 1, 2, 1),
-                cyclomatic: 10, // line 2 alone is 0% covered -> 100 + 10 = 110, high risk.
-            },
-            FileFunctionComplexity {
-                path: "a.rs".into(),
-                span: yunq_ast::Span::new(1, 1, 1, 1),
-                cyclomatic: 1, // line 1 alone is fully covered -> score 1, below the refactor band.
-            },
-        ]);
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new())
+            .with_function_complexities(vec![
+                FileFunctionComplexity {
+                    path: "a.rs".into(),
+                    span: yunq_ast::Span::new(2, 1, 2, 1),
+                    cyclomatic: 10, // line 2 alone is 0% covered -> 100 + 10 = 110, high risk.
+                },
+                FileFunctionComplexity {
+                    path: "a.rs".into(),
+                    span: yunq_ast::Span::new(1, 1, 1, 1),
+                    cyclomatic: 1, // line 1 alone is fully covered -> score 1, below the refactor band.
+                },
+            ]);
         let mut file_coverage = FileCoverage::new("a.rs");
         file_coverage.record_line(1, 1);
         file_coverage.record_line(2, 0);
@@ -1020,7 +1024,6 @@ mod tests {
         assert_eq!(findings.len(), 1, "the low-complexity fully-covered function stays silent");
         assert_eq!(findings[0].cyclomatic, 10);
 
-        report.set_crap_findings(findings);
         let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
         assert_eq!(measure("crap_high_risk_functions"), Some(1.0));
         assert!(measure("crap_worst_score").unwrap() > yunq_crap::HIGH_RISK_THRESHOLD);

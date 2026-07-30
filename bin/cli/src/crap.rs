@@ -41,7 +41,6 @@ pub fn apply(report: &mut AnalysisReport) -> Vec<CrapFinding> {
         .collect();
 
     report.add_external_issues(issues);
-    report.set_crap_findings(findings.clone());
     findings
 }
 
@@ -54,12 +53,12 @@ mod tests {
 
     #[test]
     fn no_coverage_report_produces_no_findings_and_no_issues() {
-        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
-        report.set_function_complexities(vec![FileFunctionComplexity {
-            path: "a.rs".into(),
-            span: Span::new(1, 1, 5, 1),
-            cyclomatic: 20,
-        }]);
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new())
+            .with_function_complexities(vec![FileFunctionComplexity {
+                path: "a.rs".into(),
+                span: Span::new(1, 1, 5, 1),
+                cyclomatic: 20,
+            }]);
 
         let findings = apply(&mut report);
 
@@ -69,12 +68,12 @@ mod tests {
 
     #[test]
     fn a_high_risk_function_becomes_a_critical_issue() {
-        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
-        report.set_function_complexities(vec![FileFunctionComplexity {
-            path: "a.rs".into(),
-            span: Span::new(1, 1, 2, 1),
-            cyclomatic: 10,
-        }]);
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new())
+            .with_function_complexities(vec![FileFunctionComplexity {
+                path: "a.rs".into(),
+                span: Span::new(1, 1, 2, 1),
+                cyclomatic: 10,
+            }]);
         let mut file_coverage = FileCoverage::new("a.rs");
         file_coverage.record_line(1, 0);
         file_coverage.record_line(2, 0);
@@ -93,12 +92,12 @@ mod tests {
     fn a_moderate_risk_function_becomes_a_major_issue() {
         // CC=6, 50% covered: 36*0.125 + 6 = 10.5 - above the refactor
         // threshold (5) but well below the high-risk band (30).
-        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
-        report.set_function_complexities(vec![FileFunctionComplexity {
-            path: "a.rs".into(),
-            span: Span::new(1, 1, 2, 1),
-            cyclomatic: 6,
-        }]);
+        let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new())
+            .with_function_complexities(vec![FileFunctionComplexity {
+                path: "a.rs".into(),
+                span: Span::new(1, 1, 2, 1),
+                cyclomatic: 6,
+            }]);
         let mut half_covered = FileCoverage::new("a.rs");
         half_covered.record_line(1, 1);
         half_covered.record_line(2, 0);

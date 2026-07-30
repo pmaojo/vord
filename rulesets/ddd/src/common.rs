@@ -82,6 +82,16 @@ fn normalize_field_read(statement: &str) -> (String, bool) {
     (text.trim().to_string(), mutable)
 }
 
+/// Compound-assignment operators, in the order that keeps `>>=` from being read
+/// as `>=`. A method whose body is one of these is changing state *relative to
+/// what it was*, which is a behavior, not an accessor.
+const COMPOUND_OPERATORS: &[&str] =
+    &["<<=", ">>=", "??=", "||=", "&&=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^="];
+
+fn is_compound_assignment(text: &str) -> bool {
+    COMPOUND_OPERATORS.iter().any(|operator| text.contains(operator))
+}
+
 /// The field a `self.x`/`this.x` read names, if the text is exactly that.
 fn read_field(text: &str) -> Option<&str> {
     ["self.", "this."].iter().find_map(|prefix| {
@@ -106,6 +116,13 @@ pub fn accessor_of(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Option
         only.first_child().filter(|child| *child.kind() == NodeKind::Assignment)
     };
     if let Some(only) = assignment {
+        if is_compound_assignment(only.text()) {
+            // `self.total += amount` accumulates; it does not replace. The
+            // grammars map `+=` onto the same `Assignment` kind as `=`
+            // (`compound_assignment_expr`, `augmented_assignment`), so without
+            // this an intent-named mutator would read as a plain setter.
+            return None;
+        }
         let target = only.first_child()?;
         if *target.kind() != NodeKind::MemberAccess {
             return None;
@@ -152,6 +169,61 @@ pub fn is_public(method: &MethodInfo<'_>, language_is_rust: bool) -> bool {
         .children()
         .iter()
         .any(|child| is_other(child, "accessibility_modifier") && child.text() != "public")
+}
+
+/// The names of every type in `ast` that is a **wire DTO**: a type built to be
+/// deserialized from outside the process.
+///
+/// This is the last piece of "is this the model?", and it is a fact in the code
+/// rather than a guess about it. A type that deserializes from the outside world
+/// *is* a boundary type by definition, and flat interchangeable primitives with
+/// no behavior are precisely its job — so the rules that ask a model to be rich
+/// have nothing to say about it. It is also the convention this very codebase
+/// documents: domain types are validated newtypes with no `serde::Deserialize`,
+/// and every edge owns its DTOs.
+///
+/// Signals, per language: a Rust `#[derive(..., Deserialize, ...)]` (an
+/// `attribute_item` sibling immediately preceding the type), and a Python class
+/// deriving Pydantic's `BaseModel` or `TypedDict`. TypeScript has no equivalent
+/// marker — a plain `interface` is already outside `ClassRegistry` — so nothing
+/// is inferred there.
+pub fn wire_dto_names(ast: &AstNode) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for parent in ast.descendants() {
+        let children = parent.children();
+        for (index, node) in children.iter().enumerate() {
+            if is_other(node, "class_definition") {
+                let pydantic = node
+                    .children()
+                    .iter()
+                    .find(|c| is_other(c, "argument_list"))
+                    .is_some_and(|bases| {
+                        ["BaseModel", "TypedDict"].iter().any(|base| bases.text().contains(base))
+                    });
+                if pydantic {
+                    if let Some(name) = node.children().iter().find(|c| *c.kind() == NodeKind::Identifier) {
+                        names.insert(name.text().to_string());
+                    }
+                }
+                continue;
+            }
+            if !is_other(node, "attribute_item") || !node.text().contains("Deserialize") {
+                continue;
+            }
+            // The derive applies to the next item, skipping any further
+            // attributes stacked on the same type.
+            let declared = children[index + 1..]
+                .iter()
+                .find(|next| !is_other(next, "attribute_item"))
+                .filter(|next| is_other(next, "struct_item") || is_other(next, "enum_item"));
+            if let Some(declared) = declared {
+                if let Some(name) = declared.children().iter().find(|c| is_other(c, "type_identifier")) {
+                    names.insert(name.text().to_string());
+                }
+            }
+        }
+    }
+    names
 }
 
 /// A class's declared field names.
@@ -237,6 +309,16 @@ mod tests {
     }
 
     #[test]
+    fn an_accumulating_mutator_is_not_a_setter() {
+        let found = accessors(
+            "pub struct Metrics {\n    debt_minutes: usize,\n}\n\nimpl Metrics {\n    pub fn add_debt(&mut self, minutes: usize) {\n        self.debt_minutes += minutes;\n    }\n}\n",
+            LanguageIdentifier::rust(),
+            "Metrics",
+        );
+        assert!(found.is_empty(), "`+=` changes state relative to itself: {found:?}");
+    }
+
+    #[test]
     fn python_property_getter_is_recognized() {
         let found = accessors(
             "class Order:\n    def __init__(self):\n        self.total = 0\n\n    @property\n    def total_value(self):\n        return self.total\n",
@@ -291,6 +373,40 @@ mod tests {
         let ts_order = ts_registry.get("Order").unwrap();
         assert!(!is_public(ts_order.method("hidden").unwrap(), false));
         assert!(is_public(ts_order.method("shown").unwrap(), false));
+    }
+
+    #[test]
+    fn a_rust_type_deriving_deserialize_is_a_wire_dto() {
+        let ast = parse(
+            "t.rs",
+            "#[derive(Clone, Serialize, Deserialize)]\npub struct Handoff {\n    pub id: String,\n}\n\npub struct Order {\n    id: String,\n}\n",
+            LanguageIdentifier::rust(),
+        );
+        let dtos = wire_dto_names(&ast);
+        assert!(dtos.contains("Handoff"));
+        assert!(!dtos.contains("Order"), "a type nobody deserializes is not a boundary type");
+    }
+
+    #[test]
+    fn stacked_attributes_still_resolve_to_the_type_below_them() {
+        let ast = parse(
+            "t.rs",
+            "#[derive(Deserialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Payload {\n    pub id: String,\n}\n",
+            LanguageIdentifier::rust(),
+        );
+        assert!(wire_dto_names(&ast).contains("Payload"));
+    }
+
+    #[test]
+    fn a_pydantic_model_is_a_wire_dto() {
+        let ast = parse(
+            "t.py",
+            "class OrderRequest(BaseModel):\n    id: str\n\nclass Order:\n    pass\n",
+            LanguageIdentifier::python(),
+        );
+        let dtos = wire_dto_names(&ast);
+        assert!(dtos.contains("OrderRequest"));
+        assert!(!dtos.contains("Order"));
     }
 
     #[test]

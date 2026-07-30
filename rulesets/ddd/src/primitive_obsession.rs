@@ -20,9 +20,42 @@
 
 use yunq_ast::{AstNode, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{is_primitive_type, ClassRegistry, MethodInfo};
+use yunq_symbols::{is_primitive_type, ClassInfo, ClassRegistry, MethodInfo};
 
-use crate::common::is_domain_path;
+use crate::common::{is_domain_path, wire_dto_names, CONSTRUCTOR_NAMES};
+
+/// Field names and type suffixes that mean "this type has identity" — the mark
+/// of an entity rather than a value object.
+const IDENTITY_FIELDS: &[&str] = &["id", "_id", "uuid", "guid", "key", "identifier"];
+const IDENTITY_TYPE_SUFFIXES: &[&str] = &["Id", "ID", "Uuid", "UUID", "Guid"];
+
+/// Whether a type is a value object: it has no identity, only values.
+///
+/// This is what makes a *constructor* different from every other method here.
+/// Wrapping primitives in a type is not the smell, it is the fix — `Span::new(
+/// start_line, start_col, end_line, end_col)` and `Money::new(amount, currency)`
+/// are the boundary where loose primitives *become* a concept, and flagging them
+/// would be asking for a value object that takes value objects, forever. An
+/// entity's constructor is a different story: `Order(id, customerId, currency,
+/// note)` has an identity to protect and four interchangeable strings guarding
+/// it, so it stays a finding.
+fn is_value_object(class: &ClassInfo<'_>) -> bool {
+    if class.fields.is_empty() {
+        // No declared fields is no evidence, not evidence of no identity — a
+        // TypeScript class can carry its whole state in constructor parameter
+        // properties, and a Rust unit struct declares nothing at all. Claiming
+        // "value object" here would exempt exactly the constructors this rule
+        // exists to look at.
+        return false;
+    }
+    !class.fields.iter().any(|field| {
+        let name = field.name.trim_start_matches('_').to_ascii_lowercase();
+        IDENTITY_FIELDS.contains(&name.as_str())
+            || field.declared_type.as_deref().is_some_and(|declared| {
+                IDENTITY_TYPE_SUFFIXES.iter().any(|suffix| declared.trim_end_matches('>').ends_with(suffix))
+            })
+    })
+}
 
 fn primitive_params(method: &MethodInfo<'_>) -> Vec<String> {
     method
@@ -91,10 +124,19 @@ impl CrossFileRule for PrimitiveObsessionRule {
             return Vec::new();
         }
         let registry = ClassRegistry::build_cross_file(&views);
+        let dtos: std::collections::BTreeSet<String> =
+            views.iter().flat_map(|(_, ast)| wire_dto_names(ast)).collect();
         let mut findings = Vec::new();
         for class in registry.iter() {
+            if dtos.contains(&class.name) {
+                continue;
+            }
             let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let value_object = is_value_object(class);
             for method in &class.methods {
+                if value_object && CONSTRUCTOR_NAMES.contains(&method.name.as_str()) {
+                    continue;
+                }
                 let primitives = primitive_params(method);
                 if primitives.len() <= self.max_primitives {
                     continue;
@@ -155,6 +197,26 @@ mod tests {
     fn value_object_parameters_are_not_primitives() {
         let code = "export class Order {\n  constructor(id: OrderId, customer: CustomerId, total: Money, note: Note) {}\n}\n";
         assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn a_value_objects_own_constructor_is_where_primitives_become_a_type() {
+        let code = "pub struct Span {\n    start_line: u32,\n    start_col: u32,\n    end_line: u32,\n    end_col: u32,\n}\n\nimpl Span {\n    pub fn new(start_line: u32, start_col: u32, end_line: u32, end_col: u32) -> Self {\n        Self { start_line, start_col, end_line, end_col }\n    }\n}\n";
+        assert!(check("src/domain/span.rs", code, LanguageIdentifier::rust()).is_empty());
+    }
+
+    #[test]
+    fn an_entity_constructor_with_identity_to_protect_is_still_flagged() {
+        let code = "export class Order {\n  private id: string = '';\n  private status: string = '';\n  constructor(id: string, customerId: string, currency: string, note: string) {}\n}\n";
+        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        assert_eq!(findings.len(), 1, "{findings:?}");
+    }
+
+    #[test]
+    fn a_value_objects_other_methods_are_still_judged() {
+        let code = "pub struct Money {\n    amount: i64,\n}\n\nimpl Money {\n    pub fn rescale(&self, scale: u8, mode: String, precision: u8, locale: String) -> Self {\n        self.clone()\n    }\n}\n";
+        let findings = check("src/domain/money.rs", code, LanguageIdentifier::rust());
+        assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
     #[test]

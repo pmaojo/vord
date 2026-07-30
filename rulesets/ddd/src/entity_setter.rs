@@ -20,6 +20,29 @@ use yunq_symbols::ClassRegistry;
 
 use crate::common::{accessor_of, declared_methods, field_names, is_domain_path, AccessorKind};
 
+/// Whether a method *presents itself* as a setter: `setStatus`, `set_status`,
+/// a TypeScript `set status(..)` accessor.
+///
+/// Body shape alone is not enough, and the difference is the whole point of the
+/// rule. `order.review(status)` and `order.setStatus(status)` can compile to the
+/// same single assignment, but the first names the thing that happened in the
+/// language of the domain — which is exactly the refactoring this rule asks
+/// for — while the second names the field it overwrites. Flagging both would
+/// mean reporting the fix as the defect, so the name is part of the detection,
+/// not decoration on it.
+///
+/// Matched on `set` followed by a word boundary, so `settle()` is a domain verb
+/// rather than a setter for a field called `tle`.
+fn is_setter_shaped(name: &str, node_text: &str) -> bool {
+    if node_text.trim_start().starts_with("set ") {
+        return true; // TypeScript `set status(value) { .. }` accessor
+    }
+    let Some(rest) = name.strip_prefix("set").or_else(|| name.strip_prefix("Set")) else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with('_') || rest.starts_with(|c: char| c.is_uppercase())
+}
+
 pub struct PublicEntitySetterRule {
     id: RuleId,
 }
@@ -81,6 +104,9 @@ impl CrossFileRule for PublicEntitySetterRule {
             for method in declared_methods(class) {
                 let Some(accessor) = accessor_of(method, &fields) else { continue };
                 if accessor.kind != AccessorKind::Setter || !crate::common::is_public(method, is_rust) {
+                    continue;
+                }
+                if !is_setter_shaped(&method.name, method.node.text()) {
                     continue;
                 }
                 findings.push((
@@ -157,6 +183,27 @@ mod tests {
         let findings = check("src/domain/order.py", code, LanguageIdentifier::python());
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("`Order::set_status`"));
+    }
+
+    #[test]
+    fn an_intent_named_mutator_is_the_fix_not_the_smell() {
+        // `review(status)` compiles to the same assignment `setStatus(status)`
+        // would, but it says what happened in the language of the domain.
+        let code = "pub struct Hotspot {\n    status: HotspotStatus,\n}\n\nimpl Hotspot {\n    pub fn review(&mut self, status: HotspotStatus) {\n        self.status = status;\n    }\n}\n";
+        assert!(check("src/domain/hotspot.rs", code, LanguageIdentifier::rust()).is_empty());
+    }
+
+    #[test]
+    fn a_domain_verb_that_merely_starts_with_set_is_not_a_setter() {
+        let code = "export class Invoice {\n  private state: string = 'open';\n  settle(state: string): void {\n    this.state = state;\n  }\n}\n";
+        assert!(check("src/domain/invoice.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn a_typescript_set_accessor_is_a_setter() {
+        let code = "export class Order {\n  private status: string = 'draft';\n  set state(status: string) {\n    this.status = status;\n  }\n}\n";
+        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
     #[test]

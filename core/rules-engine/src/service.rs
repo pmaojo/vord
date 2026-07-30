@@ -261,8 +261,7 @@ where
         self.metrics.record(&metrics).await?;
         let mut report = AnalysisReport::new(issues, hotspots, metrics);
         report.set_duplications(duplication);
-        report.set_function_complexities(function_complexities);
-        Ok(report)
+        Ok(report.with_function_complexities(function_complexities))
     }
 
     /// Runs per-file analysis across all available cores using scoped std

@@ -94,6 +94,11 @@ const TRANSPARENT_NAMES: &[&str] = &[
     "Rc", "RefCell", "Cell", "Mutex", "RwLock", "Cow", "Union", "Literal", "Annotated", "Final",
     // Rust type-expression keywords the text carries along
     "dyn", "impl", "mut", "static", "const", "where", "Send", "Sync", "Sized", "Self", "self",
+    // Conversion bounds: `impl Into<String>` is a string with a convenience
+    // bound on it, not a collaborator. Counting the bound as a dependency is
+    // how a five-value constructor reads as five injected services.
+    "Into", "From", "TryInto", "TryFrom", "AsRef", "AsMut", "Borrow", "BorrowMut", "ToString",
+    "ToOwned", "Deref",
 ];
 
 /// The type names written inside a declared-type text, with the tokens that
@@ -241,6 +246,13 @@ mod tests {
         assert!(mentions_collaborator("Vec<Order>"));
         assert!(mentions_collaborator("Optional[OrderRepository]"));
         assert!(mentions_collaborator("OrderRepository"));
+    }
+
+    #[test]
+    fn a_conversion_bound_over_a_primitive_is_still_data() {
+        assert!(is_primitive_type("impl Into<String>"));
+        assert!(is_primitive_type("AsRef<str>"));
+        assert!(mentions_collaborator("impl Into<OrderId>"));
     }
 
     #[test]

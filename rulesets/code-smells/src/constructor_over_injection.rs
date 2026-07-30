@@ -27,13 +27,28 @@ use yunq_symbols::{mentions_collaborator, ClassRegistry, MethodInfo};
 /// to its struct from the `impl` block.
 const CONSTRUCTOR_NAMES: &[&str] = &["constructor", "__init__", "new"];
 
+/// Suffixes of types that are *settings*, not services: a record of values the
+/// caller assembles and hands over. A class taking four collaborators and a
+/// config struct has four dependencies, not five — counting the config is how
+/// this rule would punish the very refactoring ("group these knobs into one
+/// type") that keeps a signature honest.
+const CONFIG_SUFFIXES: &[&str] = &["Config", "Configuration", "Settings", "Options", "Params", "Args"];
+
+fn is_config_record(declared: &str) -> bool {
+    declared
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|part| !part.is_empty())
+        .any(|name| CONFIG_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)))
+}
+
 fn collaborator_params(constructor: &MethodInfo<'_>) -> Vec<String> {
     constructor
         .params
         .iter()
         .filter_map(|param| {
             let declared = param.declared_type.as_deref()?;
-            mentions_collaborator(declared).then(|| format!("{}: {declared}", param.name))
+            let counts = mentions_collaborator(declared) && !is_config_record(declared);
+            counts.then(|| format!("{}: {declared}", param.name))
         })
         .collect()
 }
@@ -211,6 +226,22 @@ mod tests {
             "pub struct Money;\n\nimpl Money {\n    pub fn new(a: i64, b: u32, c: String, d: f64, e: bool, f: char) -> Self {\n        Self\n    }\n}\n",
         );
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn a_configuration_record_is_not_a_collaborator() {
+        let findings = ts(
+            "class Runtime {\n  constructor(\n    model: Model,\n    workspace: Workspace,\n    judge: Judge,\n    analyzer: Analyzer,\n    config: RunConfig,\n  ) {}\n}\n",
+        );
+        assert!(findings.is_empty(), "four services and one settings record: {findings:?}");
+    }
+
+    #[test]
+    fn a_conversion_bound_over_a_primitive_is_not_a_collaborator() {
+        let findings = rs(
+            "pub struct Issue;\n\nimpl Issue {\n    pub fn new(rule: RuleId, severity: Severity, message: impl Into<String>, file: impl Into<String>, span: Span) -> Self {\n        Self\n    }\n}\n",
+        );
+        assert!(findings.is_empty(), "two of these five parameters are strings: {findings:?}");
     }
 
     #[test]
