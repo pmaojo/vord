@@ -367,6 +367,15 @@ struct OutputArgs {
     /// show "who introduced this" alongside an issue.
     #[arg(long)]
     blame_output: Option<PathBuf>,
+    /// Write an OWASP Top 10 / CWE / PCI DSS compliance report (quality gate
+    /// status, vulnerability and hotspot totals, up to 20 findings) as a
+    /// PDF 1.4 document to this path.
+    #[arg(long)]
+    compliance_pdf: Option<PathBuf>,
+    /// Write the same compliance evidence as CSV (rule id, severity, file,
+    /// line, message — one row per issue) to this path.
+    #[arg(long)]
+    compliance_csv: Option<PathBuf>,
 }
 
 #[derive(clap::Args)]
@@ -1057,6 +1066,33 @@ fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisRepor
     }
 }
 
+/// `--compliance-pdf`/`--compliance-csv`: OWASP Top 10 / CWE / PCI DSS
+/// evidence reports (`yunq_infra_pdf::ComplianceReportGenerator`) for
+/// whichever paths were given — either, neither or both independently, the
+/// same "only do what was asked for" shape `--blame-output` uses. Best-effort:
+/// a write failure warns rather than failing the whole scan, since the
+/// report is a byproduct of the analysis, not the analysis itself.
+fn write_compliance_reports(args: &ScanArgs, report: &yunq_rules_engine::AnalysisReport) {
+    if let Some(output_path) = &args.output.compliance_pdf {
+        match yunq_infra_pdf::ComplianceReportGenerator::generate_owasp_compliance_pdf_binary(report) {
+            Ok(pdf) => match std::fs::write(output_path, pdf) {
+                Ok(()) => println!("📝 Wrote compliance report to {}", output_path.display()),
+                Err(e) => eprintln!("warning: could not write compliance PDF to {}: {e}", output_path.display()),
+            },
+            Err(e) => eprintln!("warning: could not generate compliance PDF: {e}"),
+        }
+    }
+    if let Some(output_path) = &args.output.compliance_csv {
+        match yunq_infra_pdf::ComplianceReportGenerator::generate_csv(report) {
+            Ok(csv) => match std::fs::write(output_path, csv) {
+                Ok(()) => println!("📝 Wrote compliance report to {}", output_path.display()),
+                Err(e) => eprintln!("warning: could not write compliance CSV to {}: {e}", output_path.display()),
+            },
+            Err(e) => eprintln!("warning: could not generate compliance CSV: {e}"),
+        }
+    }
+}
+
 fn exit_code(
     threshold: Option<Severity>,
     report: &yunq_rules_engine::AnalysisReport,
@@ -1125,6 +1161,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
 
     report_to_github(&args, &context, &report, &gate, new_code.as_ref()).await;
     write_blame_output(&args, &report);
+    write_compliance_reports(&args, &report);
     render_output(&args, &report, &gate, new_code.as_ref(), test_report.as_ref(), coverage_new_code, &context.to_dto())?;
 
     Ok(exit_code(threshold, &report, args.enforce_gate, &gate))

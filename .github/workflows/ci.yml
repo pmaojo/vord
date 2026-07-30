@@ -127,21 +127,28 @@ jobs:
       # own default (`mutants.out` in the current directory, i.e. the repo
       # root here), which is exactly the path the next step already expects.
       #
-      # cargo-mutants itself exits 2 whenever any mutant survives — its own
-      # pass/fail signal, separate from this workflow's actual gate (the
-      # `yunq scan --mutation-report --enforce-gate` step below, which checks
-      # the score against the quality gate's threshold). Letting that
-      # non-zero code abort the job here would skip the report-conversion
-      # and gate steps entirely, so a crate with *any* surviving mutant would
-      # never reach the check that's supposed to judge it — masked so far
-      # only because yunq-agent-policy currently has zero survivors. Any
-      # other exit code (build failure, timeout, tool crash) still fails the
+      # cargo-mutants exits 2 (FoundProblems) whenever any mutant survives,
+      # and 3 (Timeout) whenever any mutant's test run hit the per-mutant
+      # timeout — both are its own pass/fail signal, separate from this
+      # workflow's actual gate (the `yunq scan --mutation-report
+      # --enforce-gate` step below, which checks the score against the
+      # quality gate's threshold). A timed-out mutant isn't a tooling
+      # failure: it means the mutated code hung (an infinite loop, most
+      # often), which is exactly as informative a result as a caught mutant
+      # — yunq's own mutation_score formula already counts `Timeout` as
+      # detected, the same bucket as `Killed` (mirroring Stryker). Letting
+      # either code abort the job here would skip the report-conversion and
+      # gate steps entirely, so a crate with any surviving-or-timed-out
+      # mutant would never reach the check that's supposed to judge it —
+      # masked so far only because yunq-agent-policy currently has zero of
+      # either. Any other exit code (build failure, a baseline that was
+      # already failing before any mutation, tool crash) still fails the
       # job immediately, as it should.
       - name: Mutation-test ${{ matrix.crate }}
         run: |
           cargo mutants -p ${{ matrix.crate }} || {
             code=$?
-            if [ "$code" -ne 2 ]; then
+            if [ "$code" -ne 2 ] && [ "$code" -ne 3 ]; then
               exit "$code"
             fi
           }
