@@ -21,12 +21,14 @@ mod entity_setter;
 mod exposed_collection;
 mod persistence_in_domain;
 mod primitive_obsession;
+mod value_object_mutation;
 
 pub use anemic_domain_model::AnemicDomainModelRule;
 pub use entity_setter::PublicEntitySetterRule;
 pub use exposed_collection::ExposedCollectionRule;
 pub use persistence_in_domain::PersistenceInDomainRule;
 pub use primitive_obsession::PrimitiveObsessionRule;
+pub use value_object_mutation::ValueObjectMutationRule;
 
 use yunq_rules_engine::{CrossFileRule, Rule};
 
@@ -45,5 +47,6 @@ pub fn all_cross_rules() -> Vec<Box<dyn CrossFileRule>> {
         Box::new(PublicEntitySetterRule::new()),
         Box::new(PrimitiveObsessionRule::default()),
         Box::new(ExposedCollectionRule::new()),
+        Box::new(ValueObjectMutationRule::new()),
     ]
 }

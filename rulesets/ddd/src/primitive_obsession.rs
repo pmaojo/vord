@@ -22,42 +22,9 @@ use std::collections::BTreeSet;
 
 use yunq_ast::{AstNode, NodeKind, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{function_params, is_primitive_type, ClassInfo, ClassRegistry, MemberInfo, MethodInfo};
+use yunq_symbols::{function_params, is_primitive_type, ClassRegistry, MemberInfo, MethodInfo};
 
-use crate::common::{is_constructor, is_domain_path, wire_dto_names};
-
-/// Field names and type suffixes that mean "this type has identity" — the mark
-/// of an entity rather than a value object.
-const IDENTITY_FIELDS: &[&str] = &["id", "_id", "uuid", "guid", "key", "identifier"];
-const IDENTITY_TYPE_SUFFIXES: &[&str] = &["Id", "ID", "Uuid", "UUID", "Guid"];
-
-/// Whether a type is a value object: it has no identity, only values.
-///
-/// This is what makes a *constructor* different from every other method here.
-/// Wrapping primitives in a type is not the smell, it is the fix — `Span::new(
-/// start_line, start_col, end_line, end_col)` and `Money::new(amount, currency)`
-/// are the boundary where loose primitives *become* a concept, and flagging them
-/// would be asking for a value object that takes value objects, forever. An
-/// entity's constructor is a different story: `Order(id, customerId, currency,
-/// note)` has an identity to protect and four interchangeable strings guarding
-/// it, so it stays a finding.
-fn is_value_object(class: &ClassInfo<'_>) -> bool {
-    if class.fields.is_empty() {
-        // No declared fields is no evidence, not evidence of no identity — a
-        // TypeScript class can carry its whole state in constructor parameter
-        // properties, and a Rust unit struct declares nothing at all. Claiming
-        // "value object" here would exempt exactly the constructors this rule
-        // exists to look at.
-        return false;
-    }
-    !class.fields.iter().any(|field| {
-        let name = field.name.trim_start_matches('_').to_ascii_lowercase();
-        IDENTITY_FIELDS.contains(&name.as_str())
-            || field.declared_type.as_deref().is_some_and(|declared| {
-                IDENTITY_TYPE_SUFFIXES.iter().any(|suffix| declared.trim_end_matches('>').ends_with(suffix))
-            })
-    })
-}
+use crate::common::{is_constructor, is_domain_path, is_value_object, wire_dto_names};
 
 /// Every named function-like node in a file, with the name it is known by.
 ///

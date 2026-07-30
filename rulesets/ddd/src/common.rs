@@ -19,9 +19,38 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind};
+use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, Span};
 use yunq_import_graph::{layer_of, HexLayer};
 use yunq_symbols::{ClassInfo, MethodInfo};
+
+/// Field names and type suffixes that mean "this type has identity" — the mark
+/// of an entity rather than a value object.
+const IDENTITY_FIELDS: &[&str] = &["id", "_id", "uuid", "guid", "key", "identifier"];
+const IDENTITY_TYPE_SUFFIXES: &[&str] = &["Id", "ID", "Uuid", "UUID", "Guid"];
+
+/// Whether a type is a value object: it has no identity, only values.
+///
+/// Shared between `ddd:primitive-obsession` (where it marks a constructor as
+/// the boundary where primitives *become* a concept, not a smell) and
+/// `ddd:value-object-mutation` (where it marks every other method as one that
+/// must never write to `self`).
+pub fn is_value_object(class: &ClassInfo<'_>) -> bool {
+    if class.fields.is_empty() {
+        // No declared fields is no evidence, not evidence of no identity — a
+        // TypeScript class can carry its whole state in constructor parameter
+        // properties, and a Rust unit struct declares nothing at all. Claiming
+        // "value object" here would exempt exactly the constructors
+        // `primitive-obsession` exists to look at.
+        return false;
+    }
+    !class.fields.iter().any(|field| {
+        let name = field.name.trim_start_matches('_').to_ascii_lowercase();
+        IDENTITY_FIELDS.contains(&name.as_str())
+            || field.declared_type.as_deref().is_some_and(|declared| {
+                IDENTITY_TYPE_SUFFIXES.iter().any(|suffix| declared.trim_end_matches('>').ends_with(suffix))
+            })
+    })
+}
 
 /// Whether a method is the constructor of the type that declares it, whatever
 /// its language calls one (`yunq_symbols::is_constructor_name`: `constructor`,
@@ -200,6 +229,34 @@ pub fn accessor_of(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Option
         kind: AccessorKind::Getter,
         returns_mutable_reference: mutable,
     })
+}
+
+/// Every assignment anywhere in `method`'s body — not only when it is the
+/// method's single statement, unlike [`accessor_of`] — that writes to one of
+/// `fields` on the method's own instance.
+///
+/// Exists for `ddd:value-object-mutation`, which must catch a mutation that is
+/// one statement among several (an `apply`/`update` method that validates
+/// first and only then writes) and a compound one (`self.total += amount`),
+/// because a value object is not allowed either shape in any method but its
+/// constructor — where `accessor_of` narrowly targets the *is this whole
+/// method just a setter* question, this targets *does this method write to
+/// `self` at all*. Walks every descendant rather than `body_statements`'s
+/// top level for the same reason: the write can sit inside an `if` or a
+/// `for` the top level never sees.
+pub fn field_mutations(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Vec<Span> {
+    let receiver = method.receiver.as_deref();
+    method
+        .node
+        .descendants()
+        .filter(|node| *node.kind() == NodeKind::Assignment)
+        .filter_map(|assignment| {
+            let target = assignment.first_child()?;
+            let (target, _) = returned_expression(target);
+            let field = accessed_field(target, receiver)?;
+            fields.contains(field).then(|| assignment.span())
+        })
+        .collect()
 }
 
 /// How one language spells "reachable from outside this type".
