@@ -24,10 +24,7 @@ pub struct DependencyEdge {
 
 impl DependencyEdge {
     pub fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
-        Self {
-            from: from.into(),
-            to: to.into(),
-        }
+        Self { from: from.into(), to: to.into() }
     }
 
     fn matches(&self, from: &str, to: &str) -> bool {
@@ -91,28 +88,13 @@ impl ArchitectureConfig {
             .into_iter()
             .filter(|(from, to)| !self.exceptions.iter().any(|e| e.matches(from, to)))
             .filter_map(|(from, to)| {
-                if self
-                    .forbidden_dependencies
-                    .iter()
-                    .any(|e| e.matches(&from, &to))
-                {
-                    return Some(BoundaryViolation {
-                        from,
-                        to,
-                        kind: ViolationKind::Forbidden,
-                    });
+                if self.forbidden_dependencies.iter().any(|e| e.matches(&from, &to)) {
+                    return Some(BoundaryViolation { from, to, kind: ViolationKind::Forbidden });
                 }
                 if !self.allowed_dependencies.is_empty()
-                    && !self
-                        .allowed_dependencies
-                        .iter()
-                        .any(|e| e.matches(&from, &to))
+                    && !self.allowed_dependencies.iter().any(|e| e.matches(&from, &to))
                 {
-                    return Some(BoundaryViolation {
-                        from,
-                        to,
-                        kind: ViolationKind::Undeclared,
-                    });
+                    return Some(BoundaryViolation { from, to, kind: ViolationKind::Undeclared });
                 }
                 None
             })
@@ -136,17 +118,13 @@ mod tests {
                 (file, ast)
             })
             .collect();
-        let views: Vec<(&str, &yunq_ast::AstNode)> =
-            parsed.iter().map(|(f, a)| (f.path(), a)).collect();
+        let views: Vec<(&str, &yunq_ast::AstNode)> = parsed.iter().map(|(f, a)| (f.path(), a)).collect();
         ImportGraph::build(&views)
     }
 
     #[test]
     fn no_config_means_no_violations() {
-        let graph = graph_of(&[
-            ("core/a.ts", "import { b } from '../infra/b';\n"),
-            ("infra/b.ts", "export const b = 1;\n"),
-        ]);
+        let graph = graph_of(&[("core/a.ts", "import { b } from '../infra/b';\n"), ("infra/b.ts", "export const b = 1;\n")]);
         assert!(ArchitectureConfig::default().violations(&graph).is_empty());
     }
 
@@ -161,23 +139,13 @@ mod tests {
             ..Default::default()
         };
         let violations = config.violations(&graph);
-        assert_eq!(
-            violations,
-            vec![BoundaryViolation {
-                from: "core".into(),
-                to: "infra".into(),
-                kind: ViolationKind::Forbidden
-            }]
-        );
+        assert_eq!(violations, vec![BoundaryViolation { from: "core".into(), to: "infra".into(), kind: ViolationKind::Forbidden }]);
     }
 
     #[test]
     fn allow_listing_makes_every_other_edge_a_violation() {
         let graph = graph_of(&[
-            (
-                "bin/a.ts",
-                "import { b } from '../core/b';\nimport { c } from '../infra/c';\n",
-            ),
+            ("bin/a.ts", "import { b } from '../core/b';\nimport { c } from '../infra/c';\n"),
             ("core/b.ts", "export const b = 1;\n"),
             ("infra/c.ts", "export const c = 1;\n"),
         ]);
@@ -186,14 +154,7 @@ mod tests {
             ..Default::default()
         };
         let violations = config.violations(&graph);
-        assert_eq!(
-            violations,
-            vec![BoundaryViolation {
-                from: "bin".into(),
-                to: "infra".into(),
-                kind: ViolationKind::Undeclared
-            }]
-        );
+        assert_eq!(violations, vec![BoundaryViolation { from: "bin".into(), to: "infra".into(), kind: ViolationKind::Undeclared }]);
     }
 
     #[test]

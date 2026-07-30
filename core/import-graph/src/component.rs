@@ -30,18 +30,12 @@ mod tests {
 
     #[test]
     fn two_segment_path_keeps_tier_and_crate_name() {
-        assert_eq!(
-            component_of("core/rules-engine/src/lib.rs"),
-            "core/rules-engine"
-        );
+        assert_eq!(component_of("core/rules-engine/src/lib.rs"), "core/rules-engine");
     }
 
     #[test]
     fn deeper_nesting_still_collapses_to_the_first_two_segments() {
-        assert_eq!(
-            component_of("core/rules-engine/src/domain/report.rs"),
-            "core/rules-engine"
-        );
+        assert_eq!(component_of("core/rules-engine/src/domain/report.rs"), "core/rules-engine");
     }
 
     #[test]
@@ -56,9 +50,6 @@ mod tests {
 
     #[test]
     fn distinct_crates_under_the_same_tier_are_distinct_components() {
-        assert_ne!(
-            component_of("core/crap/src/lib.rs"),
-            component_of("core/rules-engine/src/lib.rs")
-        );
+        assert_ne!(component_of("core/crap/src/lib.rs"), component_of("core/rules-engine/src/lib.rs"));
     }
 }
