@@ -7,7 +7,11 @@ use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn is_debugger_call(call: &AstNode) -> bool {
-    call.first_child().is_some_and(|callee| callee.text() == "pdb.set_trace" || callee.text() == "ipdb.set_trace" || (callee.kind() == &NodeKind::Identifier && callee.text() == "breakpoint"))
+    call.first_child().is_some_and(|callee| {
+        callee.text() == "pdb.set_trace"
+            || callee.text() == "ipdb.set_trace"
+            || (callee.kind() == &NodeKind::Identifier && callee.text() == "breakpoint")
+    })
 }
 
 pub struct DebuggerLeftInCodeRule {
@@ -16,7 +20,9 @@ pub struct DebuggerLeftInCodeRule {
 
 impl DebuggerLeftInCodeRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:debugger-left-in-code").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:debugger-left-in-code").expect("valid rule id"),
+        }
     }
 }
 
@@ -76,7 +82,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         DebuggerLeftInCodeRule::new().check(&file, &ast)
     }
 

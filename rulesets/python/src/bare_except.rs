@@ -11,7 +11,8 @@ fn is_except_clause(node: &AstNode) -> bool {
 
 fn is_bare(except_clause: &AstNode) -> bool {
     let children = except_clause.children();
-    children.len() == 1 && matches!(children[0].kind(), NodeKind::Other(name) if name.as_ref() == "block")
+    children.len() == 1
+        && matches!(children[0].kind(), NodeKind::Other(name) if name.as_ref() == "block")
 }
 
 pub struct BareExceptRule {
@@ -20,7 +21,9 @@ pub struct BareExceptRule {
 
 impl BareExceptRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:bare-except").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:bare-except").expect("valid rule id"),
+        }
     }
 }
 
@@ -77,7 +80,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         BareExceptRule::new().check(&file, &ast)
     }
 

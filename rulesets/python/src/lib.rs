@@ -27,6 +27,7 @@ mod raise_without_from;
 mod requests_missing_timeout;
 mod sql_injection;
 mod subprocess_shell_true;
+mod tarfile_unsafe_extraction;
 mod type_comparison;
 mod unsafe_yaml_load;
 mod unused_loop_variable;
@@ -56,6 +57,7 @@ pub use raise_without_from::RaiseWithoutFromRule;
 pub use requests_missing_timeout::RequestsMissingTimeoutRule;
 pub use sql_injection::SqlInjectionRule;
 pub use subprocess_shell_true::SubprocessShellTrueRule;
+pub use tarfile_unsafe_extraction::TarfileUnsafeExtractionRule;
 pub use type_comparison::TypeComparisonRule;
 pub use unsafe_yaml_load::UnsafeYamlLoadRule;
 pub use unused_loop_variable::UnusedLoopVariableRule;
@@ -72,6 +74,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(BroadExceptionSwallowedRule::new()),
         Box::new(AssertUsedRule::new()),
         Box::new(SubprocessShellTrueRule::new()),
+        Box::new(TarfileUnsafeExtractionRule::new()),
         Box::new(UnsafeYamlLoadRule::new()),
         Box::new(XmlXxeRule::new()),
         Box::new(InsecureTempfileRule::new()),

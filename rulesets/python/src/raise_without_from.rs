@@ -16,7 +16,10 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn raises_new_exception_without_from(raise_stmt: &AstNode) -> bool {
-    raise_stmt.children().len() == 1 && raise_stmt.first_child().is_some_and(|c| *c.kind() == NodeKind::Call)
+    raise_stmt.children().len() == 1
+        && raise_stmt
+            .first_child()
+            .is_some_and(|c| *c.kind() == NodeKind::Call)
 }
 
 pub struct RaiseWithoutFromRule {
@@ -25,7 +28,9 @@ pub struct RaiseWithoutFromRule {
 
 impl RaiseWithoutFromRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:raise-without-from-in-except").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:raise-without-from-in-except").expect("valid rule id"),
+        }
     }
 }
 
@@ -80,7 +85,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         RaiseWithoutFromRule::new().check(&file, &ast)
     }
 
@@ -92,7 +99,8 @@ mod tests {
 
     #[test]
     fn allows_explicit_from() {
-        let code = "try:\n    f()\nexcept ValueError as e:\n    raise RuntimeError('wrapped') from e\n";
+        let code =
+            "try:\n    f()\nexcept ValueError as e:\n    raise RuntimeError('wrapped') from e\n";
         assert!(findings(code).is_empty());
     }
 

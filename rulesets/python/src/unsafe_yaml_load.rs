@@ -14,8 +14,20 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn has_loader_argument(call: &AstNode) -> bool {
-    let Some(args) = call.children().iter().find(|c| other_kind_name(c) == Some("argument_list")) else { return false };
-    args.children().iter().any(|arg| other_kind_name(arg) == Some("keyword_argument") && arg.children().first().is_some_and(|name| name.text() == "Loader"))
+    let Some(args) = call
+        .children()
+        .iter()
+        .find(|c| other_kind_name(c) == Some("argument_list"))
+    else {
+        return false;
+    };
+    args.children().iter().any(|arg| {
+        other_kind_name(arg) == Some("keyword_argument")
+            && arg
+                .children()
+                .first()
+                .is_some_and(|name| name.text() == "Loader")
+    })
 }
 
 pub struct UnsafeYamlLoadRule {
@@ -24,7 +36,9 @@ pub struct UnsafeYamlLoadRule {
 
 impl UnsafeYamlLoadRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:unsafe-yaml-load").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:unsafe-yaml-load").expect("valid rule id"),
+        }
     }
 }
 
@@ -85,7 +99,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         UnsafeYamlLoadRule::new().check(&file, &ast)
     }
 

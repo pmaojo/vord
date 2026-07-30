@@ -18,7 +18,13 @@ fn string_content(node: &AstNode) -> Option<String> {
     if *node.kind() != NodeKind::StringLiteral {
         return None;
     }
-    Some(node.children().iter().filter(|c| other_kind_name(c) == Some("string_content")).map(|c| c.text()).collect())
+    Some(
+        node.children()
+            .iter()
+            .filter(|c| other_kind_name(c) == Some("string_content"))
+            .map(|c| c.text())
+            .collect(),
+    )
 }
 
 fn is_binary_mode(mode_value: &AstNode) -> bool {
@@ -26,19 +32,31 @@ fn is_binary_mode(mode_value: &AstNode) -> bool {
 }
 
 fn opens_in_binary_mode(args: &[AstNode]) -> bool {
-    let positional: Vec<&AstNode> = args.iter().filter(|a| other_kind_name(a) != Some("keyword_argument")).collect();
+    let positional: Vec<&AstNode> = args
+        .iter()
+        .filter(|a| other_kind_name(a) != Some("keyword_argument"))
+        .collect();
     if positional.get(1).is_some_and(|mode| is_binary_mode(mode)) {
         return true;
     }
     args.iter().any(|arg| {
         other_kind_name(arg) == Some("keyword_argument")
-            && arg.children().first().is_some_and(|name| name.text() == "mode")
+            && arg
+                .children()
+                .first()
+                .is_some_and(|name| name.text() == "mode")
             && arg.children().get(1).is_some_and(is_binary_mode)
     })
 }
 
 fn has_encoding_argument(args: &[AstNode]) -> bool {
-    args.iter().any(|arg| other_kind_name(arg) == Some("keyword_argument") && arg.children().first().is_some_and(|name| name.text() == "encoding"))
+    args.iter().any(|arg| {
+        other_kind_name(arg) == Some("keyword_argument")
+            && arg
+                .children()
+                .first()
+                .is_some_and(|name| name.text() == "encoding")
+    })
 }
 
 pub struct OpenWithoutEncodingRule {
@@ -47,7 +65,9 @@ pub struct OpenWithoutEncodingRule {
 
 impl OpenWithoutEncodingRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:open-without-encoding").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:open-without-encoding").expect("valid rule id"),
+        }
     }
 }
 
@@ -108,7 +128,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         OpenWithoutEncodingRule::new().check(&file, &ast)
     }
 

@@ -15,7 +15,10 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn is_len_call(node: &AstNode) -> bool {
-    *node.kind() == NodeKind::Call && node.first_child().is_some_and(|callee| callee.text() == "len")
+    *node.kind() == NodeKind::Call
+        && node
+            .first_child()
+            .is_some_and(|callee| callee.text() == "len")
 }
 
 fn is_zero_literal(node: &AstNode) -> bool {
@@ -28,8 +31,12 @@ fn is_len_vs_zero(comparison: &AstNode) -> bool {
         return false;
     }
     let text = comparison.text();
-    let compares_zero = (text.contains("==") || text.contains(">") || text.contains("<") || text.contains("!=")) && !text.contains(" is ");
-    compares_zero && ((is_len_call(&children[0]) && is_zero_literal(&children[1])) || (is_zero_literal(&children[0]) && is_len_call(&children[1])))
+    let compares_zero =
+        (text.contains("==") || text.contains(">") || text.contains("<") || text.contains("!="))
+            && !text.contains(" is ");
+    compares_zero
+        && ((is_len_call(&children[0]) && is_zero_literal(&children[1]))
+            || (is_zero_literal(&children[0]) && is_len_call(&children[1])))
 }
 
 pub struct LenAsConditionRule {
@@ -38,7 +45,9 @@ pub struct LenAsConditionRule {
 
 impl LenAsConditionRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:len-as-condition").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:len-as-condition").expect("valid rule id"),
+        }
     }
 }
 
@@ -91,7 +100,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         LenAsConditionRule::new().check(&file, &ast)
     }
 

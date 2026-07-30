@@ -16,11 +16,18 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn catches_broad_type(except_clause: &AstNode) -> bool {
-    except_clause.children().iter().any(|c| *c.kind() == NodeKind::Identifier && BROAD_TYPES.contains(&c.text()))
+    except_clause
+        .children()
+        .iter()
+        .any(|c| *c.kind() == NodeKind::Identifier && BROAD_TYPES.contains(&c.text()))
 }
 
 fn block_only_passes(block: &AstNode) -> bool {
-    !block.children().is_empty() && block.children().iter().all(|stmt| other_kind_name(stmt) == Some("pass_statement"))
+    !block.children().is_empty()
+        && block
+            .children()
+            .iter()
+            .all(|stmt| other_kind_name(stmt) == Some("pass_statement"))
 }
 
 pub struct BroadExceptionSwallowedRule {
@@ -29,7 +36,9 @@ pub struct BroadExceptionSwallowedRule {
 
 impl BroadExceptionSwallowedRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:broad-exception-swallowed").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:broad-exception-swallowed").expect("valid rule id"),
+        }
     }
 }
 
@@ -89,18 +98,26 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         BroadExceptionSwallowedRule::new().check(&file, &ast)
     }
 
     #[test]
     fn flags_exception_pass() {
-        assert_eq!(findings("try:\n    f()\nexcept Exception:\n    pass\n").len(), 1);
+        assert_eq!(
+            findings("try:\n    f()\nexcept Exception:\n    pass\n").len(),
+            1
+        );
     }
 
     #[test]
     fn flags_base_exception_pass() {
-        assert_eq!(findings("try:\n    f()\nexcept BaseException:\n    pass\n").len(), 1);
+        assert_eq!(
+            findings("try:\n    f()\nexcept BaseException:\n    pass\n").len(),
+            1
+        );
     }
 
     #[test]

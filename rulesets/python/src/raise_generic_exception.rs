@@ -16,7 +16,12 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn raises_generic_exception(raise_stmt: &AstNode) -> bool {
-    raise_stmt.first_child().is_some_and(|first| *first.kind() == NodeKind::Call && first.first_child().is_some_and(|callee| GENERIC_EXCEPTIONS.contains(&callee.text())))
+    raise_stmt.first_child().is_some_and(|first| {
+        *first.kind() == NodeKind::Call
+            && first
+                .first_child()
+                .is_some_and(|callee| GENERIC_EXCEPTIONS.contains(&callee.text()))
+    })
 }
 
 pub struct RaiseGenericExceptionRule {
@@ -25,7 +30,9 @@ pub struct RaiseGenericExceptionRule {
 
 impl RaiseGenericExceptionRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:raise-generic-exception").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:raise-generic-exception").expect("valid rule id"),
+        }
     }
 }
 
@@ -78,7 +85,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         RaiseGenericExceptionRule::new().check(&file, &ast)
     }
 

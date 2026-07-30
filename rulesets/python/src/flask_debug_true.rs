@@ -15,11 +15,23 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn has_debug_true_argument(call: &AstNode) -> bool {
-    let Some(args) = call.children().iter().find(|c| other_kind_name(c) == Some("argument_list")) else { return false };
+    let Some(args) = call
+        .children()
+        .iter()
+        .find(|c| other_kind_name(c) == Some("argument_list"))
+    else {
+        return false;
+    };
     args.children().iter().any(|arg| {
         other_kind_name(arg) == Some("keyword_argument")
-            && arg.children().first().is_some_and(|name| name.text() == "debug")
-            && arg.children().get(1).is_some_and(|value| other_kind_name(value) == Some("true"))
+            && arg
+                .children()
+                .first()
+                .is_some_and(|name| name.text() == "debug")
+            && arg
+                .children()
+                .get(1)
+                .is_some_and(|value| other_kind_name(value) == Some("true"))
     })
 }
 
@@ -29,7 +41,9 @@ pub struct FlaskDebugTrueRule {
 
 impl FlaskDebugTrueRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:flask-debug-true").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:flask-debug-true").expect("valid rule id"),
+        }
     }
 }
 
@@ -90,7 +104,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         FlaskDebugTrueRule::new().check(&file, &ast)
     }
 

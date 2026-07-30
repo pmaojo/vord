@@ -19,7 +19,9 @@ pub struct GlobalStatementRule {
 
 impl GlobalStatementRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:global-statement-usage").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:global-statement-usage").expect("valid rule id"),
+        }
     }
 }
 
@@ -71,13 +73,18 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         GlobalStatementRule::new().check(&file, &ast)
     }
 
     #[test]
     fn flags_global_statement() {
-        assert_eq!(findings("def f():\n    global counter\n    counter += 1\n").len(), 1);
+        assert_eq!(
+            findings("def f():\n    global counter\n    counter += 1\n").len(),
+            1
+        );
     }
 
     #[test]

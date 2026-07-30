@@ -6,8 +6,16 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-const REQUESTS_METHODS: &[&str] =
-    &["requests.get", "requests.post", "requests.put", "requests.delete", "requests.patch", "requests.head", "requests.options", "requests.request"];
+const REQUESTS_METHODS: &[&str] = &[
+    "requests.get",
+    "requests.post",
+    "requests.put",
+    "requests.delete",
+    "requests.patch",
+    "requests.head",
+    "requests.options",
+    "requests.request",
+];
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -17,8 +25,20 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn has_timeout_argument(call: &AstNode) -> bool {
-    let Some(args) = call.children().iter().find(|c| other_kind_name(c) == Some("argument_list")) else { return false };
-    args.children().iter().any(|arg| other_kind_name(arg) == Some("keyword_argument") && arg.children().first().is_some_and(|name| name.text() == "timeout"))
+    let Some(args) = call
+        .children()
+        .iter()
+        .find(|c| other_kind_name(c) == Some("argument_list"))
+    else {
+        return false;
+    };
+    args.children().iter().any(|arg| {
+        other_kind_name(arg) == Some("keyword_argument")
+            && arg
+                .children()
+                .first()
+                .is_some_and(|name| name.text() == "timeout")
+    })
 }
 
 pub struct RequestsMissingTimeoutRule {
@@ -27,7 +47,9 @@ pub struct RequestsMissingTimeoutRule {
 
 impl RequestsMissingTimeoutRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:requests-missing-timeout").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:requests-missing-timeout").expect("valid rule id"),
+        }
     }
 }
 
@@ -88,7 +110,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         RequestsMissingTimeoutRule::new().check(&file, &ast)
     }
 
