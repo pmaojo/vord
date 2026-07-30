@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
 use yunq_import_graph::{layer_of, HexLayer};
-use yunq_symbols::{ClassInfo, MethodInfo};
+use yunq_symbols::{ClassInfo, MemberInfo, MethodInfo};
 
 /// Field names and type suffixes that mean "this type has identity" — the mark
 /// of an entity rather than a value object.
@@ -72,6 +72,33 @@ pub fn is_other(node: &AstNode, kind: &str) -> bool {
 /// design, not an anemic one.
 pub fn is_domain_path(path: &str) -> bool {
     layer_of(path) == HexLayer::Domain
+}
+
+/// Whether a path names code in the application layer — where a use case
+/// orchestrates domain objects and opens transaction boundaries, but is not
+/// itself part of the model. `ddd:one-aggregate-per-transaction` is scoped
+/// here rather than to [`is_domain_path`]: a transaction boundary is an
+/// application-layer concern by construction (a well-formed aggregate holds
+/// no repository of its own to call in the first place), unlike every other
+/// rule in this crate, which asks whether the *model* is a model.
+pub fn is_application_path(path: &str) -> bool {
+    layer_of(path) == HexLayer::Application
+}
+
+/// A field's declared type, falling back to its constructor parameter of the
+/// same name when the field itself carries none.
+///
+/// Load-bearing for Python: `core/symbols::classes::python` infers a field
+/// from a `self.x = ..` assignment with `declared_type: None` unconditionally
+/// (Python's own grammar has no field-declaration node to read a type off of),
+/// while the *parameter* that value came from, `def __init__(self, x:
+/// Customer)`, is annotated and already resolved. The same fallback is a
+/// no-op everywhere else: TypeScript and Rust field declarations already
+/// carry their own type.
+pub fn field_declared_type<'a>(class: &'a ClassInfo<'_>, field: &'a MemberInfo) -> Option<&'a str> {
+    field.declared_type.as_deref().or_else(|| {
+        class.constructor()?.params.iter().find(|param| param.name == field.name)?.declared_type.as_deref()
+    })
 }
 
 /// The statements making up a method's body: TS `statement_block`, Python and
@@ -170,7 +197,7 @@ fn unwrap_pass_through_call(expression: &AstNode) -> &AstNode {
 /// The field a `<instance>.<field>` access reads, where `<instance>` is whatever
 /// this language calls the current object: `this`, `self`, or the declared name
 /// of a Go receiver (`func (o *Order) ..` -> `o`).
-fn accessed_field<'a>(expression: &'a AstNode, receiver: Option<&str>) -> Option<&'a str> {
+pub(crate) fn accessed_field<'a>(expression: &'a AstNode, receiver: Option<&str>) -> Option<&'a str> {
     if *expression.kind() != NodeKind::MemberAccess {
         return None;
     }

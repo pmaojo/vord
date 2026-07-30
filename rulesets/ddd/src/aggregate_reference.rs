@@ -23,25 +23,9 @@ use std::collections::BTreeSet;
 
 use yunq_ast::{AstNode, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{type_identifiers, ClassInfo, ClassRegistry, MemberInfo};
+use yunq_symbols::{type_identifiers, ClassRegistry};
 
-use crate::common::{is_domain_path, repository_backed_names};
-
-/// A field's declared type, falling back to its constructor parameter of the
-/// same name when the field itself carries none.
-///
-/// Load-bearing for Python: `core/symbols::classes::python` infers a field
-/// from a `self.x = ..` assignment with `declared_type: None` unconditionally
-/// (Python's own grammar has no field-declaration node to read a type off of),
-/// while the *parameter* that value came from, `def __init__(self, x:
-/// Customer)`, is annotated and already resolved. The same fallback is a
-/// no-op everywhere else: TypeScript and Rust field declarations already
-/// carry their own type.
-fn field_declared_type<'a>(class: &'a ClassInfo<'_>, field: &'a MemberInfo) -> Option<&'a str> {
-    field.declared_type.as_deref().or_else(|| {
-        class.constructor()?.params.iter().find(|param| param.name == field.name)?.declared_type.as_deref()
-    })
-}
+use crate::common::{field_declared_type, is_domain_path, repository_backed_names};
 
 pub struct AggregateReferenceByIdRule {
     id: RuleId,
