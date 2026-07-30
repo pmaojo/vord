@@ -1,7 +1,7 @@
 //! Composition root for local scans. `main` only parses arguments, invokes
 //! the scan use-case and renders the result — a testing dead-zone by design.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -184,6 +184,19 @@ enum SwarmAction {
         role: String,
         #[arg(long)]
         id: String,
+    },
+    /// Drive every role in the configured topology (`[swarm] topology =
+    /// "two-pack"/"four-pack"`, or an explicit `pipeline`) through one
+    /// headless `yunq agent` run apiece, in order — each under its own
+    /// worktree and scoped policy, each handing the next role a summary of
+    /// what it did (roadmap B4). Exits with the exit code of the role whose
+    /// run stopped the pipeline, or 0 if every role completed.
+    Run {
+        /// What the topology as a whole should accomplish; each role's task
+        /// is this plus its own name and whatever the previous role handed
+        /// off.
+        #[arg(long)]
+        task: String,
     },
 }
 
@@ -409,7 +422,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Fix { path, issue, model }) => run_fix(path, issue, model).await,
         Some(Command::Hook { action }) => run_hook(action).await,
         Some(Command::Agent { action }) => run_agent(action).await,
-        Some(Command::Swarm { action }) => run_swarm(action),
+        Some(Command::Swarm { action }) => run_swarm(action).await,
     }
 }
 
@@ -493,27 +506,13 @@ async fn run_hook(action: HookAction) -> anyhow::Result<ExitCode> {
 /// `yunq swarm`'s entry points (roadmap B). Every failure here is a config
 /// or `git` error, not a policy verdict, so unlike `yunq hook`/`yunq agent`
 /// there is no fail-open story to preserve — errors propagate normally
-/// through `main`'s handler.
-fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
+/// through `main`'s handler. `Run` is the one action that also carries an
+/// agent-run exit code, same convention as `run_agent`'s `Run`/`Tui`.
+async fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
     let root = std::env::current_dir()?;
     match action {
         SwarmAction::Roles => {
-            let roles = yunq_cli::swarm::list_roles(&root)?;
-            if roles.is_empty() {
-                println!("yunq swarm: no roles configured — add [[swarm.role]] entries to yunq.toml.");
-                return Ok(ExitCode::SUCCESS);
-            }
-            for role in roles {
-                println!(
-                    "{} — worktree {} (branch {}), +{} protected path(s), +{} blocking rule(s), +{} escalate rule(s)",
-                    role.name,
-                    role.plan.path.display(),
-                    role.plan.branch,
-                    role.extra_protected_paths,
-                    role.extra_blocking_rules,
-                    role.extra_escalate_rules,
-                );
-            }
+            print_roles(&yunq_cli::swarm::list_roles(&root)?);
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::WorktreeCreate { role, base } => {
@@ -558,7 +557,49 @@ fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
             println!("yunq swarm: acknowledged {id} for `{role}`");
             Ok(ExitCode::SUCCESS)
         }
+        SwarmAction::Run { task } => run_topology(&root, &task).await,
     }
+}
+
+/// `yunq swarm roles`: one role's resolved worktree plan and scope
+/// narrowing per line, or a pointer to configure one if there are none.
+fn print_roles(roles: &[yunq_cli::swarm::RoleReport]) {
+    if roles.is_empty() {
+        println!("yunq swarm: no roles configured — add [[swarm.role]] entries to yunq.toml.");
+        return;
+    }
+    for role in roles {
+        println!(
+            "{} — worktree {} (branch {}), +{} protected path(s), +{} blocking rule(s), +{} escalate rule(s)",
+            role.name,
+            role.plan.path.display(),
+            role.plan.branch,
+            role.extra_protected_paths,
+            role.extra_blocking_rules,
+            role.extra_escalate_rules,
+        );
+    }
+}
+
+/// `yunq swarm run`: drives the configured topology end to end and exits
+/// with the exit code of whichever role stopped the pipeline (or `0` if
+/// every role completed) — the same distinct-exit-code convention `yunq
+/// agent run` already established.
+async fn run_topology(root: &Path, task: &str) -> anyhow::Result<ExitCode> {
+    let results = yunq_cli::swarm::topology_run(root, task).await?;
+    let mut exit_code = 0u8;
+    for result in &results {
+        println!(
+            "yunq swarm: [{}] {} (after {} turns)",
+            result.role,
+            result.outcome.describe(),
+            result.outcome.turns()
+        );
+        if result.outcome.exit_code() != 0 {
+            exit_code = result.outcome.exit_code();
+        }
+    }
+    Ok(ExitCode::from(exit_code))
 }
 
 async fn run_fix(path: PathBuf, issue: String, model: Option<String>) -> anyhow::Result<ExitCode> {

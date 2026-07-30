@@ -67,6 +67,14 @@ pub struct SwarmSettings {
     pub worktree_root: Option<String>,
     #[serde(default, rename = "role")]
     pub roles: Vec<RoleSettings>,
+    /// A named pipeline shape (roadmap B4): `"two-pack"` (coder, reviewer) or
+    /// `"four-pack"` (architect, coder, cleaner, qa), each name expected to
+    /// match a configured role's own `name`. Ignored when `pipeline` is set.
+    pub topology: Option<String>,
+    /// An explicit, ordered role-name pipeline — outranks `topology` the same
+    /// way a CLI flag outranks `yunq.toml` elsewhere in this file, since it
+    /// says exactly what the operator wants rather than naming a preset.
+    pub pipeline: Option<Vec<String>>,
 }
 
 /// One `[[swarm.role]]` entry: a named role, its own worktree/branch naming,

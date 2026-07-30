@@ -9,11 +9,13 @@
 
 use std::path::Path;
 
+use yunq_agent::runtime::RunOutcome;
 use yunq_agent_policy::{AgentPolicy, RoleScope};
 use yunq_infra_fs::{RoleSettings, WorktreeStatus, YunqConfig};
 use yunq_rules_engine::RuleId;
 use yunq_swarm::{Handoff, RoleWorktreeConfig, WorktreePlan};
 
+use crate::agent::{self, AgentArgs};
 use crate::hook;
 
 /// The roles configured under `[[swarm.role]]`, or none when the repository
@@ -98,6 +100,104 @@ pub fn list_roles(root: &Path) -> anyhow::Result<Vec<RoleReport>> {
             })
         })
         .collect()
+}
+
+/// The configured topology's role order (roadmap B4), resolved against
+/// whatever `[[swarm.role]]` entries actually exist — reported as a config
+/// error the same way an undefined role or an invalid rule id already are,
+/// rather than silently running nothing.
+pub fn topology_order(root: &Path) -> anyhow::Result<Vec<String>> {
+    let config = YunqConfig::load_from_dir(root);
+    let roles = config.as_ref().map(|c| c.swarm.roles.clone()).unwrap_or_default();
+    let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
+    let preset = config.as_ref().and_then(|c| c.swarm.topology.clone());
+    let pipeline = config.as_ref().and_then(|c| c.swarm.pipeline.clone());
+    yunq_swarm::resolve_topology(preset.as_deref(), pipeline.as_deref(), &role_names)
+        .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// One role's headless run inside a topology (roadmap B4): which role it
+/// was, and the same [`RunOutcome`] `yunq agent run` reports for a solo
+/// session, so a caller can branch on `outcome.exit_code()` exactly as it
+/// would for one.
+pub struct RoleRunOutcome {
+    pub role: String,
+    pub outcome: RunOutcome,
+}
+
+/// Drives every role in the configured topology through one headless `yunq
+/// agent` run apiece, in order: create (or attach to) the role's worktree,
+/// fold in whatever the previous role handed off, run the task under this
+/// role's own scoped policy, then queue a handoff summarizing the outcome for
+/// the next role in line. Stops at the first role whose run does not
+/// complete — handing an incomplete/failed run's baggage to the next role
+/// would only compound whatever went wrong, and `RunOutcome::exit_code`
+/// already gives the caller a precise reason to stop on.
+pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRunOutcome>> {
+    let order = topology_order(root)?;
+    let roles = configured_roles(root);
+    let config = YunqConfig::load_from_dir(root);
+
+    let mut results = Vec::new();
+    for (position, role_name) in order.iter().enumerate() {
+        let role = find_role(&roles, role_name)?;
+        let plan = worktree_plan(root, config.as_ref(), &role);
+        ensure_worktree(root, &plan)?;
+
+        let mut role_task = format!("{task} (role: {role_name})");
+        for handoff in take_inbox(root, role_name)? {
+            role_task.push_str(&format!("\n\nHandoff from {}: {}", handoff.from_role, handoff.summary));
+        }
+
+        let policy = scoped_policy(&plan.path, &role)?;
+        let args = AgentArgs {
+            task: role_task,
+            scope: ".".to_string(),
+            rule: None,
+            max_turns: None,
+            max_tokens: None,
+            model: None,
+        };
+        let outcome = agent::run_with_policy(&plan.path, args, policy).await?;
+
+        let completed = matches!(outcome, RunOutcome::Completed { .. });
+        if let Some(next) = order.get(position + 1) {
+            let summary = format!("{} — {}", role_name, outcome.describe());
+            handoff_send(root, role_name, next, &summary)?;
+        }
+        results.push(RoleRunOutcome { role: role_name.clone(), outcome });
+        if !completed {
+            break;
+        }
+    }
+    Ok(results)
+}
+
+/// Creates this role's worktree if it doesn't already have one — `yunq swarm
+/// worktree-create` stays the explicit, one-role-at-a-time entry point;
+/// this is what lets `topology_run` re-drive the same pipeline on a later
+/// run without failing on "worktree already exists".
+fn ensure_worktree(root: &Path, plan: &WorktreePlan) -> anyhow::Result<()> {
+    let existing = yunq_infra_fs::list_worktrees(root)?;
+    let already_there = existing.iter().any(|w| Path::new(&w.path) == plan.path);
+    if already_there {
+        return Ok(());
+    }
+    yunq_infra_fs::create_worktree(root, plan, "HEAD")?;
+    Ok(())
+}
+
+/// Delivers the outbox, then drains and acknowledges everything waiting for
+/// this role — a topology step's task should see a handoff exactly once,
+/// same as `yunq swarm handoff-inbox` followed by `handoff-ack` would give an
+/// operator driving the pipeline by hand.
+fn take_inbox(root: &Path, role_name: &str) -> anyhow::Result<Vec<Handoff>> {
+    handoff_deliver(root)?;
+    let waiting = handoff_inbox(root, role_name)?;
+    for handoff in &waiting {
+        handoff_ack(root, role_name, &handoff.id)?;
+    }
+    Ok(waiting)
 }
 
 pub fn worktree_create(root: &Path, role_name: &str, base_ref: &str) -> anyhow::Result<WorktreePlan> {
@@ -227,6 +327,79 @@ reason = "QA is read-only"
         };
         assert!(policy.evaluate("a.py", &[finding]).is_denied());
 
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn topology_order_is_unconfigured_by_default() {
+        let root = temp_root();
+        assert!(topology_order(&root).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn topology_order_resolves_a_named_preset_against_configured_roles() {
+        let root = temp_root();
+        std::fs::write(
+            root.join("yunq.toml"),
+            r#"
+[swarm]
+topology = "two-pack"
+
+[[swarm.role]]
+name = "coder"
+
+[[swarm.role]]
+name = "reviewer"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(topology_order(&root).unwrap(), vec!["coder", "reviewer"]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn topology_order_reports_a_preset_role_that_was_never_configured() {
+        let root = temp_root();
+        std::fs::write(
+            root.join("yunq.toml"),
+            "[swarm]\ntopology = \"two-pack\"\n\n[[swarm.role]]\nname = \"coder\"\n",
+        )
+        .unwrap();
+
+        let err = topology_order(&root).unwrap_err();
+        assert!(err.to_string().contains("reviewer"), "{err}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn an_explicit_pipeline_outranks_a_named_topology_preset() {
+        let root = temp_root();
+        std::fs::write(
+            root.join("yunq.toml"),
+            r#"
+[swarm]
+topology = "two-pack"
+pipeline = ["qa", "coder"]
+
+[[swarm.role]]
+name = "qa"
+
+[[swarm.role]]
+name = "coder"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(topology_order(&root).unwrap(), vec!["qa", "coder"]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn topology_run_reports_the_same_config_error_topology_order_would() {
+        let root = temp_root();
+        assert!(topology_run(&root, "ship it").await.is_err());
         std::fs::remove_dir_all(&root).ok();
     }
 
