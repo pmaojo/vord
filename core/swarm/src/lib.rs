@@ -14,10 +14,15 @@
 //! same split every other `core`/`infra` pair in this workspace follows.
 //! Per-role policy scoping (roadmap B3) lives in `core/agent-policy` itself
 //! (`AgentPolicy::with_role_scope`) rather than here, since it needs direct
-//! access to that crate's compiled `GlobSet`.
+//! access to that crate's compiled `GlobSet`. [`topology::resolve_topology`]
+//! (roadmap B4) is the last pure decision a pipeline run needs: which roles,
+//! in what order — driving them (creating worktrees, running `yunq agent`,
+//! moving handoffs) is I/O and lives in `bin/cli::swarm`.
 
 pub mod handoff;
+pub mod topology;
 pub mod worktree;
 
 pub use handoff::{Handoff, HandoffError, parse_handoff};
+pub use topology::{FOUR_PACK, TWO_PACK, TopologyError, next_role, resolve_topology};
 pub use worktree::{DEFAULT_WORKTREE_ROOT, RoleWorktreeConfig, WorktreePlan, plan_worktree};

@@ -42,7 +42,7 @@ Verified against the tree, not remembered:
 | LLM adapters | `infra/llm`: Anthropic Messages API + OpenAI-compatible (Groq/DeepSeek/Ollama/vLLM/LiteLLM) |
 | CLI | `scan`, `fix`, `hook`, `agent {run, tui, watch-pr}`, `swarm`, `init`, `wizard` |
 | Agent observability | `core/agent::observer` (pure `AgentEvent`/`Observer` port, `NoopObserver` default) driving `yunq agent tui` — a spectator, not a second control path |
-| Swarm | `core/swarm` (pure: worktree-plan computation, handoff schema/validation) + `infra/fs::{swarm_worktree, handoff}` (git worktree lifecycle, durable file-queue) + per-role policy scoping (`AgentPolicy::with_role_scope`, `core/agent-policy`), driven by `yunq swarm {roles, worktree-*, handoff-*}` |
+| Swarm | `core/swarm` (pure: worktree-plan computation, handoff schema/validation, topology resolution) + `infra/fs::{swarm_worktree, handoff}` (git worktree lifecycle, durable file-queue) + per-role policy scoping (`AgentPolicy::with_role_scope`, `core/agent-policy`), driven by `yunq swarm {roles, worktree-*, handoff-*, run}` — `run` drives a whole `[swarm] topology`/`pipeline` through headless `yunq agent`, one role at a time, automatically |
 | Coverage ingest | LCOV, Cobertura, JaCoCo, llvm-cov, Istanbul — with per-line hit detail (`FileLineCoverage`) |
 | ALM adapters | GitHub, GitLab, Bitbucket, Azure DevOps |
 | CI | `.github/workflows/ci.yml` — tests, clippy, benchmark regression gate (10% throughput drop fails), mutation gate |
@@ -54,8 +54,9 @@ edit in 7ms and could not make one. `yunq fix` proposed a single-issue patch
 and stopped. A1–A6 shipped: there is now a session, a tool loop, multi-file
 change, an in-process policy gate, an analyzer-decided definition of done,
 and a live terminal view onto a headless run. Workstream A is fully shipped.
-B1–B3 (swarm worktree isolation, durable handoffs, per-role policy scoping)
-shipped alongside it; B4 (topologies) is what's left open in B.
+B1–B4 (swarm worktree isolation, durable handoffs, per-role policy scoping,
+and topologies driving several roles through headless `yunq agent`
+automatically) shipped alongside it — workstream B is now fully shipped too.
 
 ---
 
@@ -262,12 +263,47 @@ expresses this; the swarm just needs per-role policy resolution.
   Regression-tested that scoping twice is additive (never a reset) and
   that the base policy object itself is left untouched by scoping a
   derived copy.
-- **B4** Topologies (two-pack / four-pack), driven by headless `yunq
-  agent`. The only item in B still open: B1–B3 give a topology everything
-  it needs (isolated worktrees, a scoped policy per role, a durable
-  handoff channel) but nothing yet drives several roles through a
-  `yunq.toml`-declared shape automatically — today `yunq swarm` is a set
-  of primitives an operator or script calls directly, one role at a time.
+- **B4** ✅ **done.** `core/swarm::topology` (pure, mirroring the split
+  `worktree`/`handoff` already draw): `resolve_topology` turns `[swarm]`'s
+  either/or configuration — a named preset (`topology = "two-pack"` → coder,
+  reviewer; `"four-pack"` → architect, coder, cleaner, qa) or an explicit
+  `pipeline = [...]` role-name sequence, the latter always outranking the
+  former the same way a CLI flag outranks `yunq.toml` for `yunq agent`'s own
+  budget — into one validated, ordered role list, checked against the roles
+  actually declared under `[[swarm.role]]` so a preset naming an undeclared
+  role, an empty pipeline, a typo'd preset name, or a role listed twice is a
+  config error from `yunq swarm run` rather than a silent no-op or a stuck
+  pipeline. `bin/cli::swarm::topology_run` is the driver: for each role in
+  order, attach its worktree (idempotently — `git worktree list` first, so
+  re-running the same topology never fails on "worktree already exists" the
+  way calling `worktree-create` twice by hand still can), fold in and
+  acknowledge whatever the previous role's handoff queued, run the task under
+  that role's own `AgentPolicy::with_role_scope` narrowing loaded from *the
+  worktree's own* `yunq-policy.toml` (not the base repo's copy — a role's
+  scope should apply to what is actually on disk in its sandbox), then queue
+  a handoff summarizing the outcome for the next role. `core/agent`'s
+  `RunOutcome` already carried everything a supervisor needs (`exit_code`,
+  `describe`) — `topology_run` reuses it as-is rather than inventing a
+  parallel status type, and stops the pipeline at the first role whose run
+  doesn't complete, since handing an incomplete or failed run's baggage
+  forward would only compound whatever went wrong. This needed one seam
+  opened in `bin/cli::agent`: `run_with_observer` was hardcoded to `hook::
+  load_policy(root)`, so it grew a `run_with_policy_and_observer` sibling
+  (and `run`/`run_with_policy` conveniences over `NoopObserver`) taking the
+  policy as an argument instead — not a second implementation of the run
+  path, the same function with one more parameter, `run_with_observer` now
+  delegates to it. `yunq swarm run --task "..."` is the new CLI entry point,
+  exiting with the exit code of whichever role stopped the pipeline (or the
+  last role's `0`) — the same distinct-exit-code convention `yunq agent run`
+  already established, so a CI step or a human driving several roles gets
+  one number to branch on either way. Verified end-to-end against a real git
+  repository (not mocked): a two-role `topology = "two-pack"` config resolves
+  and lists correctly via `yunq swarm roles`; `yunq swarm run` against it
+  creates the first role's worktree, attempts its run, and — with no model
+  reachable — reports `RunOutcome::Failed`, exits `1`, and leaves the second
+  role's worktree uncreated, confirming the stop-on-non-completion behavior
+  is real and not just asserted in a unit test; an unconfigured repository
+  reports "no topology configured" rather than running nothing silently.
 
 ## C. CRAP — risk as complexity × untestedness
 
@@ -800,10 +836,10 @@ done ──► E4–E5 (gate-gaming)
          D1–D2 (boundaries)
          E1    (mutation widen, through yunq-cpd)
          A1–A6 (agent runtime core + PR feedback loop + TUI)
-         B1–B3 (swarm worktrees, handoffs, per-role policy scoping)
+         B1–B4 (swarm worktrees, handoffs, per-role policy scoping, topologies)
 
-now  ──► B4 (topologies), driven by headless `yunq agent` — the only item
-         left open in either A or B
+now  ──► both A and B are fully shipped; nothing is currently "next" by
+         necessity — pick up any parallel item below
 
 parallel ─► F (performance)  — continuous, gated in CI
             C4 (run coverage) — startable, C1–C3 shipped
@@ -832,18 +868,17 @@ scoping) shipped together in the same pass, because once `core/agent` grew
 an `Observer` port for A6, the natural next step was giving something
 concrete to watch other than a solo session — B1–B3 are what a swarm role
 needs before it can run at all (its own worktree, its own handoff channel,
-its own scoped policy), and none of the three depend on B4's topology layer
-existing first. B4 is now the only item open in either workstream: `yunq
-agent run --task` is headless, scriptable and returns a structured outcome,
-and `yunq swarm` already has isolated worktrees, scoped policies and a
-durable handoff queue per role — what's missing is something that drives
-several roles through a `yunq.toml`-declared topology automatically instead
-of one role at a time by hand. F is continuous and already gated. D4
-(I/A metrics, `yunq arch` viewer) can start now that D1's component model
-exists. E1's remaining widening (taint → rules-engine) is more matrix
-entries, and `core/agent` is the obvious next admission to it: it is pure,
-fast, and the highest-consequence decision logic added since
-`core/agent-policy` itself.
+its own scoped policy). B4 shipped next, closing workstream B entirely:
+`yunq agent run --task` was already headless, scriptable and returned a
+structured outcome, and B1–B3 already had isolated worktrees, scoped
+policies and a durable handoff queue per role — `core/swarm::topology` plus
+`bin/cli::swarm::topology_run` is what drives several of them through a
+`yunq.toml`-declared shape automatically instead of one role at a time by
+hand. F is continuous and already gated. D4 (I/A metrics, `yunq arch`
+viewer) can start now that D1's component model exists. E1's remaining
+widening (taint → rules-engine) is more matrix entries, and `core/agent` is
+the obvious next admission to it: it is pure, fast, and the
+highest-consequence decision logic added since `core/agent-policy` itself.
 
 ## Non-goals
 

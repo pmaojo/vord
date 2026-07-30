@@ -167,10 +167,18 @@ fn run_config(args: &AgentArgs, settings: &yunq_infra_fs::AgentSettings) -> anyh
 }
 
 /// Runs one headless session. Returns the outcome rather than an exit code so
-/// the caller owns rendering — `yunq swarm` (workstream B) drives this same
-/// function and wants the structured verdict, not a number.
+/// the caller owns rendering — `yunq agent run`/`tui` want it as-is; `yunq
+/// swarm`'s topology runner (roadmap B4) wants the same shape but under a
+/// role's own scoped policy, hence [`run_with_policy`] alongside it.
 pub async fn run(root: &Path, args: AgentArgs) -> anyhow::Result<RunOutcome> {
     run_with_observer(root, args, yunq_agent::NoopObserver).await
+}
+
+/// Same as [`run`], under a caller-supplied policy rather than `root`'s own
+/// `yunq-policy.toml` — see [`run_with_policy_and_observer`] for why this
+/// exists.
+pub async fn run_with_policy(root: &Path, args: AgentArgs, policy: AgentPolicy) -> anyhow::Result<RunOutcome> {
+    run_with_policy_and_observer(root, args, policy, yunq_agent::NoopObserver).await
 }
 
 /// Same as [`run`], with an [`yunq_agent::Observer`] watching every event the
@@ -182,10 +190,26 @@ pub async fn run_with_observer(
     args: AgentArgs,
     observer: impl yunq_agent::Observer + 'static,
 ) -> anyhow::Result<RunOutcome> {
+    let policy = hook::load_policy(root)?;
+    run_with_policy_and_observer(root, args, policy, observer).await
+}
+
+/// Same as [`run_with_observer`], with the policy supplied by the caller
+/// rather than loaded from `root`'s own `yunq-policy.toml` — `yunq swarm`
+/// (roadmap B4) is the reason this exists: a role driven through a topology
+/// runs under its own [`yunq_agent_policy::AgentPolicy::with_role_scope`]
+/// narrowing, evaluated against the *worktree's* files, not a second
+/// implementation of what `run_with_observer` already does for the
+/// unscoped case.
+pub async fn run_with_policy_and_observer(
+    root: &Path,
+    args: AgentArgs,
+    policy: AgentPolicy,
+    observer: impl yunq_agent::Observer + 'static,
+) -> anyhow::Result<RunOutcome> {
     let config_file = YunqConfig::load_from_dir(root);
     let settings = config_file.as_ref().map(|c| c.agent.clone()).unwrap_or_default();
     let config = run_config(&args, &settings)?;
-    let policy = hook::load_policy(root)?;
 
     let mut provider = LlmProviderConfig::from_env();
     if let Some(model) = args.model {
