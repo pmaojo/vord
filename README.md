@@ -88,6 +88,7 @@ yunq/
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
 │   ├── fs/                     # gitignore-aware source loader, coverage/mutation parsers, caches, worktrees
 │   ├── llm/                    # Anthropic + OpenAI-compatible chat providers, for `agent`/`fix`
+│   ├── pdf/                    # OWASP/CWE/PCI DSS compliance report generation (PDF + CSV)
 │   └── github/, gitlab/, bitbucket/, azure/   # ALM adapters (PR feedback, issue sync)
 ├── parsers/                    # INBOUND ADAPTERS (tree-sitter → neutral AST) — 24 languages
 │   ├── treesitter-adapter/     # shared `declare_parser!` macro every language crate below uses
@@ -191,6 +192,7 @@ cargo run -p yunq-cli -- scan fixtures --jacoco report.xml    # ingest JaCoCo XM
 cargo run -p yunq-cli -- scan fixtures --llvm-cov report.json # ingest llvm-cov JSON coverage
 cargo run -p yunq-cli -- scan fixtures --coverage-report coverage-final.json --coverage-format istanbul
 cargo run -p yunq-cli -- scan fixtures --junit report.xml     # ingest JUnit test report
+cargo run -p yunq-cli -- scan fixtures --compliance-pdf report.pdf --compliance-csv report.csv  # OWASP/CWE/PCI DSS evidence report
 cargo run -p yunq-cli -- scan monorepo-root --monorepo         # discover + scan every yunq.toml-configured project under a root
 cargo run -p yunq-cli -- scan fixtures --mutation-report mutation.json  # ingest a Stryker-schema mutation report
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
@@ -609,6 +611,26 @@ This is deliberately the same posture as coverage/JUnit ingestion: yunq is
 the gate that decides whether a build passes, not the tool that runs the
 tests or the mutants — a test runner (or `cargo test`/`pytest`/mutation
 tool) still has to produce the report yunq consumes.
+
+## Compliance reports
+
+`--compliance-pdf`/`--compliance-csv` write the scan's findings as an OWASP
+Top 10 / CWE / PCI DSS evidence report — quality gate status, vulnerability
+and hotspot totals, and the findings themselves — for whoever needs to show
+an auditor something other than a terminal. Either flag, both, or neither;
+the scan's exit code and gate result never depend on them.
+
+```bash
+cargo run -p yunq-cli -- scan . --compliance-pdf report.pdf --compliance-csv report.csv
+```
+
+The PDF is a real, minimal, dependency-free PDF 1.4 document (ISO 32000-1) —
+no PDF-rendering library, just the object/xref/trailer structure written by
+hand — so it opens in any reader without pulling in a native rendering
+dependency for a report that is a handful of text lines. The CSV is the same
+evidence as one row per issue (`rule_id,severity,file_path,start_line,message`),
+for pasting into a spreadsheet or feeding a compliance tracker that wants
+tabular data instead.
 
 ## The SOLID / hexagonal / DDD gatekeeper
 

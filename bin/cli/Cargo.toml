@@ -73,6 +73,7 @@ yunq-infra-fs = { workspace = true }
 yunq-infra-github = { workspace = true }
 yunq-remediation = { workspace = true }
 yunq-infra-llm = { workspace = true }
+yunq-infra-pdf = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }

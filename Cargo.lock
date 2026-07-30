@@ -2979,6 +2979,7 @@ dependencies = [
  "yunq-infra-github",
  "yunq-infra-llm",
  "yunq-infra-memory",
+ "yunq-infra-pdf",
  "yunq-parser-bash",
  "yunq-parser-c",
  "yunq-parser-cpp",
