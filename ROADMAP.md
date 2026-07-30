@@ -763,12 +763,9 @@ hand-rolled copy.
 
 ## F. Performance debt (carried forward, unchanged in priority)
 
-Target remains **≥100k LOC/s per core**; measured floor ~67.6k. The three
+Target remains **≥100k LOC/s per core**; measured floor ~67.6k. The two
 open items, in the order most likely to close the gap:
 
-- **Arena-allocated AST.** Nodes are individually heap-allocated
-  (`Vec<AstNode>` children). Node-kind labels are interned and text is
-  zero-copy already; the allocation count per parse is the remaining term.
 - **Cross-file phase caching.** The per-file analysis cache exists; the
   cross-file phase re-parses every file every run with no cache and no
   dependency-aware invalidation.
