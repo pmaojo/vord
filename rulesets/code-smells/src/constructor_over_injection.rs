@@ -22,11 +22,6 @@ use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 use yunq_symbols::{mentions_collaborator, ClassRegistry, MethodInfo};
 
-/// Constructor names across the three grammars. Rust has no constructors;
-/// `new` is the universal convention for one, and `ClassRegistry` attaches it
-/// to its struct from the `impl` block.
-const CONSTRUCTOR_NAMES: &[&str] = &["constructor", "__init__", "new"];
-
 /// Suffixes of types that are *settings*, not services: a record of values the
 /// caller assembles and hands over. A class taking four collaborators and a
 /// config struct has four dependencies, not five — counting the config is how
@@ -79,9 +74,13 @@ impl Rule for ConstructorOverInjectionRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        *language == LanguageIdentifier::typescript()
-            || *language == LanguageIdentifier::python()
-            || *language == LanguageIdentifier::rust()
+        [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::python(),
+            LanguageIdentifier::rust(),
+            LanguageIdentifier::go(),
+        ]
+        .contains(language)
     }
 
     fn default_severity(&self) -> Severity {
@@ -112,10 +111,9 @@ impl Rule for ConstructorOverInjectionRule {
         let registry = ClassRegistry::build(ast);
         let mut findings = Vec::new();
         for class in registry.iter() {
-            let Some(constructor) = class.methods.iter().find(|m| CONSTRUCTOR_NAMES.contains(&m.name.as_str()))
-            else {
-                continue;
-            };
+            // `ClassInfo::constructor` knows what each language calls one —
+            // `constructor`/`__init__`, Rust's `new`, Go's `New<Type>` function.
+            let Some(constructor) = class.constructor() else { continue };
             if constructor.params.iter().all(|p| p.declared_type.is_none()) {
                 continue; // nothing declared: no evidence either way
             }
@@ -242,6 +240,20 @@ mod tests {
             "pub struct Issue;\n\nimpl Issue {\n    pub fn new(rule: RuleId, severity: Severity, message: impl Into<String>, file: impl Into<String>, span: Span) -> Self {\n        Self\n    }\n}\n",
         );
         assert!(findings.is_empty(), "two of these five parameters are strings: {findings:?}");
+    }
+
+    #[test]
+    fn flags_a_go_constructor_function_with_five_injected_ports() {
+        let file = SourceFile::new(
+            "t.go",
+            "package app\n\ntype OrderService struct{}\n\nfunc NewOrderService(orders OrderRepository, payments PaymentGateway, mail Mailer, audit AuditLog, clock Clock) *OrderService {\n\treturn &OrderService{}\n}\n",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let findings = ConstructorOverInjectionRule::default().check(&file, &ast);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("5 injected collaborators"));
     }
 
     #[test]

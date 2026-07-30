@@ -5,7 +5,9 @@
 //!
 //! TypeScript/JS and Python resolve via relative specifiers against the
 //! candidate file set (see `resolve` module docs for what's resolved and
-//! what's deliberately left external); Rust resolves `use` edges against a
+//! what's deliberately left external); Go resolves `import` paths by
+//! directory suffix (its module prefix lives in `go.mod`, which this crate
+//! cannot read); Rust resolves `use` edges against a
 //! crate-name index instead (`build_with_rust_crates`, see its own doc
 //! comment — this crate stays I/O-free, so the index itself is built
 //! elsewhere, `yunq_infra_fs::discover_rust_crates`). Every other language
@@ -117,6 +119,22 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
                 None
             };
             if let Some(target) = resolved {
+                if target != path {
+                    edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                }
+            }
+        }
+    }
+}
+
+/// Go `import` edges: every `import_spec`'s quoted package path, resolved by
+/// directory suffix (`resolve::resolve_go_import` — Go's module prefix lives in
+/// `go.mod`, which this I/O-free crate cannot read).
+fn extract_go_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut Vec<ImportEdge>) {
+    for node in ast.descendants().filter(|n| is_other(n, "import_declaration")) {
+        for spec in node.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+            let specifier = strip_quotes(spec.text());
+            if let Some(target) = resolve::resolve_go_import(&specifier, candidates) {
                 if target != path {
                     edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
                 }
@@ -309,6 +327,8 @@ impl ImportGraph {
                 extract_py_edges(path, ast, &candidates, &mut edges);
             } else if path.ends_with(".rs") {
                 extract_rust_edges(path, ast, rust_crates, &mut edges);
+            } else if path.ends_with(".go") {
+                extract_go_edges(path, ast, &candidates, &mut edges);
             }
         }
         Self { edges }

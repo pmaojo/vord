@@ -32,7 +32,7 @@ Verified against the tree, not remembered:
 |---|---|
 | Workspace | Hexagonal, enforced by Cargo: `bin → {infra, parsers, rulesets} → core` |
 | Languages | 24 tree-sitter grammars (`parsers/`, plus `treesitter-adapter` + `treesitter-tokens`) |
-| Rules | 150 `Rule`/`CrossFileRule` impls across 15 ruleset crates — including the SOLID/hexagonal/DDD gatekeeper (D3, D3b, D3c) |
+| Rules | 150 `Rule`/`CrossFileRule` impls across 15 ruleset crates — including the SOLID/hexagonal/DDD gatekeeper (D3, D3b, D3c), live for TypeScript, Python, Rust and Go |
 | Tests | ~1667 test functions in-workspace (`#[test]` + `#[tokio::test]`, counted directly rather than carried forward) |
 | Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph`, `crap` (CC² × (1−coverage)³ + CC risk scoring) |
 | Agent guardrail | `core/agent-policy` (1039 LOC): blocking/advisory rules, protected paths (incl. its own policy/gate config files), provenance, Gherkin evidence, circuit breaker, loop guard, single-use escalation tokens, audit log, gate-gaming detection (suppressions, skipped tests) |
@@ -530,6 +530,30 @@ missing is the layer above it: components, declared boundaries, and metrics.
   is not a setter. Rust is read on its own terms too: an exposed collection is
   only a finding for `&mut self.items`, since a shared borrow cannot mutate
   what it borrows.
+  **Go joined all of it** (D3d): `core/symbols` grew a Go extractor (struct and
+  interface `type_spec`s, receiver methods matched to their type, `New<Type>`
+  constructor functions) and `MethodInfo` grew a `receiver`, so accessor
+  detection works on `func (o *Order)` bodies without special-casing anything at
+  the rule level; `core/import-graph` resolves Go `import` paths by shared
+  directory tail (the module prefix lives in `go.mod`, which an I/O-free crate
+  cannot read, and a scan rooted below `go.mod` would not reproduce it anyway);
+  the rosters grew Go entries (`database/sql`, `gorm.io/gorm`, gin/echo/fiber,
+  gorm struct tags). Mojo did **not**: there is no `tree-sitter-mojo` on
+  crates.io, this workspace publishes to crates.io, and Mojo's `struct`/`fn`
+  syntax is not parseable by the Python grammar — the honest status is unsupported
+  until a published grammar exists, at which point it is a parser crate plus one
+  `EXTRACTORS` row.
+
+  **The god-component objection, answered in code** (D3e): `core/symbols/
+  classes.rs` had grown to 804 lines with a per-language `match` at its centre —
+  the same shape `smells:type-check-chain` and `smells:god-class` were shipped to
+  flag. It is now `classes/{mod,typescript,python,rust,go}.rs` behind an
+  `EXTRACTORS` table of `(declaration kind, build, attach)` rows, so the registry
+  never asks what language it is looking at and a new language is a new file plus
+  a row. Parameter extraction collapsed from four near-identical per-language
+  functions into one `function_params`, and per-language visibility moved from a
+  `bool` flag threaded through call sites into a `VISIBILITY` policy table.
+
   Building it exposed two real bugs in `core/symbols` that had been silently
   degrading every existing OOP-smell rule on Rust: `attach_rust_impls` took
   the *first child* as a method name, so every `pub fn` was dropped (a

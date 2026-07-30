@@ -3522,6 +3522,7 @@ version = "0.1.1"
 dependencies = [
  "yunq-ast",
  "yunq-import-graph",
+ "yunq-parser-go",
  "yunq-parser-python",
  "yunq-parser-rust",
  "yunq-parser-typescript",
@@ -3534,6 +3535,7 @@ version = "0.1.1"
 dependencies = [
  "yunq-ast",
  "yunq-import-graph",
+ "yunq-parser-go",
  "yunq-parser-python",
  "yunq-parser-rust",
  "yunq-parser-typescript",
@@ -3644,6 +3646,7 @@ name = "yunq-rules-smells"
 version = "0.1.1"
 dependencies = [
  "yunq-ast",
+ "yunq-parser-go",
  "yunq-parser-php",
  "yunq-parser-python",
  "yunq-parser-rust",
@@ -3675,6 +3678,7 @@ name = "yunq-symbols"
 version = "0.1.1"
 dependencies = [
  "yunq-ast",
+ "yunq-parser-go",
  "yunq-parser-python",
  "yunq-parser-rust",
  "yunq-parser-typescript",

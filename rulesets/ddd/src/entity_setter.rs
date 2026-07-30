@@ -14,7 +14,7 @@
 //! the entity's own behavior is an implementation detail, not a hole in the
 //! aggregate boundary.
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
+use yunq_ast::{AstNode, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use yunq_symbols::ClassRegistry;
 
@@ -99,11 +99,11 @@ impl CrossFileRule for PublicEntitySetterRule {
         let mut findings = Vec::new();
         for class in registry.iter() {
             let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
-            let is_rust = *files[index].0.language() == LanguageIdentifier::rust();
+            let language = files[index].0.language().clone();
             let fields = field_names(class);
             for method in declared_methods(class) {
                 let Some(accessor) = accessor_of(method, &fields) else { continue };
-                if accessor.kind != AccessorKind::Setter || !crate::common::is_public(method, is_rust) {
+                if accessor.kind != AccessorKind::Setter || !crate::common::is_public(method, &language) {
                     continue;
                 }
                 if !is_setter_shaped(&method.name, method.node.text()) {
@@ -128,6 +128,7 @@ impl CrossFileRule for PublicEntitySetterRule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yunq_ast::LanguageIdentifier;
     use yunq_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {

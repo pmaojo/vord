@@ -23,7 +23,7 @@ use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use yunq_symbols::{ClassInfo, ClassRegistry};
 
-use crate::common::{accessor_of, field_names, is_domain_path, is_public, AccessorKind, CONSTRUCTOR_NAMES};
+use crate::common::{accessor_of, field_names, is_constructor, is_domain_path, is_public, AccessorKind};
 
 /// Declared types that are collections, across the three languages' spellings.
 const COLLECTION_TYPES: &[&str] = &[
@@ -63,7 +63,7 @@ fn collection_fields(class: &ClassInfo<'_>) -> BTreeSet<String> {
         .map(|field| field.name.clone())
         .collect();
     let declared = field_names(class);
-    for constructor in class.methods.iter().filter(|m| CONSTRUCTOR_NAMES.contains(&m.name.as_str())) {
+    for constructor in class.methods.iter().filter(|m| is_constructor(m, class)) {
         for assignment in constructor.node.descendants().filter(|n| *n.kind() == NodeKind::Assignment) {
             let Some(target) = assignment.first_child() else { continue };
             if *target.kind() != NodeKind::MemberAccess {
@@ -140,7 +140,7 @@ impl CrossFileRule for ExposedCollectionRule {
         let mut findings = Vec::new();
         for class in registry.iter() {
             let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
-            let is_rust = *files[index].0.language() == LanguageIdentifier::rust();
+            let language = files[index].0.language().clone();
             let fields = field_names(class);
             let collections = collection_fields(class);
             for method in &class.methods {
@@ -148,12 +148,12 @@ impl CrossFileRule for ExposedCollectionRule {
                 if accessor.kind != AccessorKind::Getter || !collections.contains(&accessor.field) {
                     continue;
                 }
-                if !is_public(method, is_rust) {
+                if !is_public(method, &language) {
                     continue;
                 }
                 // In Rust a shared borrow is already immutable; only a mutable
                 // one hands out the ability to change the aggregate's interior.
-                if is_rust && !accessor.returns_mutable_reference {
+                if language == LanguageIdentifier::rust() && !accessor.returns_mutable_reference {
                     continue;
                 }
                 findings.push((

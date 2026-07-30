@@ -328,6 +328,24 @@ fn go_activations() -> Vec<(RuleId, Severity)> {
         (rule("go:unchecked-type-assertion"), Severity::Major),
         (rule("go:defer-in-loop"), Severity::Major),
         (rule("go:goroutine-loop-var-capture"), Severity::Major),
+        // rulesets/architecture — per-file hexagonal purity check.
+        (rule("architecture:framework-in-domain"), Severity::Major),
+        // rulesets/code-smells — SOLID rules; Go joins these via its struct +
+        // receiver-method model in `core/symbols` (`New<Type>` counts as the
+        // constructor) and its `interface` declarations.
+        (rule("smells:type-check-chain"), Severity::Major),
+        (rule("smells:constructor-over-injection"), Severity::Major),
+        (rule("smells:service-locator"), Severity::Major),
+        (rule("smells:class-fan-out"), Severity::Major),
+        (rule("smells:god-class"), Severity::Major),
+        (rule("smells:low-cohesion"), Severity::Major),
+        (rule("smells:fat-interface"), Severity::Minor),
+        // rulesets/ddd — tactical DDD rules, domain-layer scoped.
+        (rule("ddd:persistence-in-domain"), Severity::Minor),
+        (rule("ddd:anemic-domain-model"), Severity::Major),
+        (rule("ddd:public-entity-setter"), Severity::Major),
+        (rule("ddd:primitive-obsession"), Severity::Minor),
+        (rule("ddd:aggregate-exposes-internal-collection"), Severity::Major),
     ]);
     activations
 }

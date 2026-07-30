@@ -127,6 +127,26 @@ impl AstNode {
         self.children.first()
     }
 
+    /// The source text between two of this node's descendants — the operator
+    /// token tree-sitter drops from `named_children`.
+    ///
+    /// Grammars model `a instanceof B`, `x += 1` and `typeof x` with the
+    /// operator as an *anonymous* token, so it never becomes an `AstNode`. A
+    /// rule that needs to know *which* operator a `binary_expression` or an
+    /// `Assignment` uses has exactly two options: match the parent's whole text
+    /// with a substring search (which sees operators inside string literals and
+    /// comments too), or read the gap between the operands, which is what the
+    /// grammar actually says. This is the second one.
+    ///
+    /// `None` when the two nodes are not in this node's buffer in order, so a
+    /// caller cannot accidentally slice an unrelated range.
+    pub fn text_between(&self, first: &AstNode, second: &AstNode) -> Option<&str> {
+        if first.end > second.start || first.start < self.start || second.end > self.end {
+            return None;
+        }
+        self.source.get(first.end as usize..second.start as usize)
+    }
+
     /// Pre-order traversal of this node and every descendant.
     pub fn descendants(&self) -> Descendants<'_> {
         Descendants { stack: vec![self] }
@@ -229,6 +249,56 @@ mod tests {
         assert_eq!(ident.text(), "eval");
         // The child borrows the same allocation as the file buffer.
         assert_eq!(Arc::strong_count(&source), 2);
+    }
+
+    #[test]
+    fn text_between_reads_the_operator_the_grammar_drops() {
+        let source: Arc<str> = Arc::from("total += amount");
+        let left = AstNode::from_source(
+            NodeKind::Identifier,
+            Span::new(1, 1, 1, 6),
+            Arc::clone(&source),
+            0..5,
+            vec![],
+        );
+        let right = AstNode::from_source(
+            NodeKind::Identifier,
+            Span::new(1, 10, 1, 16),
+            Arc::clone(&source),
+            9..15,
+            vec![],
+        );
+        let assignment = AstNode::from_source(
+            NodeKind::Assignment,
+            Span::new(1, 1, 1, 16),
+            Arc::clone(&source),
+            0..15,
+            vec![left.clone(), right.clone()],
+        );
+        assert_eq!(assignment.text_between(&left, &right), Some(" += "));
+    }
+
+    #[test]
+    fn text_between_refuses_nodes_out_of_order_or_out_of_range() {
+        let source: Arc<str> = Arc::from("a = b");
+        let node = |range: std::ops::Range<usize>| {
+            AstNode::from_source(
+                NodeKind::Identifier,
+                Span::new(1, 1, 1, 2),
+                Arc::clone(&source),
+                range,
+                vec![],
+            )
+        };
+        let (left, right) = (node(0..1), node(4..5));
+        let parent = AstNode::from_source(
+            NodeKind::Assignment,
+            Span::new(1, 1, 1, 6),
+            Arc::clone(&source),
+            0..5,
+            vec![left.clone(), right.clone()],
+        );
+        assert_eq!(parent.text_between(&right, &left), None);
     }
 
     #[test]

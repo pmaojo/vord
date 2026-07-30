@@ -116,6 +116,55 @@ pub fn resolve_py_relative<'a>(
     resolve_py_module_path(&segments.join("/"), candidates)
 }
 
+const GO_EXTENSION: &str = ".go";
+
+/// Resolves a Go import path (`example.com/app/internal/domain`) to a file in
+/// `candidates`.
+///
+/// Go imports name a *package*, addressed by module path, and the module prefix
+/// lives in `go.mod` — which this crate cannot read (it is I/O-free by design,
+/// the same constraint that pushed Rust's crate index out to `infra/fs`). So
+/// resolution matches on the *shared tail* of the import path and the candidate's
+/// directory: `.../internal/infra` resolves to `internal/infra/pg.go` and to
+/// `svc/internal/infra/pg.go` alike, because a scan rooted inside the module has
+/// no reason to reproduce the module prefix in its paths.
+///
+/// Two segments of agreement are required (or the whole directory, if it is
+/// shorter), so a third-party import cannot latch onto an unrelated local
+/// directory that happens to end with the same word — `github.com/gin-gonic/gin`
+/// does not resolve to `vendor/gin`. The longest agreement wins, and a package is
+/// represented by its lexicographically first file: every file in a Go package
+/// shares one directory, hence one component and one hexagonal layer.
+pub fn resolve_go_import<'a>(import_path: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let import_segments = split_segments(import_path.trim_matches('"'));
+    let mut best: Option<(usize, &'a str)> = None;
+    for candidate in candidates.iter().copied().filter(|c| c.ends_with(GO_EXTENSION)) {
+        let dir_segments = dirname_segments(candidate);
+        if dir_segments.is_empty() {
+            continue;
+        }
+        let shared = dir_segments
+            .iter()
+            .rev()
+            .zip(import_segments.iter().rev())
+            .take_while(|(dir, import)| dir == import)
+            .count();
+        if shared == 0 || shared < dir_segments.len().min(2) {
+            continue;
+        }
+        let better = match best {
+            Some((best_shared, best_path)) => {
+                shared > best_shared || (shared == best_shared && candidate < best_path)
+            }
+            None => true,
+        };
+        if better {
+            best = Some((shared, candidate));
+        }
+    }
+    best.map(|(_, candidate)| candidate)
+}
+
 const RS_EXTENSION: &str = ".rs";
 
 /// A Rust file's *module directory*: where its child modules live. A module
@@ -261,6 +310,53 @@ mod tests {
             resolve_py_relative("pkg/a.py", 1, None, Some("sibling"), &candidates),
             Some("pkg/sibling.py")
         );
+    }
+
+    #[test]
+    fn go_import_resolves_by_directory_suffix_without_a_go_mod() {
+        let candidates = ["internal/domain/order.go", "internal/infra/postgres.go"];
+        assert_eq!(
+            resolve_go_import("example.com/app/internal/infra", &candidates),
+            Some("internal/infra/postgres.go")
+        );
+    }
+
+    #[test]
+    fn the_longest_matching_go_package_directory_wins() {
+        let candidates = ["internal/domain/order.go", "internal/domain/line/line.go"];
+        assert_eq!(
+            resolve_go_import("example.com/app/internal/domain/line", &candidates),
+            Some("internal/domain/line/line.go")
+        );
+    }
+
+    #[test]
+    fn a_go_package_is_represented_by_its_first_file() {
+        let candidates = ["internal/infra/zebra.go", "internal/infra/apple.go"];
+        assert_eq!(resolve_go_import("app/internal/infra", &candidates), Some("internal/infra/apple.go"));
+    }
+
+    #[test]
+    fn a_go_import_resolves_when_the_scan_root_is_inside_the_module() {
+        // Scanned from a directory below `go.mod`, so the module prefix is not
+        // part of the candidate paths at all.
+        let candidates = ["hexagon/internal/infra/postgres.go", "hexagon/internal/domain/order.go"];
+        assert_eq!(
+            resolve_go_import("example.com/app/internal/infra", &candidates),
+            Some("hexagon/internal/infra/postgres.go")
+        );
+    }
+
+    #[test]
+    fn a_single_shared_segment_is_not_enough_to_resolve() {
+        let candidates = ["vendor/gin/gin.go"];
+        assert_eq!(resolve_go_import("github.com/gin-gonic/gin", &candidates), None);
+    }
+
+    #[test]
+    fn a_third_party_go_import_resolves_to_nothing() {
+        let candidates = ["internal/domain/order.go"];
+        assert_eq!(resolve_go_import("github.com/gin-gonic/gin", &candidates), None);
     }
 
     #[test]

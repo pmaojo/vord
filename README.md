@@ -554,7 +554,7 @@ tool) still has to produce the report yunq consumes.
 
 Most analyzers gate on *defects*. yunq also gates on **design**: the rules below
 fail a build for architecture, not just for bugs — across TypeScript/JavaScript,
-Python and Rust, from one engine, with no per-language plugin to install.
+Python, Rust and Go, from one engine, with no per-language plugin to install.
 
 Nothing here needs configuration. `[architecture]` in `yunq.toml` still exists
 for declaring your own component boundaries, but the layering rules read the
@@ -602,6 +602,48 @@ setters, and a row type *should* carry the ORM mapping.
 - `primitive-obsession` — a domain signature of interchangeable primitives.
 - `persistence-in-domain` — ORM mapping (`@Entity`, `models.Model`,
   `#[derive(Queryable)]`) on a model that should be persistence-ignorant.
+
+### Language coverage, honestly
+
+| | Layering & purity (import-based) | SOLID & DDD (type-based) |
+| --- | --- | --- |
+| TypeScript / JavaScript | ✅ `import`/`export`/`require` | ✅ `class`, `interface`, `abstract class` |
+| Python | ✅ absolute + relative imports | ✅ `class`, `Protocol`/ABC, `@property` |
+| Rust | ✅ `use` (intra-crate modules; cross-crate via `[architecture]`) | ✅ `struct`/`enum` + `impl`, `trait` |
+| Go | ✅ `import` (package paths, resolved without `go.mod`) | ✅ `type` struct/interface, receiver methods, `New<Type>` |
+
+Two limits worth stating plainly rather than discovering later:
+
+- **Functional code has partial type-based coverage.** If you write
+  `export const makeOrder = (...) => ...` and never a `class`, the layering and
+  purity rules (`hexagonal-layer-violation`, `framework-in-domain`,
+  `dependency-cycle`, the component metrics) work exactly the same — they read
+  imports, not types — and so do `type-check-chain` and `service-locator`, which
+  read control flow and call sites. `primitive-obsession` covers free functions
+  and arrow-function constants too. The rules that genuinely need a type
+  declaration (`anemic-domain-model`, `public-entity-setter`,
+  `aggregate-exposes-internal-collection`, `class-fan-out`, `deep-inheritance`,
+  `constructor-over-injection`) stay quiet, because the defect they describe
+  needs a class to exist.
+- **Mojo is not supported yet**, and the blocker is upstream: there is no
+  `tree-sitter-mojo` on crates.io, and this workspace publishes to crates.io, so
+  a git-only grammar cannot ship in a release. Mojo is *not* analyzable through
+  the Python grammar either — `struct`, `fn`, `var` and its ownership modifiers
+  are not Python syntax, so the parse would degrade exactly on the declarations
+  these rules read. When a published grammar exists, support is a new
+  `parsers/treesitter-mojo` crate plus one row in `core/symbols`'
+  `EXTRACTORS` table and one roster entry per rule — the same shape Go took.
+
+### Structure, not string matching
+
+Every rule here reads the tree, not the text. `instanceof` is a
+`binary_expression` whose operator is read from between its operands
+(`AstNode::text_between`), `isinstance` is a `Call` with a known callee, `&mut
+self.items` is a `reference_expression` carrying a `mutable_specifier`, `+=` is
+distinguished from `=` by the operator token rather than by a substring search,
+and a Go type assertion is its own node kind. The practical difference: a comment
+or a string literal that happens to read like a type test or a field access
+cannot produce a finding.
 
 ### Where the algorithms come from, and what is actually new
 

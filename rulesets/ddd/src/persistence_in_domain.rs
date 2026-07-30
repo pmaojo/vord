@@ -52,6 +52,13 @@ const PYTHON_BASES: &[&str] =
 const PYTHON_MAPPERS: &[&str] =
     &["Column(", "mapped_column(", "relationship(", "declarative_base(", "ForeignKey("];
 
+/// Go markers: a `gorm:`/`db:`/`bson:` column tag on a struct field, or an
+/// embedded `gorm.Model`. Go has no annotations, so the mapping rides on struct
+/// tags — string literals in field position, which is why they are matched on the
+/// `field_declaration` that carries them rather than anywhere in the file.
+const GO_TAG_MARKERS: &[&str] = &["gorm:", "db:", "bson:", "sql:"];
+const GO_EMBEDDED_MARKERS: &[&str] = &["gorm.Model", "bun.BaseModel", "ent.Schema"];
+
 /// Rust derive/attribute markers: Diesel, SQLx, SeaORM.
 const RUST_MARKERS: &[&str] = &[
     "Queryable",
@@ -100,6 +107,27 @@ fn markers(file: &SourceFile, ast: &AstNode) -> Vec<(String, yunq_ast::Span)> {
         }
         return found;
     }
+    if *language == LanguageIdentifier::go() {
+        return ast
+            .descendants()
+            .filter(|n| is_other(n, "field_declaration"))
+            .filter_map(|field| {
+                let tag = field
+                    .children()
+                    .iter()
+                    .find(|c| *c.kind() == NodeKind::StringLiteral)
+                    .and_then(|literal| {
+                        GO_TAG_MARKERS.iter().find(|marker| literal.text().contains(*marker))
+                    })
+                    .map(|marker| marker.trim_end_matches(':').to_string());
+                let embedded = GO_EMBEDDED_MARKERS
+                    .iter()
+                    .find(|marker| field.text().trim_start().starts_with(*marker))
+                    .map(|marker| marker.to_string());
+                tag.or(embedded).map(|marker| (marker, field.span()))
+            })
+            .collect();
+    }
     if *language == LanguageIdentifier::rust() {
         return ast
             .descendants()
@@ -138,9 +166,13 @@ impl Rule for PersistenceInDomainRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        *language == LanguageIdentifier::typescript()
-            || *language == LanguageIdentifier::python()
-            || *language == LanguageIdentifier::rust()
+        [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::python(),
+            LanguageIdentifier::rust(),
+            LanguageIdentifier::go(),
+        ]
+        .contains(language)
     }
 
     fn default_severity(&self) -> Severity {
@@ -193,6 +225,8 @@ mod tests {
             yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
         } else if language == LanguageIdentifier::python() {
             yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+        } else if language == LanguageIdentifier::go() {
+            yunq_parser_go::GoParser::new().parse(&file).unwrap()
         } else {
             yunq_parser_rust::RustParser::new().parse(&file).unwrap()
         };
@@ -253,6 +287,20 @@ mod tests {
     fn silent_on_an_ordinary_rust_derive() {
         let code = "#[derive(Clone, Debug, PartialEq)]\npub struct Order {\n    pub id: i32,\n}\n";
         assert!(check("src/domain/order.rs", code, LanguageIdentifier::rust()).is_empty());
+    }
+
+    #[test]
+    fn flags_a_gorm_struct_tag_on_a_go_domain_type() {
+        let code = "package domain\n\ntype Order struct {\n\tID string `gorm:\"primaryKey\"`\n}\n";
+        let findings = check("internal/domain/order.go", code, LanguageIdentifier::go());
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("gorm"));
+    }
+
+    #[test]
+    fn silent_on_a_plain_go_domain_struct() {
+        let code = "package domain\n\ntype Order struct {\n\tID string\n\tTotal int64\n}\n";
+        assert!(check("internal/domain/order.go", code, LanguageIdentifier::go()).is_empty());
     }
 
     #[test]

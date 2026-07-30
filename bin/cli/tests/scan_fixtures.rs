@@ -42,7 +42,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
         assert!(fired.contains(expected), "rule {expected} did not fire; fired: {fired:?}");
     }
 
-    assert_eq!(report.metrics().files_scanned(), 11);
+    assert_eq!(report.metrics().files_scanned(), 13);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);
@@ -81,13 +81,32 @@ fn scans_fixtures_and_finds_every_rule_family() {
             .any(|i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:hardcoded-secret")
     );
 
+    // Go rides the same rules through its own grammar: a struct with receiver
+    // methods, a `New<Type>` constructor function, `interface` ports, and
+    // `import` paths resolved by package directory.
+    let go_findings: Vec<&str> = report
+        .issues()
+        .iter()
+        .filter(|i| i.file().ends_with(".go"))
+        .map(|i| i.rule().as_str())
+        .collect();
+    for expected in [
+        "architecture:framework-in-domain",
+        "architecture:hexagonal-layer-violation",
+        "ddd:public-entity-setter",
+        "ddd:persistence-in-domain",
+        "ddd:primitive-obsession",
+    ] {
+        assert!(go_findings.contains(&expected), "Go rule {expected} did not fire; got {go_findings:?}");
+    }
+
     // The layering finding points at the importing domain file and names the
     // infrastructure module it reaches into — the hexagon's direction, read off
     // path topology with no `[architecture]` config anywhere in the fixtures.
     let layering = report
         .issues()
         .iter()
-        .find(|i| i.rule().as_str() == "architecture:hexagonal-layer-violation")
+        .find(|i| i.rule().as_str() == "architecture:hexagonal-layer-violation" && i.file().ends_with(".ts"))
         .expect("hexagonal layering rule fires");
     assert!(layering.file().ends_with("domain/order.ts"), "got {}", layering.file());
     assert!(layering.message().contains("infrastructure"), "got {}", layering.message());
@@ -100,6 +119,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
                 || issue.file().ends_with(".tsx")
                 || issue.file().ends_with(".rs")
                 || issue.file().ends_with(".py")
+                || issue.file().ends_with(".go")
                 || issue.file().ends_with(".tf")
                 || issue.file().ends_with(".html")
         );

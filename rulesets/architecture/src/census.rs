@@ -30,7 +30,23 @@ pub fn file_census(file: &SourceFile, ast: &AstNode) -> TypeCensus {
     if *language == LanguageIdentifier::rust() {
         return rust_census(ast);
     }
+    if *language == LanguageIdentifier::go() {
+        return go_census(ast);
+    }
     TypeCensus::default()
+}
+
+/// Go: a `type_spec` is a type; its abstraction is the `interface_type` — which
+/// in a Go hexagon is exactly what a port is.
+fn go_census(ast: &AstNode) -> TypeCensus {
+    let mut census = TypeCensus::default();
+    for node in ast.descendants().filter(|n| is_other(n, "type_spec")) {
+        census.total += 1;
+        if node.children().iter().any(|c| is_other(c, "interface_type")) {
+            census.abstractions += 1;
+        }
+    }
+    census
 }
 
 fn ts_census(ast: &AstNode) -> TypeCensus {
@@ -141,6 +157,18 @@ mod tests {
     fn rust_traits_are_abstractions_and_structs_enums_are_not() {
         let (file, ast) = rs("a.rs", "pub trait Repo {}\npub struct Impl;\npub enum Kind { A }\n");
         assert_eq!(file_census(&file, &ast), TypeCensus::new(3, 1));
+    }
+
+    #[test]
+    fn go_interfaces_are_abstractions_and_structs_are_not() {
+        let file = SourceFile::new(
+            "a.go",
+            "package p\n\ntype Repo interface {\n\tSave() error\n}\n\ntype Impl struct {\n\tid string\n}\n",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        assert_eq!(file_census(&file, &ast), TypeCensus::new(2, 1));
     }
 
     #[test]

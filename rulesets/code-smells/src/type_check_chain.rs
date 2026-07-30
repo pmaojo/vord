@@ -28,61 +28,126 @@ fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
 }
 
-/// The `if` node shapes across the three grammars: TS/Python
+/// The `if` node shapes across the four grammars: TS/Python/Go
 /// `if_statement`, Rust `if_expression`.
 fn is_if(node: &AstNode) -> bool {
     is_other(node, "if_statement") || is_other(node, "if_expression")
 }
 
-/// Whether a condition's text performs a runtime type test.
+/// The nodes making up one `if` link's *header*: everything before its body.
 ///
-/// Text-level matching, deliberately: the three grammars spell the same
-/// question six different ways (`x instanceof T`, `typeof x === 'string'`,
-/// `x.constructor.name`, `isinstance(x, T)`, `type(x) is T`,
-/// `x.downcast_ref::<T>()`), and every one of them is a distinct node shape.
-/// Matching the written form keeps one table where a structural walk would
-/// need six, and the tokens are specific enough that a false positive needs
-/// the words to appear in a condition without meaning what they say.
-fn is_type_test(condition: &str) -> bool {
-    let has_comparison = condition.contains("===") || condition.contains("==") || condition.contains("!=");
-    if condition.contains("instanceof") {
-        return true;
-    }
-    if condition.contains("typeof ") && has_comparison {
-        return true;
-    }
-    if condition.contains(".constructor.name") && has_comparison {
-        return true;
-    }
-    if condition.contains("isinstance(") || condition.contains("issubclass(") {
-        return true;
-    }
-    if condition.contains("type(") && (condition.contains(" is ") || has_comparison) {
-        return true;
-    }
-    condition.contains("downcast_ref::<")
-        || condition.contains("downcast_mut::<")
-        || condition.contains(".is::<")
+/// Structural, and the same shape in all four grammars: TypeScript's
+/// parenthesized condition, Python's and Rust's bare condition, and Go's
+/// optional init statement plus condition (`if v, ok := x.(*T); ok`) all sit
+/// ahead of the `block`/`statement_block` the link executes.
+fn header_nodes(link: &AstNode) -> Vec<&AstNode> {
+    link.children()
+        .iter()
+        .take_while(|child| !is_other(child, "block") && !is_other(child, "statement_block"))
+        .collect()
 }
 
-/// Every condition on one `if` ladder: the head's own, each Python
-/// `elif_clause`'s, and each `else { if ... }` link's, recursively.
-fn chain_conditions<'a>(head: &'a AstNode, conditions: &mut Vec<&'a AstNode>) {
-    if let Some(condition) = head.first_child() {
-        conditions.push(condition);
+/// The operator token between two of a node's children — the one every grammar
+/// models anonymously, so it is never an `AstNode` of its own.
+fn operator_between<'a>(parent: &'a AstNode, first: &AstNode, second: &AstNode) -> Option<&'a str> {
+    parent.text_between(first, second).map(str::trim)
+}
+
+/// The prefix operator ahead of a unary expression's operand (`typeof x`).
+fn prefix_operator(unary: &AstNode) -> Option<&str> {
+    let operand = unary.first_child()?;
+    let end = operand.byte_range().start.saturating_sub(unary.byte_range().start);
+    unary.text().get(..end).map(str::trim)
+}
+
+/// The name a callee refers to: a bare `Identifier`, or the property of a
+/// `MemberAccess` (`x.downcast_ref` -> `downcast_ref`).
+fn callee_name(callee: &AstNode) -> Option<&str> {
+    match callee.kind() {
+        NodeKind::Identifier => Some(callee.text()),
+        NodeKind::MemberAccess => callee.children().get(1).map(|property| property.text()),
+        NodeKind::Other(_) => callee.first_child().and_then(callee_name),
+        _ => None,
     }
-    for child in head.children() {
-        if is_other(child, "elif_clause") {
-            if let Some(condition) = child.first_child() {
-                conditions.push(condition);
+}
+
+/// Whether one node *is* a runtime type test.
+///
+/// Every arm is a node check, not a text match: a `Call` to `isinstance`, a
+/// `binary_expression` whose operator reads `instanceof`, a `unary_expression`
+/// whose operator reads `typeof`, a `comparison_operator` over `type(..)`, Rust's
+/// `downcast_ref`/`is` turbofish call, Go's `type_assertion_expression`. A
+/// comment, a string literal, or an identifier that merely *contains* one of
+/// those words cannot match — which is exactly what a substring search over the
+/// condition's source text could not promise.
+fn is_type_test(node: &AstNode) -> bool {
+    // Go: `x.(*Circle)` has a node kind all to itself.
+    if is_other(node, "type_assertion_expression") {
+        return true;
+    }
+    if *node.kind() == NodeKind::Call {
+        let Some(callee) = node.first_child() else { return false };
+        return matches!(
+            callee_name(callee),
+            Some("isinstance" | "issubclass" | "downcast_ref" | "downcast_mut" | "is")
+        );
+    }
+    if is_other(node, "binary_expression") {
+        let (Some(left), Some(right)) = (node.first_child(), node.children().get(1)) else { return false };
+        return operator_between(node, left, right) == Some("instanceof");
+    }
+    if is_other(node, "unary_expression") {
+        return prefix_operator(node) == Some("typeof");
+    }
+    // Python `type(x) is Circle`: an identity comparison over a `type(..)` call.
+    if is_other(node, "comparison_operator") {
+        let (Some(left), Some(right)) = (node.first_child(), node.children().get(1)) else { return false };
+        let compares_identity = matches!(operator_between(node, left, right), Some("is" | "is not"));
+        let over_a_type_call = [left, right].iter().any(|operand| {
+            *operand.kind() == NodeKind::Call
+                && operand.first_child().and_then(callee_name) == Some("type")
+        });
+        return compares_identity && over_a_type_call;
+    }
+    false
+}
+
+/// Whether an `if` link's header performs a type test anywhere inside it.
+fn header_tests_a_type(link: &AstNode) -> bool {
+    header_nodes(link).iter().any(|header| header.descendants().any(is_type_test))
+}
+
+/// The `if` nodes that continue `node`'s ladder as its else-branch.
+///
+/// Two shapes, because the grammars disagree about whether `else` gets a node:
+/// TypeScript, Python and Rust wrap it in an `else_clause`, while Go makes the
+/// next `if` a direct child (its `else` is an anonymous token). A nested `if`
+/// inside the *body* is a child of the `block`, never of the `if` itself, so a
+/// direct `if` child is unambiguously the else-branch.
+fn else_branch_ifs(node: &AstNode) -> Vec<&AstNode> {
+    node.children()
+        .iter()
+        .flat_map(|child| {
+            if is_if(child) {
+                vec![child]
+            } else if is_other(child, "else_clause") {
+                child.children().iter().filter(|c| is_if(c)).collect()
+            } else {
+                Vec::new()
             }
-        } else if is_other(child, "else_clause") {
-            for nested in child.children() {
-                if is_if(nested) {
-                    chain_conditions(nested, conditions);
-                }
-            }
-        }
+        })
+        .collect()
+}
+
+/// Every link of one `if` ladder: the head, each Python `elif_clause`, and each
+/// else-branch `if`, recursively.
+fn chain_links<'a>(head: &'a AstNode, links: &mut Vec<&'a AstNode>) {
+    links.push(head);
+    for child in head.children().iter().filter(|c| is_other(c, "elif_clause")) {
+        links.push(child);
+    }
+    for nested in else_branch_ifs(head) {
+        chain_links(nested, links);
     }
 }
 
@@ -92,11 +157,9 @@ fn chain_conditions<'a>(head: &'a AstNode, conditions: &mut Vec<&'a AstNode>) {
 fn nested_else_if_spans(ast: &AstNode) -> Vec<(u32, u32, u32, u32)> {
     let mut spans = Vec::new();
     for node in ast.descendants().filter(|n| is_if(n)) {
-        for clause in node.children().iter().filter(|c| is_other(c, "else_clause")) {
-            for nested in clause.children().iter().filter(|c| is_if(c)) {
-                let span = nested.span();
-                spans.push((span.start_line, span.start_col, span.end_line, span.end_col));
-            }
+        for nested in else_branch_ifs(node) {
+            let span = nested.span();
+            spans.push((span.start_line, span.start_col, span.end_line, span.end_col));
         }
     }
     spans
@@ -127,9 +190,13 @@ impl Rule for TypeCheckChainRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        *language == LanguageIdentifier::typescript()
-            || *language == LanguageIdentifier::python()
-            || *language == LanguageIdentifier::rust()
+        [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::python(),
+            LanguageIdentifier::rust(),
+            LanguageIdentifier::go(),
+        ]
+        .contains(language)
     }
 
     fn default_severity(&self) -> Severity {
@@ -165,9 +232,9 @@ impl Rule for TypeCheckChainRule {
         ast.descendants()
             .filter(|n| is_if(n) && is_head(n))
             .filter_map(|head| {
-                let mut conditions = Vec::new();
-                chain_conditions(head, &mut conditions);
-                let tests = conditions.iter().filter(|c| is_type_test(c.text())).count();
+                let mut links = Vec::new();
+                chain_links(head, &mut links);
+                let tests = links.iter().filter(|link| header_tests_a_type(link)).count();
                 (tests > self.max_type_tests).then(|| {
                     Finding::new(
                         format!(
@@ -276,6 +343,52 @@ mod tests {
     }
 
     #[test]
+    fn flags_a_go_type_assertion_ladder() {
+        let file = SourceFile::new(
+            "t.go",
+            "package domain
+
+func describe(s interface{}) string {
+	if _, ok := s.(*Circle); ok {
+		return \"circle\"
+	} else if _, ok := s.(*Square); ok {
+		return \"square\"
+	} else if _, ok := s.(*Triangle); ok {
+		return \"triangle\"
+	}
+	return \"unknown\"
+}
+",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let findings = TypeCheckChainRule::default().check(&file, &ast);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("3 runtime type tests"));
+    }
+
+    #[test]
+    fn the_words_alone_are_not_a_type_test() {
+        // Structural detection means a string literal or an identifier that
+        // merely reads like a type test cannot be counted as one.
+        let findings = ts(
+            "function label(kind: string): string {
+  if (kind === 'instanceof') {
+    return 'a';
+  } else if (kind === 'isinstance(') {
+    return 'b';
+  } else if (kind === 'typeof x ===') {
+    return 'c';
+  }
+  return 'd';
+}
+",
+        );
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
     fn silent_in_test_only_paths() {
         let file = SourceFile::new(
             "tests/shapes.ts",
@@ -288,11 +401,16 @@ mod tests {
     }
 
     #[test]
-    fn applies_only_to_typescript_python_and_rust() {
+    fn applies_to_every_language_with_a_type_test_to_find() {
         let rule = TypeCheckChainRule::default();
-        assert!(rule.applies_to(&LanguageIdentifier::typescript()));
-        assert!(rule.applies_to(&LanguageIdentifier::python()));
-        assert!(rule.applies_to(&LanguageIdentifier::rust()));
-        assert!(!rule.applies_to(&LanguageIdentifier::go()));
+        for language in [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::python(),
+            LanguageIdentifier::rust(),
+            LanguageIdentifier::go(),
+        ] {
+            assert!(rule.applies_to(&language), "{language:?}");
+        }
+        assert!(!rule.applies_to(&LanguageIdentifier::php()));
     }
 }

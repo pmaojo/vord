@@ -2,23 +2,33 @@
 //! model?* and *is this method behavior or plumbing?*
 //!
 //! Accessor recognition is the load-bearing part. A getter or setter is
-//! recognized structurally — a single-statement body that does nothing but hand
-//! a field out or take one in — rather than by name, because naming conventions
-//! disagree across the three languages (`getTotal`, `total`, `total()`,
-//! `@property def total`) while the shape does not. That keeps
-//! `set_visibility`-style methods that actually *do* something out of the
+//! recognized *structurally* — a single-statement body that does nothing but
+//! hand a field out or take one in — rather than by name, because naming
+//! conventions disagree across the four languages (`getTotal`, `total`,
+//! `total()`, `@property def total`, `func (o *Order) Total()`) while the shape
+//! does not. That keeps methods that actually *do* something out of the
 //! findings, which is what separates an anemic model from a model with
 //! accessors.
+//!
+//! "Structurally" is meant literally: node kinds, child positions, and — where
+//! a grammar hides an operator in an anonymous token — either the explicit node
+//! it does carry (Rust's `mutable_specifier`) or the text *between* two operands
+//! (`AstNode::text_between`). No rule here pattern-matches source text, so a
+//! comment or string literal that happens to read like a field access cannot
+//! produce a finding.
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, NodeKind};
+use yunq_ast::{AstNode, LanguageIdentifier, NodeKind};
 use yunq_import_graph::{layer_of, HexLayer};
 use yunq_symbols::{ClassInfo, MethodInfo};
 
-/// Constructor names across the three grammars (`new` for Rust, by universal
-/// convention).
-pub const CONSTRUCTOR_NAMES: &[&str] = &["constructor", "__init__", "new"];
+/// Whether a method is the constructor of the type that declares it, whatever
+/// its language calls one (`yunq_symbols::is_constructor_name`: `constructor`,
+/// `__init__`, Rust's `new`, Go's `New<Type>`).
+pub fn is_constructor(method: &MethodInfo<'_>, class: &ClassInfo<'_>) -> bool {
+    yunq_symbols::is_constructor_name(&method.name, &class.name)
+}
 
 pub fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -64,85 +74,127 @@ pub struct Accessor {
     pub returns_mutable_reference: bool,
 }
 
-/// Strips the syntax that surrounds a bare field read without changing what is
-/// read: `return`, a borrow, a trailing `;`, and the copy-free "conversions"
-/// that still alias or clone the very same field.
-fn normalize_field_read(statement: &str) -> (String, bool) {
-    let text = statement.trim();
-    let text = text.strip_suffix(';').unwrap_or(text).trim();
-    let text = text.strip_prefix("return").map(str::trim).unwrap_or(text);
-    let (text, mutable) = match text.strip_prefix("&mut ") {
-        Some(rest) => (rest.trim(), true),
-        None => (text.strip_prefix('&').map(str::trim).unwrap_or(text), false),
-    };
-    let text = text.strip_suffix("()").map(str::trim).unwrap_or(text);
-    let text = ["\u{2e}clone", ".to_vec", ".to_string", ".as_str", ".as_slice", ".iter", ".copied"]
-        .iter()
-        .fold(text, |acc, suffix| acc.strip_suffix(suffix).map(str::trim).unwrap_or(acc));
-    (text.trim().to_string(), mutable)
+/// Whether an `Assignment` node uses a compound operator (`+=`, `|=`, …) rather
+/// than plain `=`.
+///
+/// Read off the gap between the two operands (`AstNode::text_between`), because
+/// the operator is an anonymous token the neutral AST does not carry and every
+/// grammar here collapses `+=` and `=` onto one `NodeKind::Assignment`. A
+/// substring search over the statement's text would also match an operator
+/// inside a string literal on the right-hand side; the gap cannot.
+fn is_compound_assignment(assignment: &AstNode) -> bool {
+    let Some(target) = assignment.first_child() else { return false };
+    let Some(value) = assignment.children().get(1) else { return false };
+    let Some(operator) = assignment.text_between(target, value) else { return false };
+    operator.trim() != "="
 }
 
-/// Compound-assignment operators, in the order that keeps `>>=` from being read
-/// as `>=`. A method whose body is one of these is changing state *relative to
-/// what it was*, which is a behavior, not an accessor.
-const COMPOUND_OPERATORS: &[&str] =
-    &["<<=", ">>=", "??=", "||=", "&&=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^="];
-
-fn is_compound_assignment(text: &str) -> bool {
-    COMPOUND_OPERATORS.iter().any(|operator| text.contains(operator))
+/// The expression a single-statement body evaluates to, with the wrappers that
+/// do not change *what* is read peeled off structurally: `return`, Go's
+/// `expression_list`, Rust's `reference_expression` (`&x`, `&mut x`).
+///
+/// Also reports whether a mutable borrow was taken on the way: a Rust
+/// `reference_expression` carries an explicit `mutable_specifier` child for
+/// `&mut`, so even that is a node rather than a token to match.
+fn returned_expression(statement: &AstNode) -> (&AstNode, bool) {
+    const TRANSPARENT: &[&str] = &["return_statement", "expression_statement", "expression_list"];
+    let mut node = statement;
+    let mut mutable = false;
+    loop {
+        if is_other(node, "reference_expression") {
+            // `&mut self.items` is `[mutable_specifier, <operand>]`; `&self.items`
+            // is `[<operand>]`. The operand is the last child either way.
+            mutable = mutable || node.children().iter().any(|c| is_other(c, "mutable_specifier"));
+            let Some(operand) = node.children().last() else { return (node, mutable) };
+            node = operand;
+            continue;
+        }
+        let transparent = matches!(node.kind(), NodeKind::Other(k) if TRANSPARENT.contains(&k.as_ref()));
+        if !transparent {
+            return (node, mutable);
+        }
+        let Some(inner) = node.first_child() else { return (node, mutable) };
+        node = inner;
+    }
 }
 
-/// The field a `self.x`/`this.x` read names, if the text is exactly that.
-fn read_field(text: &str) -> Option<&str> {
-    ["self.", "this."].iter().find_map(|prefix| {
-        let rest = text.strip_prefix(prefix)?;
-        (!rest.is_empty() && rest.chars().all(|c| c.is_alphanumeric() || c == '_')).then_some(rest)
-    })
+/// A call that hands the same field out under a different owner — `.clone()`,
+/// `.to_vec()`, `.iter()` — peeled off so the field read underneath is visible.
+/// Structural: a `Call` whose callee is a `MemberAccess` naming one of these.
+fn unwrap_pass_through_call(expression: &AstNode) -> &AstNode {
+    const PASS_THROUGH: &[&str] =
+        &["clone", "to_vec", "to_string", "as_str", "as_slice", "iter", "copied", "to_owned"];
+    if *expression.kind() != NodeKind::Call {
+        return expression;
+    }
+    let Some(callee) = expression.first_child() else { return expression };
+    if *callee.kind() != NodeKind::MemberAccess {
+        return expression;
+    }
+    let Some(method) = callee.children().get(1) else { return expression };
+    if !PASS_THROUGH.contains(&method.text()) {
+        return expression;
+    }
+    callee.first_child().unwrap_or(expression)
+}
+
+/// The field a `<instance>.<field>` access reads, where `<instance>` is whatever
+/// this language calls the current object: `this`, `self`, or the declared name
+/// of a Go receiver (`func (o *Order) ..` -> `o`).
+fn accessed_field<'a>(expression: &'a AstNode, receiver: Option<&str>) -> Option<&'a str> {
+    if *expression.kind() != NodeKind::MemberAccess {
+        return None;
+    }
+    let base = expression.first_child()?;
+    let field = expression.children().get(1)?;
+    let is_own_instance = matches!(base.text(), "self" | "this")
+        || receiver.is_some_and(|name| !name.is_empty() && base.text() == name);
+    (is_own_instance && *field.kind() == NodeKind::Identifier).then(|| field.text())
 }
 
 /// Whether `method` is a getter or a setter for one of `fields`, and nothing
 /// else. `None` for any method with real behavior — including one that reads a
 /// field *and* does something with it.
+///
+/// Entirely structural: node kinds, child positions and the operator token read
+/// from between two operands. Nothing here pattern-matches source text, so a
+/// comment or a string literal that happens to look like a field read cannot
+/// produce an accessor.
 pub fn accessor_of(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Option<Accessor> {
     let statements = body_statements(method.node);
     let [only] = statements.as_slice() else { return None };
+    let receiver = method.receiver.as_deref();
 
-    // An assignment statement is wrapped in an `expression_statement` in all
-    // three grammars (the same "declaration wrapper" shape
+    // An assignment is wrapped in an `expression_statement` in every grammar
+    // here (the "declaration wrapper" shape
     // `core/rules-engine::structural_metrics` documents); unwrap one level.
     let assignment = if *only.kind() == NodeKind::Assignment {
         Some(*only)
     } else {
         only.first_child().filter(|child| *child.kind() == NodeKind::Assignment)
     };
-    if let Some(only) = assignment {
-        if is_compound_assignment(only.text()) {
-            // `self.total += amount` accumulates; it does not replace. The
-            // grammars map `+=` onto the same `Assignment` kind as `=`
-            // (`compound_assignment_expr`, `augmented_assignment`), so without
-            // this an intent-named mutator would read as a plain setter.
+    if let Some(assignment) = assignment {
+        if is_compound_assignment(assignment) {
+            return None; // `total += amount` accumulates; it does not replace
+        }
+        // Go wraps each side of an assignment in an `expression_list`.
+        let (target, _) = returned_expression(assignment.first_child()?);
+        let field = accessed_field(target, receiver)?;
+        if !fields.contains(field) {
             return None;
         }
-        let target = only.first_child()?;
-        if *target.kind() != NodeKind::MemberAccess {
-            return None;
-        }
-        let (base, field) = (target.first_child()?, target.children().get(1)?);
-        if !matches!(base.text(), "self" | "this") || !fields.contains(field.text()) {
-            return None;
-        }
-        let value = only.children().get(1)?;
+        let (value, _) = returned_expression(assignment.children().get(1)?);
         let assigns_a_parameter = *value.kind() == NodeKind::Identifier
             && method.params.iter().any(|param| param.name == value.text());
         return assigns_a_parameter.then(|| Accessor {
-            field: field.text().to_string(),
+            field: field.to_string(),
             kind: AccessorKind::Setter,
             returns_mutable_reference: false,
         });
     }
 
-    let (normalized, mutable) = normalize_field_read(only.text());
-    let field = read_field(&normalized)?;
+    let (expression, mutable) = returned_expression(only);
+    let field = accessed_field(unwrap_pass_through_call(expression), receiver)?;
     fields.contains(field).then(|| Accessor {
         field: field.to_string(),
         kind: AccessorKind::Getter,
@@ -150,18 +202,34 @@ pub fn accessor_of(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Option
     })
 }
 
-/// Whether a method is reachable from outside its own type — the only kind
-/// whose existence says anything about the type's public design.
+/// How one language spells "reachable from outside this type".
 ///
-/// Rust: a `pub` visibility modifier. TypeScript: no `private`/`protected`
-/// modifier and no `#private` name. Python: no leading underscore (the
-/// convention the language has instead of a keyword).
-pub fn is_public(method: &MethodInfo<'_>, language_is_rust: bool) -> bool {
-    let text = method.node.text().trim_start();
-    if language_is_rust {
-        return text.starts_with("pub");
-    }
-    if method.name.starts_with('#') || method.name.starts_with('_') && !method.name.starts_with("__") {
+/// A table rather than a chain of language checks, and per-language predicates
+/// rather than a `bool` flag threaded through call sites: adding a language is a
+/// row here, and no caller has to know which languages exist. Same shape as
+/// `yunq_ast::lookup_kind` and `core/symbols::classes::EXTRACTORS`.
+const VISIBILITY: &[(&str, VisibilityPolicy)] = &[("rust", rust_is_public), ("go", go_is_public)];
+
+/// Whether one language considers a method reachable from outside its type.
+type VisibilityPolicy = fn(&MethodInfo<'_>) -> bool;
+
+/// Rust: an explicit `pub` (the grammar carries it as a `visibility_modifier`
+/// child, so this is a node check, not a text prefix).
+fn rust_is_public(method: &MethodInfo<'_>) -> bool {
+    method.node.children().iter().any(|c| is_other(c, "visibility_modifier"))
+}
+
+/// Go: exported means the identifier starts with an upper-case letter. There is
+/// no keyword; the name *is* the visibility.
+fn go_is_public(method: &MethodInfo<'_>) -> bool {
+    method.name.starts_with(|c: char| c.is_uppercase())
+}
+
+/// TypeScript/Python (the default): no `private`/`protected` modifier, no
+/// `#private` name, and — Python's convention in place of a keyword — no leading
+/// underscore.
+fn default_is_public(method: &MethodInfo<'_>) -> bool {
+    if method.name.starts_with('#') || (method.name.starts_with('_') && !method.name.starts_with("__")) {
         return false;
     }
     !method
@@ -169,6 +237,17 @@ pub fn is_public(method: &MethodInfo<'_>, language_is_rust: bool) -> bool {
         .children()
         .iter()
         .any(|child| is_other(child, "accessibility_modifier") && child.text() != "public")
+}
+
+/// Whether a method is reachable from outside its own type — the only kind whose
+/// existence says anything about the type's public design.
+pub fn is_public(method: &MethodInfo<'_>, language: &LanguageIdentifier) -> bool {
+    let policy = VISIBILITY
+        .iter()
+        .find(|(name, _)| *name == language.as_str())
+        .map(|(_, policy)| *policy)
+        .unwrap_or(default_is_public as VisibilityPolicy);
+    policy(method)
 }
 
 /// The names of every type in `ast` that is a **wire DTO**: a type built to be
@@ -239,7 +318,7 @@ pub fn declared_methods<'a, 'b>(class: &'b ClassInfo<'a>) -> Vec<&'b MethodInfo<
     class
         .methods
         .iter()
-        .filter(|method| !CONSTRUCTOR_NAMES.contains(&method.name.as_str()) && !method.is_trait_impl())
+        .filter(|method| !is_constructor(method, class) && !method.is_trait_impl())
         .collect()
 }
 
@@ -361,8 +440,8 @@ mod tests {
         );
         let registry = ClassRegistry::build(&ast);
         let order = registry.get("Order").unwrap();
-        assert!(is_public(order.method("total").unwrap(), true));
-        assert!(!is_public(order.method("internal").unwrap(), true));
+        assert!(is_public(order.method("total").unwrap(), &LanguageIdentifier::rust()));
+        assert!(!is_public(order.method("internal").unwrap(), &LanguageIdentifier::rust()));
 
         let ts = parse(
             "t.ts",
@@ -371,8 +450,8 @@ mod tests {
         );
         let ts_registry = ClassRegistry::build(&ts);
         let ts_order = ts_registry.get("Order").unwrap();
-        assert!(!is_public(ts_order.method("hidden").unwrap(), false));
-        assert!(is_public(ts_order.method("shown").unwrap(), false));
+        assert!(!is_public(ts_order.method("hidden").unwrap(), &LanguageIdentifier::typescript()));
+        assert!(is_public(ts_order.method("shown").unwrap(), &LanguageIdentifier::typescript()));
     }
 
     #[test]

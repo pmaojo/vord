@@ -169,6 +169,34 @@ const RUST_MODULES: &[InfraModule] = &[
     m("clap", "a CLI framework"),
 ];
 
+const GO_MODULES: &[InfraModule] = &[
+    m("os", "the filesystem"),
+    m("io/ioutil", "the filesystem"),
+    m("path/filepath", "the filesystem"),
+    m("net", "the network"),
+    m("net/http", "the network"),
+    m("os/exec", "process execution"),
+    m("database/sql", "a database driver"),
+    m("gorm.io/gorm", "an ORM"),
+    m("github.com/jinzhu/gorm", "an ORM"),
+    m("github.com/jmoiron/sqlx", "a database driver"),
+    m("github.com/lib/pq", "a database driver"),
+    m("github.com/jackc/pgx", "a database driver"),
+    m("go.mongodb.org/mongo-driver", "a database driver"),
+    m("github.com/redis/go-redis", "a database driver"),
+    m("github.com/go-redis/redis", "a database driver"),
+    m("github.com/gin-gonic/gin", "a web framework"),
+    m("github.com/labstack/echo", "a web framework"),
+    m("github.com/gofiber/fiber", "a web framework"),
+    m("github.com/gorilla/mux", "a web framework"),
+    m("google.golang.org/grpc", "an RPC framework"),
+    m("github.com/aws/aws-sdk-go", "a cloud SDK"),
+    m("cloud.google.com/go", "a cloud SDK"),
+    m("github.com/segmentio/kafka-go", "a message broker"),
+    m("github.com/streadway/amqp", "a message broker"),
+    m("github.com/spf13/cobra", "a CLI framework"),
+];
+
 fn roster(language: &LanguageIdentifier) -> &'static [InfraModule] {
     if *language == LanguageIdentifier::typescript() {
         return TS_MODULES;
@@ -178,6 +206,9 @@ fn roster(language: &LanguageIdentifier) -> &'static [InfraModule] {
     }
     if *language == LanguageIdentifier::rust() {
         return RUST_MODULES;
+    }
+    if *language == LanguageIdentifier::go() {
+        return GO_MODULES;
     }
     &[]
 }
@@ -371,9 +402,40 @@ mod tests {
     #[test]
     fn applies_only_to_languages_with_a_curated_roster() {
         let rule = FrameworkInDomainRule::new();
-        assert!(rule.applies_to(&LanguageIdentifier::typescript()));
-        assert!(rule.applies_to(&LanguageIdentifier::python()));
-        assert!(rule.applies_to(&LanguageIdentifier::rust()));
-        assert!(!rule.applies_to(&LanguageIdentifier::go()));
+        for language in [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::python(),
+            LanguageIdentifier::rust(),
+            LanguageIdentifier::go(),
+        ] {
+            assert!(rule.applies_to(&language), "{language:?}");
+        }
+        assert!(!rule.applies_to(&LanguageIdentifier::php()));
+    }
+
+    #[test]
+    fn flags_database_sql_in_a_go_domain_package() {
+        let file = SourceFile::new(
+            "internal/domain/order.go",
+            "package domain\n\nimport \"database/sql\"\n",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let findings = FrameworkInDomainRule::new().check(&file, &ast);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("a database driver"));
+    }
+
+    #[test]
+    fn silent_on_a_pure_go_standard_library_import_in_the_domain() {
+        let file = SourceFile::new(
+            "internal/domain/order.go",
+            "package domain\n\nimport (\n\t\"errors\"\n\t\"time\"\n)\n",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        assert!(FrameworkInDomainRule::new().check(&file, &ast).is_empty());
     }
 }

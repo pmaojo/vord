@@ -20,8 +20,10 @@ use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// Accessor names that mean "give me the one global instance".
-const SINGLETON_ACCESSORS: &[&str] =
-    &["getInstance", "get_instance", "getDefault", "get_default", "instance", "global", "current"];
+const SINGLETON_ACCESSORS: &[&str] = &[
+    "getInstance", "get_instance", "GetInstance", "getDefault", "get_default", "instance",
+    "Instance", "global", "Global", "current",
+];
 
 /// Names that mean "look a dependency up by key", which only count on a
 /// receiver that is itself a locator/container/registry: a bare `.get()` is
@@ -30,30 +32,45 @@ const LOOKUP_ACCESSORS: &[&str] = &["get", "resolve", "lookup", "make", "inject"
 
 const LOCATOR_SUFFIXES: &[&str] = &["Locator", "Container", "Registry", "Injector", "Provider", "Factory"];
 
-/// A callee's `receiver.method` / `Receiver::method` split, whatever the
-/// separator: TS `Db.getInstance`, Python `Db.get_instance`, Rust
-/// `Db::instance`.
-fn receiver_and_method(callee: &AstNode) -> Option<(String, String)> {
-    let text = callee.text();
-    let segments: Vec<&str> = text.split("::").flat_map(|part| part.split('.')).collect();
-    if segments.len() < 2 {
-        return None;
-    }
-    let method = segments[segments.len() - 1].trim();
-    let receiver = segments[segments.len() - 2].trim();
-    (!method.is_empty() && !receiver.is_empty())
-        .then(|| (receiver.to_string(), method.to_string()))
+/// A callee's `receiver`/`method` pair, read from the node rather than from its
+/// text: a `MemberAccess`'s two children (`Db.getInstance`, `db.get_instance`),
+/// or a Rust `scoped_identifier`'s two segments (`Registry::global`). `None` for
+/// a plain function call, which has no receiver to be a locator.
+fn receiver_and_method(callee: &AstNode) -> Option<(&str, &str)> {
+    let parts = match callee.kind() {
+        NodeKind::MemberAccess => Some((callee.first_child()?, callee.children().get(1)?)),
+        NodeKind::Other(kind) if kind.as_ref() == "scoped_identifier" => {
+            Some((callee.first_child()?, callee.children().get(1)?))
+        }
+        // Rust turbofish (`Registry::global::<T>()`) wraps the path one level
+        // deeper; unwrap and try again.
+        NodeKind::Other(kind) if kind.as_ref() == "generic_function" => {
+            return callee.first_child().and_then(receiver_and_method)
+        }
+        _ => None,
+    }?;
+    let (receiver, method) = parts;
+    Some((receiver.text(), method.text()))
 }
 
-/// Whether `receiver` names a type rather than a value: a class/struct name,
-/// which is what a static singleton accessor is called on. `this`/`self` and
-/// lower-cased locals are ordinary collaborators being used normally.
-fn is_type_receiver(receiver: &str) -> bool {
-    receiver.chars().next().is_some_and(|c| c.is_uppercase())
-}
-
+/// Whether a lookup-by-key call is one on a locator/container/registry, the only
+/// receivers for which `get`/`resolve` means "hand me a dependency".
 fn locator_lookup(receiver: &str, method: &str) -> bool {
     LOCATOR_SUFFIXES.iter().any(|suffix| receiver.ends_with(suffix)) && LOOKUP_ACCESSORS.contains(&method)
+}
+
+/// Whether `receiver` names a type or a module rather than a value in hand.
+///
+/// A capitalized receiver is a class/struct in every language here. Go breaks the
+/// pattern — a package qualifier is lower-case (`registry.GetInstance()`) — so a
+/// lower-case receiver counts only for the unambiguous singleton accessors, never
+/// for the generic lookup names, which would otherwise match every map in
+/// existence.
+fn is_global_source(receiver: &str, method: &str) -> bool {
+    if receiver.chars().next().is_some_and(|c| c.is_uppercase()) {
+        return true;
+    }
+    matches!(method, "getInstance" | "get_instance" | "GetInstance")
 }
 
 pub struct ServiceLocatorRule {
@@ -78,9 +95,13 @@ impl Rule for ServiceLocatorRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        *language == LanguageIdentifier::typescript()
-            || *language == LanguageIdentifier::python()
-            || *language == LanguageIdentifier::rust()
+        [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::python(),
+            LanguageIdentifier::rust(),
+            LanguageIdentifier::go(),
+        ]
+        .contains(language)
     }
 
     fn default_severity(&self) -> Severity {
@@ -113,11 +134,11 @@ impl Rule for ServiceLocatorRule {
             .filter_map(|call| {
                 let callee = call.first_child()?;
                 let (receiver, method) = receiver_and_method(callee)?;
-                if !is_type_receiver(&receiver) {
+                if !is_global_source(receiver, method) {
                     return None;
                 }
-                let singleton = SINGLETON_ACCESSORS.contains(&method.as_str());
-                if !singleton && !locator_lookup(&receiver, &method) {
+                let singleton = SINGLETON_ACCESSORS.contains(&method);
+                if !singleton && !locator_lookup(receiver, method) {
                     return None;
                 }
                 Some(Finding::new(
@@ -222,11 +243,52 @@ mod tests {
     }
 
     #[test]
-    fn applies_only_to_typescript_python_and_rust() {
+    fn applies_to_every_language_with_a_class_model() {
         let rule = ServiceLocatorRule::new();
-        assert!(rule.applies_to(&LanguageIdentifier::typescript()));
-        assert!(rule.applies_to(&LanguageIdentifier::python()));
-        assert!(rule.applies_to(&LanguageIdentifier::rust()));
-        assert!(!rule.applies_to(&LanguageIdentifier::go()));
+        for language in [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::python(),
+            LanguageIdentifier::rust(),
+            LanguageIdentifier::go(),
+        ] {
+            assert!(rule.applies_to(&language), "{language:?}");
+        }
+        assert!(!rule.applies_to(&LanguageIdentifier::php()));
+    }
+
+    #[test]
+    fn flags_a_go_package_level_singleton_getter() {
+        let file = SourceFile::new(
+            "internal/domain/order.go",
+            "package domain
+
+func rate() float64 {
+	return registry.GetInstance().Rate()
+}
+",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let findings = ServiceLocatorRule::new().check(&file, &ast);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("GetInstance"));
+    }
+
+    #[test]
+    fn a_lowercase_receiver_does_not_turn_every_lookup_into_a_locator() {
+        let file = SourceFile::new(
+            "internal/domain/order.go",
+            "package domain
+
+func rate(cache map[string]float64) float64 {
+	return rates.get(\"usd\")
+}
+",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        assert!(ServiceLocatorRule::new().check(&file, &ast).is_empty());
     }
 }

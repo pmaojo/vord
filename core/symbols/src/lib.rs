@@ -14,6 +14,6 @@ pub mod classes;
 pub mod scope;
 pub mod types;
 
-pub use classes::{ClassInfo, ClassRegistry, MemberInfo, MethodInfo};
+pub use classes::{function_params, is_constructor_name, ClassInfo, ClassRegistry, MemberInfo, MethodInfo};
 pub use scope::{free_identifiers, own_bindings};
 pub use types::{declared_type, is_primitive_type, mentions_collaborator};

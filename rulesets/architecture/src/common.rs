@@ -28,7 +28,7 @@ pub struct ImportedModule {
 /// Python `import x` / `from x import y` (absolute paths only — a relative
 /// `from .x import y` names a sibling in the same layer, never a framework),
 /// Rust `use` paths (the module prefix, `::`-joined, alias/list/wildcard tail
-/// already cut off).
+/// already cut off), and Go `import` specs.
 pub fn imported_modules(file: &SourceFile, ast: &AstNode) -> Vec<ImportedModule> {
     let language = file.language();
     if *language == LanguageIdentifier::typescript() {
@@ -40,7 +40,23 @@ pub fn imported_modules(file: &SourceFile, ast: &AstNode) -> Vec<ImportedModule>
     if *language == LanguageIdentifier::rust() {
         return rust_imports(ast);
     }
+    if *language == LanguageIdentifier::go() {
+        return go_imports(ast);
+    }
     Vec::new()
+}
+
+/// Go `import` specs: the quoted package path of every spec, single or grouped.
+fn go_imports(ast: &AstNode) -> Vec<ImportedModule> {
+    ast.descendants()
+        .filter(|n| is_other(n, "import_declaration"))
+        .flat_map(|node| {
+            node.descendants()
+                .filter(|n| *n.kind() == NodeKind::StringLiteral)
+                .map(|spec| ImportedModule { specifier: strip_quotes(spec.text()), span: node.span() })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 fn ts_imports(ast: &AstNode) -> Vec<ImportedModule> {
@@ -169,6 +185,19 @@ mod tests {
             "use std::fs::File;\nuse sqlx::{PgPool, Row};\nuse reqwest::Client as Http;\nuse tokio::net::*;\n",
         );
         assert_eq!(specifiers(&modules), vec!["std::fs::File", "sqlx", "reqwest::Client", "tokio::net"]);
+    }
+
+    #[test]
+    fn extracts_go_import_specs() {
+        let file = SourceFile::new(
+            "t.go",
+            "package domain\n\nimport (\n\t\"database/sql\"\n\tgorm \"gorm.io/gorm\"\n)\n",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let modules = imported_modules(&file, &ast);
+        assert_eq!(specifiers(&modules), vec!["database/sql", "gorm.io/gorm"]);
     }
 
     #[test]

@@ -18,11 +18,13 @@
 //! modeling gap even though four parameters are unremarkable anywhere else,
 //! which is why this rule is scoped to the domain layer and typed.
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{is_primitive_type, ClassInfo, ClassRegistry, MethodInfo};
+use std::collections::BTreeSet;
 
-use crate::common::{is_domain_path, wire_dto_names, CONSTRUCTOR_NAMES};
+use yunq_ast::{AstNode, NodeKind, SourceFile};
+use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use yunq_symbols::{function_params, is_primitive_type, ClassInfo, ClassRegistry, MemberInfo, MethodInfo};
+
+use crate::common::{is_constructor, is_domain_path, wire_dto_names};
 
 /// Field names and type suffixes that mean "this type has identity" — the mark
 /// of an entity rather than a value object.
@@ -57,15 +59,48 @@ fn is_value_object(class: &ClassInfo<'_>) -> bool {
     })
 }
 
-fn primitive_params(method: &MethodInfo<'_>) -> Vec<String> {
-    method
-        .params
+/// Every named function-like node in a file, with the name it is known by.
+///
+/// Two shapes, because half the TypeScript in the world declares functions the
+/// second way: a `FunctionDef` that carries its own name (`function place(..)`,
+/// `def place(..)`, `func Place(..)`), and a `VariableDecl` whose initializer is
+/// a function (`export const place = (..) => ..`) — where the name lives on the
+/// declaration, not on the function. Keyed by span so a node reachable both ways
+/// is reported once.
+fn named_functions(ast: &AstNode) -> Vec<(&str, &AstNode)> {
+    let mut found: Vec<(&str, &AstNode)> = Vec::new();
+    let mut seen: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for node in ast.descendants() {
+        let named = if *node.kind() == NodeKind::VariableDecl {
+            let name = node.children().iter().find(|c| *c.kind() == NodeKind::Identifier);
+            let function = node.children().iter().find(|c| *c.kind() == NodeKind::FunctionDef);
+            name.zip(function)
+        } else if *node.kind() == NodeKind::FunctionDef {
+            node.children().iter().find(|c| *c.kind() == NodeKind::Identifier).map(|name| (name, node))
+        } else {
+            None
+        };
+        let Some((name, function)) = named else { continue };
+        let span = function.span();
+        if seen.insert((span.start_line, span.start_col)) {
+            found.push((name.text(), function));
+        }
+    }
+    found
+}
+
+fn primitive_members(params: &[MemberInfo]) -> Vec<String> {
+    params
         .iter()
         .filter_map(|param| {
             let declared = param.declared_type.as_deref()?;
             is_primitive_type(declared).then(|| format!("{}: {declared}", param.name))
         })
         .collect()
+}
+
+fn primitive_params(method: &MethodInfo<'_>) -> Vec<String> {
+    primitive_members(&method.params)
 }
 
 pub struct PrimitiveObsessionRule {
@@ -134,7 +169,7 @@ impl CrossFileRule for PrimitiveObsessionRule {
             let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
             let value_object = is_value_object(class);
             for method in &class.methods {
-                if value_object && CONSTRUCTOR_NAMES.contains(&method.name.as_str()) {
+                if value_object && is_constructor(method, class) {
                     continue;
                 }
                 let primitives = primitive_params(method);
@@ -152,6 +187,54 @@ impl CrossFileRule for PrimitiveObsessionRule {
                             primitives.join(", ")
                         ),
                         method.span,
+                    ),
+                ));
+            }
+        }
+        findings.extend(self.free_function_findings(files, &views));
+        findings
+    }
+}
+
+impl PrimitiveObsessionRule {
+    /// The same defect in code that has no classes at all.
+    ///
+    /// A functional TypeScript module (`export const placeOrder = (id: string,
+    /// customerId: string, ...) => ..`), a Go package of plain functions, a
+    /// Python module of `def`s: none of them reach `ClassRegistry`, and all of
+    /// them can lose a customer's order to two transposed strings. Methods are
+    /// already covered above, so a function that belongs to a type is skipped
+    /// here to avoid reporting it twice.
+    fn free_function_findings(
+        &self,
+        files: &[(SourceFile, AstNode)],
+        views: &[(&str, &AstNode)],
+    ) -> Vec<(usize, Finding)> {
+        let mut findings = Vec::new();
+        for (path, ast) in views {
+            let Some(index) = files.iter().position(|(file, _)| file.path() == *path) else { continue };
+            let methods: BTreeSet<(u32, u32)> = ClassRegistry::build(ast)
+                .iter()
+                .flat_map(|class| class.methods.iter().map(|m| (m.span.start_line, m.span.start_col)))
+                .collect();
+            for (name, function) in named_functions(ast) {
+                let span = function.span();
+                if methods.contains(&(span.start_line, span.start_col)) {
+                    continue;
+                }
+                let primitives = primitive_members(&function_params(function));
+                if primitives.len() <= self.max_primitives {
+                    continue;
+                }
+                findings.push((
+                    index,
+                    Finding::new(
+                        format!(
+                            "`{name}` takes {} bare primitive parameters ({}) — a caller that swaps two of them still compiles; wrap them in value objects that carry their meaning and their invariant",
+                            primitives.len(),
+                            primitives.join(", ")
+                        ),
+                        span,
                     ),
                 ));
             }
@@ -223,6 +306,38 @@ mod tests {
     fn injected_collaborators_are_not_this_rules_business() {
         let code = "export class OrderPolicy {\n  constructor(a: Repo, b: Clock, c: Rates, d: Bus) {}\n}\n";
         assert!(check("src/domain/order_policy.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn flags_a_functional_typescript_factory_with_no_class_in_sight() {
+        // `export const` / arrow-function code never reaches `ClassRegistry`;
+        // the modeling gap is identical, so the rule looks at free functions too.
+        let code = "export const placeOrder = (id: string, customerId: string, currency: string, note: string) => {\n  return { id, customerId, currency, note };\n};\n";
+        let findings = check("src/domain/place_order.ts", code, LanguageIdentifier::typescript());
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("4 bare primitive parameters"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn flags_a_go_package_function() {
+        let file = SourceFile::new(
+            "internal/domain/order.go",
+            "package domain\n\nfunc Place(id string, customer string, currency string, note string) error {\n\treturn nil\n}\n",
+            LanguageIdentifier::go(),
+        )
+        .unwrap();
+        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let findings: Vec<Finding> =
+            PrimitiveObsessionRule::default().check(&[(file, ast)]).into_iter().map(|(_, f)| f).collect();
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("`Place`"));
+    }
+
+    #[test]
+    fn a_method_is_not_reported_twice_as_a_free_function() {
+        let code = "export class Order {\n  private id: string = '';\n  rename(a: string, b: string, c: string, d: string): void {}\n}\n";
+        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
     #[test]
