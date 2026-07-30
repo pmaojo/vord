@@ -170,6 +170,18 @@ fn run_config(args: &AgentArgs, settings: &yunq_infra_fs::AgentSettings) -> anyh
 /// the caller owns rendering — `yunq swarm` (workstream B) drives this same
 /// function and wants the structured verdict, not a number.
 pub async fn run(root: &Path, args: AgentArgs) -> anyhow::Result<RunOutcome> {
+    run_with_observer(root, args, yunq_agent::NoopObserver).await
+}
+
+/// Same as [`run`], with an [`yunq_agent::Observer`] watching every event the
+/// loop reports — `yunq agent tui` (roadmap A6) is the reason this exists,
+/// but any observer works identically, since watching a run can never change
+/// what it decides (see `core/agent::observer`'s module docs).
+pub async fn run_with_observer(
+    root: &Path,
+    args: AgentArgs,
+    observer: impl yunq_agent::Observer + 'static,
+) -> anyhow::Result<RunOutcome> {
     let config_file = YunqConfig::load_from_dir(root);
     let settings = config_file.as_ref().map(|c| c.agent.clone()).unwrap_or_default();
     let config = run_config(&args, &settings)?;
@@ -193,7 +205,8 @@ pub async fn run(root: &Path, args: AgentArgs) -> anyhow::Result<RunOutcome> {
         HookWriteJudge::new(root, policy),
         RepoAnalyzer::new(root, config_file.as_ref()),
         config,
-    );
+    )
+    .with_observer(observer);
     Ok(runtime.run().await)
 }
 

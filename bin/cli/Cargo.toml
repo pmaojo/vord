@@ -66,6 +66,7 @@ yunq-rules-php = { workspace = true }
 yunq-rules-go = { workspace = true }
 yunq-agent-policy = { workspace = true }
 yunq-agent = { workspace = true }
+yunq-swarm = { workspace = true }
 yunq-infra-memory = { workspace = true }
 yunq-infra-fs = { workspace = true }
 yunq-infra-github = { workspace = true }
@@ -79,3 +80,5 @@ futures = { workspace = true }
 tokio = { workspace = true }
 dialoguer = { workspace = true }
 chrono = { workspace = true }
+ratatui = "0.29.0"
+crossterm = "0.29.0"

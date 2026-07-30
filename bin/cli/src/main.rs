@@ -14,6 +14,7 @@ mod ci_detect;
 mod crap;
 mod hook_install;
 mod monorepo_scan;
+mod tui;
 mod wizard;
 
 #[derive(Parser)]
@@ -63,6 +64,12 @@ enum Command {
         #[command(subcommand)]
         action: AgentAction,
     },
+    /// Multi-agent orchestration: worktree-per-role isolation, per-role
+    /// policy scoping and durable handoffs (roadmap B).
+    Swarm {
+        #[command(subcommand)]
+        action: SwarmAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -92,6 +99,24 @@ enum AgentAction {
         #[arg(long)]
         model: Option<String>,
     },
+    /// Same as `run`, with a live terminal view of the session attached
+    /// (roadmap A6). A spectator, not a second control path: quitting the
+    /// view (`q`/`Esc`/`Ctrl-C`) detaches rather than cancels — the run
+    /// keeps going headless. Same exit codes as `run`.
+    Tui {
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = ".")]
+        scope: String,
+        #[arg(long)]
+        rule: Option<String>,
+        #[arg(long)]
+        max_turns: Option<u32>,
+        #[arg(long)]
+        max_tokens: Option<u64>,
+        #[arg(long)]
+        model: Option<String>,
+    },
     /// Wait out the late-feedback window on a pull request: poll with
     /// backoff, collect one review batch as one batch, and report quiet, new
     /// feedback, a bot all-clear, or inconclusive. Exits 0 (quiet or
@@ -106,6 +131,59 @@ enum AgentAction {
         /// Total seconds to keep watching before calling it quiet.
         #[arg(long)]
         window_secs: Option<u64>,
+    },
+}
+
+#[derive(Subcommand)]
+enum SwarmAction {
+    /// List every role declared under `[[swarm.role]]` in `yunq.toml`, with
+    /// its resolved worktree/branch and how much it adds on top of the base
+    /// policy.
+    Roles,
+    /// Create a role's worktree (`git worktree add`), branching from
+    /// `--base`.
+    WorktreeCreate {
+        /// The role's `name`, as declared in `yunq.toml`.
+        #[arg(long)]
+        role: String,
+        /// Ref to branch from.
+        #[arg(long, default_value = "HEAD")]
+        base: String,
+    },
+    /// Remove a role's worktree (`git worktree remove`).
+    WorktreeRemove {
+        #[arg(long)]
+        role: String,
+        /// Remove even with uncommitted changes in the worktree.
+        #[arg(long)]
+        force: bool,
+    },
+    /// List every worktree currently registered against this repository
+    /// (`git worktree list`) — not only ones `yunq swarm` created.
+    WorktreeList,
+    /// Write a handoff to the sender's outbox.
+    HandoffSend {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        summary: String,
+    },
+    /// Move every outbox handoff into its recipient's inbox, quarantining
+    /// anything that fails to parse into `.yunq/handoffs/failed/`.
+    HandoffDeliver,
+    /// List the handoffs currently waiting in a role's inbox.
+    HandoffInbox {
+        #[arg(long)]
+        role: String,
+    },
+    /// Acknowledge a handoff: move it from the role's inbox to `sent/`.
+    HandoffAck {
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        id: String,
     },
 }
 
@@ -331,6 +409,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Fix { path, issue, model }) => run_fix(path, issue, model).await,
         Some(Command::Hook { action }) => run_hook(action).await,
         Some(Command::Agent { action }) => run_agent(action).await,
+        Some(Command::Swarm { action }) => run_swarm(action),
     }
 }
 
@@ -344,6 +423,12 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
         AgentAction::Run { task, scope, rule, max_turns, max_tokens, model } => {
             let args = yunq_cli::agent::AgentArgs { task, scope, rule, max_turns, max_tokens, model };
             let outcome = yunq_cli::agent::run(&root, args).await?;
+            yunq_cli::agent::report(&outcome);
+            Ok(ExitCode::from(outcome.exit_code()))
+        }
+        AgentAction::Tui { task, scope, rule, max_turns, max_tokens, model } => {
+            let args = yunq_cli::agent::AgentArgs { task, scope, rule, max_turns, max_tokens, model };
+            let outcome = tui::run(&root, args).await?;
             yunq_cli::agent::report(&outcome);
             Ok(ExitCode::from(outcome.exit_code()))
         }
@@ -400,6 +485,77 @@ async fn run_hook(action: HookAction) -> anyhow::Result<ExitCode> {
                 Format::Text => print!("{}", yunq_cli::hook::render_audit_text(&entries)),
                 Format::Json => println!("{}", serde_json::to_string_pretty(&entries)?),
             }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+/// `yunq swarm`'s entry points (roadmap B). Every failure here is a config
+/// or `git` error, not a policy verdict, so unlike `yunq hook`/`yunq agent`
+/// there is no fail-open story to preserve — errors propagate normally
+/// through `main`'s handler.
+fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
+    let root = std::env::current_dir()?;
+    match action {
+        SwarmAction::Roles => {
+            let roles = yunq_cli::swarm::list_roles(&root)?;
+            if roles.is_empty() {
+                println!("yunq swarm: no roles configured — add [[swarm.role]] entries to yunq.toml.");
+                return Ok(ExitCode::SUCCESS);
+            }
+            for role in roles {
+                println!(
+                    "{} — worktree {} (branch {}), +{} protected path(s), +{} blocking rule(s), +{} escalate rule(s)",
+                    role.name,
+                    role.plan.path.display(),
+                    role.plan.branch,
+                    role.extra_protected_paths,
+                    role.extra_blocking_rules,
+                    role.extra_escalate_rules,
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        SwarmAction::WorktreeCreate { role, base } => {
+            let plan = yunq_cli::swarm::worktree_create(&root, &role, &base)?;
+            println!("yunq swarm: created worktree for `{role}` at {} (branch {})", plan.path.display(), plan.branch);
+            Ok(ExitCode::SUCCESS)
+        }
+        SwarmAction::WorktreeRemove { role, force } => {
+            let plan = yunq_cli::swarm::worktree_remove(&root, &role, force)?;
+            println!("yunq swarm: removed worktree for `{role}` at {}", plan.path.display());
+            Ok(ExitCode::SUCCESS)
+        }
+        SwarmAction::WorktreeList => {
+            let worktrees = yunq_cli::swarm::worktree_list(&root)?;
+            for worktree in worktrees {
+                println!("{} ({})", worktree.path, worktree.branch.as_deref().unwrap_or("detached"));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        SwarmAction::HandoffSend { from, to, summary } => {
+            let handoff = yunq_cli::swarm::handoff_send(&root, &from, &to, &summary)?;
+            println!("yunq swarm: queued handoff {} ({from} -> {to})", handoff.id);
+            Ok(ExitCode::SUCCESS)
+        }
+        SwarmAction::HandoffDeliver => {
+            let delivered = yunq_cli::swarm::handoff_deliver(&root)?;
+            println!("yunq swarm: delivered {} handoff(s)", delivered.len());
+            for handoff in delivered {
+                println!("  {} -> {} ({})", handoff.from_role, handoff.to_role, handoff.id);
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        SwarmAction::HandoffInbox { role } => {
+            let waiting = yunq_cli::swarm::handoff_inbox(&root, &role)?;
+            for handoff in waiting {
+                println!("{} from {}: {}", handoff.id, handoff.from_role, handoff.summary);
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        SwarmAction::HandoffAck { role, id } => {
+            yunq_cli::swarm::handoff_ack(&root, &role, &id)?;
+            println!("yunq swarm: acknowledged {id} for `{role}`");
             Ok(ExitCode::SUCCESS)
         }
     }

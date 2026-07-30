@@ -19,6 +19,7 @@ use yunq_profiles::RuleId;
 use crate::budget::{Budget, Exhaustion, Ledger, RepeatGuard};
 use crate::completion::{self, Completion, LocatedFinding};
 use crate::gate::{advisory_note, denial_feedback};
+use crate::observer::{AgentEvent, NoopObserver, Observer};
 use crate::prompt::{system_prompt, task_prompt};
 use crate::session::{AssistantTurn, ToolCall, ToolResult, Transcript};
 use crate::tools::{tool_specs, CommandAllowlist, ToolInvocation, ToolSpec};
@@ -202,6 +203,11 @@ pub struct AgentRuntime<M, W, J, A> {
     judge: J,
     analyzer: A,
     config: RunConfig,
+    /// Told what already happened, after every decision — see
+    /// [`crate::observer`]'s module docs for why this can never become a
+    /// second control path. `NoopObserver` by default, so a headless run
+    /// (every caller before A6) pays nothing for the port existing.
+    observer: Box<dyn Observer>,
 }
 
 impl<M, W, J, A> AgentRuntime<M, W, J, A>
@@ -213,7 +219,15 @@ where
 {
     pub fn new(model: M, workspace: W, judge: J, analyzer: A, config: RunConfig) -> Self {
         let tools = WorkspaceTools { workspace, allowlist: config.allowlist.clone() };
-        Self { model, tools, judge, analyzer, config }
+        Self { model, tools, judge, analyzer, config, observer: Box::new(NoopObserver) }
+    }
+
+    /// Swaps in an observer that watches this run — `yunq agent tui`
+    /// (roadmap A6) is the first caller, but any `Observer` (a log line, a
+    /// test spy) works identically.
+    pub fn with_observer(mut self, observer: impl Observer + 'static) -> Self {
+        self.observer = Box::new(observer);
+        self
     }
 
     /// Borrowed by the loop's own tests to assert on what the adapters were
@@ -236,16 +250,22 @@ where
     pub async fn run(&self) -> RunOutcome {
         let baseline = match self.analyzer.scan(&self.config.scope).await {
             Ok(findings) => findings,
-            Err(error) => return RunOutcome::Failed { turns: 0, error: error.to_string() },
+            Err(error) => {
+                let outcome = RunOutcome::Failed { turns: 0, error: error.to_string() };
+                self.observer.on_event(AgentEvent::Finished { outcome: outcome.clone() });
+                return outcome;
+            }
         };
 
         let mut state = LoopState::new(&self.config);
         let specs = tool_specs();
-        loop {
+        let outcome = loop {
             if let Some(outcome) = self.turn(&baseline, &specs, &mut state).await {
-                return outcome;
+                break outcome;
             }
-        }
+        };
+        self.observer.on_event(AgentEvent::Finished { outcome: outcome.clone() });
+        outcome
     }
 
     /// One iteration: spend budget, ask the model, then either adjudicate its
@@ -260,6 +280,7 @@ where
         if let Some(exhaustion) = state.ledger.exhausted(&self.config.budget) {
             return Some(RunOutcome::BudgetExhausted { turns: state.ledger.turns(), exhaustion });
         }
+        self.observer.on_event(AgentEvent::TurnStarted { turn: state.ledger.turns() + 1 });
         let turn = match self.model.next_turn(&state.transcript, specs).await {
             Ok(turn) => turn,
             Err(error) => {
@@ -268,6 +289,7 @@ where
         };
         state.ledger.record_turn(turn.usage);
         state.transcript.push_assistant(&turn);
+        self.observer.on_event(AgentEvent::ModelResponded { turn: turn.clone() });
 
         if turn.claims_completion() {
             return self.adjudicate(baseline, &turn, state).await;
@@ -296,6 +318,7 @@ where
             Err(error) => return Some(RunOutcome::Failed { turns, error: error.to_string() }),
         };
         let verdict = completion::judge(baseline, &current, self.config.target_rule.as_ref());
+        self.observer.on_event(AgentEvent::Adjudicated { completion: verdict.clone() });
         if verdict.is_done() {
             return Some(RunOutcome::Completed { turns, summary: turn.text.clone() });
         }
@@ -328,6 +351,15 @@ where
     }
 
     async fn execute_call(&self, call: &ToolCall, state: &mut LoopState) -> Step {
+        self.observer.on_event(AgentEvent::ToolCallStarted { call: call.clone() });
+        let step = self.execute_call_inner(call, state).await;
+        if let Step::Answer(result) = &step {
+            self.observer.on_event(AgentEvent::ToolCallFinished { result: result.clone() });
+        }
+        step
+    }
+
+    async fn execute_call_inner(&self, call: &ToolCall, state: &mut LoopState) -> Step {
         let invocation = match ToolInvocation::parse(&call.name, &call.input) {
             Ok(invocation) => invocation,
             Err(error) => return Step::Answer(ToolResult::error(&call.id, error.to_string())),
@@ -392,6 +424,8 @@ where
                 return Step::Stop(RunOutcome::Failed { turns: state.ledger.turns(), error: error.to_string() })
             }
         };
+        self.observer
+            .on_event(AgentEvent::WriteJudged { path: path.to_string(), evaluation: evaluation.clone() });
         let tripped = state.breaker.record(&evaluation);
         if evaluation.is_denied() {
             if !tripped.is_empty() {

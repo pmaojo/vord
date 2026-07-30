@@ -10,6 +10,7 @@ mod config;
 mod coverage;
 mod diff;
 mod gherkin;
+mod handoff;
 mod istanbul;
 mod jacoco;
 mod junit;
@@ -19,16 +20,21 @@ mod monorepo;
 mod mutation;
 mod rust_crates;
 mod sarif;
+mod swarm_worktree;
 mod worktree;
 
 pub use agent_workspace::RepoWorkspace;
 pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura, parse_cobertura_report};
-pub use config::{AgentSettings, ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings, YunqConfig};
+pub use config::{
+    AgentSettings, ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings, RoleProtectedPath,
+    RoleSettings, SwarmSettings, YunqConfig,
+};
 pub use coverage::{CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report};
 pub use diff::changed_lines_from_unified_diff;
 pub use gherkin::{COVERS_TAG, GherkinCoverageError, GherkinCoverageIndex, extract_covers_patterns};
+pub use handoff::{HandoffIoError, ack, deliver, inbox, send as send_handoff};
 pub use istanbul::{IstanbulError, parse_istanbul, parse_istanbul_report};
 pub use jacoco::{JacocoError, parse_jacoco, parse_jacoco_report};
 pub use junit::{JunitError, parse_junit};
@@ -38,6 +44,7 @@ pub use monorepo::discover_projects;
 pub use mutation::{MutationParseError, parse_mutation_report};
 pub use rust_crates::discover_rust_crates;
 pub use sarif::{SarifError, SarifImport, parse_sarif, parse_sarif_relative_to};
+pub use swarm_worktree::{SwarmWorktreeError, WorktreeStatus, create_worktree, list_worktrees, remove_worktree};
 pub use worktree::WorktreeSandbox;
 
 use std::io::ErrorKind;
