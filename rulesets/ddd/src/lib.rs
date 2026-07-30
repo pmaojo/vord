@@ -17,6 +17,7 @@
 
 mod aggregate_reference;
 mod anemic_domain_model;
+mod bdd_step_reaches_infra;
 mod common;
 mod domain_jargon_naming;
 mod entity_setter;
@@ -28,6 +29,7 @@ mod value_object_mutation;
 
 pub use aggregate_reference::AggregateReferenceByIdRule;
 pub use anemic_domain_model::AnemicDomainModelRule;
+pub use bdd_step_reaches_infra::BddStepReachesInfraRule;
 pub use domain_jargon_naming::DomainJargonNamingRule;
 pub use entity_setter::PublicEntitySetterRule;
 pub use exposed_collection::ExposedCollectionRule;
@@ -44,6 +46,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(PersistenceInDomainRule::new()),
         Box::new(DomainJargonNamingRule::new()),
         Box::new(OneAggregatePerTransactionRule::new()),
+        Box::new(BddStepReachesInfraRule::new()),
     ]
 }
 
