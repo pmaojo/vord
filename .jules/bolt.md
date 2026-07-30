@@ -1,3 +1,0 @@
-## 2024-07-25 - Avoid String Allocation in propagate_bindings Hot Loop
-**Learning:** We can bypass unconditional `.entry(key.to_string()).or_default()` in tight fixed-point iteration loops over `HashMap<String, T>`. Even if the key is typically borrowed, `.entry()` always takes ownership, allocating even if the key is already present.
-**Action:** Use a `.get_mut(borrowed_key)` followed by a `.insert(borrowed_key.to_string(), ...)` fallback when dealing with string-keyed HashMaps inside hot loops, keeping allocations strictly proportional to the number of *unique* elements, rather than the number of iterations.
