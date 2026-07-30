@@ -12,206 +12,15 @@
 //! Per-file (`Rule`): a file's own import list and its own path are all this
 //! needs.
 //!
-//! The module roster below is curated, not inferred — the same shape as
-//! `rulesets/secrets`' provider table, and the same posture Semgrep takes
-//! with its per-framework rule packs (`semgrep-rules/python/{flask,django,
-//! sqlalchemy,boto3,requests}`, `javascript/{express,sequelize}`,
-//! `typescript/{angular,nestjs}`): a fixed list of the libraries that
-//! actually mean "this code is doing I/O", each tagged with the concern it
-//! drags into the hexagon, so the finding can name it.
+//! The module roster itself now lives in `yunq_import_graph::infra_roster` —
+//! curated, not inferred, and shared with `ddd:bdd-step-reaches-infra`, which
+//! needs the identical "does this code reach outside the process" vocabulary
+//! at call sites inside a Gherkin step implementation rather than at a file's
+//! own import list.
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_import_graph::{layer_of, HexLayer};
+use yunq_import_graph::{imported_modules, infra_roster, layer_of, matches_module, HexLayer};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
-
-use crate::common::{imported_modules, matches_module};
-
-/// One outside-the-hexagon module, and what it drags in.
-struct InfraModule {
-    module: &'static str,
-    concern: &'static str,
-}
-
-const fn m(module: &'static str, concern: &'static str) -> InfraModule {
-    InfraModule { module, concern }
-}
-
-const TS_MODULES: &[InfraModule] = &[
-    m("fs", "the filesystem"),
-    m("node:fs", "the filesystem"),
-    m("fs/promises", "the filesystem"),
-    m("node:fs/promises", "the filesystem"),
-    m("http", "the network"),
-    m("https", "the network"),
-    m("node:http", "the network"),
-    m("node:https", "the network"),
-    m("net", "the network"),
-    m("node:net", "the network"),
-    m("child_process", "process execution"),
-    m("node:child_process", "process execution"),
-    m("axios", "an HTTP client"),
-    m("node-fetch", "an HTTP client"),
-    m("got", "an HTTP client"),
-    m("undici", "an HTTP client"),
-    m("superagent", "an HTTP client"),
-    m("express", "a web framework"),
-    m("koa", "a web framework"),
-    m("fastify", "a web framework"),
-    m("hapi", "a web framework"),
-    m("@nestjs/common", "a web framework"),
-    m("@nestjs/core", "a web framework"),
-    m("next", "a web framework"),
-    m("typeorm", "an ORM"),
-    m("sequelize", "an ORM"),
-    m("mongoose", "an ORM"),
-    m("prisma", "an ORM"),
-    m("@prisma/client", "an ORM"),
-    m("knex", "an ORM"),
-    m("@mikro-orm/core", "an ORM"),
-    m("drizzle-orm", "an ORM"),
-    m("pg", "a database driver"),
-    m("mysql", "a database driver"),
-    m("mysql2", "a database driver"),
-    m("sqlite3", "a database driver"),
-    m("better-sqlite3", "a database driver"),
-    m("mongodb", "a database driver"),
-    m("redis", "a database driver"),
-    m("ioredis", "a database driver"),
-    m("kafkajs", "a message broker"),
-    m("amqplib", "a message broker"),
-    m("bullmq", "a message broker"),
-    m("nats", "a message broker"),
-    m("aws-sdk", "a cloud SDK"),
-    m("@aws-sdk/client-s3", "a cloud SDK"),
-    m("@google-cloud/storage", "a cloud SDK"),
-    m("firebase-admin", "a cloud SDK"),
-    m("@azure/storage-blob", "a cloud SDK"),
-    m("nodemailer", "an email transport"),
-    m("react", "a UI framework"),
-    m("react-dom", "a UI framework"),
-    m("vue", "a UI framework"),
-    m("@angular/core", "a UI framework"),
-    m("svelte", "a UI framework"),
-];
-
-const PYTHON_MODULES: &[InfraModule] = &[
-    m("requests", "an HTTP client"),
-    m("httpx", "an HTTP client"),
-    m("aiohttp", "an HTTP client"),
-    m("urllib", "an HTTP client"),
-    m("urllib3", "an HTTP client"),
-    m("http.client", "an HTTP client"),
-    m("flask", "a web framework"),
-    m("fastapi", "a web framework"),
-    m("django", "a web framework"),
-    m("starlette", "a web framework"),
-    m("pyramid", "a web framework"),
-    m("tornado", "a web framework"),
-    m("sanic", "a web framework"),
-    m("bottle", "a web framework"),
-    m("sqlalchemy", "an ORM"),
-    m("sqlmodel", "an ORM"),
-    m("peewee", "an ORM"),
-    m("tortoise", "an ORM"),
-    m("mongoengine", "an ORM"),
-    m("psycopg2", "a database driver"),
-    m("psycopg", "a database driver"),
-    m("asyncpg", "a database driver"),
-    m("pymongo", "a database driver"),
-    m("motor", "a database driver"),
-    m("sqlite3", "a database driver"),
-    m("redis", "a database driver"),
-    m("celery", "a message broker"),
-    m("kombu", "a message broker"),
-    m("pika", "a message broker"),
-    m("confluent_kafka", "a message broker"),
-    m("kafka", "a message broker"),
-    m("boto3", "a cloud SDK"),
-    m("botocore", "a cloud SDK"),
-    m("google.cloud", "a cloud SDK"),
-    m("azure", "a cloud SDK"),
-    m("subprocess", "process execution"),
-    m("socket", "the network"),
-    m("smtplib", "an email transport"),
-    m("ftplib", "the network"),
-];
-
-const RUST_MODULES: &[InfraModule] = &[
-    m("std::fs", "the filesystem"),
-    m("std::net", "the network"),
-    m("std::process", "process execution"),
-    m("tokio::fs", "the filesystem"),
-    m("tokio::net", "the network"),
-    m("tokio::process", "process execution"),
-    m("reqwest", "an HTTP client"),
-    m("hyper", "an HTTP client"),
-    m("ureq", "an HTTP client"),
-    m("isahc", "an HTTP client"),
-    m("axum", "a web framework"),
-    m("actix_web", "a web framework"),
-    m("rocket", "a web framework"),
-    m("warp", "a web framework"),
-    m("tide", "a web framework"),
-    m("poem", "a web framework"),
-    m("tonic", "an RPC framework"),
-    m("sqlx", "a database driver"),
-    m("diesel", "an ORM"),
-    m("sea_orm", "an ORM"),
-    m("rusqlite", "a database driver"),
-    m("tokio_postgres", "a database driver"),
-    m("postgres", "a database driver"),
-    m("mongodb", "a database driver"),
-    m("redis", "a database driver"),
-    m("lapin", "a message broker"),
-    m("rdkafka", "a message broker"),
-    m("aws_sdk_s3", "a cloud SDK"),
-    m("aws_config", "a cloud SDK"),
-    m("clap", "a CLI framework"),
-];
-
-const GO_MODULES: &[InfraModule] = &[
-    m("os", "the filesystem"),
-    m("io/ioutil", "the filesystem"),
-    m("path/filepath", "the filesystem"),
-    m("net", "the network"),
-    m("net/http", "the network"),
-    m("os/exec", "process execution"),
-    m("database/sql", "a database driver"),
-    m("gorm.io/gorm", "an ORM"),
-    m("github.com/jinzhu/gorm", "an ORM"),
-    m("github.com/jmoiron/sqlx", "a database driver"),
-    m("github.com/lib/pq", "a database driver"),
-    m("github.com/jackc/pgx", "a database driver"),
-    m("go.mongodb.org/mongo-driver", "a database driver"),
-    m("github.com/redis/go-redis", "a database driver"),
-    m("github.com/go-redis/redis", "a database driver"),
-    m("github.com/gin-gonic/gin", "a web framework"),
-    m("github.com/labstack/echo", "a web framework"),
-    m("github.com/gofiber/fiber", "a web framework"),
-    m("github.com/gorilla/mux", "a web framework"),
-    m("google.golang.org/grpc", "an RPC framework"),
-    m("github.com/aws/aws-sdk-go", "a cloud SDK"),
-    m("cloud.google.com/go", "a cloud SDK"),
-    m("github.com/segmentio/kafka-go", "a message broker"),
-    m("github.com/streadway/amqp", "a message broker"),
-    m("github.com/spf13/cobra", "a CLI framework"),
-];
-
-fn roster(language: &LanguageIdentifier) -> &'static [InfraModule] {
-    if *language == LanguageIdentifier::typescript() {
-        return TS_MODULES;
-    }
-    if *language == LanguageIdentifier::python() {
-        return PYTHON_MODULES;
-    }
-    if *language == LanguageIdentifier::rust() {
-        return RUST_MODULES;
-    }
-    if *language == LanguageIdentifier::go() {
-        return GO_MODULES;
-    }
-    &[]
-}
 
 /// The rings that must stay pure. Adapters and infrastructure are *supposed*
 /// to import frameworks — that is their entire job.
@@ -241,7 +50,7 @@ impl Rule for FrameworkInDomainRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        !roster(language).is_empty()
+        !infra_roster(language).is_empty()
     }
 
     fn default_severity(&self) -> Severity {
@@ -278,7 +87,7 @@ impl Rule for FrameworkInDomainRule {
         if !is_inner_ring(layer) {
             return Vec::new();
         }
-        let roster = roster(file.language());
+        let roster = infra_roster(file.language());
         imported_modules(file, ast)
             .into_iter()
             .filter_map(|import| {

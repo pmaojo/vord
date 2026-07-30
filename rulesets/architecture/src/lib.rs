@@ -15,7 +15,6 @@
 
 mod boundary_violation;
 mod census;
-mod common;
 mod dependency_cycle;
 mod framework_in_domain;
 mod hexagonal_layer;
