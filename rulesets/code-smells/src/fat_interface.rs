@@ -47,6 +47,22 @@ fn rust_traits(ast: &AstNode) -> Vec<(&AstNode, String, usize)> {
         .collect()
 }
 
+/// Go `type X interface { .. }`: a `type_spec` wrapping an `interface_type`,
+/// whose `method_elem` members are the contract implementers must satisfy. In a
+/// Go hexagon these *are* the ports, so a fat one is exactly what this rule is
+/// for.
+fn go_interfaces(ast: &AstNode) -> Vec<(&AstNode, String, usize)> {
+    ast.descendants()
+        .filter(|n| is_other(n, "type_spec"))
+        .filter_map(|node| {
+            let name = node.children().iter().find(|c| is_other(c, "type_identifier"))?.text().to_string();
+            let body = node.children().iter().find(|c| is_other(c, "interface_type"))?;
+            let method_count = body.children().iter().filter(|c| is_other(c, "method_elem")).count();
+            Some((node, name, method_count))
+        })
+        .collect()
+}
+
 pub struct FatInterfaceRule {
     id: RuleId,
     max_methods: usize,
@@ -70,7 +86,8 @@ impl Rule for FatInterfaceRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        *language == LanguageIdentifier::typescript() || *language == LanguageIdentifier::rust()
+        [LanguageIdentifier::typescript(), LanguageIdentifier::rust(), LanguageIdentifier::go()]
+            .contains(language)
     }
 
     fn default_severity(&self) -> Severity {
@@ -90,6 +107,7 @@ impl Rule for FatInterfaceRule {
         ts_interfaces(ast)
             .into_iter()
             .chain(rust_traits(ast))
+            .chain(go_interfaces(ast))
             .filter(|(_, _, count)| *count > self.max_methods)
             .map(|(node, name, count)| {
                 Finding::new(

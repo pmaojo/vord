@@ -5,18 +5,25 @@
 //!
 //! TypeScript/JS and Python resolve via relative specifiers against the
 //! candidate file set (see `resolve` module docs for what's resolved and
-//! what's deliberately left external); Rust resolves `use` edges against a
+//! what's deliberately left external); Go resolves `import` paths by
+//! directory suffix (its module prefix lives in `go.mod`, which this crate
+//! cannot read); Rust resolves `use` edges against a
 //! crate-name index instead (`build_with_rust_crates`, see its own doc
 //! comment — this crate stays I/O-free, so the index itself is built
 //! elsewhere, `yunq_infra_fs::discover_rust_crates`). Every other language
 //! contributes no edges (harmless, not an error).
 //!
 //! Also home to `component` (roadmap D1: components derived from path
-//! topology) and `boundary` (roadmap D2: declared boundaries between those
-//! components) — both consumers of the same edge set this module builds.
+//! topology), `boundary` (roadmap D2: declared boundaries between those
+//! components), `layer` (the zero-config hexagonal reading of the same
+//! topology: dependencies must point inward) and `metrics` (Martin's
+//! component metrics — Ca/Ce/I/A/D) — all consumers of the same edge set
+//! this module builds.
 
 mod boundary;
 mod component;
+mod layer;
+mod metrics;
 mod resolve;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -25,6 +32,10 @@ use yunq_ast::{AstNode, NodeKind, Span};
 
 pub use boundary::{ArchitectureConfig, BoundaryViolation, DependencyEdge, ViolationKind};
 pub use component::component_of;
+pub use layer::{inward_dependency_violations, layer_of, HexLayer, LayerViolation};
+pub use metrics::{
+    component_metrics, stability_violations, ComponentMetrics, StabilityViolation, TypeCensus,
+};
 
 /// One resolved dependency edge: `from` imports `to`, at `span` in `from`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,6 +119,22 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
                 None
             };
             if let Some(target) = resolved {
+                if target != path {
+                    edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                }
+            }
+        }
+    }
+}
+
+/// Go `import` edges: every `import_spec`'s quoted package path, resolved by
+/// directory suffix (`resolve::resolve_go_import` — Go's module prefix lives in
+/// `go.mod`, which this I/O-free crate cannot read).
+fn extract_go_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut Vec<ImportEdge>) {
+    for node in ast.descendants().filter(|n| is_other(n, "import_declaration")) {
+        for spec in node.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+            let specifier = strip_quotes(spec.text());
+            if let Some(target) = resolve::resolve_go_import(&specifier, candidates) {
                 if target != path {
                     edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
                 }
@@ -230,6 +257,50 @@ fn extract_rust_edges(path: &str, ast: &AstNode, crate_index: &HashMap<String, S
     }
 }
 
+/// A Rust path node's *module path prefix*: the `::`-separated text with the
+/// shapes that aren't module segments cut off — a `{A, B}` use list, an `as`
+/// alias, a `*` wildcard tail. (`use crate::a::b::{C, D};` -> `crate::a::b`.)
+fn module_path_prefix(node: &AstNode) -> String {
+    let text = node.text();
+    let head = text.split('{').next().unwrap_or(text);
+    let head = head.split(" as ").next().unwrap_or(head);
+    head.trim().trim_end_matches(':').trim_end_matches('*').trim_end_matches(':').trim().to_string()
+}
+
+/// Rust *intra-crate* module edges: `use crate::infrastructure::db`,
+/// `super::money`, `self::order` resolved to the file declaring that module
+/// (`resolve::resolve_rust_module`).
+///
+/// Deliberately not part of [`ImportGraph::build`], which is what
+/// `DependencyCycleRule` and `BoundaryViolationRule` use. Rust module cycles
+/// are legal and idiomatic — a parent module names its children and children
+/// reach back with `super::` — so folding these edges into the default graph
+/// would turn the cycle rule into a firehose on every Rust codebase. The
+/// layering rules ([`layer`]) want them, because "which ring is this file
+/// in" is a *path* question that a single-crate `src/domain` /
+/// `src/infrastructure` layout answers perfectly well without any crate
+/// index at all.
+fn extract_rust_module_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut Vec<ImportEdge>) {
+    if yunq_rules_engine::is_test_only_path(path) {
+        return;
+    }
+    let test_ranges = yunq_rules_engine::rust_test_module_ranges(ast.text());
+    let mut seen = HashSet::new();
+    for node in ast.descendants().filter(|n| is_other(n, "use_declaration")) {
+        if yunq_rules_engine::in_ranges(&test_ranges, node.span().start_line) {
+            continue;
+        }
+        let Some(path_node) = node.children().iter().find(|c| !is_other(c, "visibility_modifier")) else {
+            continue;
+        };
+        let prefix = module_path_prefix(path_node);
+        let Some(target) = resolve::resolve_rust_module(path, &prefix, candidates) else { continue };
+        if seen.insert(target.to_string()) {
+            edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+        }
+    }
+}
+
 impl ImportGraph {
     /// Builds the graph from a file set — the same `&[(path, ast)]` shape
     /// `core/taint::CrossFileTaint::find_flows` takes. Rust files contribute
@@ -256,9 +327,28 @@ impl ImportGraph {
                 extract_py_edges(path, ast, &candidates, &mut edges);
             } else if path.ends_with(".rs") {
                 extract_rust_edges(path, ast, rust_crates, &mut edges);
+            } else if path.ends_with(".go") {
+                extract_go_edges(path, ast, &candidates, &mut edges);
             }
         }
         Self { edges }
+    }
+
+    /// Same as [`Self::build`], plus Rust *intra-crate* module edges
+    /// (`crate::`/`self::`/`super::` paths resolved to the file declaring
+    /// that module — see `extract_rust_module_edges` for why this is opt-in
+    /// rather than the default). This is what the layering rules build on:
+    /// a single-crate `src/domain` / `src/infrastructure` layout is a
+    /// hexagon whether or not the workspace has more than one crate in it.
+    pub fn build_with_rust_modules(files: &[(&str, &AstNode)]) -> Self {
+        let mut graph = Self::build(files);
+        let candidates: Vec<&str> = files.iter().map(|(path, _)| *path).collect();
+        for (path, ast) in files {
+            if path.ends_with(".rs") {
+                extract_rust_module_edges(path, ast, &candidates, &mut graph.edges);
+            }
+        }
+        graph
     }
 
     pub fn edges(&self) -> &[ImportEdge] {

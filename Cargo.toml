@@ -60,6 +60,7 @@ yunq-rules-secrets = { path = "rulesets/secrets", version = "0.1.1" }
 yunq-rules-rust = { path = "rulesets/rust", version = "0.1.1" }
 yunq-rules-python = { path = "rulesets/python", version = "0.1.1" }
 yunq-rules-architecture = { path = "rulesets/architecture", version = "0.1.1" }
+yunq-rules-ddd = { path = "rulesets/ddd", version = "0.1.1" }
 yunq-rules-reactive = { path = "rulesets/reactive", version = "0.1.1" }
 yunq-rules-typescript = { path = "rulesets/typescript", version = "0.1.1" }
 yunq-rules-php = { path = "rulesets/php", version = "0.1.1" }

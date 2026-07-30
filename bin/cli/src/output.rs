@@ -397,14 +397,14 @@ impl ReportDto {
 
 /// `AnalysisReport::crap_findings`, worst score first — the ranked refactor
 /// list is the deliverable (roadmap item C3), not merely a set.
-fn sorted_crap(report: &AnalysisReport) -> Vec<&CrapFinding> {
-    let mut findings: Vec<&CrapFinding> = report.crap_findings().iter().collect();
+fn sorted_crap(report: &AnalysisReport) -> Vec<CrapFinding> {
+    let mut findings = report.crap_findings();
     findings.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     findings
 }
 
 fn sorted_crap_findings(report: &AnalysisReport) -> Vec<CrapFindingDto> {
-    sorted_crap(report).into_iter().map(CrapFindingDto::from).collect()
+    sorted_crap(report).iter().map(CrapFindingDto::from).collect()
 }
 
 fn render_issues_text(out: &mut String, report: &AnalysisReport) {

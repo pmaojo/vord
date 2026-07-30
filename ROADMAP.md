@@ -14,7 +14,7 @@ that cannot approve its own work.**
 Every coding agent on the market grades its own homework. The model proposes
 an edit, the model decides the edit is good, and the verification is a second
 prompt to the same weights. yunq is the one project where the judge already
-exists as a separate, deterministic, 133-rule artifact that predates the
+exists as a separate, deterministic, 150-rule artifact that predates the
 writer. Making yunq write code is not a pivot away from analysis — it is the
 only way to close the loop that analysis was always pointing at.
 
@@ -32,7 +32,7 @@ Verified against the tree, not remembered:
 |---|---|
 | Workspace | Hexagonal, enforced by Cargo: `bin → {infra, parsers, rulesets} → core` |
 | Languages | 24 tree-sitter grammars (`parsers/`, plus `treesitter-adapter` + `treesitter-tokens`) |
-| Rules | 134 `Rule`/`CrossFileRule` impls across 14 ruleset crates |
+| Rules | 150 `Rule`/`CrossFileRule` impls across 15 ruleset crates — including the SOLID/hexagonal/DDD gatekeeper (D3, D3b, D3c), live for TypeScript, Python, Rust and Go |
 | Tests | ~1667 test functions in-workspace (`#[test]` + `#[tokio::test]`, counted directly rather than carried forward) |
 | Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph`, `crap` (CC² × (1−coverage)³ + CC risk scoring) |
 | Agent guardrail | `core/agent-policy` (1039 LOC): blocking/advisory rules, protected paths (incl. its own policy/gate config files), provenance, Gherkin evidence, circuit breaker, loop guard, single-use escalation tokens, audit log, gate-gaming detection (suppressions, skipped tests) |
@@ -469,13 +469,99 @@ missing is the layer above it: components, declared boundaries, and metrics.
     originally), which is only a meaningful zero because this pass proved
     the detection is no longer silently blind to how those crates are
     actually referenced.
-  D3 (I/A metrics, main sequence) and D4 (`yunq arch` viewer) build on this
-  component model next.
-- **D3 — Instability / Abstractness and the main sequence.** Per component:
-  I = Ce/(Ca+Ce), A = abstract types / total types, D = |A+I−1|. Classify
-  into the zone of pain (concrete + stable) and the zone of uselessness
-  (abstract + unstable). yunq is a Martin-shaped architecture; it should be
-  able to measure itself with Martin's own metrics and publish the number.
+  D3 (I/A metrics, main sequence) shipped on top of this component model
+  (below), and took the zero-config hexagonal and tactical-DDD rulesets with
+  it; D4 (`yunq arch` viewer) is what remains.
+- **D3** ✅ **done.** Instability / Abstractness and the main sequence, per
+  component: I = Ce/(Ca+Ce), A = abstractions / total types, D = |A+I−1|
+  (`core/import-graph::metrics` — `ComponentMetrics`, `TypeCensus`,
+  `component_metrics`, `stability_violations`). Ca/Ce come from the existing
+  `component_edges()`; abstractness cannot (it needs each file's
+  declarations), so the census is an *argument* rather than something the
+  graph derives — `rulesets/architecture::census` counts TS
+  `interface`/`abstract class`, Rust `trait`, and Python `Protocol`/ABC/
+  `@abstractmethod` classes per component and passes it in, keeping the
+  metrics module pure graph arithmetic. Shipped as two rules rather than a
+  published number, because a number nobody fails a build on is a report:
+  `architecture:main-sequence-deviation` (D > 0.7, distinguishing the zone of
+  pain from the zone of uselessness in the finding message itself) and
+  `architecture:stable-dependency-violation` (SDP: an edge from a hub
+  component to a more volatile one). Both carry floors — 5 types, 3
+  component couplings, a 0.25 instability margin, 2 dependents — because I
+  and A are ratios over small integers where one import moves the number 0.1
+  and a three-type component can hit D = 1 without meaning anything. yunq's
+  own tree reports zero of both.
+- **D3b** ✅ **done, beyond the original item.** The same component model made
+  the *zero-config* hexagonal checks possible, which D2's declared boundaries
+  structurally cannot be: `[architecture]` says nothing until someone writes
+  the table. `core/import-graph::layer` classifies a path into a hexagonal
+  ring off the vocabulary the industry already shares (`domain`, `entities`,
+  `application`, `usecases`, `ports`, `adapters`, `controllers`,
+  `infrastructure`, `core`, …) with innermost-match-wins (so
+  `apps/api/src/domain/order.ts` is domain code inside a deployable named
+  `api`, not an adapter) and `Adapter`/`Infrastructure` sharing one depth (two
+  names for the same outer ring, so neither can "violate" the other).
+  `inward_dependency_violations` then reads the one load-bearing constraint —
+  dependencies point inward — off the existing edge set, shipped as
+  `architecture:hexagonal-layer-violation`. Rust needed one addition to be
+  covered at all: `extract_rust_edges` deliberately skips
+  `crate`/`self`/`super` (always intra-crate), which is exactly where a
+  single-crate `src/domain` / `src/infrastructure` hexagon lives, so
+  `resolve::resolve_rust_module` resolves those paths to files (longest module
+  prefix first, dropping the item tail) behind an opt-in
+  `ImportGraph::build_with_rust_modules` — opt-in because folding intra-crate
+  module edges into the default graph would turn `DependencyCycleRule` into a
+  firehose (a parent module naming its children while they reach back with
+  `super::` is idiomatic Rust, not a cycle smell).
+  `architecture:framework-in-domain` covers what no graph rule can — a domain
+  file importing `sqlalchemy`/`typeorm`/`reqwest` produces no *edge*, because
+  the dependency isn't in the analyzed set at all.
+- **D3c** ✅ **done.** Tactical DDD as a ruleset (`rulesets/ddd`):
+  `anemic-domain-model`, `public-entity-setter`,
+  `aggregate-exposes-internal-collection`, `primitive-obsession`,
+  `persistence-in-domain`. Every rule is scoped to the domain layer via
+  `layer_of`, and that scope is the finding: the same shapes are *correct* at
+  the edges (a DTO should be anemic and full of setters, a row type should
+  carry the ORM mapping), so a rule that fired everywhere would be reporting
+  taste instead of a defect. Accessors are recognized structurally — a
+  single-statement body that only hands a field out or takes one in — not by
+  name, because the three languages disagree on naming (`getTotal`, `total()`,
+  `@property def total`) and agree on shape; a setter that validates anything
+  is not a setter. Rust is read on its own terms too: an exposed collection is
+  only a finding for `&mut self.items`, since a shared borrow cannot mutate
+  what it borrows.
+  **Go joined all of it** (D3d): `core/symbols` grew a Go extractor (struct and
+  interface `type_spec`s, receiver methods matched to their type, `New<Type>`
+  constructor functions) and `MethodInfo` grew a `receiver`, so accessor
+  detection works on `func (o *Order)` bodies without special-casing anything at
+  the rule level; `core/import-graph` resolves Go `import` paths by shared
+  directory tail (the module prefix lives in `go.mod`, which an I/O-free crate
+  cannot read, and a scan rooted below `go.mod` would not reproduce it anyway);
+  the rosters grew Go entries (`database/sql`, `gorm.io/gorm`, gin/echo/fiber,
+  gorm struct tags). Mojo did **not**: there is no `tree-sitter-mojo` on
+  crates.io, this workspace publishes to crates.io, and Mojo's `struct`/`fn`
+  syntax is not parseable by the Python grammar — the honest status is unsupported
+  until a published grammar exists, at which point it is a parser crate plus one
+  `EXTRACTORS` row.
+
+  **The god-component objection, answered in code** (D3e): `core/symbols/
+  classes.rs` had grown to 804 lines with a per-language `match` at its centre —
+  the same shape `smells:type-check-chain` and `smells:god-class` were shipped to
+  flag. It is now `classes/{mod,typescript,python,rust,go}.rs` behind an
+  `EXTRACTORS` table of `(declaration kind, build, attach)` rows, so the registry
+  never asks what language it is looking at and a new language is a new file plus
+  a row. Parameter extraction collapsed from four near-identical per-language
+  functions into one `function_params`, and per-language visibility moved from a
+  `bool` flag threaded through call sites into a `VISIBILITY` policy table.
+
+  Building it exposed two real bugs in `core/symbols` that had been silently
+  degrading every existing OOP-smell rule on Rust: `attach_rust_impls` took
+  the *first child* as a method name, so every `pub fn` was dropped (a
+  `visibility_modifier` comes first), and `declared_type`'s type-node test
+  (`kind.contains("_type")`) missed a bare `type_identifier`, so a field or
+  parameter annotated with a project's own type read as untyped while `i32`
+  resolved fine. Python decorated methods (`@property`, `@staticmethod`) were
+  invisible for the same class of reason. All three fixed, with tests.
 - **D4 — `yunq arch`.** Layered interactive view: components as boxes ranked
   by topological layer, cycles in red, drill-down, hover for the specific
   import paths. arch-view exports EDN for headless use; yunq exports JSON,
@@ -721,7 +807,7 @@ now  ──► B4 (topologies), driven by headless `yunq agent` — the only ite
 
 parallel ─► F (performance)  — continuous, gated in CI
             C4 (run coverage) — startable, C1–C3 shipped
-            D3–D4 (I/A + arch view) — startable, D1–D2 shipped
+            D4 (arch view) — startable, D1–D3 shipped
             E1 (further widening: taint → rules-engine) — more matrix entries
             G — opportunistic
 ```
@@ -752,7 +838,7 @@ agent run --task` is headless, scriptable and returns a structured outcome,
 and `yunq swarm` already has isolated worktrees, scoped policies and a
 durable handoff queue per role — what's missing is something that drives
 several roles through a `yunq.toml`-declared topology automatically instead
-of one role at a time by hand. F is continuous and already gated. D3–D4
+of one role at a time by hand. F is continuous and already gated. D4
 (I/A metrics, `yunq arch` viewer) can start now that D1's component model
 exists. E1's remaining widening (taint → rules-engine) is more matrix
 entries, and `core/agent` is the obvious next admission to it: it is pure,
