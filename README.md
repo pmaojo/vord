@@ -76,33 +76,43 @@ yunq/
 │   ├── profiles/               # yunq-profiles: RuleId, Severity, QualityProfile, QualityGate, Rating
 │   ├── rules-engine/           # yunq-rules-engine: ports (traits), Rule, CrossFileRule, AnalyzerService
 │   ├── taint/                  # yunq-taint: intra-file + cross-file inter-procedural taint analysis
+│   ├── symbols/                # yunq-symbols: per-language class/method extraction (SOLID/DDD rules read this)
+│   ├── import-graph/           # yunq-import-graph: components, cycles, Martin metrics, hexagonal layering
 │   ├── agent-policy/           # yunq-agent-policy: Agent Permission Policy — may this agent write land?
 │   ├── agent/                  # yunq-agent: the agent runtime — session loop, write gate, analyzer-as-done
+│   ├── swarm/                  # yunq-swarm: worktree/handoff/topology computation for multi-agent runs
+│   ├── remediation/            # yunq-remediation: generate → sandbox → re-scan → verdict
+│   ├── crap/                   # yunq-crap: risk = complexity² × untestedness³ + complexity
 │   └── duplication/            # yunq-cpd: copy-paste detection (rolling-window hashes)
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
-│   └── fs/                     # gitignore-aware source loader, LCOV parser, caches
-├── parsers/                    # INBOUND ADAPTERS (tree-sitter → neutral AST)
+│   ├── fs/                     # gitignore-aware source loader, coverage/mutation parsers, caches, worktrees
+│   ├── llm/                    # Anthropic + OpenAI-compatible chat providers, for `agent`/`fix`
+│   └── github/, gitlab/, bitbucket/, azure/   # ALM adapters (PR feedback, issue sync)
+├── parsers/                    # INBOUND ADAPTERS (tree-sitter → neutral AST) — 24 languages
+│   ├── treesitter-adapter/     # shared `declare_parser!` macro every language crate below uses
 │   ├── treesitter-typescript/
 │   ├── treesitter-rust/
 │   ├── treesitter-python/
-│   └── treesitter-go/
-├── rulesets/                   # PLUGINS implementing the Rule trait
+│   ├── treesitter-go/
+│   └── ...                     # 20 more: c, cpp, csharp, java, kotlin, ruby, php, swift, scala, ...
+├── rulesets/                   # PLUGINS implementing the Rule trait — 150 rules, 15 crates
 │   ├── owasp/                  # secrets, eval/exec, command-exec hotspots, taint injection (incl. cross-file)
 │   ├── code-smells/            # SOLID (see below), complexity (cyclomatic + cognitive), TODO/FIXME, long functions
 │   ├── architecture/           # hexagonal layering, framework purity, import cycles, Martin component metrics
 │   ├── ddd/                    # tactical DDD: anemic model, entity setters, primitive obsession, aggregate leaks
-│   └── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
+│   ├── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
+│   └── ...                     # 10 more: python, go, typescript, react, reactive, iac, a11y, ai-agent, php, secrets
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
-    ├── cli/                    # yunq scan — local end-to-end analysis
+    ├── cli/                    # yunq scan/hook/agent/swarm/fix — local end-to-end analysis
     └── lsp/                    # editor-facing language server
 ```
 
 The hosted API server, background worker, Postgres storage adapter, and web frontend live in a separate private repository (`yunq-cloud`) and are not part of this open-source core.
 
-Dependency direction is enforced by Cargo: `bin → {infra, parsers, rulesets} → core`. The core defines **ports** (`AstParser`, `IssueStorage`, `IssueReader`, `IssueFacetReader`, `IssueWorkflow`, `HotspotStorage`, `MetricsTracker`, `JobQueue`, `AnalysisCache`); adapters implement them (DIP). Domain types are validated newtypes with fallible constructors and **no `serde::Deserialize`** — every edge (HTTP, Postgres, tree-sitter) owns its DTOs and translates in. Adding a language or ruleset means a new crate registered at a composition root; the engine never changes (OCP).
+Dependency direction is enforced by Cargo: `bin → {infra, parsers, rulesets} → core`. The core defines **ports** (`AstParser`, `IssueStorage`, `IssueReader`, `IssueFacetReader`, `IssueWorkflow`, `HotspotStorage`, `MetricsTracker`, `JobQueue`, `AnalysisCache`); adapters implement them (DIP). The load-bearing identity types (`RuleId`, `Severity`, `LanguageIdentifier`) are validated newtypes with fallible constructors, never deserialized directly off an untrusted edge — HTTP, tree-sitter and config-file adapters own their own DTOs and translate in. Adding a language or ruleset means a new crate registered at a composition root; the engine never changes (OCP).
 
-Proof of purity: `cargo tree -p yunq-rules-engine` — only core crates and `thiserror`.
+Proof of purity: `cargo tree -p yunq-rules-engine` — only core crates, `serde` and `thiserror`. No I/O crate, no async runtime, no tree-sitter.
 
 ```mermaid
 graph TD
@@ -170,8 +180,8 @@ Every command below works against an installed binary too — replace
 cargo run -p yunq-cli                  # no args, in a terminal: interactive wizard
                                         # (scope: whole repo / branch diff / path — then
                                         # agent prompt, guided remediation, or CI install)
-cargo test --workspace                 # unit (fakes), fixtures, e2e — currently 80+ tests
-cargo run -p yunq-cli -- scan fixtures # real scan: 4 languages, rules + taint + CPD + complexity
+cargo test --workspace                 # unit (fakes), fixtures, e2e — ~1700 tests
+cargo run -p yunq-cli -- scan fixtures # real scan: a small multi-language fixture set, rules + taint + CPD + complexity
 cargo run -p yunq-cli -- scan fixtures --format json
 cargo run -p yunq-cli -- scan fixtures --fail-on critical      # exit 2 on severity breach
 cargo run -p yunq-cli -- scan fixtures --enforce-gate          # exit 3 on quality gate failure
@@ -179,7 +189,9 @@ cargo run -p yunq-cli -- scan fixtures --coverage report.lcov  # ingest LCOV cov
 cargo run -p yunq-cli -- scan fixtures --cobertura report.xml # ingest Cobertura XML coverage
 cargo run -p yunq-cli -- scan fixtures --jacoco report.xml    # ingest JaCoCo XML coverage
 cargo run -p yunq-cli -- scan fixtures --llvm-cov report.json # ingest llvm-cov JSON coverage
+cargo run -p yunq-cli -- scan fixtures --coverage-report coverage-final.json --coverage-format istanbul
 cargo run -p yunq-cli -- scan fixtures --junit report.xml     # ingest JUnit test report
+cargo run -p yunq-cli -- scan monorepo-root --monorepo         # discover + scan every yunq.toml-configured project under a root
 cargo run -p yunq-cli -- scan fixtures --mutation-report mutation.json  # ingest a Stryker-schema mutation report
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif --sarif eslint.sarif  # repeatable
@@ -194,24 +206,15 @@ BLOCKER  owasp:injection  vulnerable.ts:9:1  user input from `process.argv` reac
          `input` tainted by `process.argv`; `payload` tainted via `input`; `payload` reaches sink `eval`
 ```
 
-## Server + worker (async pipeline)
+## No server required
 
-The server enqueues `ScanJob`s into the `scan_jobs` table; workers claim them with `FOR UPDATE SKIP LOCKED` and wake up on `LISTEN`/`NOTIFY` (falling back to a 5s poll). No broker to run — it's the same Postgres database as issue storage:
-
-```sh
-export DATABASE_URL=postgres://yunq:yunq@localhost:5432/yunq
-
-cargo run -p yunq-worker    # applies migrations, listens for scan jobs
-cargo run -p yunq-server    # POST /scans {"project":"p","path":"/abs/checkout"}
-```
-
-The API surface: `POST /scans`, `GET /issues` (filters + pagination + facets), `POST /issues/{id}/transitions`, `PUT /issues/{id}/assignee`, `POST /issues/bulk-transition`, `GET /issues/{id}/changelog`, `GET /hotspots`, `PUT /hotspots/{id}/status`, `GET /rules`.
-
-The server publishes its contract as **OpenAPI 3.1** at `GET /api-docs/openapi.json` (Swagger UI at `/swagger-ui`), generated with utoipa from the server-owned DTOs — the contract lives at the adapter boundary, domain types stay serde-free. Frontends can codegen clients from it (e.g. `openapi-typescript`). A committed export lives at [`api/openapi.json`](api/openapi.json); regenerate it any time with:
-
-```sh
-cargo run -p yunq-server -- openapi > api/openapi.json
-```
+Everything above — `scan`, `hook`, `agent`, `swarm`, `fix` — runs standalone,
+against the local filesystem, with no daemon, no database and no network
+call unless you configure an LLM provider for `agent`/`fix`. A hosted layer
+(API server, worker, Postgres-backed issue storage, web frontend) exists as
+`yunq-cloud`, a separate private repository — it adds persistence, history
+and multi-user collaboration on top of this engine, and is never a gatekeeper
+for anything in this repo.
 
 ## Agentic guardrail (Claude Code, Codex, pre-commit)
 
@@ -435,7 +438,7 @@ denied) and decide for themselves.
 Every coding agent on the market grades its own homework: the model proposes
 an edit, the model decides the edit is good, and the verification is a second
 prompt to the same weights. yunq is the one project where the judge already
-exists as a separate, deterministic, 134-rule artifact that predates the
+exists as a separate, deterministic, 150-rule artifact that predates the
 writer — so `yunq agent` is built on two constraints it cannot talk its way
 out of.
 
@@ -495,6 +498,63 @@ max_tokens = 500000
 max_rejections = 3
 allowed_commands = ["cargo", "npm", "pytest"]   # replaces the built-in list
 command_timeout_secs = 300
+```
+
+## `yunq swarm` — multiple agents, isolated and scoped
+
+One `yunq agent` session is one role doing one task. `yunq swarm` drives
+several roles — architect, coder, cleaner, QA, whatever `[[swarm.role]]`
+declares — through their own tasks in sequence, each isolated from the
+others and each narrower in what it's allowed to touch than the base policy:
+
+```sh
+yunq swarm roles                              # list declared roles, resolved worktree + policy scope
+yunq swarm worktree-create --role coder       # git worktree add, idempotent
+yunq swarm run --task "add input validation to the signup form"
+```
+
+Three ideas, adapted from Uncle Bob's
+[swarm-forge](https://github.com/unclebob/swarm-forge) protocol (not its
+tmux-based implementation — yunq solves the same coordination problem
+in-process):
+
+- **One `git worktree` per agent.** Concurrent roles never contend on the
+  index; each works in its own checkout on its own branch
+  (`yunq/swarm/<role>` by default).
+- **Durable, validated handoffs**, not direct messaging. A role finishing its
+  turn writes a handoff to `.yunq/handoffs/outbox`; `yunq swarm
+  handoff-deliver` moves it into the next role's inbox, quarantining
+  anything malformed into `failed/` instead of losing or corrupting it. A
+  crashed agent loses nothing.
+- **Roles get policy scopes, not just prompts.** swarm-forge enforces
+  discipline through workflow structure; yunq has actual access controls and
+  uses them. `[[swarm.role]]` can add its own `protected_path`/
+  `blocking_rules`/`escalate_rules` on top of the base policy — the cleaner
+  role can be denied write access to `.github/workflows/**`, the coder
+  denied write access to the ruleset that judges it, QA given `scan` and no
+  write at all. A role's scope only ever *adds* restriction; there is no way
+  for a role config to widen what the base policy already forbids.
+
+`yunq swarm run` resolves `[swarm]`'s `topology = "two-pack"` (coder,
+reviewer) or `"four-pack"` (architect, coder, cleaner, qa) preset — or an
+explicit `pipeline = [...]` role sequence — into an ordered list, then runs
+each role's own `yunq agent` turn against its own worktree and scoped
+policy, folding in whatever the previous role handed off. It stops at the
+first role whose run doesn't complete, exiting with that role's own exit
+code (see the table above) rather than compounding a failed run's baggage
+forward.
+
+```toml
+[swarm]
+topology = "two-pack"
+worktree_root = ".yunq/worktrees"   # default
+
+[[swarm.role]]
+name = "cleaner"
+
+[[swarm.role.protected_paths]]
+pattern = ".github/workflows/**"
+reason = "CI definitions need human review."
 ```
 
 ## Importing another analyzer's findings (SARIF)
@@ -676,27 +736,81 @@ What the incumbents don't do:
 
 The combination — zero-config hexagonal layering, framework purity, Martin's
 component metrics, SOLID and tactical DDD, in one parse-only engine that gates
-a build across three languages — is the part that doesn't exist elsewhere.
+a build across four languages — is the part that doesn't exist elsewhere.
 
-## Adding a rule
+## Expanding yunq
+
+### Adding a rule
 
 1. Create (or extend) a crate under `rulesets/`.
-2. Implement `yunq_rules_engine::Rule` (`id`, `applies_to`, `default_severity`, `check`).
+2. Implement `yunq_rules_engine::Rule` (`id`, `applies_to`, `default_severity`,
+   `check(file, ast)`) for a same-file check, or `CrossFileRule`
+   (`check(files)`) for one that needs every file's AST at once (import
+   graphs, cross-file taint).
 3. Register it in the composition root (`bin/cli`).
 
-The engine, storage and parsers remain untouched.
+The engine, storage and parsers remain untouched — a rule is the only thing
+that changes shape between "runs on one file" and "runs on the whole
+project", and both shapes flow through the same `Issue`/gate/SARIF/agent-policy
+pipeline with zero new plumbing.
 
-## Roadmap
+### Adding a language
 
-yunq is the agent runtime that cannot approve its own work: `yunq agent`
-ships, with every write judged in-process by the same `core/agent-policy` that
-gates third-party agents and a definition of "done" that is the analyzer
-agreeing — never a self-assessment turn. Next: multi-agent orchestration
-with per-role policy scopes, an agent TUI, CRAP risk scoring
-(complexity × untestedness), declared architecture boundaries enforced at
-write time, and gate integrity — mutation testing to prove a suite would
-notice a regression, plus detection of an agent quietly lowering the bar
-instead of clearing it.
+A new language is a new crate under `parsers/`, not an engine change. Most of
+one is `yunq_treesitter_adapter::declare_parser!` plus a kind-mapping table —
+the whole of `parsers/treesitter-rust/src/lib.rs`, for example:
 
-See [ROADMAP.md](ROADMAP.md) for the plan and [DEVLOG.md](DEVLOG.md) for the
-build history and design rationale.
+```rust
+use yunq_ast::{LanguageIdentifier, NodeKind};
+
+yunq_treesitter_adapter::declare_parser!(
+    RustParser,
+    LanguageIdentifier::rust(),
+    tree_sitter_rust::LANGUAGE,
+    map_kind
+);
+
+const KIND_TABLE: &[(&str, NodeKind)] = &[
+    ("source_file", NodeKind::SourceUnit),
+    ("function_item", NodeKind::FunctionDef),
+    ("call_expression", NodeKind::Call),
+    ("string_literal", NodeKind::StringLiteral),
+    ("identifier", NodeKind::Identifier),
+    ("assignment_expression", NodeKind::Assignment),
+    ("let_declaration", NodeKind::VariableDecl),
+    ("field_expression", NodeKind::MemberAccess),
+    ("line_comment", NodeKind::Comment),
+    // ... every grammar node kind this rule engine needs to recognize
+];
+
+fn map_kind(kind: &str) -> NodeKind {
+    yunq_ast::lookup_kind(KIND_TABLE, kind)
+}
+```
+
+The macro expands to the parser struct, its `AstParser` impl (`parse`,
+`tokenize_for_duplication`), and wiring for CPD. A grammar node with no entry
+in the table is preserved as `NodeKind::Other(name)` rather than dropped, so
+existing structural rules (`is_other(node, "if_statement")`-style matches)
+keep working immediately, and nothing is silently lost while the mapping
+grows. Register the new parser at the composition root (`bin/cli`) the same
+way an existing one is, and the whole rule catalog — taint, duplication,
+complexity, SOLID/hexagonal/DDD for languages whose type-based rules the
+new grammar can support — runs against it with no rule-level changes. Making
+the new language eligible for the SOLID/DDD gatekeeper table above (not just
+basic rule coverage) additionally means adding an extractor to
+`core/symbols`' `EXTRACTORS` table and import-resolution support in
+`core/import-graph`, mirroring how Go was added.
+
+## What's left
+
+Everything documented above — the agent runtime, the swarm, CRAP risk
+scoring, declared architecture boundaries, gate-gaming detection, the
+mutation-testing gate — is shipped, not planned. What's actually still open:
+widening the mutation gate to more crates, an interactive architecture
+viewer (`yunq arch`), detecting a project's coverage command automatically
+instead of requiring a report to be piped in, and closing the remaining
+~30% gap to the ≥100k LOC/s performance target.
+
+See [ROADMAP.md](ROADMAP.md) for the current plan and [DEVLOG.md](DEVLOG.md)
+for the full build history and design rationale.
