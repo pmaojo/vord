@@ -15,6 +15,7 @@
 //! four strings. Reporting them everywhere would be reporting noise; reporting
 //! them on an aggregate root is reporting a design defect.
 
+mod aggregate_reference;
 mod anemic_domain_model;
 mod common;
 mod entity_setter;
@@ -23,6 +24,7 @@ mod persistence_in_domain;
 mod primitive_obsession;
 mod value_object_mutation;
 
+pub use aggregate_reference::AggregateReferenceByIdRule;
 pub use anemic_domain_model::AnemicDomainModelRule;
 pub use entity_setter::PublicEntitySetterRule;
 pub use exposed_collection::ExposedCollectionRule;
@@ -48,5 +50,6 @@ pub fn all_cross_rules() -> Vec<Box<dyn CrossFileRule>> {
         Box::new(PrimitiveObsessionRule::default()),
         Box::new(ExposedCollectionRule::new()),
         Box::new(ValueObjectMutationRule::new()),
+        Box::new(AggregateReferenceByIdRule::new()),
     ]
 }

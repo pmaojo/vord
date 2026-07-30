@@ -19,7 +19,7 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, Span};
+use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
 use yunq_import_graph::{layer_of, HexLayer};
 use yunq_symbols::{ClassInfo, MethodInfo};
 
@@ -355,6 +355,67 @@ pub fn wire_dto_names(ast: &AstNode) -> BTreeSet<String> {
             if let Some(declared) = declared {
                 if let Some(name) = declared.children().iter().find(|c| is_other(c, "type_identifier")) {
                     names.insert(name.text().to_string());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// The declaration node kinds this codebase's four grammars use for a
+/// class-like *or* interface-like type — deliberately wider than
+/// `ClassRegistry`'s own `EXTRACTORS` table, which skips a TypeScript
+/// `interface` and a Rust `trait` because neither carries fields or a body
+/// an OOP-smell rule needs. A repository port is exactly one of the shapes
+/// `ClassRegistry` skips, so [`repository_backed_names`] has to look at the
+/// raw AST directly rather than going through the registry.
+const TYPE_DECLARATION_KINDS: &[&str] = &[
+    "class_declaration",          // TypeScript
+    "interface_declaration",      // TypeScript
+    "abstract_class_declaration", // TypeScript
+    "class_definition",           // Python
+    "struct_item",                // Rust
+    "trait_item",                 // Rust
+    "type_spec",                  // Go
+];
+
+/// The name of a node built from one of [`TYPE_DECLARATION_KINDS`]: a Python
+/// class's `Identifier`, or the `type_identifier` every other grammar here
+/// uses (same lookup `core/symbols::classes`'s per-language `build`
+/// functions and `common::wire_dto_names` already use).
+fn declared_type_name(node: &AstNode) -> Option<&str> {
+    node.children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::Identifier || is_other(c, "type_identifier"))
+        .map(|c| c.text())
+}
+
+/// The prefixes of every `<Prefix>Repository`-named type declared anywhere in
+/// `files` — a project-wide scan, not limited to the domain layer, since a
+/// repository port conventionally lives in `application`/`ports`, not next to
+/// the aggregate it persists.
+///
+/// This is the evidence `ddd:aggregate-reference-by-id` needs to tell "a
+/// child entity that is part of *this* aggregate" (composite/tree shapes —
+/// legitimate, no repository of its own) apart from "a different aggregate
+/// root reached by a direct object reference instead of its id" (the type
+/// this project persists on its own, proven by the repository that exists
+/// for it). Naming convention rather than a stronger signal deliberately: it
+/// is the one piece of evidence available without also asking every project
+/// to mark aggregate roots explicitly, and it is the same `<Name>Repository`
+/// shape this codebase's own examples already use (see
+/// `smells:constructor-over-injection`'s `OrderRepository` fixtures).
+pub fn repository_backed_names(files: &[(SourceFile, AstNode)]) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for (_, ast) in files {
+        for node in ast.descendants() {
+            if !TYPE_DECLARATION_KINDS.iter().any(|kind| is_other(node, kind)) {
+                continue;
+            }
+            let Some(name) = declared_type_name(node) else { continue };
+            if let Some(prefix) = name.strip_suffix("Repository") {
+                if !prefix.is_empty() {
+                    names.insert(prefix.to_string());
                 }
             }
         }
