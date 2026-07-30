@@ -71,6 +71,32 @@ re-analysis on typical PRs.
   themselves are individually heap-allocated (`Vec<AstNode>` children, no
   arena) — a bump-allocator rewrite is a much larger structural change, not
   attempted here.
+
+  **Attempted in a later session, and reverted.** `AstNode<'a>` rewritten to
+  hold `children: &'a [AstNode<'a>]` in a `bumpalo::Bump` arena instead of an
+  owned `Vec`, threaded through the parser trait, all 24 parser crates,
+  `AnalyzerService`'s parallel parse/analyze paths, and all 15 ruleset
+  crates (150-rule, ~1700-test workspace stayed green throughout). Measured,
+  not assumed: raw single-file parse latency did improve (~55.4µs →
+  ~52.1µs), confirming the per-node-allocation theory. But full-pipeline
+  corpus-scan time never beat baseline (best case ~356ms vs ~342ms) even
+  after fixing an initial worse regression caused by switching the
+  cross-file re-parse phase's worker split from an atomic work-stealing
+  index to a static `chunks`/`chunks_mut` division (`Bump` is `!Sync`, so
+  the atomic-index design that shares one slice across threads no longer
+  type-checks; round-robin file/arena assignment recovered most, not all,
+  of that regression). A further attempt to build each level's children
+  directly in the arena via `bumpalo::collections::Vec` (instead of a
+  `std::vec::Vec` later bulk-copied in) made it *worse*: recursive tree
+  construction interleaves every node's children-vec growth into the same
+  arena, so almost none of those growths can extend in place — each one
+  copies into a fresh, larger arena allocation and abandons the old space,
+  which the original one-heap-Vec-then-one-exact-sized-bump-copy approach
+  never pays. Net: a 217-file diff for a regression on the metric that
+  matters (full-pipeline scan time), so discarded rather than merged. If
+  revisited, the double-parse in the cross-file phase (see the still-open
+  "Cross-file phase caching" item above) is the more likely place to find a
+  real win than the AST's storage strategy.
 - **I/O**: ✅ **(this session)** `PgIssueStorage::save_issues`/`save_hotspots`
   (`infra/postgres/src/lib.rs`) previously ran one `INSERT` per issue/hotspot
   inside a single transaction — N round trips for N findings, the dominant

