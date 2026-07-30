@@ -6,7 +6,12 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
 
-const COMPREHENSION_KINDS: &[&str] = &["list_comprehension", "dictionary_comprehension", "set_comprehension", "generator_expression"];
+const COMPREHENSION_KINDS: &[&str] = &[
+    "list_comprehension",
+    "dictionary_comprehension",
+    "set_comprehension",
+    "generator_expression",
+];
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -16,7 +21,11 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn for_clause_count(comprehension: &AstNode) -> usize {
-    comprehension.children().iter().filter(|c| other_kind_name(c) == Some("for_in_clause")).count()
+    comprehension
+        .children()
+        .iter()
+        .filter(|c| other_kind_name(c) == Some("for_in_clause"))
+        .count()
 }
 
 pub struct NestedComprehensionRule {
@@ -25,7 +34,9 @@ pub struct NestedComprehensionRule {
 
 impl NestedComprehensionRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:nested-comprehension-too-deep").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:nested-comprehension-too-deep").expect("valid rule id"),
+        }
     }
 }
 
@@ -78,7 +89,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         NestedComprehensionRule::new().check(&file, &ast)
     }
 

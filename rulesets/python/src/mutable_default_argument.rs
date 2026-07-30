@@ -8,7 +8,14 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-const MUTABLE_LITERAL_KINDS: &[&str] = &["list", "dictionary", "set", "list_comprehension", "dictionary_comprehension", "set_comprehension"];
+const MUTABLE_LITERAL_KINDS: &[&str] = &[
+    "list",
+    "dictionary",
+    "set",
+    "list_comprehension",
+    "dictionary_comprehension",
+    "set_comprehension",
+];
 const MUTABLE_CTORS: &[&str] = &["list", "dict", "set"];
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
@@ -19,12 +26,16 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn has_mutable_default(default_param: &AstNode) -> bool {
-    let Some(value) = default_param.children().get(1) else { return false };
+    let Some(value) = default_param.children().get(1) else {
+        return false;
+    };
     if other_kind_name(value).is_some_and(|k| MUTABLE_LITERAL_KINDS.contains(&k)) {
         return true;
     }
     if *value.kind() == NodeKind::Call {
-        return value.first_child().is_some_and(|callee| MUTABLE_CTORS.contains(&callee.text()));
+        return value
+            .first_child()
+            .is_some_and(|callee| MUTABLE_CTORS.contains(&callee.text()));
     }
     false
 }
@@ -35,7 +46,9 @@ pub struct MutableDefaultArgumentRule {
 
 impl MutableDefaultArgumentRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:mutable-default-argument").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:mutable-default-argument").expect("valid rule id"),
+        }
     }
 }
 
@@ -94,7 +107,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         MutableDefaultArgumentRule::new().check(&file, &ast)
     }
 

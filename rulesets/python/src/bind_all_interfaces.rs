@@ -21,12 +21,22 @@ fn string_content(node: &AstNode) -> Option<&str> {
     if *node.kind() != NodeKind::StringLiteral {
         return None;
     }
-    node.children().iter().find(|c| other_kind_name(c) == Some("string_content")).map(|c| c.text())
+    node.children()
+        .iter()
+        .find(|c| other_kind_name(c) == Some("string_content"))
+        .map(|c| c.text())
 }
 
 fn binds_all_interfaces(call: &AstNode) -> bool {
-    let Some(args) = call.children().iter().find(|c| other_kind_name(c) == Some("argument_list")) else { return false };
-    args.descendants().any(|n| string_content(n) == Some(BIND_ALL))
+    let Some(args) = call
+        .children()
+        .iter()
+        .find(|c| other_kind_name(c) == Some("argument_list"))
+    else {
+        return false;
+    };
+    args.descendants()
+        .any(|n| string_content(n) == Some(BIND_ALL))
 }
 
 pub struct BindAllInterfacesRule {
@@ -35,7 +45,9 @@ pub struct BindAllInterfacesRule {
 
 impl BindAllInterfacesRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:bind-all-interfaces").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:bind-all-interfaces").expect("valid rule id"),
+        }
     }
 }
 
@@ -81,9 +93,20 @@ impl Rule for BindAllInterfacesRule {
         }
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
-            .filter(|call| call.first_child().is_some_and(|callee| callee.text().ends_with(".run") || callee.text().ends_with(".bind") || callee.text().ends_with(".listen")))
+            .filter(|call| {
+                call.first_child().is_some_and(|callee| {
+                    callee.text().ends_with(".run")
+                        || callee.text().ends_with(".bind")
+                        || callee.text().ends_with(".listen")
+                })
+            })
             .filter(|call| binds_all_interfaces(call))
-            .map(|call| Finding::hotspot("make sure binding to 0.0.0.0 (every network interface) is intentional here", call.span()))
+            .map(|call| {
+                Finding::hotspot(
+                    "make sure binding to 0.0.0.0 (every network interface) is intentional here",
+                    call.span(),
+                )
+            })
             .collect()
     }
 }
@@ -96,7 +119,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         BindAllInterfacesRule::new().check(&file, &ast)
     }
 

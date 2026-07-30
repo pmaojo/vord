@@ -19,7 +19,10 @@ fn is_identity_check(comparison: &AstNode) -> bool {
 }
 
 fn compares_to_literal(comparison: &AstNode) -> bool {
-    comparison.children().iter().any(|c| *c.kind() == NodeKind::StringLiteral || matches!(other_kind_name(c), Some("integer") | Some("float")))
+    comparison.children().iter().any(|c| {
+        *c.kind() == NodeKind::StringLiteral
+            || matches!(other_kind_name(c), Some("integer") | Some("float"))
+    })
 }
 
 pub struct LiteralIdentityComparisonRule {
@@ -28,7 +31,9 @@ pub struct LiteralIdentityComparisonRule {
 
 impl LiteralIdentityComparisonRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:literal-identity-comparison").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:literal-identity-comparison").expect("valid rule id"),
+        }
     }
 }
 
@@ -85,7 +90,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         LiteralIdentityComparisonRule::new().check(&file, &ast)
     }
 

@@ -13,7 +13,9 @@ pub struct NaiveUtcnowRule {
 
 impl NaiveUtcnowRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:datetime-utcnow-naive").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:datetime-utcnow-naive").expect("valid rule id"),
+        }
     }
 }
 
@@ -66,7 +68,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         NaiveUtcnowRule::new().check(&file, &ast)
     }
 

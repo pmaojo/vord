@@ -18,7 +18,10 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 
 fn is_eager_built_query(arg: &AstNode) -> bool {
     match arg.kind() {
-        NodeKind::StringLiteral => arg.first_child().is_some_and(|start| other_kind_name(start) == Some("string_start") && start.text().trim_start().starts_with(['f', 'F'])),
+        NodeKind::StringLiteral => arg.first_child().is_some_and(|start| {
+            other_kind_name(start) == Some("string_start")
+                && start.text().trim_start().starts_with(['f', 'F'])
+        }),
         NodeKind::Other(name) => name.as_ref() == "binary_operator",
         _ => false,
     }
@@ -30,7 +33,9 @@ pub struct SqlInjectionRule {
 
 impl SqlInjectionRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:sql-injection-string-building").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:sql-injection-string-building").expect("valid rule id"),
+        }
     }
 }
 
@@ -101,18 +106,26 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         SqlInjectionRule::new().check(&file, &ast)
     }
 
     #[test]
     fn flags_fstring_query() {
-        assert_eq!(findings("cursor.execute(f'SELECT * FROM t WHERE id={id}')\n").len(), 1);
+        assert_eq!(
+            findings("cursor.execute(f'SELECT * FROM t WHERE id={id}')\n").len(),
+            1
+        );
     }
 
     #[test]
     fn flags_percent_formatted_query() {
-        assert_eq!(findings("cursor.execute('SELECT * FROM t WHERE id=%s' % id)\n").len(), 1);
+        assert_eq!(
+            findings("cursor.execute('SELECT * FROM t WHERE id=%s' % id)\n").len(),
+            1
+        );
     }
 
     #[test]
@@ -122,6 +135,9 @@ mod tests {
 
     #[test]
     fn flags_execute_regardless_of_receiver_name() {
-        assert_eq!(findings("conn.execute(f'SELECT * FROM t WHERE id={id}')\n").len(), 1);
+        assert_eq!(
+            findings("conn.execute(f'SELECT * FROM t WHERE id={id}')\n").len(),
+            1
+        );
     }
 }

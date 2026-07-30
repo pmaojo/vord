@@ -14,7 +14,10 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn is_type_call(node: &AstNode) -> bool {
-    *node.kind() == NodeKind::Call && node.first_child().is_some_and(|callee| callee.text() == "type")
+    *node.kind() == NodeKind::Call
+        && node
+            .first_child()
+            .is_some_and(|callee| callee.text() == "type")
 }
 
 fn compares_via_type_call(comparison: &AstNode) -> bool {
@@ -28,7 +31,9 @@ pub struct TypeComparisonRule {
 
 impl TypeComparisonRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:type-comparison").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:type-comparison").expect("valid rule id"),
+        }
     }
 }
 
@@ -85,7 +90,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         TypeComparisonRule::new().check(&file, &ast)
     }
 

@@ -12,7 +12,9 @@ pub struct AssertUsedRule {
 
 impl AssertUsedRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:assert-used-in-production").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:assert-used-in-production").expect("valid rule id"),
+        }
     }
 }
 
@@ -71,7 +73,9 @@ mod tests {
 
     fn findings(path: &str, code: &str) -> Vec<Finding> {
         let file = SourceFile::new(path, code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         AssertUsedRule::new().check(&file, &ast)
     }
 

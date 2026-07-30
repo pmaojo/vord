@@ -7,7 +7,14 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-const MUTABLE_LITERAL_KINDS: &[&str] = &["list", "dictionary", "set", "list_comprehension", "dictionary_comprehension", "set_comprehension"];
+const MUTABLE_LITERAL_KINDS: &[&str] = &[
+    "list",
+    "dictionary",
+    "set",
+    "list_comprehension",
+    "dictionary_comprehension",
+    "set_comprehension",
+];
 const MUTABLE_CTORS: &[&str] = &["list", "dict", "set"];
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
@@ -21,7 +28,10 @@ fn is_mutable_value(value: &AstNode) -> bool {
     if other_kind_name(value).is_some_and(|k| MUTABLE_LITERAL_KINDS.contains(&k)) {
         return true;
     }
-    *value.kind() == NodeKind::Call && value.first_child().is_some_and(|callee| MUTABLE_CTORS.contains(&callee.text()))
+    *value.kind() == NodeKind::Call
+        && value
+            .first_child()
+            .is_some_and(|callee| MUTABLE_CTORS.contains(&callee.text()))
 }
 
 fn class_body_assignments(class_def: &AstNode) -> impl Iterator<Item = &AstNode> {
@@ -31,7 +41,11 @@ fn class_body_assignments(class_def: &AstNode) -> impl Iterator<Item = &AstNode>
         .find(|c| other_kind_name(c) == Some("block"))
         .into_iter()
         .flat_map(|block| block.children().iter())
-        .filter_map(|stmt| (other_kind_name(stmt) == Some("expression_statement")).then(|| stmt.first_child()).flatten())
+        .filter_map(|stmt| {
+            (other_kind_name(stmt) == Some("expression_statement"))
+                .then(|| stmt.first_child())
+                .flatten()
+        })
         .filter(|n| *n.kind() == NodeKind::Assignment)
 }
 
@@ -41,7 +55,9 @@ pub struct MutableClassAttributeRule {
 
 impl MutableClassAttributeRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:mutable-class-attribute").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:mutable-class-attribute").expect("valid rule id"),
+        }
     }
 }
 
@@ -99,7 +115,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         MutableClassAttributeRule::new().check(&file, &ast)
     }
 
@@ -110,7 +128,9 @@ mod tests {
 
     #[test]
     fn allows_instance_attribute_in_init() {
-        assert!(findings("class Foo:\n    def __init__(self):\n        self.items = []\n").is_empty());
+        assert!(
+            findings("class Foo:\n    def __init__(self):\n        self.items = []\n").is_empty()
+        );
     }
 
     #[test]

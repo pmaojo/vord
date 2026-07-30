@@ -18,7 +18,10 @@ fn is_equality_check(comparison: &AstNode) -> bool {
 }
 
 fn compares_to_none(comparison: &AstNode) -> bool {
-    comparison.children().iter().any(|c| other_kind_name(c) == Some("none"))
+    comparison
+        .children()
+        .iter()
+        .any(|c| other_kind_name(c) == Some("none"))
 }
 
 pub struct NoneComparisonRule {
@@ -27,7 +30,9 @@ pub struct NoneComparisonRule {
 
 impl NoneComparisonRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:none-comparison-with-equality").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:none-comparison-with-equality").expect("valid rule id"),
+        }
     }
 }
 
@@ -67,7 +72,12 @@ impl Rule for NoneComparisonRule {
         ast.descendants()
             .filter(|n| other_kind_name(n) == Some("comparison_operator"))
             .filter(|n| is_equality_check(n) && compares_to_none(n))
-            .map(|n| Finding::new("compare with `is`/`is not None` instead of `==`/`!= None`", n.span()))
+            .map(|n| {
+                Finding::new(
+                    "compare with `is`/`is not None` instead of `==`/`!= None`",
+                    n.span(),
+                )
+            })
             .collect()
     }
 }
@@ -80,7 +90,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         NoneComparisonRule::new().check(&file, &ast)
     }
 

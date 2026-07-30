@@ -14,7 +14,9 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
 }
 
 fn is_referenced_in(block: &AstNode, name: &str) -> bool {
-    block.descendants().any(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
+    block
+        .descendants()
+        .any(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
 }
 
 pub struct UnusedLoopVariableRule {
@@ -23,7 +25,9 @@ pub struct UnusedLoopVariableRule {
 
 impl UnusedLoopVariableRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:unused-loop-variable").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:unused-loop-variable").expect("valid rule id"),
+        }
     }
 }
 
@@ -82,7 +86,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         UnusedLoopVariableRule::new().check(&file, &ast)
     }
 

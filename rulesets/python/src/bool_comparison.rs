@@ -18,7 +18,10 @@ fn is_equality_check(comparison: &AstNode) -> bool {
 }
 
 fn compares_to_bool_literal(comparison: &AstNode) -> bool {
-    comparison.children().iter().any(|c| matches!(other_kind_name(c), Some("true") | Some("false")))
+    comparison
+        .children()
+        .iter()
+        .any(|c| matches!(other_kind_name(c), Some("true") | Some("false")))
 }
 
 pub struct BoolComparisonRule {
@@ -27,7 +30,9 @@ pub struct BoolComparisonRule {
 
 impl BoolComparisonRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("python:bool-comparison-with-equality").expect("valid rule id") }
+        Self {
+            id: RuleId::new("python:bool-comparison-with-equality").expect("valid rule id"),
+        }
     }
 }
 
@@ -80,7 +85,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         BoolComparisonRule::new().check(&file, &ast)
     }
 
