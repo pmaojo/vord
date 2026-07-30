@@ -169,7 +169,10 @@ fn build_ts_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
     if let Some(body) = body {
         for member in body.children() {
             if *member.kind() == NodeKind::FunctionDef {
-                if let Some(name_node) = member.first_child().filter(|n| *n.kind() == NodeKind::Identifier) {
+                // The name is the first `Identifier` child, not necessarily the
+                // first child: `private static foo()` puts an accessibility
+                // modifier ahead of it.
+                if let Some(name_node) = first_identifier(member) {
                     methods.push(MethodInfo {
                         name: name_node.text().to_string(),
                         params: ts_params(member),
@@ -230,9 +233,18 @@ fn build_python_class<'a>(node: &'a AstNode, file: &str) -> ClassInfo<'a> {
     let mut field_names = std::collections::BTreeSet::new();
     if let Some(body) = body {
         for member in body.children() {
+            // `@property`/`@staticmethod`/`@abstractmethod` wrap the `def` in a
+            // `decorated_definition`; unwrap it so a decorated method is still
+            // a method (a `@property` getter is exactly the kind of member the
+            // OOP-smell rules exist to reason about).
+            let member = if is_other(member, "decorated_definition") {
+                member.children().iter().find(|c| *c.kind() == NodeKind::FunctionDef).unwrap_or(member)
+            } else {
+                member
+            };
             match member.kind() {
                 NodeKind::FunctionDef => {
-                    if let Some(name_node) = member.first_child().filter(|n| *n.kind() == NodeKind::Identifier) {
+                    if let Some(name_node) = first_identifier(member) {
                         methods.push(MethodInfo {
                             name: name_node.text().to_string(),
                             params: python_params(member),
@@ -381,7 +393,10 @@ fn attach_rust_impls<'a>(ast: &'a AstNode, _file: &str, classes: &mut BTreeMap<S
             if *member.kind() != NodeKind::FunctionDef {
                 continue;
             }
-            let Some(name_node) = member.first_child().filter(|n| *n.kind() == NodeKind::Identifier) else {
+            // First `Identifier` child, not first child: `pub fn new(..)` leads
+            // with a `visibility_modifier`, and dropping those would hide every
+            // public method a Rust type has from every OOP-smell rule.
+            let Some(name_node) = first_identifier(member) else {
                 continue;
             };
             if class.methods.iter().any(|m| m.name == name_node.text()) {
@@ -509,6 +524,40 @@ mod tests {
         let foo = registry.get("Foo").unwrap();
         assert_eq!(foo.methods.len(), 1);
         assert!(foo.method("show").is_some());
+    }
+
+    #[test]
+    fn rust_public_methods_and_user_defined_types_are_recorded() {
+        // `pub fn` leads with a `visibility_modifier`, and a plain
+        // `type_identifier` is how Rust writes a project's own type: both used
+        // to be dropped, hiding every public method and every domain-typed
+        // field from the OOP-smell rules.
+        let ast = parse_rust(
+            "pub struct Dep;\npub struct Service {\n    dep: Dep,\n}\n\nimpl Service {\n    pub fn new(dep: Dep) -> Self {\n        Self { dep }\n    }\n}\n",
+        );
+        let registry = ClassRegistry::build(&ast);
+        let service = registry.get("Service").unwrap();
+        assert_eq!(service.fields[0].declared_type.as_deref(), Some("Dep"));
+        let constructor = service.method("new").expect("pub fn new should be recorded");
+        assert_eq!(constructor.params[0].declared_type.as_deref(), Some("Dep"));
+    }
+
+    #[test]
+    fn typescript_methods_with_modifiers_are_recorded() {
+        let ast = parse_ts("class Service {\n  private static run(a: Dep): void {}\n}\n");
+        let registry = ClassRegistry::build(&ast);
+        assert!(registry.get("Service").unwrap().method("run").is_some());
+    }
+
+    #[test]
+    fn python_decorated_methods_are_recorded() {
+        let ast = parse_py(
+            "class Order:\n    @property\n    def total(self):\n        return self._total\n\n    @staticmethod\n    def build():\n        return Order()\n",
+        );
+        let registry = ClassRegistry::build(&ast);
+        let order = registry.get("Order").unwrap();
+        assert!(order.method("total").is_some());
+        assert!(order.method("build").is_some());
     }
 
     #[test]

@@ -1,0 +1,207 @@
+//! Rule: a domain method whose signature is a row of bare primitives —
+//! **primitive obsession**. `new Order(id: string, customerId: string, currency:
+//! string, amount: number)` compiles happily when the caller swaps the two ids,
+//! or passes cents where units were meant, because the type system has been told
+//! nothing about what those values *are*. Value objects (`OrderId`,
+//! `CustomerId`, `Money`) move that check from code review to the compiler and
+//! give the invariant one place to live.
+//!
+//! Counts only parameters whose declared type is data
+//! (`yunq_symbols::is_primitive_type`, which sees through `Vec<String>` and
+//! `Optional[int]`), so a constructor taking four injected collaborators is
+//! `smells:constructor-over-injection`'s finding, not this one. Unannotated
+//! parameters are not counted at all — with no declared type there is no
+//! evidence either way, and guessing would flag every untyped Python signature.
+//!
+//! Related but distinct from a plain parameter count (SonarQube S107, CodeQL's
+//! `FunctionsWithManyParameters.ql`): four strings in a domain constructor are a
+//! modeling gap even though four parameters are unremarkable anywhere else,
+//! which is why this rule is scoped to the domain layer and typed.
+
+use yunq_ast::{AstNode, SourceFile};
+use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use yunq_symbols::{is_primitive_type, ClassRegistry, MethodInfo};
+
+use crate::common::is_domain_path;
+
+fn primitive_params(method: &MethodInfo<'_>) -> Vec<String> {
+    method
+        .params
+        .iter()
+        .filter_map(|param| {
+            let declared = param.declared_type.as_deref()?;
+            is_primitive_type(declared).then(|| format!("{}: {declared}", param.name))
+        })
+        .collect()
+}
+
+pub struct PrimitiveObsessionRule {
+    id: RuleId,
+    max_primitives: usize,
+}
+
+impl PrimitiveObsessionRule {
+    pub fn new(max_primitives: usize) -> Self {
+        Self { id: RuleId::new("ddd:primitive-obsession").expect("valid rule id"), max_primitives }
+    }
+}
+
+impl Default for PrimitiveObsessionRule {
+    /// Three primitives is a coordinate or a range; four is a signature nobody
+    /// can call correctly without reading its implementation.
+    fn default() -> Self {
+        Self::new(3)
+    }
+}
+
+impl CrossFileRule for PrimitiveObsessionRule {
+    fn id(&self) -> &RuleId {
+        &self.id
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Minor
+    }
+
+    fn remediation_effort_minutes(&self) -> u32 {
+        60
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::CodeSmell
+    }
+
+    fn metadata(&self) -> RuleMetadata {
+        RuleMetadata {
+            description: "A domain method takes several bare primitives, so nothing stops a caller from swapping or mis-scaling them. Introduce value objects that carry the meaning and the invariant.".into(),
+            tags: vec!["ddd".into(), "value-object".into(), "domain-model".into(), "cross-file".into()],
+            cwe: None,
+            produces_hotspots: false,
+        }
+    }
+
+    fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
+        let views: Vec<(&str, &AstNode)> = files
+            .iter()
+            .filter(|(file, _)| is_domain_path(file.path()))
+            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .map(|(file, ast)| (file.path(), ast))
+            .collect();
+        if views.is_empty() {
+            return Vec::new();
+        }
+        let registry = ClassRegistry::build_cross_file(&views);
+        let mut findings = Vec::new();
+        for class in registry.iter() {
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            for method in &class.methods {
+                let primitives = primitive_params(method);
+                if primitives.len() <= self.max_primitives {
+                    continue;
+                }
+                findings.push((
+                    index,
+                    Finding::new(
+                        format!(
+                            "`{}::{}` takes {} bare primitive parameters ({}) — a caller that swaps two of them still compiles; wrap them in value objects that carry their meaning and their invariant",
+                            class.name,
+                            method.name,
+                            primitives.len(),
+                            primitives.join(", ")
+                        ),
+                        method.span,
+                    ),
+                ));
+            }
+        }
+        findings
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yunq_ast::LanguageIdentifier;
+    use yunq_rules_engine::AstParser;
+
+    fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
+        let file = SourceFile::new(path, code, language.clone()).unwrap();
+        let ast = if language == LanguageIdentifier::typescript() {
+            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        } else if language == LanguageIdentifier::python() {
+            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+        } else {
+            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+        };
+        PrimitiveObsessionRule::default().check(&[(file, ast)]).into_iter().map(|(_, f)| f).collect()
+    }
+
+    #[test]
+    fn flags_a_constructor_of_four_interchangeable_strings() {
+        let code = "export class Order {\n  constructor(id: string, customerId: string, currency: string, note: string) {}\n}\n";
+        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("4 bare primitive parameters"), "{}", findings[0].message);
+        assert!(findings[0].message.contains("customerId: string"));
+    }
+
+    #[test]
+    fn allows_three_primitives() {
+        let code = "export class Point {\n  constructor(x: number, y: number, z: number) {}\n}\n";
+        assert!(check("src/domain/point.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn value_object_parameters_are_not_primitives() {
+        let code = "export class Order {\n  constructor(id: OrderId, customer: CustomerId, total: Money, note: Note) {}\n}\n";
+        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn injected_collaborators_are_not_this_rules_business() {
+        let code = "export class OrderPolicy {\n  constructor(a: Repo, b: Clock, c: Rates, d: Bus) {}\n}\n";
+        assert!(check("src/domain/order_policy.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn silent_outside_the_domain_layer() {
+        let code = "export class OrderRequest {\n  constructor(id: string, customerId: string, currency: string, note: string) {}\n}\n";
+        assert!(check("src/adapters/http/order_request.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn flags_a_rust_constructor_of_primitives() {
+        let code = "pub struct Order;\n\nimpl Order {\n    pub fn new(id: String, customer: String, cents: i64, currency: String) -> Self {\n        Self\n    }\n}\n";
+        let findings = check("src/domain/order.rs", code, LanguageIdentifier::rust());
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("4 bare primitive parameters"));
+    }
+
+    #[test]
+    fn flags_an_annotated_python_method() {
+        let code = "class Order:\n    def rename(self, first: str, last: str, nickname: str, note: str) -> None:\n        pass\n";
+        let findings = check("src/domain/order.py", code, LanguageIdentifier::python());
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("`Order::rename`"));
+    }
+
+    #[test]
+    fn unannotated_parameters_are_never_counted() {
+        let code = "class Order:\n    def rename(self, first, last, nickname, note):\n        pass\n";
+        assert!(check("src/domain/order.py", code, LanguageIdentifier::python()).is_empty());
+    }
+
+    #[test]
+    fn threshold_is_configurable() {
+        let file = SourceFile::new(
+            "src/domain/point.ts",
+            "export class Point {\n  constructor(x: number, y: number) {}\n}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let files = vec![(file, ast)];
+        assert_eq!(PrimitiveObsessionRule::new(1).check(&files).len(), 1);
+        assert!(PrimitiveObsessionRule::new(2).check(&files).is_empty());
+    }
+}

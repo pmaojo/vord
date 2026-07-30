@@ -1,0 +1,167 @@
+//! Rule: a public setter on a domain entity. Any caller can replace the field,
+//! so the aggregate cannot enforce the rule that makes the change legal — and
+//! the change itself carries no meaning. `order.setStatus("shipped")` says
+//! nothing about whether the order was paid for; `order.ship()` can refuse.
+//!
+//! This is the encapsulation half of the anemic-model problem, reported
+//! separately because it fires on the far more common intermediate case: a rich
+//! entity, full of real behavior, with two leftover setters that let callers
+//! route around all of it. `ddd:anemic-domain-model` only speaks when the whole
+//! class is accessors.
+//!
+//! Only *public* setters count, per language convention (Rust `pub`, TypeScript
+//! visibility modifiers, Python's leading underscore): a private setter used by
+//! the entity's own behavior is an implementation detail, not a hole in the
+//! aggregate boundary.
+
+use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
+use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use yunq_symbols::ClassRegistry;
+
+use crate::common::{accessor_of, declared_methods, field_names, is_domain_path, AccessorKind};
+
+pub struct PublicEntitySetterRule {
+    id: RuleId,
+}
+
+impl PublicEntitySetterRule {
+    pub fn new() -> Self {
+        Self { id: RuleId::new("ddd:public-entity-setter").expect("valid rule id") }
+    }
+}
+
+impl Default for PublicEntitySetterRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CrossFileRule for PublicEntitySetterRule {
+    fn id(&self) -> &RuleId {
+        &self.id
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Major
+    }
+
+    fn remediation_effort_minutes(&self) -> u32 {
+        30
+    }
+
+    fn issue_type(&self) -> IssueType {
+        IssueType::CodeSmell
+    }
+
+    fn metadata(&self) -> RuleMetadata {
+        RuleMetadata {
+            description: "A domain entity exposes a public setter, letting callers replace its state without going through the rule that makes the change legal. Express the state change as a domain behavior instead.".into(),
+            tags: vec!["ddd".into(), "encapsulation".into(), "invariants".into(), "cross-file".into()],
+            cwe: None,
+            produces_hotspots: false,
+        }
+    }
+
+    fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
+        let domain: Vec<&(SourceFile, AstNode)> = files
+            .iter()
+            .filter(|(file, _)| is_domain_path(file.path()))
+            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .collect();
+        if domain.is_empty() {
+            return Vec::new();
+        }
+        let views: Vec<(&str, &AstNode)> = domain.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let registry = ClassRegistry::build_cross_file(&views);
+        let mut findings = Vec::new();
+        for class in registry.iter() {
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let is_rust = *files[index].0.language() == LanguageIdentifier::rust();
+            let fields = field_names(class);
+            for method in declared_methods(class) {
+                let Some(accessor) = accessor_of(method, &fields) else { continue };
+                if accessor.kind != AccessorKind::Setter || !crate::common::is_public(method, is_rust) {
+                    continue;
+                }
+                findings.push((
+                    index,
+                    Finding::new(
+                        format!(
+                            "`{}::{}` lets any caller replace `{}` directly — the entity cannot enforce the rule that makes that change legal, and the call says nothing about why it happened; replace it with the domain behavior that performs the change",
+                            class.name, method.name, accessor.field
+                        ),
+                        method.span,
+                    ),
+                ));
+            }
+        }
+        findings
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yunq_rules_engine::AstParser;
+
+    fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
+        let file = SourceFile::new(path, code, language.clone()).unwrap();
+        let ast = if language == LanguageIdentifier::typescript() {
+            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        } else if language == LanguageIdentifier::python() {
+            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+        } else {
+            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+        };
+        PublicEntitySetterRule::new().check(&[(file, ast)]).into_iter().map(|(_, f)| f).collect()
+    }
+
+    #[test]
+    fn flags_a_public_setter_on_an_entity_that_has_behavior() {
+        let code = "export class Order {\n  private status: string = 'draft';\n  setStatus(status: string): void {\n    this.status = status;\n  }\n  ship(): void {\n    if (this.status !== 'paid') {\n      throw new Error('unpaid');\n    }\n    this.status = 'shipped';\n  }\n}\n";
+        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("`Order::setStatus`"), "{}", findings[0].message);
+        assert!(findings[0].message.contains("`status`"));
+    }
+
+    #[test]
+    fn silent_on_a_private_setter() {
+        let code = "export class Order {\n  private status: string = 'draft';\n  private setStatus(status: string): void {\n    this.status = status;\n  }\n}\n";
+        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn silent_on_a_getter() {
+        let code = "export class Order {\n  private status: string = 'draft';\n  getStatus(): string {\n    return this.status;\n  }\n}\n";
+        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn silent_outside_the_domain_layer() {
+        let code = "export class OrderRow {\n  private status: string = '';\n  setStatus(status: string): void {\n    this.status = status;\n  }\n}\n";
+        assert!(check("src/infrastructure/order_row.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+
+    #[test]
+    fn flags_a_public_rust_setter_but_not_a_private_one() {
+        let code = "pub struct Order {\n    status: String,\n}\n\nimpl Order {\n    pub fn set_status(&mut self, status: String) {\n        self.status = status;\n    }\n    fn set_status_unchecked(&mut self, status: String) {\n        self.status = status;\n    }\n}\n";
+        let findings = check("src/domain/order.rs", code, LanguageIdentifier::rust());
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("set_status`"), "{}", findings[0].message);
+    }
+
+    #[test]
+    fn flags_a_python_setter_but_not_an_underscored_one() {
+        let code = "class Order:\n    def __init__(self):\n        self.status = 'draft'\n\n    def set_status(self, status):\n        self.status = status\n\n    def _set_status(self, status):\n        self.status = status\n";
+        let findings = check("src/domain/order.py", code, LanguageIdentifier::python());
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("`Order::set_status`"));
+    }
+
+    #[test]
+    fn a_setter_that_enforces_something_is_not_a_setter() {
+        let code = "export class Order {\n  private status: string = 'draft';\n  setStatus(status: string): void {\n    if (status === '') {\n      throw new Error('empty');\n    }\n    this.status = status;\n  }\n}\n";
+        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+    }
+}

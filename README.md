@@ -89,7 +89,9 @@ yunq/
 │   └── treesitter-go/
 ├── rulesets/                   # PLUGINS implementing the Rule trait
 │   ├── owasp/                  # secrets, eval/exec, command-exec hotspots, taint injection (incl. cross-file)
-│   ├── code-smells/            # TODO/FIXME, long functions, unwrap/expect, complexity (cyclomatic + cognitive)
+│   ├── code-smells/            # SOLID (see below), complexity (cyclomatic + cognitive), TODO/FIXME, long functions
+│   ├── architecture/           # hexagonal layering, framework purity, import cycles, Martin component metrics
+│   ├── ddd/                    # tactical DDD: anemic model, entity setters, primitive obsession, aggregate leaks
 │   └── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
     ├── cli/                    # yunq scan — local end-to-end analysis
@@ -547,6 +549,92 @@ This is deliberately the same posture as coverage/JUnit ingestion: yunq is
 the gate that decides whether a build passes, not the tool that runs the
 tests or the mutants — a test runner (or `cargo test`/`pytest`/mutation
 tool) still has to produce the report yunq consumes.
+
+## The SOLID / hexagonal / DDD gatekeeper
+
+Most analyzers gate on *defects*. yunq also gates on **design**: the rules below
+fail a build for architecture, not just for bugs — across TypeScript/JavaScript,
+Python and Rust, from one engine, with no per-language plugin to install.
+
+Nothing here needs configuration. `[architecture]` in `yunq.toml` still exists
+for declaring your own component boundaries, but the layering rules read the
+vocabulary the industry already shares (`domain/`, `application/`, `ports/`,
+`adapters/`, `infrastructure/`, `core/`, …) straight off path topology, so the
+first scan already enforces the hexagon. Paths that name no layer are left
+alone rather than guessed at.
+
+### SOLID (`rulesets/code-smells`)
+
+| Principle | Rules |
+| --- | --- |
+| **S**ingle responsibility | `god-class` (size), `low-cohesion` (LCOM clusters), `class-fan-out` (coupling between objects), `constructor-over-injection` (collaborator count, data parameters excluded), `feature-envy` |
+| **O**pen/closed | `open-closed-violation` (base class naming its own subclasses), `type-check-chain` (`instanceof`/`isinstance`/`downcast_ref` ladders) |
+| **L**iskov substitution | `liskov-not-implemented` (override refuses everything), `refused-bequest` (override does nothing), `override-narrows-contract` (override rejects input the base accepts), `deep-inheritance` (DIT) |
+| **I**nterface segregation | `fat-interface` (interface/trait method count) |
+| **D**ependency inversion | `concrete-dependency` (constructor builds its collaborator), `service-locator` (constructor *looks it up* from a global) |
+
+### Hexagonal / Clean Architecture (`rulesets/architecture`)
+
+- `hexagonal-layer-violation` — an import that points outward (domain →
+  application, application → adapter/infrastructure). Works on TS/JS and
+  Python imports, and on Rust `crate::`/`super::` module paths inside a crate.
+- `framework-in-domain` — domain, application or port code importing an ORM,
+  HTTP client, web framework, cloud SDK or the filesystem. Catches what the
+  graph cannot: the dependency you don't own.
+- `main-sequence-deviation` — Martin's `D = |A + I − 1|` per component: the
+  *zone of pain* (concrete and heavily depended upon) and the *zone of
+  uselessness* (abstract and depended upon by nobody).
+- `stable-dependency-violation` — Stable Dependencies Principle: a hub
+  component depending on a volatile one inherits its churn.
+- `dependency-cycle`, `boundary-violation` — import cycles, and the boundaries
+  you declared yourself.
+
+### Tactical DDD (`rulesets/ddd`)
+
+Every rule here is scoped to the **domain layer**, because that scope is what
+makes it a finding: a DTO at an HTTP boundary *should* be anemic and full of
+setters, and a row type *should* carry the ORM mapping.
+
+- `anemic-domain-model` — an entity whose every method is a getter or setter.
+- `public-entity-setter` — state replaced from outside, so no invariant can run.
+- `aggregate-exposes-internal-collection` — a getter handing out the aggregate's
+  own list (Rust: only `&mut`, since a shared borrow cannot mutate it).
+- `primitive-obsession` — a domain signature of interchangeable primitives.
+- `persistence-in-domain` — ORM mapping (`@Entity`, `models.Model`,
+  `#[derive(Queryable)]`) on a model that should be persistence-ignorant.
+
+### Where the algorithms come from, and what is actually new
+
+The metrics are not invented here — the point is that they are *enforceable*
+here. `class-fan-out` is CodeQL's `TEfferentSourceCoupling.ql` thresholded the
+way `java/hub-class` thresholds it, at SonarQube S1200's default of 20;
+`deep-inheritance` is `TInheritanceDepth.ql`/S110; `type-check-chain` is the
+else-chain walk from `ChainedInstanceof.ql` (`java/chained-type-tests`);
+`main-sequence-deviation` and `stable-dependency-violation` are Martin's
+package metrics that SonarQube's old design pages reported and then dropped;
+the framework roster mirrors the libraries Semgrep's per-framework packs
+recognize.
+
+What the incumbents don't do:
+
+- **SonarQube** ships some of the SOLID *metrics* (S110, S1200, S107) as
+  per-language plugin rules, but has no dependency-direction or layering rules
+  and no DDD rules at all; the Martin component metrics were removed years ago.
+- **Semgrep** is a pattern/taint engine. `paths:` lets you hand-write "this
+  directory must not import that one" per rule, but there is no import graph,
+  no cycle detection, no component metrics and no class/type registry, so
+  cross-file design rules aren't expressible — and the registry ships
+  essentially no SOLID/DDD content.
+- **CodeQL** has the richest metric library of the three, but ships it as
+  treemap reports and `recommendation`-severity queries, mostly for Java/C#/C++,
+  and needs a build and a database per language. No hexagonal layer semantics,
+  no DDD tactical rules.
+- **ArchUnit / deptrac / import-linter / ts-arch** enforce layering, but each is
+  one-language, and each needs you to declare the layers by hand first.
+
+The combination — zero-config hexagonal layering, framework purity, Martin's
+component metrics, SOLID and tactical DDD, in one parse-only engine that gates
+a build across three languages — is the part that doesn't exist elsewhere.
 
 ## Adding a rule
 

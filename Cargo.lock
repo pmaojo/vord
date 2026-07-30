@@ -3007,6 +3007,7 @@ dependencies = [
  "yunq-rules-a11y",
  "yunq-rules-ai-agent",
  "yunq-rules-architecture",
+ "yunq-rules-ddd",
  "yunq-rules-engine",
  "yunq-rules-go",
  "yunq-rules-iac",
@@ -3525,6 +3526,19 @@ dependencies = [
  "yunq-parser-rust",
  "yunq-parser-typescript",
  "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-rules-ddd"
+version = "0.1.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-import-graph",
+ "yunq-parser-python",
+ "yunq-parser-rust",
+ "yunq-parser-typescript",
+ "yunq-rules-engine",
+ "yunq-symbols",
 ]
 
 [[package]]

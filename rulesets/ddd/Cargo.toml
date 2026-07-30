@@ -1,0 +1,22 @@
+[package]
+name = "yunq-rules-ddd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Domain-Driven Design tactical-pattern ruleset for the yunq analysis engine"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+yunq-ast = { workspace = true }
+yunq-rules-engine = { workspace = true }
+yunq-symbols = { workspace = true }
+yunq-import-graph = { workspace = true }
+
+[dev-dependencies]
+yunq-parser-typescript = { workspace = true }
+yunq-parser-python = { workspace = true }
+yunq-parser-rust = { workspace = true }

@@ -16,4 +16,4 @@ pub mod types;
 
 pub use classes::{ClassInfo, ClassRegistry, MemberInfo, MethodInfo};
 pub use scope::{free_identifiers, own_bindings};
-pub use types::declared_type;
+pub use types::{declared_type, is_primitive_type, mentions_collaborator};

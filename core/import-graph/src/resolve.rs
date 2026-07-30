@@ -116,6 +116,88 @@ pub fn resolve_py_relative<'a>(
     resolve_py_module_path(&segments.join("/"), candidates)
 }
 
+const RS_EXTENSION: &str = ".rs";
+
+/// A Rust file's *module directory*: where its child modules live. A module
+/// root (`lib.rs`/`main.rs`/`mod.rs`) owns its own directory; any other
+/// `foo.rs` owns `foo/` (the 2018-edition layout, where `foo::bar` lives in
+/// `foo/bar.rs` next to `foo.rs`).
+fn rust_module_dir(importer: &str) -> Vec<String> {
+    let mut segments: Vec<String> = dirname_segments(importer).into_iter().map(str::to_string).collect();
+    let stem = importer.rsplit('/').next().map(|f| strip_known_extension(f, &[RS_EXTENSION])).unwrap_or("");
+    if !matches!(stem, "lib" | "main" | "mod" | "") {
+        segments.push(stem.to_string());
+    }
+    segments
+}
+
+/// The crate source root a file belongs to: everything up to and including
+/// its first `src/` segment (`core/ast/src/node.rs` -> `["core", "ast",
+/// "src"]`). Files outside any `src/` directory (a single-file script, a
+/// build script at a crate root) fall back to their own directory, which
+/// makes `crate::` behave like `self::` for them rather than resolving
+/// wrongly across the repo.
+fn rust_crate_root(importer: &str) -> Vec<String> {
+    let segments = split_segments(importer);
+    match segments.iter().position(|s| *s == "src") {
+        Some(index) => segments[..=index].iter().map(|s| s.to_string()).collect(),
+        None => dirname_segments(importer).into_iter().map(str::to_string).collect(),
+    }
+}
+
+/// Resolves an *intra-crate* Rust `use`/reference path — one rooted at
+/// `crate`, `self` or `super` — to the file that declares that module,
+/// within `candidates`.
+///
+/// `use_path` is the path as written, `::`-separated and already stripped of
+/// its `{...}` list / `as` alias / `*` wildcard tail (see
+/// `module_path_prefix` in `lib.rs`). Resolution tries the longest module
+/// path first and drops trailing segments until a file matches, because a
+/// path's tail names *items*, not modules, and nothing in the neutral AST
+/// says where the module part stops: `crate::domain::order::Order` resolves
+/// to `.../domain/order.rs` after one drop, and `crate::domain::Order` to
+/// `.../domain.rs` (or `.../domain/mod.rs`) after one drop.
+///
+/// Cross-crate paths (a bare crate name) are *not* handled here — those need
+/// the workspace crate index (`build_with_rust_crates`); this is the
+/// within-crate module topology those edges never see.
+pub fn resolve_rust_module<'a>(importer: &str, use_path: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let mut segments = use_path.split("::").map(str::trim).filter(|s| !s.is_empty());
+    let root = segments.next()?;
+    let mut base = match root {
+        "crate" => rust_crate_root(importer),
+        "self" => rust_module_dir(importer),
+        "super" => {
+            let mut dir = rust_module_dir(importer);
+            dir.pop();
+            dir
+        }
+        _ => return None,
+    };
+    let mut rest: Vec<&str> = segments.collect();
+    // Chained `super::super::x`: each extra `super` climbs one more module.
+    while rest.first() == Some(&"super") {
+        rest.remove(0);
+        base.pop();
+    }
+    while !rest.is_empty() {
+        let mut candidate_segments = base.clone();
+        candidate_segments.extend(rest.iter().map(|s| s.to_string()));
+        let target = candidate_segments.join("/");
+        if let Some(hit) = candidates.iter().copied().find(|candidate| {
+            let stem = strip_known_extension(candidate, &[RS_EXTENSION]);
+            stem == target || stem == format!("{target}/mod")
+        }) {
+            if hit != importer {
+                return Some(hit);
+            }
+            return None;
+        }
+        rest.pop();
+    }
+    None
+}
+
 fn resolve_py_module_path<'a>(module_path: &str, candidates: &[&'a str]) -> Option<&'a str> {
     if module_path.is_empty() {
         return None;
@@ -178,6 +260,66 @@ mod tests {
         assert_eq!(
             resolve_py_relative("pkg/a.py", 1, None, Some("sibling"), &candidates),
             Some("pkg/sibling.py")
+        );
+    }
+
+    #[test]
+    fn rust_crate_rooted_module_resolves_from_the_crate_src_root() {
+        let candidates = ["svc/src/domain/order.rs", "svc/src/infrastructure/db.rs"];
+        assert_eq!(
+            resolve_rust_module("svc/src/domain/order.rs", "crate::infrastructure::db", &candidates),
+            Some("svc/src/infrastructure/db.rs")
+        );
+    }
+
+    #[test]
+    fn rust_item_tail_is_dropped_until_a_module_file_matches() {
+        let candidates = ["svc/src/domain/order.rs", "svc/src/infrastructure/db.rs"];
+        assert_eq!(
+            resolve_rust_module("svc/src/domain/order.rs", "crate::infrastructure::db::Pool", &candidates),
+            Some("svc/src/infrastructure/db.rs")
+        );
+    }
+
+    #[test]
+    fn rust_mod_rs_layout_resolves() {
+        let candidates = ["svc/src/app.rs", "svc/src/infrastructure/mod.rs"];
+        assert_eq!(
+            resolve_rust_module("svc/src/app.rs", "crate::infrastructure::Thing", &candidates),
+            Some("svc/src/infrastructure/mod.rs")
+        );
+    }
+
+    #[test]
+    fn rust_super_climbs_one_module_level() {
+        let candidates = ["svc/src/domain/order.rs", "svc/src/domain/money.rs"];
+        assert_eq!(
+            resolve_rust_module("svc/src/domain/order.rs", "super::money::Money", &candidates),
+            Some("svc/src/domain/money.rs")
+        );
+    }
+
+    #[test]
+    fn rust_self_resolves_a_child_module_of_a_non_root_file() {
+        let candidates = ["svc/src/domain.rs", "svc/src/domain/order.rs"];
+        assert_eq!(
+            resolve_rust_module("svc/src/domain.rs", "self::order::Order", &candidates),
+            Some("svc/src/domain/order.rs")
+        );
+    }
+
+    #[test]
+    fn rust_external_crate_path_is_not_resolved_here() {
+        let candidates = ["svc/src/domain/order.rs", "svc/src/infrastructure/db.rs"];
+        assert_eq!(resolve_rust_module("svc/src/domain/order.rs", "sqlx::PgPool", &candidates), None);
+    }
+
+    #[test]
+    fn rust_self_referential_path_produces_no_edge() {
+        let candidates = ["svc/src/domain/order.rs"];
+        assert_eq!(
+            resolve_rust_module("svc/src/domain/order.rs", "crate::domain::order::Order", &candidates),
+            None
         );
     }
 

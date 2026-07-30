@@ -72,6 +72,13 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         // declares `[architecture]` boundaries; listed here so it's active
         // whenever it is registered, same as every other built-in rule.
         (rule("architecture:boundary-violation"), Severity::Major),
+        // rulesets/architecture — zero-config hexagonal/component rules,
+        // cross-file, run once per scan. They read the layering vocabulary
+        // off path topology (`yunq_import_graph::layer_of`) and stay silent
+        // on a project whose paths name no layer at all.
+        (rule("architecture:hexagonal-layer-violation"), Severity::Major),
+        (rule("architecture:main-sequence-deviation"), Severity::Major),
+        (rule("architecture:stable-dependency-violation"), Severity::Major),
         // rulesets/code-smells — applies_to true for every language.
         (rule("smells:todo-comment"), Severity::Info),
         (rule("smells:long-function"), Severity::Minor),
@@ -124,6 +131,19 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("smells:low-cohesion"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/rust (interface/trait).
         (rule("smells:fat-interface"), Severity::Minor),
+        // rulesets/architecture — per-file hexagonal purity check.
+        (rule("architecture:framework-in-domain"), Severity::Major),
+        // rulesets/code-smells — SOLID rules applying to typescript/python/rust.
+        (rule("smells:type-check-chain"), Severity::Major),
+        (rule("smells:constructor-over-injection"), Severity::Major),
+        (rule("smells:service-locator"), Severity::Major),
+        (rule("smells:class-fan-out"), Severity::Major),
+        // rulesets/ddd — tactical DDD rules, domain-layer scoped.
+        (rule("ddd:persistence-in-domain"), Severity::Minor),
+        (rule("ddd:anemic-domain-model"), Severity::Major),
+        (rule("ddd:public-entity-setter"), Severity::Major),
+        (rule("ddd:primitive-obsession"), Severity::Minor),
+        (rule("ddd:aggregate-exposes-internal-collection"), Severity::Major),
     ]);
     activations
 }
@@ -183,6 +203,24 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("typescript:swallowed-exception"), Severity::Major),
         // rulesets/ai-agent — applies_to typescript/python.
         (rule("ai:llm-output-injection"), Severity::Blocker),
+        // rulesets/architecture — per-file hexagonal purity check.
+        (rule("architecture:framework-in-domain"), Severity::Major),
+        // rulesets/code-smells — SOLID rules applying to typescript/python/rust.
+        (rule("smells:type-check-chain"), Severity::Major),
+        (rule("smells:constructor-over-injection"), Severity::Major),
+        (rule("smells:service-locator"), Severity::Major),
+        (rule("smells:class-fan-out"), Severity::Major),
+        // rulesets/ddd — tactical DDD rules, domain-layer scoped.
+        (rule("ddd:persistence-in-domain"), Severity::Minor),
+        (rule("ddd:anemic-domain-model"), Severity::Major),
+        (rule("ddd:public-entity-setter"), Severity::Major),
+        (rule("ddd:primitive-obsession"), Severity::Minor),
+        (rule("ddd:aggregate-exposes-internal-collection"), Severity::Major),
+        // rulesets/code-smells — inheritance rules; no Rust equivalent
+        // (structs have no inheritance, so `ClassRegistry` records no
+        // superclass for one).
+        (rule("smells:deep-inheritance"), Severity::Major),
+        (rule("smells:override-narrows-contract"), Severity::Major),
     ]);
     activations
 }
@@ -235,6 +273,24 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("python:unused-loop-variable"), Severity::Minor),
         // rulesets/ai-agent — applies_to typescript/python.
         (rule("ai:llm-output-injection"), Severity::Blocker),
+        // rulesets/architecture — per-file hexagonal purity check.
+        (rule("architecture:framework-in-domain"), Severity::Major),
+        // rulesets/code-smells — SOLID rules applying to typescript/python/rust.
+        (rule("smells:type-check-chain"), Severity::Major),
+        (rule("smells:constructor-over-injection"), Severity::Major),
+        (rule("smells:service-locator"), Severity::Major),
+        (rule("smells:class-fan-out"), Severity::Major),
+        // rulesets/ddd — tactical DDD rules, domain-layer scoped.
+        (rule("ddd:persistence-in-domain"), Severity::Minor),
+        (rule("ddd:anemic-domain-model"), Severity::Major),
+        (rule("ddd:public-entity-setter"), Severity::Major),
+        (rule("ddd:primitive-obsession"), Severity::Minor),
+        (rule("ddd:aggregate-exposes-internal-collection"), Severity::Major),
+        // rulesets/code-smells — inheritance rules; no Rust equivalent
+        // (structs have no inheritance, so `ClassRegistry` records no
+        // superclass for one).
+        (rule("smells:deep-inheritance"), Severity::Major),
+        (rule("smells:override-narrows-contract"), Severity::Major),
     ]);
     activations
 }
