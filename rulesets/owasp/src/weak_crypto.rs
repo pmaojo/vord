@@ -83,7 +83,13 @@ impl Rule for WeakCryptoRule {
             }
 
             for pattern in weak_patterns {
-                if line.contains(pattern) && (line.contains("hash") || line.contains("cipher") || line.contains("digest") || line.contains("crypto") || line.contains("createHash")) {
+                if line.contains(pattern)
+                    && (line.contains("hash")
+                        || line.contains("cipher")
+                        || line.contains("digest")
+                        || line.contains("crypto")
+                        || line.contains("createHash"))
+                {
                     findings.push(Finding::new(
                         format!("Use of weak cryptographic algorithm '{pattern}'; prefer SHA-256 or AES-GCM"),
                         yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
@@ -104,7 +110,12 @@ mod tests {
     fn flags_md5_crypto_usage() {
         let code = "const hash = crypto.createHash('md5');\n";
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let rule = WeakCryptoRule::new();
 
         let findings = rule.check(&file, &ast);
@@ -117,29 +128,54 @@ mod tests {
         // hash algorithms as string data — not a call to any of them.
         let code = "const HASH_FUNCTIONS: &[&str] = &[\"md5\", \"sha1\", \"hash\", \"crc32\"];\n";
         let file = SourceFile::new("catalog.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let rule = WeakCryptoRule::new();
 
-        assert!(rule.check(&file, &ast).is_empty(), "a data catalog of algorithm names is not usage");
+        assert!(
+            rule.check(&file, &ast).is_empty(),
+            "a data catalog of algorithm names is not usage"
+        );
     }
 
     #[test]
     fn does_not_flag_a_backtick_wrapped_mention_in_prose() {
         let code = "description: \"Comparing a hash (`md5`/`sha1`/`hash`/`crc32`) is unsafe\",\n";
         let file = SourceFile::new("docs.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let rule = WeakCryptoRule::new();
 
-        assert!(rule.check(&file, &ast).is_empty(), "a documentation mention is not usage");
+        assert!(
+            rule.check(&file, &ast).is_empty(),
+            "a documentation mention is not usage"
+        );
     }
 
     #[test]
     fn still_flags_a_direct_call_with_a_single_quoted_argument() {
         let code = "hash_val = hashlib.new('md5', data).hexdigest()\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let rule = WeakCryptoRule::new();
 
-        assert_eq!(rule.check(&file, &ast).len(), 1, "a single-quoted call argument must still be flagged");
+        assert_eq!(
+            rule.check(&file, &ast).len(),
+            1,
+            "a single-quoted call argument must still be flagged"
+        );
     }
 }

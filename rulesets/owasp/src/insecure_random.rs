@@ -7,7 +7,9 @@ pub struct InsecureRandomRule {
 
 impl InsecureRandomRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("owasp:insecure-random").expect("valid rule id") }
+        Self {
+            id: RuleId::new("owasp:insecure-random").expect("valid rule id"),
+        }
     }
 }
 
@@ -69,7 +71,13 @@ impl Rule for InsecureRandomRule {
             } else if is_python {
                 // In Python, 'random' module is not secure. Functions like random.random(), random.randint(), random.choice(), etc.
                 // We will look for calls to random.* where the module is 'random'
-                if line.contains("random.random") || line.contains("random.randint") || line.contains("random.choice") || line.contains("random.randrange") || line.contains("random.sample") || line.contains("random.uniform") {
+                if line.contains("random.random")
+                    || line.contains("random.randint")
+                    || line.contains("random.choice")
+                    || line.contains("random.randrange")
+                    || line.contains("random.sample")
+                    || line.contains("random.uniform")
+                {
                     findings.push(Finding::new(
                         "The 'random' module is not cryptographically secure. Prefer the 'secrets' module.",
                         yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
@@ -91,7 +99,12 @@ mod tests {
     fn flags_math_random() {
         let code = "const val = Math.random();\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = InsecureRandomRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -100,7 +113,12 @@ mod tests {
     fn flags_python_random() {
         let code = "import random\nval = random.randint(1, 10)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = InsecureRandomRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -109,7 +127,12 @@ mod tests {
     fn allows_python_secrets() {
         let code = "import secrets\nval = secrets.randbelow(10)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = InsecureRandomRule::new().check(&file, &ast);
         assert!(findings.is_empty());
     }
@@ -118,7 +141,12 @@ mod tests {
     fn ignores_comments() {
         let code = "// Math.random is bad\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        );
         let findings = InsecureRandomRule::new().check(&file, &ast);
         assert!(findings.is_empty());
     }
