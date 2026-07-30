@@ -64,7 +64,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           bin="target/${{ matrix.target }}/release"
-          cp "$bin/yunq-cli${{ matrix.ext }}"  "dist/yunq-${{ matrix.target }}${{ matrix.ext }}"
+          cp "$bin/yunq${{ matrix.ext }}"  "dist/yunq-${{ matrix.target }}${{ matrix.ext }}"
           cp "$bin/yunq-lsp${{ matrix.ext }}"  "dist/yunq-lsp-${{ matrix.target }}${{ matrix.ext }}"
           cd dist
           # Homebrew and install.sh both verify against these.
