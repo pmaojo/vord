@@ -3,6 +3,8 @@
 //! use-case plus the output DTOs (serialization lives here, at the edge —
 //! never on domain types).
 
+#![feature(let_chains)]
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

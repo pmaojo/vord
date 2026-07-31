@@ -2,6 +2,8 @@
 //! core needs from the outside world, the `Rule` extension point, and the
 //! `AnalyzerService` that orchestrates parse → rules → persist.
 
+#![feature(let_chains)]
+
 mod alm;
 mod alm_gateway;
 pub mod branches;

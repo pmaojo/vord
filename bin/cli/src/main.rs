@@ -1,6 +1,8 @@
 //! Composition root for local scans. `main` only parses arguments, invokes
 //! the scan use-case and renders the result — a testing dead-zone by design.
 
+#![feature(let_chains)]
+
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
