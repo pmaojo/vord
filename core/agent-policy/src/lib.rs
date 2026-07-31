@@ -221,7 +221,7 @@ impl CircuitBreakerState {
 
         self.consecutive_denials.retain(|rule, _| denied_rules.contains(rule));
 
-        let mut tripped = Vec::new();
+        let mut tripped = Vec::with_capacity(denied_rules.len());
         for rule in &denied_rules {
             let count = self.consecutive_denials.entry(rule.clone()).or_insert(0);
             *count += 1;
@@ -418,7 +418,7 @@ impl AgentPolicy {
         };
 
         let mut builder = GlobSetBuilder::new();
-        let mut protected_meta = Vec::new();
+        let mut protected_meta = Vec::with_capacity(file.protected_paths.len());
         for entry in &file.protected_paths {
             let glob = Glob::new(&entry.pattern)
                 .map_err(|source| PolicyError::Glob { pattern: entry.pattern.clone(), source })?;
@@ -430,7 +430,7 @@ impl AgentPolicy {
             .map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
 
         let mut gherkin_builder = GlobSetBuilder::new();
-        let mut gherkin_required_meta = Vec::new();
+        let mut gherkin_required_meta = Vec::with_capacity(file.gherkin_required.len());
         for entry in &file.gherkin_required {
             let glob = Glob::new(&entry.pattern)
                 .map_err(|source| PolicyError::Glob { pattern: entry.pattern.clone(), source })?;
@@ -497,7 +497,7 @@ impl AgentPolicy {
         }
 
         let threshold = self.block_at_or_above_for(provenance);
-        let mut violations = Vec::new();
+        let mut violations = Vec::with_capacity(findings.len());
 
         let normalised = path.replace('\\', "/");
         for index in self.protected.matches(&normalised) {
