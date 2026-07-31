@@ -93,6 +93,11 @@ fn looks_like_uuid(s: &str) -> bool {
             .all(|(part, len)| part.len() == len && part.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
+/// CSS variables (`var(--...)`) can have high entropy but are not secrets.
+fn looks_like_css_variable(s: &str) -> bool {
+    s.starts_with("var(--") && s.ends_with(')')
+}
+
 /// URLs, filesystem paths and Subresource-Integrity/lockfile hash prefixes:
 /// all can be high-entropy but are not secrets.
 fn looks_like_url_path_or_integrity_hash(s: &str) -> bool {
@@ -122,9 +127,10 @@ fn looks_like_format_template(s: &str) -> bool {
             && let Some(rel_close) = s[i + 1..].find('}')
         {
             let inner = &s[i + 1..i + 1 + rel_close];
-            let is_placeholder = inner
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | ':' | '.' | '?' | '#' | '<' | '>' | '^' | '+' | '-'));
+            let is_placeholder = inner.chars().all(|c| {
+                c.is_alphanumeric()
+                    || matches!(c, '_' | ':' | '.' | '?' | '#' | '<' | '>' | '^' | '+' | '-')
+            });
             if is_placeholder {
                 return true;
             }
@@ -146,8 +152,9 @@ fn looks_like_format_template(s: &str) -> bool {
 fn has_secret_like_charset(s: &str) -> bool {
     const STRUCTURAL: &[u8] = b"_-:.,";
     let has_digit = s.bytes().any(|b| b.is_ascii_digit());
-    let has_symbol =
-        s.bytes().any(|b| !b.is_ascii_alphanumeric() && !STRUCTURAL.contains(&b));
+    let has_symbol = s
+        .bytes()
+        .any(|b| !b.is_ascii_alphanumeric() && !STRUCTURAL.contains(&b));
     has_digit || has_symbol
 }
 
@@ -182,7 +189,10 @@ fn is_word_like_segment(s: &str) -> bool {
 /// word-like.
 fn looks_like_delimited_identifier(s: &str) -> bool {
     const DELIMITERS: &[char] = &['-', '_', ':', '.', ',', '[', ']'];
-    let segments: Vec<&str> = s.split(DELIMITERS).filter(|part| !part.is_empty()).collect();
+    let segments: Vec<&str> = s
+        .split(DELIMITERS)
+        .filter(|part| !part.is_empty())
+        .collect();
     segments.len() >= 2 && segments.iter().all(|part| is_word_like_segment(part))
 }
 
@@ -206,7 +216,11 @@ impl HighEntropyStringRule {
     /// Builds the rule with a custom threshold/minimum length, e.g. for a
     /// stricter or looser profile.
     pub fn with_threshold(threshold: f64, min_length: usize) -> Self {
-        Self { id: RuleId::new("secrets:high-entropy-string").expect("valid rule id"), threshold, min_length }
+        Self {
+            id: RuleId::new("secrets:high-entropy-string").expect("valid rule id"),
+            threshold,
+            min_length,
+        }
     }
 }
 
@@ -243,6 +257,14 @@ impl Rule for HighEntropyStringRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let path = file.path().to_lowercase();
+        if path.ends_with(".lock")
+            || path.contains("-lock.")
+            || path.ends_with(".yaml")
+            || path.ends_with(".yml")
+        {
+            return Vec::new();
+        }
         if yunq_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
@@ -250,7 +272,10 @@ impl Rule for HighEntropyStringRule {
 
         let mut findings = Vec::new();
 
-        for literal in ast.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+        for literal in ast
+            .descendants()
+            .filter(|n| *n.kind() == NodeKind::StringLiteral)
+        {
             if yunq_rules_engine::in_ranges(&test_ranges, literal.span().start_line) {
                 continue;
             }
@@ -265,6 +290,7 @@ impl Rule for HighEntropyStringRule {
                 || looks_like_url_path_or_integrity_hash(value)
                 || looks_like_format_template(value)
                 || looks_like_delimited_identifier(value)
+                || looks_like_css_variable(value)
             {
                 continue;
             }
@@ -297,7 +323,9 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         HighEntropyStringRule::new().check(&file, &ast)
     }
 
@@ -333,7 +361,10 @@ mod tests {
             "text-embedding-3-small",
         ] {
             let code = format!("const x = \"{identifier}\";\n");
-            assert!(check_ts(&code).is_empty(), "flagged identifier {identifier} as a secret");
+            assert!(
+                check_ts(&code).is_empty(),
+                "flagged identifier {identifier} as a secret"
+            );
         }
     }
 
@@ -359,7 +390,8 @@ mod tests {
 
     #[test]
     fn ignores_common_identifier_style_text() {
-        let code = "const description = \"aVeryDescriptiveHumanReadableConfigurationOptionName\";\n";
+        let code =
+            "const description = \"aVeryDescriptiveHumanReadableConfigurationOptionName\";\n";
         assert!(check_ts(code).is_empty());
     }
 
@@ -407,7 +439,9 @@ mod tests {
 
     #[test]
     fn ignores_format_string_placeholders() {
-        assert!(check_ts("const url = \"{public_url}/api/auth/oauth/github/callback\";\n").is_empty());
+        assert!(
+            check_ts("const url = \"{public_url}/api/auth/oauth/github/callback\";\n").is_empty()
+        );
         assert!(check_ts("const metric = \"yunq_http_requests_total{{method=\\\"{}\\\",route=\\\"{}\\\"}}\";\n").is_empty());
     }
 
@@ -419,7 +453,10 @@ mod tests {
 
     #[test]
     fn ignores_urn_identifiers() {
-        assert!(check_ts("const s = \"urn:ietf:params:scim:api:messages:2.0:ListResponse\";\n").is_empty());
+        assert!(
+            check_ts("const s = \"urn:ietf:params:scim:api:messages:2.0:ListResponse\";\n")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -436,8 +473,46 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let strict_rule = HighEntropyStringRule::with_threshold(5.9, 20);
         assert!(strict_rule.check(&file, &ast).is_empty());
+    }
+
+    #[test]
+    fn ignores_lockfiles_and_yaml_files() {
+        let code = "const apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
+
+        let file =
+            SourceFile::new("pnpm-lock.yaml", code, LanguageIdentifier::typescript()).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
+
+        let file = SourceFile::new("Cargo.lock", code, LanguageIdentifier::typescript()).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
+
+        let file = SourceFile::new("some.yaml", code, LanguageIdentifier::typescript()).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
+
+        let file = SourceFile::new("other.yml", code, LanguageIdentifier::typescript()).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
+    }
+
+    #[test]
+    fn ignores_css_variables() {
+        assert!(check_ts("const c = \"var(--color-expenses)\";\n").is_empty());
+        assert!(check_ts("const c = \"var(--color-signups)\";\n").is_empty());
     }
 }

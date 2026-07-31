@@ -33,13 +33,22 @@ impl CustomSecretPatternRule {
     ) -> Option<Self> {
         let id = RuleId::new(id_str).ok()?;
         let pattern = Regex::new(pattern).ok()?;
-        Some(Self { id, message: message.into(), pattern, severity })
+        Some(Self {
+            id,
+            message: message.into(),
+            pattern,
+            severity,
+        })
     }
 
     /// Convenience constructor for the default id
     /// (`secrets:custom-secret-pattern`) when only one custom pattern is
     /// configured.
-    pub fn with_default_id(message: impl Into<String>, pattern: &str, severity: Severity) -> Option<Self> {
+    pub fn with_default_id(
+        message: impl Into<String>,
+        pattern: &str,
+        severity: Severity,
+    ) -> Option<Self> {
         Self::new("secrets:custom-secret-pattern", message, pattern, severity)
     }
 }
@@ -80,7 +89,12 @@ impl Rule for CustomSecretPatternRule {
             if self.pattern.is_match(line) {
                 findings.push(Finding::new(
                     &self.message,
-                    Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    Span::new(
+                        (idx + 1) as u32,
+                        1,
+                        (idx + 1) as u32,
+                        line.len().max(1) as u32,
+                    ),
                 ));
             }
         }
@@ -97,18 +111,24 @@ mod tests {
 
     fn check_ts(rule: &CustomSecretPatternRule, code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         rule.check(&file, &ast)
     }
 
     #[test]
     fn rejects_invalid_regex() {
-        assert!(CustomSecretPatternRule::with_default_id("bad", "(unclosed", Severity::Major).is_none());
+        assert!(
+            CustomSecretPatternRule::with_default_id("bad", "(unclosed", Severity::Major).is_none()
+        );
     }
 
     #[test]
     fn rejects_invalid_rule_id() {
-        assert!(CustomSecretPatternRule::new("no-namespace", "msg", "foo", Severity::Major).is_none());
+        assert!(
+            CustomSecretPatternRule::new("no-namespace", "msg", "foo", Severity::Major).is_none()
+        );
     }
 
     #[test]

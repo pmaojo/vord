@@ -24,8 +24,8 @@ mod entropy;
 mod provider_patterns;
 
 pub use custom_pattern::CustomSecretPatternRule;
-pub use entropy::{shannon_entropy, HighEntropyStringRule};
-pub use provider_patterns::{all_provider_rules, RegexSecretRule};
+pub use entropy::{HighEntropyStringRule, shannon_entropy};
+pub use provider_patterns::{RegexSecretRule, all_provider_rules};
 
 use yunq_rules_engine::Rule;
 
@@ -48,7 +48,15 @@ mod tests {
         ids.sort_unstable();
         let mut deduped = ids.clone();
         deduped.dedup();
-        assert_eq!(ids.len(), deduped.len(), "duplicate rule ids in secrets ruleset");
-        assert!(ids.len() >= 12, "expected at least 12 built-in secrets rules, got {}", ids.len());
+        assert_eq!(
+            ids.len(),
+            deduped.len(),
+            "duplicate rule ids in secrets ruleset"
+        );
+        assert!(
+            ids.len() >= 12,
+            "expected at least 12 built-in secrets rules, got {}",
+            ids.len()
+        );
     }
 }
