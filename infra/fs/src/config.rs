@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct YunqConfig {
     #[serde(default)]
     pub project: ProjectConfig,
@@ -131,7 +131,7 @@ pub struct AnalysisConfig {
 /// to the engine default, so a project only states what it wants changed.
 /// These were hardcoded before, which meant a codebase whose shape did not
 /// suit the defaults had no recourse.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct DuplicationSettings {
     /// Smallest clone worth reporting, in source lines (engine default 10).
     pub min_lines: Option<usize>,
@@ -148,6 +148,12 @@ pub struct DuplicationSettings {
     /// default 1). Raise it to see regions that cover several adjacent
     /// declarations, e.g. a whole trait implementation.
     pub max_declarations_spanned: Option<usize>,
+    /// When `Some(d)`, suppress clone sets whose token stream is at least
+    /// fraction `d` literal placeholders (`\0STR\0`, `\0NUM\0`) — the match
+    /// is a lookup table rather than copied logic worth refactoring. Passed
+    /// straight through to `DuplicationConfig::max_literal_density`.
+    /// Default: `Some(0.25)`.
+    pub max_literal_density: Option<f32>,
 }
 
 /// `[architecture]` in `yunq.toml` — declared component boundaries (roadmap

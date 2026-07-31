@@ -260,6 +260,7 @@ pub fn duplication_config(
         max_declarations_spanned: settings
             .max_declarations_spanned
             .unwrap_or(defaults.max_declarations_spanned),
+        max_literal_density: settings.max_literal_density.or(defaults.max_literal_density),
     }
 }
 

@@ -23,10 +23,7 @@
 //! stop affecting the hash — only leading/trailing whitespace mattered
 //! before this, via `str::trim`.
 
-pub use yunq_cpd::{TokenNormalization, TokenizedSource, IDENTIFIER_PLACEHOLDER};
-
-const STRING_PLACEHOLDER: &str = "\u{0}STR\u{0}";
-const NUMBER_PLACEHOLDER: &str = "\u{0}NUM\u{0}";
+pub use yunq_cpd::{TokenNormalization, TokenizedSource, IDENTIFIER_PLACEHOLDER, STRING_PLACEHOLDER, NUMBER_PLACEHOLDER};
 
 /// Per-line, whitespace- and literal-normalized token text for one parsed
 /// file. `line_number` is 1-based; lines with no significant tokens (blank

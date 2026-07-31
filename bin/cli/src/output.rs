@@ -408,23 +408,41 @@ fn sorted_crap_findings(report: &AnalysisReport) -> Vec<CrapFindingDto> {
 }
 
 fn render_issues_text(out: &mut String, report: &AnalysisReport) {
-    let mut issues: Vec<&Issue> = report.issues().iter().collect();
-    issues.sort_by(|a, b| {
-        b.severity()
-            .cmp(&a.severity())
-            .then_with(|| a.file().cmp(b.file()))
-            .then_with(|| a.span().start_line.cmp(&b.span().start_line))
-    });
+    let issues: Vec<&Issue> = report.issues().iter().collect();
+    // Group by file, sorting files by issue count (descending) then path.
+    let mut by_file: std::collections::BTreeMap<&str, Vec<&Issue>> = std::collections::BTreeMap::new();
     for issue in &issues {
+        by_file.entry(issue.file()).or_default().push(issue);
+    }
+    let mut files: Vec<(&str, Vec<&Issue>)> = by_file.into_iter().collect();
+    files.sort_by(|(a_file, a_issues), (b_file, b_issues)| {
+        b_issues
+            .len()
+            .cmp(&a_issues.len())
+            .then_with(|| a_file.cmp(b_file))
+    });
+    for (file, mut file_issues) in files {
+        file_issues.sort_by(|a, b| {
+            b.severity()
+                .cmp(&a.severity())
+                .then_with(|| a.span().start_line.cmp(&b.span().start_line))
+        });
         out.push_str(&format!(
-            "{:<8} {:<24} {}:{}:{}  {}\n",
-            issue.severity().to_string().to_uppercase(),
-            issue.rule().to_string(),
-            issue.file(),
-            issue.span().start_line,
-            issue.span().start_col,
-            issue.message(),
+            "\n── {} ({} issue{})\n",
+            file,
+            file_issues.len(),
+            if file_issues.len() == 1 { "" } else { "s" },
         ));
+        for issue in &file_issues {
+            out.push_str(&format!(
+                "{:<8} {:<24}  line {}:{}  {}\n",
+                issue.severity().to_string().to_uppercase(),
+                issue.rule().to_string(),
+                issue.span().start_line,
+                issue.span().start_col,
+                issue.message(),
+            ));
+        }
     }
 }
 
