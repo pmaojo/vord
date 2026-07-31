@@ -14,6 +14,7 @@ mod insecure_deserialization;
 mod insecure_random;
 mod path_traversal;
 mod permissive_cors;
+mod post_message_wildcard;
 mod ssrf;
 mod unverified_jwt;
 mod weak_crypto;
@@ -31,6 +32,7 @@ pub use insecure_deserialization::InsecureDeserializationRule;
 pub use insecure_random::InsecureRandomRule;
 pub use path_traversal::PathTraversalRule;
 pub use permissive_cors::PermissiveCorsRule;
+pub use post_message_wildcard::PostMessageWildcardRule;
 pub use ssrf::SsrfRule;
 pub use unverified_jwt::UnverifiedJwtRule;
 pub use weak_crypto::WeakCryptoRule;
@@ -52,6 +54,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(DisabledCertValidationRule::new()),
         Box::new(XssRule::new()),
         Box::new(PermissiveCorsRule::new()),
+        Box::new(PostMessageWildcardRule::new()),
         Box::new(PathTraversalRule::new()),
         Box::new(SsrfRule::new()),
         Box::new(UnverifiedJwtRule::new()),
