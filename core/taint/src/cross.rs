@@ -125,7 +125,7 @@ impl CrossFileTaint {
         }
 
         // Phase 2: whole-file emission passes (no parameters seeded).
-        let mut flows: Vec<CrossFileFlow> = Vec::new();
+        let mut flows: Vec<CrossFileFlow> = Vec::with_capacity(files.len());
         for (path, ast) in files {
             let ctx = ResolveCtx {
                 file: path,
@@ -457,7 +457,7 @@ fn callee_name(callee: &AstNode) -> String {
 }
 
 fn collect_functions<'a>(files: &[(&'a str, &'a AstNode)]) -> Vec<FunctionInfo<'a>> {
-    let mut functions = Vec::new();
+    let mut functions = Vec::with_capacity(files.len() * 2);
     let mut seen: BTreeSet<FunctionKey> = BTreeSet::new();
     for (path, ast) in files {
         for function in ast.descendants().filter(|n| *n.kind() == NodeKind::FunctionDef) {
@@ -502,7 +502,7 @@ fn collect_functions<'a>(files: &[(&'a str, &'a AstNode)]) -> Vec<FunctionInfo<'
 /// recognized `import` syntax (see module docs) — real ES-module files never
 /// consult this.
 fn build_global_fallback(functions: &[FunctionInfo]) -> HashMap<String, FunctionKey> {
-    let mut map = HashMap::new();
+    let mut map = HashMap::with_capacity(functions.len());
     for function in functions {
         map.entry(function.name.clone())
             .or_insert_with(|| (function.file.clone(), function.name.clone()));
