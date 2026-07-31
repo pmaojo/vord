@@ -1,6 +1,6 @@
 {
   "name": "yunq-guardrail",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Denies an agent's write before it reaches disk when it introduces a security finding or touches a protected path. Deterministic: the verdict comes from a static analyzer, not from a model asked to check its own work.",
   "license": "MIT",
   "homepage": "https://github.com/pmaojo/yunq",

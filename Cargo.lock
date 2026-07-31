@@ -2915,7 +2915,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-agent"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2927,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-agent-policy"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "globset",
  "serde",
@@ -2938,14 +2938,14 @@ dependencies = [
 
 [[package]]
 name = "yunq-ast"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "yunq-benchmarks"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "criterion",
  "futures",
@@ -2959,7 +2959,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3027,21 +3027,21 @@ dependencies = [
 
 [[package]]
 name = "yunq-cpd"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
 ]
 
 [[package]]
 name = "yunq-crap"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
 ]
 
 [[package]]
 name = "yunq-import-graph"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-go",
@@ -3053,7 +3053,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-azure"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -3064,7 +3064,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-bitbucket"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -3075,7 +3075,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-fs"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "globset",
  "ignore",
@@ -3094,7 +3094,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-github"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "base64",
@@ -3110,7 +3110,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-gitlab"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -3121,7 +3121,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-llm"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -3134,7 +3134,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-memory"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "futures",
  "yunq-ast",
@@ -3144,7 +3144,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-infra-pdf"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3154,7 +3154,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-lsp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3172,7 +3172,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-bash"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
@@ -3185,7 +3185,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-c"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-c",
@@ -3198,7 +3198,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-cpp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-cpp",
@@ -3211,7 +3211,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-csharp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-c-sharp",
@@ -3224,7 +3224,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-css"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-css",
@@ -3237,7 +3237,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-dockerfile"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-rules-engine",
@@ -3245,7 +3245,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-elixir"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-elixir",
@@ -3257,7 +3257,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-go"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-go",
@@ -3270,7 +3270,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-groovy"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-groovy",
@@ -3283,7 +3283,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-hcl"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-hcl",
@@ -3296,7 +3296,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-html"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-html",
@@ -3309,7 +3309,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-java"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-java",
@@ -3322,7 +3322,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-json"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-json",
@@ -3335,7 +3335,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-kotlin"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-kotlin-ng",
@@ -3348,7 +3348,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-lua"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-lua",
@@ -3361,7 +3361,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-php"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-php",
@@ -3374,7 +3374,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-python"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-python",
@@ -3387,7 +3387,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-ruby"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-ruby",
@@ -3400,7 +3400,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-rust"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-rust",
@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-scala"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-scala",
@@ -3426,7 +3426,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-swift"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-swift",
@@ -3439,7 +3439,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-typescript"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-typescript",
@@ -3452,7 +3452,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-xml"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-xml",
@@ -3465,7 +3465,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-parser-yaml"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-yaml",
@@ -3478,14 +3478,14 @@ dependencies = [
 
 [[package]]
 name = "yunq-profiles"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "yunq-remediation"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3501,7 +3501,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-a11y"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-rules-engine",
@@ -3509,7 +3509,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-ai-agent"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-python",
@@ -3520,7 +3520,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-architecture"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-import-graph",
@@ -3533,7 +3533,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-ddd"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-import-graph",
@@ -3547,7 +3547,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "futures",
  "serde",
@@ -3561,7 +3561,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-go"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-go",
@@ -3570,7 +3570,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-iac"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-rules-engine",
@@ -3578,7 +3578,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-owasp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-python",
@@ -3590,7 +3590,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-php"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-php",
@@ -3599,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-python"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-python",
@@ -3608,7 +3608,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-react"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-typescript",
@@ -3618,7 +3618,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-reactive"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-typescript",
@@ -3627,7 +3627,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-rust"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-rust",
@@ -3636,7 +3636,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-secrets"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "regex",
  "yunq-ast",
@@ -3646,7 +3646,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-smells"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-go",
@@ -3660,7 +3660,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-rules-typescript"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-typescript",
@@ -3669,7 +3669,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-swarm"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3678,7 +3678,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-symbols"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "yunq-ast",
  "yunq-parser-go",
@@ -3690,7 +3690,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-taint"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "thiserror",
  "yunq-ast",
@@ -3700,7 +3700,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-treesitter-adapter"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "yunq-ast",
@@ -3711,7 +3711,7 @@ dependencies = [
 
 [[package]]
 name = "yunq-treesitter-tokens"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tree-sitter",
  "tree-sitter-python",
