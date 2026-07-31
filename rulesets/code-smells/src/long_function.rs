@@ -102,8 +102,9 @@ fn is_return_of_jsx(stmt: &AstNode) -> bool {
     if !matches!(stmt.kind(), NodeKind::Other(k) if k.as_ref() == "return_statement") {
         return false;
     }
-    let Some(expr) = stmt.children().get(1) else { return false };
-    is_jsx_node(expr) || is_parenthesized_jsx(expr)
+    stmt.children()
+        .iter()
+        .any(|expr| is_jsx_node(expr) || is_parenthesized_jsx(expr))
 }
 
 fn is_jsx_node(node: &AstNode) -> bool {
@@ -117,7 +118,7 @@ fn is_parenthesized_jsx(node: &AstNode) -> bool {
     if !matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "parenthesized_expression") {
         return false;
     }
-    node.children().first().is_some_and(|inner| is_jsx_node(inner))
+    node.children().first().is_some_and(is_jsx_node)
 }
 
 fn is_statement(node: &AstNode) -> bool {
