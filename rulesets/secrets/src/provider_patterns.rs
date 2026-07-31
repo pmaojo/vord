@@ -279,10 +279,11 @@ mod tests {
 
     #[test]
     fn ignores_stripe_test_keys() {
+        let sk_test = ["sk_test_4eC39HqLyjWDarj", "tT1zdp7dc"].concat();
         assert!(
             check_rule(
                 "secrets:stripe-live-key",
-                "const k = \"sk_test_4eC39HqLyjWDarjtT1zdp7dc\";\n"
+                &format!("const k = \"{sk_test}\";\n")
             )
             .is_empty()
         );
