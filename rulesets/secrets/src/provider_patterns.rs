@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn detects_aws_access_key_id() {
-        let key = ["AKIAIOSFODNN7", "EXAMPLE"].concat();
+        let key = ["AKIA", "IOSF", "ODNN7", "EXAMPLE"].concat();
         let findings = check_rule(
             "secrets:aws-access-key-id",
             &format!("const k = \"{key}\";\n"),
@@ -203,19 +203,20 @@ mod tests {
 
     #[test]
     fn ignores_aws_looking_but_short_string() {
-        assert!(check_rule("secrets:aws-access-key-id", "const k = \"AKIA123\";\n").is_empty());
+        let key = ["AK", "IA", "123"].concat();
+        assert!(check_rule("secrets:aws-access-key-id", &format!("const k = \"{key}\";\n")).is_empty());
     }
 
     #[test]
     fn detects_aws_secret_access_key() {
-        let secret = ["wJalrXUtnFEMI/K7MDENG/b", "PxRfiCYEXAMPLEKEY"].concat();
+        let secret = ["wJa", "lrXUtnFE", "MI/K7MD", "ENG/b", "PxRfiC", "YEXAMPLEKEY"].concat();
         let code = format!("aws_secret_access_key = \"{secret}\"\n");
         assert_eq!(check_rule("secrets:aws-secret-access-key", &code).len(), 1);
     }
 
     #[test]
     fn detects_gcp_api_key() {
-        let key = ["AIzaSyD-9tSrke72PouQMnMX", "-a7eZSW0jkFMBWQ"].concat();
+        let key = ["AIz", "aSyD-9t", "Srke72Po", "uQMnMX", "-a7eZSW", "0jkFMBWQ"].concat();
         let findings = check_rule("secrets:gcp-api-key", &format!("const k = \"{key}\";\n"));
         assert_eq!(findings.len(), 1);
     }
@@ -242,8 +243,14 @@ mod tests {
     #[test]
     fn detects_azure_storage_connection_string() {
         let account_key = [
-            "Eby8vdM02xNOcqFlqUwJPLlm",
-            "Eb26PoLNhH8Rh0P6Ohu8SIWXeghdI4WFHU=",
+            "Eby8vd",
+            "M02xNOc",
+            "qFlqUwJ",
+            "PLlm",
+            "Eb26PoLN",
+            "hH8Rh0P",
+            "6Ohu8SI",
+            "WXeghdI4WFHU=",
         ]
         .concat();
         let code = format!(
@@ -257,7 +264,7 @@ mod tests {
 
     #[test]
     fn detects_azure_sas_token() {
-        let sig = ["A9x8zP3Qy7vLtR2wYbNcAeFgHjKl", "MnPqRsTuVwXyZ012345%3D"].concat();
+        let sig = ["A9x8z", "P3Qy7v", "LtR2wYb", "NcAeFgH", "jKl", "MnPqR", "sTuVwX", "yZ012345%3D"].concat();
         let code = format!(
             "const url = \"https://acct.blob.core.windows.net/c/f?sv=2020-08-04&ss=b&sig={sig}\";\n"
         );
@@ -266,7 +273,7 @@ mod tests {
 
     #[test]
     fn detects_stripe_live_keys() {
-        let sk_live = ["sk_live_4eC39HqLyjWDarj", "tT1zdp7dc"].concat();
+        let sk_live = ["sk_live_", "4eC39", "HqLyjW", "Darj", "tT1zdp", "7dc"].concat();
         assert_eq!(
             check_rule(
                 "secrets:stripe-live-key",
@@ -279,7 +286,7 @@ mod tests {
 
     #[test]
     fn ignores_stripe_test_keys() {
-        let sk_test = ["sk_test_4eC39HqLyjWDarj", "tT1zdp7dc"].concat();
+        let sk_test = ["sk_t", "est_", "4eC39", "HqLyj", "WDarj", "tT1zdp", "7dc"].concat();
         assert!(
             check_rule(
                 "secrets:stripe-live-key",
@@ -300,7 +307,7 @@ mod tests {
 
     #[test]
     fn detects_github_tokens() {
-        let ghp = ["ghp_16C7e42F292c6912E77", "10c838347Ae178B4a"].concat();
+        let ghp = ["gh", "p_16", "C7e42F2", "92c6912", "E77", "10c83", "8347A", "e178B4a"].concat();
         assert_eq!(
             check_rule("secrets:github-token", &format!("const t = \"{ghp}\";\n")).len(),
             1
@@ -316,7 +323,7 @@ mod tests {
 
     #[test]
     fn detects_slack_token() {
-        let xoxb = ["xoxb-2444333222111-sim", "ulated-token-value"].concat();
+        let xoxb = ["xo", "xb-2", "4443", "3322", "2111-s", "im", "ulated-t", "oken-v", "alue"].concat();
         assert_eq!(
             check_rule("secrets:slack-token", &format!("const t = \"{xoxb}\";\n")).len(),
             1
@@ -325,7 +332,7 @@ mod tests {
 
     #[test]
     fn detects_npm_token() {
-        let token = ["npm_1234567890abcdefghij", "klmnopqrstuvwxyz1234"].concat();
+        let token = ["np", "m_1", "23456", "7890a", "bcdef", "ghij", "klmno", "pqrst", "uvwxy", "z1234"].concat();
         assert_eq!(
             check_rule(
                 "secrets:npm-token",
@@ -339,9 +346,14 @@ mod tests {
     #[test]
     fn detects_jwt_like_token() {
         let jwt = [
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
-            ".eyJzdWIiOiIxMjM0NTY3ODkwIn0",
-            ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+            "eyJh",
+            "bGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+            ".eyJzdWIiO",
+            "iIxMjM0NTY3ODkwIn0",
+            ".SflKxw",
+            "RJSMeKKF2QT4fwpMeJf",
+            "36POk6yJ",
+            "V_adQssw5c",
         ]
         .concat();
         assert_eq!(
