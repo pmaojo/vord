@@ -120,4 +120,19 @@ mod tests {
         let findings = check("setTimeout(() => {});\n");
         assert!(findings.is_empty());
     }
+
+    #[test]
+    fn allows_use_memo_with_generic_type_and_deps_array() {
+        // The `<Bucket[]>` type argument must not confuse the argument-count
+        // detection: the dependency array is still the second argument.
+        let findings = check("const v = useMemo<Bucket[]>(() => compute(logs), [logs]);\n");
+        assert!(findings.is_empty(), "useMemo with generic should not be flagged: {findings:?}");
+    }
+
+    #[test]
+    fn flags_use_memo_with_generic_type_and_no_deps_array() {
+        let findings = check("const v = useMemo<number>(() => compute());\n");
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("useMemo"));
+    }
 }

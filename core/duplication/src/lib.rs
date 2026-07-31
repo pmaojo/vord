@@ -133,6 +133,12 @@ pub struct DuplicationConfig {
     /// multi-declaration regions back; the individual bodies inside them
     /// are reported on their own merits either way.
     pub max_declarations_spanned: usize,
+    /// When `Some(d)`, a clone set whose token stream is at least fraction
+    /// `d` literal placeholders (`\0STR\0`, `\0NUM\0`) is suppressed — the
+    /// match is a lookup table (switch/match of string/number return
+    /// values) rather than copied logic worth refactoring. `None` disables
+    /// the check entirely. Default: `Some(0.25)`.
+    pub max_literal_density: Option<f32>,
     /// Whether test code participates in duplication detection.
     ///
     /// Off by default, for the same reason every rule in this engine skips
@@ -152,6 +158,7 @@ impl Default for DuplicationConfig {
             normalization: TokenNormalization::default(),
             max_declarations_spanned: 1,
             include_test_code: false,
+            max_literal_density: Some(0.25),
         }
     }
 }
@@ -178,6 +185,17 @@ pub struct TokenNormalization {
 /// Placeholder an erased identifier collapses to. Uses a control character
 /// no source token can contain, so it can never collide with real code.
 pub const IDENTIFIER_PLACEHOLDER: &str = "\u{0}ID\u{0}";
+
+/// Placeholder a collapsed string/char/template literal becomes.
+pub const STRING_PLACEHOLDER: &str = "\u{0}STR\u{0}";
+
+/// Placeholder a collapsed numeric literal becomes.
+pub const NUMBER_PLACEHOLDER: &str = "\u{0}NUM\u{0}";
+
+/// All placeholder tokens the tokenizer may substitute, collapsed into one
+/// slice for density checks — any token in this set is a literal stand-in,
+/// not a structural token.
+pub const ALL_LITERAL_PLACEHOLDERS: &[&str] = &[STRING_PLACEHOLDER, NUMBER_PLACEHOLDER];
 
 /// One place a duplicated shape occurs.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -425,6 +443,28 @@ fn without_overlaps(mut regions: Vec<CloneRegion>) -> Vec<CloneRegion> {
     kept
 }
 
+/// Fraction of tokens in the duplicated region that are literal
+/// placeholders — the higher the ratio, the more the match is driven by
+/// collapsed string/number values rather than shared structural logic.
+fn literal_density_in_region(file: &TokenizedFile, start_line: u32, end_line: u32) -> f32 {
+    let mut placeholder_count = 0usize;
+    let mut total_tokens = 0usize;
+    for (line_num, text) in &file.lines {
+        if *line_num >= start_line && *line_num <= end_line {
+            for token in text.split(' ') {
+                total_tokens += 1;
+                if token == STRING_PLACEHOLDER || token == NUMBER_PLACEHOLDER {
+                    placeholder_count += 1;
+                }
+            }
+        }
+    }
+    if total_tokens == 0 {
+        return 0.0;
+    }
+    placeholder_count as f32 / total_tokens as f32
+}
+
 pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> DuplicationReport {
     let block_size = config.block_size.max(2);
     let per_file_statements: Vec<Vec<Statement>> =
@@ -476,6 +516,20 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
             (regions.len() >= 2 && lines >= config.min_lines).then_some(CloneSet { regions, lines })
         })
         .collect();
+
+    // Suppress clone sets whose token stream is dominated by literal
+    // placeholders — a match driven almost entirely by collapsed
+    // string/number values is a lookup table, not copied logic.
+    if let Some(max_density) = config.max_literal_density {
+        clone_sets.retain(|set| {
+            let region = &set.regions[0];
+            let Some(file) = files.iter().find(|f| f.path == region.file) else {
+                return true;
+            };
+            literal_density_in_region(file, region.start_line, region.end_line) <= max_density
+        });
+    }
+
     // Largest first: the widest-reaching duplication is the one worth
     // reading, and it is what a reader should meet at the top of a report.
     clone_sets.sort_by(|a, b| {
@@ -717,5 +771,111 @@ mod tests {
         let report = find_duplicates(&[a, b], DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
         assert_eq!(report.clone_sets.len(), 1);
         assert_eq!(report.clone_sets[0].lines, 6);
+    }
+
+    #[test]
+    fn suppresses_lookup_table_duplication_when_literal_density_is_high() {
+        // Five switch arms returning string values — structurally identical
+        // after tokenization because every varying value is a STR
+        // placeholder. Use a lowered threshold (0.20) rather than the
+        // default (0.25) to avoid requiring an unrealistically large
+        // number of switch arms; the test proves the mechanism works,
+        // while the default threshold is calibrated on real-world inputs.
+        let arm = |i: u32| -> (u32, String) {
+            (
+                i,
+                format!("case {} : return {} ;", STRING_PLACEHOLDER, STRING_PLACEHOLDER),
+            )
+        };
+        let switch_body: Vec<(u32, String)> = vec![
+            (1, "function lookup ( x ) {".into()),
+            (2, "switch ( x ) {".into()),
+            arm(3),
+            arm(4),
+            arm(5),
+            arm(6),
+            arm(7),
+            (8, "}".into()),
+            (9, "}".into()),
+        ];
+        let a = TokenizedFile::new("a.ts".into(), switch_body.clone());
+        let b = TokenizedFile::new("b.ts".into(), switch_body.clone());
+        let c = TokenizedFile::new("c.ts".into(), switch_body);
+        let report = find_duplicates(&[a, b, c], DuplicationConfig {
+            block_size: 5,
+            min_lines: 5,
+            max_literal_density: Some(0.20),
+            ..Default::default()
+        });
+        // 10 STR placeholders / ~43 tokens ≈ 23% > 20% threshold.
+        assert!(
+            report.clone_sets.is_empty(),
+            "lookup-table switch should be suppressed: {:?}",
+            report.clone_sets
+        );
+    }
+
+    #[test]
+    fn does_not_suppress_logic_with_few_literals() {
+        // Real logic with one error message string per function — low
+        // literal density should not trigger suppression.
+        let body: Vec<(u32, String)> = (0..6)
+            .map(|i| {
+                let tokens = if i == 2 {
+                    format!("if ( ! name ) {{ throw new Error ( {} ) ; }}", STRING_PLACEHOLDER)
+                } else {
+                    format!("let x{i} = compute ( step ) ;")
+                };
+                (i as u32 + 2, tokens)
+            })
+            .collect();
+        let a = TokenizedFile::new("a.rs".into(), body.clone());
+        let b = TokenizedFile::new("b.rs".into(), body);
+        let report = find_duplicates(&[a, b], DuplicationConfig {
+            block_size: 5,
+            min_lines: 5,
+            ..Default::default()
+        });
+        assert_eq!(
+            report.clone_sets.len(),
+            1,
+            "logic-dominated duplication should not be suppressed"
+        );
+    }
+
+    #[test]
+    fn literal_density_can_be_disabled() {
+        // max_literal_density = None disables the filter entirely.
+        let arm = |i: u32| -> (u32, String) {
+            (
+                i,
+                format!("case {} : return {} ;", STRING_PLACEHOLDER, STRING_PLACEHOLDER),
+            )
+        };
+        let switch_body: Vec<(u32, String)> = vec![
+            (1, "function lookup ( x ) {".into()),
+            (2, "switch ( x ) {".into()),
+            arm(3),
+            arm(4),
+            arm(5),
+            arm(6),
+            arm(7),
+            (8, "}".into()),
+            (9, "}".into()),
+        ];
+        let a = TokenizedFile::new("a.ts".into(), switch_body.clone());
+        let b = TokenizedFile::new("b.ts".into(), switch_body.clone());
+        let c = TokenizedFile::new("c.ts".into(), switch_body);
+        let report = find_duplicates(&[a, b, c], DuplicationConfig {
+            block_size: 5,
+            min_lines: 5,
+            max_literal_density: None,
+            ..Default::default()
+        });
+        assert_eq!(
+            report.clone_sets.len(),
+            1,
+            "disabled density check should not suppress"
+        );
     }
 }

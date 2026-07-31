@@ -88,10 +88,18 @@ pub(crate) fn own_scope_descendants(node: &AstNode) -> Vec<&AstNode> {
 /// The actual argument expressions of a `Call` node. tree-sitter-typescript
 /// nests a single unnamed-in-the-neutral-vocabulary `arguments` wrapper
 /// between the callee and the argument list (unlike e.g. Rust, which
-/// flattens them as direct siblings), so `Call`'s own children are just
-/// `[callee, arguments-wrapper]`.
+/// flattens them as direct siblings).
+///
+/// A fixed index is insufficient: `useMemo<Bucket[]>(() => {}, [x])` has a
+/// `type_arguments` node between the callee and `arguments`, shifting
+/// children to `[callee, type_arguments, arguments]`. This searches for the
+/// `arguments` child by its tree-sitter kind instead.
 pub(crate) fn call_arguments(call: &AstNode) -> &[AstNode] {
-    call.children().get(1).map(|args| args.children()).unwrap_or(&[])
+    call.children()
+        .iter()
+        .find(|c| matches!(c.kind(), NodeKind::Other(k) if k.as_ref() == "arguments"))
+        .map(|args| args.children())
+        .unwrap_or(&[])
 }
 
 /// Every `.map(...)` call's inline callback function, for the rules that
@@ -182,6 +190,18 @@ mod tests {
         let ast = parse_tsx("useEffect(() => {}, [a, b]);\n");
         let call = ast.descendants().find(|n| *n.kind() == NodeKind::Call).unwrap();
         assert_eq!(callee_name(call), Some("useEffect"));
+        assert_eq!(call_arguments(call).len(), 2);
+    }
+
+    #[test]
+    fn call_arguments_works_when_type_arguments_are_present() {
+        // `useMemo<Bucket[]>(() => compute(), [logs])` — the `<Bucket[]>`
+        // type_arguments node sits between the callee and arguments, so a
+        // fixed-index `children().get(1)` would return type_arguments,
+        // not arguments.
+        let ast = parse_tsx("const v = useMemo<Bucket[]>(() => compute(), [logs]);\n");
+        let call = ast.descendants().find(|n| *n.kind() == NodeKind::Call).unwrap();
+        assert_eq!(callee_name(call), Some("useMemo"));
         assert_eq!(call_arguments(call).len(), 2);
     }
 }
