@@ -33,7 +33,11 @@ fn jargon_marker(name: &str) -> Option<&'static str> {
     JARGON_SUFFIXES
         .iter()
         .find(|suffix| name.len() > suffix.len() && name.ends_with(*suffix))
-        .or_else(|| JARGON_PREFIXES.iter().find(|prefix| name.len() > prefix.len() && name.starts_with(*prefix)))
+        .or_else(|| {
+            JARGON_PREFIXES
+                .iter()
+                .find(|prefix| name.len() > prefix.len() && name.starts_with(*prefix))
+        })
         .copied()
 }
 
@@ -43,7 +47,9 @@ pub struct DomainJargonNamingRule {
 
 impl DomainJargonNamingRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("ddd:domain-jargon-naming").expect("valid rule id") }
+        Self {
+            id: RuleId::new("ddd:domain-jargon-naming").expect("valid rule id"),
+        }
     }
 }
 
@@ -110,9 +116,13 @@ mod tests {
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::go() {
             yunq_parser_go::GoParser::new().parse(&file).unwrap()
         } else {
@@ -126,7 +136,11 @@ mod tests {
         let code = "export interface UserDTO {\n  id: string;\n}\n";
         let findings = check("src/domain/user.ts", code, LanguageIdentifier::typescript());
         assert_eq!(findings.len(), 1, "{findings:?}");
-        assert!(findings[0].message.contains("`UserDTO`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`UserDTO`"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("`DTO`"));
     }
 
@@ -142,13 +156,24 @@ mod tests {
     #[test]
     fn a_plain_record_with_no_technical_prefix_is_a_legitimate_domain_noun() {
         let code = "class MedicalRecord:\n    def __init__(self, patient_id):\n        self.patient_id = patient_id\n";
-        assert!(check("src/domain/medical_record.py", code, LanguageIdentifier::python()).is_empty());
+        assert!(
+            check(
+                "src/domain/medical_record.py",
+                code,
+                LanguageIdentifier::python()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn flags_a_dao_suffixed_go_type() {
         let code = "package domain\n\ntype CustomerDao struct {\n\tID string\n}\n";
-        let findings = check("internal/domain/customer.go", code, LanguageIdentifier::go());
+        let findings = check(
+            "internal/domain/customer.go",
+            code,
+            LanguageIdentifier::go(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("`CustomerDao`"));
     }
@@ -156,14 +181,28 @@ mod tests {
     #[test]
     fn an_ordinary_domain_class_is_silent() {
         let code = "export class Order {\n  private status: string = 'draft';\n}\n";
-        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn silent_outside_the_domain_layer() {
         // A DTO at the HTTP boundary is exactly what a DTO should be.
         let code = "export interface UserDTO {\n  id: string;\n}\n";
-        assert!(check("src/adapters/http/user_dto.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/adapters/http/user_dto.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]

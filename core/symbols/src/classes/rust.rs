@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use yunq_ast::{AstNode, NodeKind};
 
-use super::{first_identifier, function_params, is_other, ClassInfo, MemberInfo, MethodInfo};
+use super::{ClassInfo, MemberInfo, MethodInfo, first_identifier, function_params, is_other};
 use crate::types::declared_type;
 
 pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> {
@@ -34,7 +34,14 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
                 .collect()
         })
         .unwrap_or_default();
-    Some(ClassInfo { name, file: file.to_string(), superclass: None, fields, methods: Vec::new(), span: Some(node.span()) })
+    Some(ClassInfo {
+        name,
+        file: file.to_string(),
+        superclass: None,
+        fields,
+        methods: Vec::new(),
+        span: Some(node.span()),
+    })
 }
 
 /// A type expression node's base type name: a bare `type_identifier` as-is,
@@ -45,10 +52,14 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
 fn impl_type_name(node: &AstNode) -> Option<String> {
     match node.kind() {
         NodeKind::Other(k) if k.as_ref() == "type_identifier" => Some(node.text().to_string()),
-        NodeKind::Other(k) if k.as_ref() == "generic_type" => {
-            node.children().iter().find(|c| is_other(c, "type_identifier")).map(|c| c.text().to_string())
+        NodeKind::Other(k) if k.as_ref() == "generic_type" => node
+            .children()
+            .iter()
+            .find(|c| is_other(c, "type_identifier"))
+            .map(|c| c.text().to_string()),
+        NodeKind::Other(k) if k.as_ref() == "reference_type" => {
+            node.children().iter().find_map(impl_type_name)
         }
-        NodeKind::Other(k) if k.as_ref() == "reference_type" => node.children().iter().find_map(impl_type_name),
         _ => None,
     }
 }
@@ -65,15 +76,29 @@ pub(super) fn attach_impls<'a>(ast: &'a AstNode, classes: &mut BTreeMap<String, 
         // type is the last type-expression child, in declaration order (the
         // `type_parameters`/`where_clause`/`declaration_list` siblings never
         // match `impl_type_name`, so they don't interfere).
-        let type_names: Vec<&AstNode> =
-            impl_node.children().iter().filter(|c| impl_type_name(c).is_some()).collect();
-        let Some(target_name) = type_names.last().and_then(|n| impl_type_name(n)) else { continue };
+        let type_names: Vec<&AstNode> = impl_node
+            .children()
+            .iter()
+            .filter(|c| impl_type_name(c).is_some())
+            .collect();
+        let Some(target_name) = type_names.last().and_then(|n| impl_type_name(n)) else {
+            continue;
+        };
         // Two type expressions means `impl Trait for Foo` — the first is
         // the trait. One means an inherent `impl Foo`, no trait involved.
-        let trait_name =
-            (type_names.len() >= 2).then(|| impl_type_name(type_names[0])).flatten();
-        let Some(class) = classes.get_mut(&target_name) else { continue };
-        let Some(decls) = impl_node.children().iter().find(|c| is_other(c, "declaration_list")) else { continue };
+        let trait_name = (type_names.len() >= 2)
+            .then(|| impl_type_name(type_names[0]))
+            .flatten();
+        let Some(class) = classes.get_mut(&target_name) else {
+            continue;
+        };
+        let Some(decls) = impl_node
+            .children()
+            .iter()
+            .find(|c| is_other(c, "declaration_list"))
+        else {
+            continue;
+        };
         for member in decls.children() {
             if *member.kind() != NodeKind::FunctionDef {
                 continue;
@@ -98,4 +123,3 @@ pub(super) fn attach_impls<'a>(ast: &'a AstNode, classes: &mut BTreeMap<String, 
         }
     }
 }
-

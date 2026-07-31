@@ -22,7 +22,7 @@ use std::collections::BTreeSet;
 
 use yunq_ast::{AstNode, NodeKind, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{function_params, is_primitive_type, ClassRegistry, MemberInfo, MethodInfo};
+use yunq_symbols::{ClassRegistry, MemberInfo, MethodInfo, function_params, is_primitive_type};
 
 use crate::common::{is_constructor, is_domain_path, is_value_object, wire_dto_names};
 
@@ -39,15 +39,26 @@ fn named_functions(ast: &AstNode) -> Vec<(&str, &AstNode)> {
     let mut seen: BTreeSet<(u32, u32)> = BTreeSet::new();
     for node in ast.descendants() {
         let named = if *node.kind() == NodeKind::VariableDecl {
-            let name = node.children().iter().find(|c| *c.kind() == NodeKind::Identifier);
-            let function = node.children().iter().find(|c| *c.kind() == NodeKind::FunctionDef);
+            let name = node
+                .children()
+                .iter()
+                .find(|c| *c.kind() == NodeKind::Identifier);
+            let function = node
+                .children()
+                .iter()
+                .find(|c| *c.kind() == NodeKind::FunctionDef);
             name.zip(function)
         } else if *node.kind() == NodeKind::FunctionDef {
-            node.children().iter().find(|c| *c.kind() == NodeKind::Identifier).map(|name| (name, node))
+            node.children()
+                .iter()
+                .find(|c| *c.kind() == NodeKind::Identifier)
+                .map(|name| (name, node))
         } else {
             None
         };
-        let Some((name, function)) = named else { continue };
+        let Some((name, function)) = named else {
+            continue;
+        };
         let span = function.span();
         if seen.insert((span.start_line, span.start_col)) {
             found.push((name.text(), function));
@@ -77,7 +88,10 @@ pub struct PrimitiveObsessionRule {
 
 impl PrimitiveObsessionRule {
     pub fn new(max_primitives: usize) -> Self {
-        Self { id: RuleId::new("ddd:primitive-obsession").expect("valid rule id"), max_primitives }
+        Self {
+            id: RuleId::new("ddd:primitive-obsession").expect("valid rule id"),
+            max_primitives,
+        }
     }
 }
 
@@ -126,14 +140,18 @@ impl CrossFileRule for PrimitiveObsessionRule {
             return Vec::new();
         }
         let registry = ClassRegistry::build_cross_file(&views);
-        let dtos: std::collections::BTreeSet<String> =
-            views.iter().flat_map(|(_, ast)| wire_dto_names(ast)).collect();
+        let dtos: std::collections::BTreeSet<String> = views
+            .iter()
+            .flat_map(|(_, ast)| wire_dto_names(ast))
+            .collect();
         let mut findings = Vec::new();
         for class in registry.iter() {
             if dtos.contains(&class.name) {
                 continue;
             }
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let value_object = is_value_object(class);
             for method in &class.methods {
                 if value_object && is_constructor(method, class) {
@@ -179,10 +197,17 @@ impl PrimitiveObsessionRule {
     ) -> Vec<(usize, Finding)> {
         let mut findings = Vec::new();
         for (path, ast) in views {
-            let Some(index) = files.iter().position(|(file, _)| file.path() == *path) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == *path) else {
+                continue;
+            };
             let methods: BTreeSet<(u32, u32)> = ClassRegistry::build(ast)
                 .iter()
-                .flat_map(|class| class.methods.iter().map(|m| (m.span.start_line, m.span.start_col)))
+                .flat_map(|class| {
+                    class
+                        .methods
+                        .iter()
+                        .map(|m| (m.span.start_line, m.span.start_col))
+                })
                 .collect();
             for (name, function) in named_functions(ast) {
                 let span = function.span();
@@ -219,34 +244,64 @@ mod tests {
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else {
             yunq_parser_rust::RustParser::new().parse(&file).unwrap()
         };
-        PrimitiveObsessionRule::default().check(&[(file, ast)]).into_iter().map(|(_, f)| f).collect()
+        PrimitiveObsessionRule::default()
+            .check(&[(file, ast)])
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
     fn flags_a_constructor_of_four_interchangeable_strings() {
         let code = "export class Order {\n  constructor(id: string, customerId: string, currency: string, note: string) {}\n}\n";
-        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        let findings = check(
+            "src/domain/order.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("4 bare primitive parameters"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("4 bare primitive parameters"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("customerId: string"));
     }
 
     #[test]
     fn allows_three_primitives() {
         let code = "export class Point {\n  constructor(x: number, y: number, z: number) {}\n}\n";
-        assert!(check("src/domain/point.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/point.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn value_object_parameters_are_not_primitives() {
         let code = "export class Order {\n  constructor(id: OrderId, customer: CustomerId, total: Money, note: Note) {}\n}\n";
-        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -258,7 +313,11 @@ mod tests {
     #[test]
     fn an_entity_constructor_with_identity_to_protect_is_still_flagged() {
         let code = "export class Order {\n  private id: string = '';\n  private status: string = '';\n  constructor(id: string, customerId: string, currency: string, note: string) {}\n}\n";
-        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        let findings = check(
+            "src/domain/order.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
@@ -272,7 +331,14 @@ mod tests {
     #[test]
     fn injected_collaborators_are_not_this_rules_business() {
         let code = "export class OrderPolicy {\n  constructor(a: Repo, b: Clock, c: Rates, d: Bus) {}\n}\n";
-        assert!(check("src/domain/order_policy.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/order_policy.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -280,9 +346,17 @@ mod tests {
         // `export const` / arrow-function code never reaches `ClassRegistry`;
         // the modeling gap is identical, so the rule looks at free functions too.
         let code = "export const placeOrder = (id: string, customerId: string, currency: string, note: string) => {\n  return { id, customerId, currency, note };\n};\n";
-        let findings = check("src/domain/place_order.ts", code, LanguageIdentifier::typescript());
+        let findings = check(
+            "src/domain/place_order.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
-        assert!(findings[0].message.contains("4 bare primitive parameters"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("4 bare primitive parameters"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -294,8 +368,11 @@ mod tests {
         )
         .unwrap();
         let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
-        let findings: Vec<Finding> =
-            PrimitiveObsessionRule::default().check(&[(file, ast)]).into_iter().map(|(_, f)| f).collect();
+        let findings: Vec<Finding> = PrimitiveObsessionRule::default()
+            .check(&[(file, ast)])
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("`Place`"));
     }
@@ -303,14 +380,25 @@ mod tests {
     #[test]
     fn a_method_is_not_reported_twice_as_a_free_function() {
         let code = "export class Order {\n  private id: string = '';\n  rename(a: string, b: string, c: string, d: string): void {}\n}\n";
-        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        let findings = check(
+            "src/domain/order.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
     #[test]
     fn silent_outside_the_domain_layer() {
         let code = "export class OrderRequest {\n  constructor(id: string, customerId: string, currency: string, note: string) {}\n}\n";
-        assert!(check("src/adapters/http/order_request.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/adapters/http/order_request.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -331,7 +419,8 @@ mod tests {
 
     #[test]
     fn unannotated_parameters_are_never_counted() {
-        let code = "class Order:\n    def rename(self, first, last, nickname, note):\n        pass\n";
+        let code =
+            "class Order:\n    def rename(self, first, last, nickname, note):\n        pass\n";
         assert!(check("src/domain/order.py", code, LanguageIdentifier::python()).is_empty());
     }
 
@@ -343,7 +432,9 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
         assert_eq!(PrimitiveObsessionRule::new(1).check(&files).len(), 1);
         assert!(PrimitiveObsessionRule::new(2).check(&files).is_empty());

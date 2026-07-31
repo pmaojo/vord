@@ -8,7 +8,10 @@ fn is_drop_call(callee_text: &str) -> bool {
 }
 
 fn sole_argument(call: &AstNode) -> Option<&AstNode> {
-    let args = call.children().iter().find(|c| is_other(c.kind(), "arguments"))?;
+    let args = call
+        .children()
+        .iter()
+        .find(|c| is_other(c.kind(), "arguments"))?;
     match args.children() {
         [only] => Some(only),
         _ => None,
@@ -27,7 +30,9 @@ pub struct DropOnReferenceRule {
 
 impl DropOnReferenceRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:drop-on-reference").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:drop-on-reference").expect("valid rule id"),
+        }
     }
 }
 

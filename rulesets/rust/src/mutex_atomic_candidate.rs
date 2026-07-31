@@ -3,8 +3,9 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::is_other;
 
-const ATOMIC_CANDIDATE_TYPES: &[&str] =
-    &["bool", "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "isize", "usize"];
+const ATOMIC_CANDIDATE_TYPES: &[&str] = &[
+    "bool", "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "isize", "usize",
+];
 
 fn base_name(node: &AstNode) -> &str {
     node.text().rsplit("::").next().unwrap_or(node.text())
@@ -14,8 +15,15 @@ fn base_name(node: &AstNode) -> &str {
 /// primitive (not `Mutex<()>`, not `Mutex<(bool, bool)>`, not a generic
 /// struct field, ...).
 fn sole_primitive_type_arg(generic_type: &AstNode) -> Option<&AstNode> {
-    let type_args = generic_type.children().iter().find(|c| is_other(c.kind(), "type_arguments"))?;
-    let args: Vec<_> = type_args.children().iter().filter(|c| !is_other(c.kind(), "lifetime")).collect();
+    let type_args = generic_type
+        .children()
+        .iter()
+        .find(|c| is_other(c.kind(), "type_arguments"))?;
+    let args: Vec<_> = type_args
+        .children()
+        .iter()
+        .filter(|c| !is_other(c.kind(), "lifetime"))
+        .collect();
     let [arg] = args.as_slice() else { return None };
     is_other(arg.kind(), "primitive_type").then_some(*arg)
 }
@@ -30,7 +38,9 @@ pub struct MutexAtomicCandidateRule {
 
 impl MutexAtomicCandidateRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:mutex-atomic-candidate").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:mutex-atomic-candidate").expect("valid rule id"),
+        }
     }
 }
 
@@ -76,7 +86,10 @@ impl Rule for MutexAtomicCandidateRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         ast.descendants()
             .filter(|n| is_other(n.kind(), "generic_type"))
-            .filter(|n| n.first_child().is_some_and(|base| base_name(base) == "Mutex"))
+            .filter(|n| {
+                n.first_child()
+                    .is_some_and(|base| base_name(base) == "Mutex")
+            })
             .filter_map(|n| {
                 let arg = sole_primitive_type_arg(n)?;
                 ATOMIC_CANDIDATE_TYPES.contains(&arg.text()).then(|| {

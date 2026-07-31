@@ -23,7 +23,10 @@
 //! stop affecting the hash — only leading/trailing whitespace mattered
 //! before this, via `str::trim`.
 
-pub use yunq_cpd::{TokenNormalization, TokenizedSource, IDENTIFIER_PLACEHOLDER, STRING_PLACEHOLDER, NUMBER_PLACEHOLDER};
+pub use yunq_cpd::{
+    IDENTIFIER_PLACEHOLDER, NUMBER_PLACEHOLDER, STRING_PLACEHOLDER, TokenNormalization,
+    TokenizedSource,
+};
 
 /// Per-line, whitespace- and literal-normalized token text for one parsed
 /// file. `line_number` is 1-based; lines with no significant tokens (blank
@@ -73,7 +76,12 @@ pub fn tokenize(
     declaration_lines.dedup();
 
     let mut tokens: Vec<(u32, &str)> = Vec::new();
-    walk(tree.root_node(), source.as_bytes(), normalization, &mut tokens);
+    walk(
+        tree.root_node(),
+        source.as_bytes(),
+        normalization,
+        &mut tokens,
+    );
 
     let mut grouped: Vec<(u32, String)> = Vec::new();
     for (line, token) in tokens {
@@ -85,7 +93,10 @@ pub fn tokenize(
             _ => grouped.push((line, token.to_string())),
         }
     }
-    TokenizedSource { lines: grouped, declaration_lines }
+    TokenizedSource {
+        lines: grouped,
+        declaration_lines,
+    }
 }
 
 fn walk<'a>(

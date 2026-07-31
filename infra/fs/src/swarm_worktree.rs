@@ -36,12 +36,19 @@ fn run(repo_root: &Path, args: &[&str]) -> Result<std::process::Output, SwarmWor
 /// already exists (a prior run created it), this attaches a new worktree to
 /// the existing branch instead of failing, rather than demanding the caller
 /// track which roles already have one.
-pub fn create_worktree(repo_root: &Path, plan: &WorktreePlan, base_ref: &str) -> Result<(), SwarmWorktreeError> {
+pub fn create_worktree(
+    repo_root: &Path,
+    plan: &WorktreePlan,
+    base_ref: &str,
+) -> Result<(), SwarmWorktreeError> {
     if let Some(parent) = plan.path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
     let path = plan.path.to_string_lossy().into_owned();
-    let output = run(repo_root, &["worktree", "add", "-b", &plan.branch, &path, base_ref])?;
+    let output = run(
+        repo_root,
+        &["worktree", "add", "-b", &plan.branch, &path, base_ref],
+    )?;
     if output.status.success() {
         return Ok(());
     }
@@ -53,13 +60,20 @@ pub fn create_worktree(repo_root: &Path, plan: &WorktreePlan, base_ref: &str) ->
     if retry.status.success() {
         return Ok(());
     }
-    Err(SwarmWorktreeError::Add { role: plan.role.clone(), stderr: String::from_utf8_lossy(&retry.stderr).into_owned() })
+    Err(SwarmWorktreeError::Add {
+        role: plan.role.clone(),
+        stderr: String::from_utf8_lossy(&retry.stderr).into_owned(),
+    })
 }
 
 /// Removes a role's worktree. `force` matches `git worktree remove --force`:
 /// needed when the worktree has uncommitted changes a caller has already
 /// decided are disposable (e.g. an abandoned or denied task).
-pub fn remove_worktree(repo_root: &Path, plan: &WorktreePlan, force: bool) -> Result<(), SwarmWorktreeError> {
+pub fn remove_worktree(
+    repo_root: &Path,
+    plan: &WorktreePlan,
+    force: bool,
+) -> Result<(), SwarmWorktreeError> {
     let path = plan.path.to_string_lossy().into_owned();
     let mut args = vec!["worktree", "remove"];
     if force {
@@ -89,9 +103,13 @@ pub struct WorktreeStatus {
 pub fn list_worktrees(repo_root: &Path) -> Result<Vec<WorktreeStatus>, SwarmWorktreeError> {
     let output = run(repo_root, &["worktree", "list", "--porcelain"])?;
     if !output.status.success() {
-        return Err(SwarmWorktreeError::List(String::from_utf8_lossy(&output.stderr).into_owned()));
+        return Err(SwarmWorktreeError::List(
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        ));
     }
-    Ok(parse_worktree_list(&String::from_utf8_lossy(&output.stdout)))
+    Ok(parse_worktree_list(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 /// `git worktree list --porcelain` emits one blank-line-separated record per
@@ -104,7 +122,10 @@ fn parse_worktree_list(raw: &str) -> Vec<WorktreeStatus> {
     for line in raw.lines() {
         if line.is_empty() {
             if let Some(p) = path.take() {
-                statuses.push(WorktreeStatus { path: p, branch: branch.take() });
+                statuses.push(WorktreeStatus {
+                    path: p,
+                    branch: branch.take(),
+                });
             }
             continue;
         }
@@ -130,11 +151,19 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "yunq-swarm-worktree-{}-{}",
             std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         let git = |args: &[&str]| {
-            let status = Command::new("git").arg("-C").arg(&root).args(args).status().unwrap();
+            let status = Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(args)
+                .status()
+                .unwrap();
             assert!(status.success(), "git {args:?} failed");
         };
         git(&["init", "-q", "-b", "main"]);
@@ -143,7 +172,7 @@ mod tests {
         std::fs::write(root.join("README.md"), "hi\n").unwrap();
         git(&["add", "README.md"]);
         git(&["commit", "-q", "-m", "init"]);
-        root
+        root.canonicalize().unwrap_or(root)
     }
 
     #[test]
@@ -156,11 +185,15 @@ mod tests {
         };
 
         create_worktree(&root, &plan, "main").expect("create succeeds");
-        assert!(plan.path.join("README.md").exists(), "the worktree should have the repo's files");
+        assert!(
+            plan.path.join("README.md").exists(),
+            "the worktree should have the repo's files"
+        );
 
         let listed = list_worktrees(&root).expect("list succeeds");
         assert!(
-            listed.iter().any(|w| w.path == plan.path.to_string_lossy() && w.branch.as_deref() == Some("yunq/swarm/coder")),
+            listed.iter().any(|w| w.path == plan.path.to_string_lossy()
+                && w.branch.as_deref() == Some("yunq/swarm/coder")),
             "expected the created worktree in {listed:?}"
         );
 
@@ -185,7 +218,8 @@ mod tests {
         // The branch `yunq/swarm/qa` still exists even though the worktree
         // directory is gone — recreating it must not fail as "branch already
         // exists" the way a naive `git worktree add -b` would.
-        create_worktree(&root, &plan, "main").expect("second create attaches to the existing branch");
+        create_worktree(&root, &plan, "main")
+            .expect("second create attaches to the existing branch");
         assert!(plan.path.exists());
 
         std::fs::remove_dir_all(&root).ok();

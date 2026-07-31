@@ -1,4 +1,4 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, Span, SourceFile};
+use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::is_other;
@@ -7,9 +7,8 @@ use crate::common::is_other;
 /// `m.lock().unwrap()`, ...) — the identifying shape of taking a
 /// `Mutex`/`RwLock` guard.
 fn locks_a_mutex(decl: &AstNode) -> bool {
-    decl.descendants().any(|n| {
-        *n.kind() == NodeKind::MemberAccess && n.text().rsplit('.').next() == Some("lock")
-    })
+    decl.descendants()
+        .any(|n| *n.kind() == NodeKind::MemberAccess && n.text().rsplit('.').next() == Some("lock"))
 }
 
 /// Whether the guard is taken from an *async* lock — `m.lock().await`
@@ -34,7 +33,10 @@ fn awaits_the_lock(decl: &AstNode) -> bool {
 }
 
 fn declared_identifier(decl: &AstNode) -> Option<&str> {
-    decl.children().iter().find(|c| *c.kind() == NodeKind::Identifier).map(AstNode::text)
+    decl.children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::Identifier)
+        .map(AstNode::text)
 }
 
 /// The name `drop(..)` releases, if `stmt` is (or wraps) exactly that call.
@@ -50,7 +52,10 @@ fn dropped_name(stmt: &AstNode) -> Option<&str> {
     if *callee.kind() != NodeKind::Identifier || callee.text() != "drop" {
         return None;
     }
-    let args = call.children().iter().find(|c| is_other(c.kind(), "arguments"))?;
+    let args = call
+        .children()
+        .iter()
+        .find(|c| is_other(c.kind(), "arguments"))?;
     let [arg] = args.children() else { return None };
     (*arg.kind() == NodeKind::Identifier).then(|| arg.text())
 }
@@ -106,7 +111,9 @@ pub struct LockHeldAcrossAwaitRule {
 
 impl LockHeldAcrossAwaitRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:lock-held-across-await").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:lock-held-across-await").expect("valid rule id"),
+        }
     }
 }
 

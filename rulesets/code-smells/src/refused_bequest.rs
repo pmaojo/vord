@@ -33,8 +33,13 @@ fn body_statements(method: &AstNode) -> Vec<&AstNode> {
 /// `super().<method>(...)` delegation — still "trivial" in the sense that
 /// no override-specific behavior was added.
 fn is_super_delegation(stmt: &AstNode) -> bool {
-    stmt.descendants().any(|n| *n.kind() == NodeKind::Call && n.text().contains("super"))
-        && stmt.descendants().filter(|n| *n.kind() == NodeKind::Call).count() <= 1
+    stmt.descendants()
+        .any(|n| *n.kind() == NodeKind::Call && n.text().contains("super"))
+        && stmt
+            .descendants()
+            .filter(|n| *n.kind() == NodeKind::Call)
+            .count()
+            <= 1
 }
 
 /// A method body with no statements, a single `pass`, or a single
@@ -49,7 +54,8 @@ fn is_trivially_refusing(method: &AstNode) -> bool {
         [] => true,
         [only] => {
             matches!(only.kind(), NodeKind::Other(k) if k.as_ref() == "pass_statement")
-                || (matches!(only.kind(), NodeKind::Other(k) if k.as_ref() == "return_statement") && only.children().is_empty())
+                || (matches!(only.kind(), NodeKind::Other(k) if k.as_ref() == "return_statement")
+                    && only.children().is_empty())
                 || is_super_delegation(only)
         }
         _ => false,
@@ -60,12 +66,18 @@ fn check_class(class: &ClassInfo<'_>, superclass: &ClassInfo<'_>, findings: &mut
     if superclass.methods.len() < 2 {
         return; // too small a parent to meaningfully "refuse most of"
     }
-    let overrides: Vec<&MethodInfo<'_>> =
-        class.methods.iter().filter(|m| superclass.method(&m.name).is_some()).collect();
+    let overrides: Vec<&MethodInfo<'_>> = class
+        .methods
+        .iter()
+        .filter(|m| superclass.method(&m.name).is_some())
+        .collect();
     if overrides.len() < 2 {
         return;
     }
-    let trivial: Vec<&&MethodInfo<'_>> = overrides.iter().filter(|m| is_trivially_refusing(m.node)).collect();
+    let trivial: Vec<&&MethodInfo<'_>> = overrides
+        .iter()
+        .filter(|m| is_trivially_refusing(m.node))
+        .collect();
     if trivial.len() != overrides.len() {
         return; // at least one override does real work — not a refusal
     }
@@ -73,7 +85,11 @@ fn check_class(class: &ClassInfo<'_>, superclass: &ClassInfo<'_>, findings: &mut
     if overrides.len() * 2 < superclass.methods.len() {
         return;
     }
-    let names = overrides.iter().map(|m| format!("`{}`", m.name)).collect::<Vec<_>>().join(", ");
+    let names = overrides
+        .iter()
+        .map(|m| format!("`{}`", m.name))
+        .collect::<Vec<_>>()
+        .join(", ");
     let span = class.span.unwrap_or(overrides[0].span);
     findings.push(Finding::new(
         format!(
@@ -93,7 +109,9 @@ pub struct RefusedBequestRule {
 
 impl RefusedBequestRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:refused-bequest").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:refused-bequest").expect("valid rule id"),
+        }
     }
 }
 
@@ -126,13 +144,20 @@ impl CrossFileRule for RefusedBequestRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let registry = ClassRegistry::build_cross_file(&views);
         let mut findings = Vec::new();
         for class in registry.iter() {
-            let Some(superclass_name) = &class.superclass else { continue };
-            let Some(superclass) = registry.get(superclass_name) else { continue };
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(superclass_name) = &class.superclass else {
+                continue;
+            };
+            let Some(superclass) = registry.get(superclass_name) else {
+                continue;
+            };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let mut plain = Vec::new();
             check_class(class, superclass, &mut plain);
             findings.extend(plain.into_iter().map(|f| (index, f)));
@@ -149,9 +174,15 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        RefusedBequestRule::new().check(&files).into_iter().map(|(_, f)| f).collect()
+        RefusedBequestRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]

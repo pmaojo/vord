@@ -102,7 +102,9 @@ impl<'a> ClassInfo<'a> {
     /// `go_constructor_target`). Kept here rather than duplicated as a name
     /// list in every rule that asks "what does construction require".
     pub fn constructor(&self) -> Option<&MethodInfo<'a>> {
-        self.methods.iter().find(|m| is_constructor_name(&m.name, &self.name))
+        self.methods
+            .iter()
+            .find(|m| is_constructor_name(&m.name, &self.name))
     }
 }
 
@@ -194,7 +196,11 @@ const EXTRACTORS: &[ClassExtractor] = &[
         build: typescript::build,
         attach: None,
     },
-    ClassExtractor { declaration_kind: "class_definition", build: python::build, attach: None },
+    ClassExtractor {
+        declaration_kind: "class_definition",
+        build: python::build,
+        attach: None,
+    },
     ClassExtractor {
         declaration_kind: "struct_item",
         build: rust::build,
@@ -221,7 +227,9 @@ fn simple_type_name(node: &AstNode) -> String {
 }
 
 fn first_identifier(node: &AstNode) -> Option<&AstNode> {
-    node.children().iter().find(|c| *c.kind() == NodeKind::Identifier)
+    node.children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::Identifier)
 }
 
 /// The parameters of any function-like node, whatever its grammar calls the
@@ -259,10 +267,20 @@ pub fn function_params(function: &AstNode) -> Vec<MemberInfo> {
 /// module: the shape is the same everywhere, only the wrapper's name differs.
 fn extract_param(node: &AstNode) -> MemberInfo {
     if *node.kind() == NodeKind::Identifier {
-        return MemberInfo { name: node.text().to_string(), declared_type: None, span: node.span() };
+        return MemberInfo {
+            name: node.text().to_string(),
+            declared_type: None,
+            span: node.span(),
+        };
     }
-    let name = first_identifier(node).map(|n| n.text().to_string()).unwrap_or_default();
-    MemberInfo { name, declared_type: declared_type(node), span: node.span() }
+    let name = first_identifier(node)
+        .map(|n| n.text().to_string())
+        .unwrap_or_default();
+    MemberInfo {
+        name,
+        declared_type: declared_type(node),
+        span: node.span(),
+    }
 }
 
 #[cfg(test)]
@@ -273,7 +291,9 @@ mod tests {
 
     fn parse_ts(code: &str) -> AstNode {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     fn parse_rust(code: &str) -> AstNode {
@@ -283,7 +303,9 @@ mod tests {
 
     fn parse_py(code: &str) -> AstNode {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+        yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     #[test]
@@ -300,7 +322,10 @@ mod tests {
         assert_eq!(foo.methods.len(), 1);
         assert_eq!(foo.methods[0].name, "method");
         assert_eq!(foo.methods[0].params[0].name, "a");
-        assert_eq!(foo.methods[0].params[0].declared_type.as_deref(), Some("Other"));
+        assert_eq!(
+            foo.methods[0].params[0].declared_type.as_deref(),
+            Some("Other")
+        );
     }
 
     #[test]
@@ -378,7 +403,9 @@ mod tests {
         let registry = ClassRegistry::build(&ast);
         let service = registry.get("Service").unwrap();
         assert_eq!(service.fields[0].declared_type.as_deref(), Some("Dep"));
-        let constructor = service.method("new").expect("pub fn new should be recorded");
+        let constructor = service
+            .method("new")
+            .expect("pub fn new should be recorded");
         assert_eq!(constructor.params[0].declared_type.as_deref(), Some("Dep"));
     }
 
@@ -419,11 +446,18 @@ mod tests {
 
         let ship = order.method("Ship").expect("receiver method attached");
         assert_eq!(ship.receiver.as_deref(), Some("o"));
-        assert_eq!(ship.params.len(), 1, "the receiver is not a parameter: {:?}", ship.params);
+        assert_eq!(
+            ship.params.len(),
+            1,
+            "the receiver is not a parameter: {:?}",
+            ship.params
+        );
         assert_eq!(ship.params[0].name, "at");
         assert_eq!(ship.params[0].declared_type.as_deref(), Some("int64"));
 
-        let constructor = order.method("NewOrder").expect("New<Type> function attached");
+        let constructor = order
+            .method("NewOrder")
+            .expect("New<Type> function attached");
         assert!(constructor.receiver.is_none());
         assert_eq!(constructor.params[0].name, "id");
     }
@@ -452,7 +486,8 @@ mod tests {
     #[test]
     fn go_methods_attach_across_files_in_the_same_package() {
         let type_file = parse_go("package domain\n\ntype Order struct {\n\tID string\n}\n");
-        let method_file = parse_go("package domain\n\nfunc (o *Order) Ship() error {\n\treturn nil\n}\n");
+        let method_file =
+            parse_go("package domain\n\nfunc (o *Order) Ship() error {\n\treturn nil\n}\n");
         let registry =
             ClassRegistry::build_cross_file(&[("order.go", &type_file), ("ship.go", &method_file)]);
         assert!(registry.get("Order").unwrap().method("Ship").is_some());
@@ -461,8 +496,10 @@ mod tests {
     #[test]
     fn cross_file_registry_merges_impls_from_other_files() {
         let struct_file = parse_rust("struct Foo { x: i32 }\n");
-        let impl_file = parse_rust("impl Foo {\n    fn bar(&self) -> i32 {\n        self.x\n    }\n}\n");
-        let registry = ClassRegistry::build_cross_file(&[("s.rs", &struct_file), ("i.rs", &impl_file)]);
+        let impl_file =
+            parse_rust("impl Foo {\n    fn bar(&self) -> i32 {\n        self.x\n    }\n}\n");
+        let registry =
+            ClassRegistry::build_cross_file(&[("s.rs", &struct_file), ("i.rs", &impl_file)]);
         let foo = registry.get("Foo").unwrap();
         assert_eq!(foo.methods.len(), 1);
         assert_eq!(foo.methods[0].name, "bar");

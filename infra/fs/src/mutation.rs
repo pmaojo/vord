@@ -73,7 +73,9 @@ pub fn parse_mutation_report(content: &str) -> Result<MutationSummary, MutationP
                 MutantStatus::NoCoverage => summary.no_coverage_mutants += 1,
                 MutantStatus::Timeout => summary.timeout_mutants += 1,
                 MutantStatus::Ignored => summary.ignored_mutants += 1,
-                MutantStatus::CompileError | MutantStatus::RuntimeError => summary.error_mutants += 1,
+                MutantStatus::CompileError | MutantStatus::RuntimeError => {
+                    summary.error_mutants += 1
+                }
                 MutantStatus::Pending => summary.pending_mutants += 1,
             }
         }
@@ -139,7 +141,10 @@ mod tests {
 
     #[test]
     fn a_report_with_no_files_yields_a_zeroed_summary_with_no_score() {
-        let summary = parse_mutation_report(r#"{"schemaVersion":"1.7","thresholds":{"high":80,"low":60},"files":{}}"#).unwrap();
+        let summary = parse_mutation_report(
+            r#"{"schemaVersion":"1.7","thresholds":{"high":80,"low":60},"files":{}}"#,
+        )
+        .unwrap();
         assert_eq!(summary.total_mutants, 0);
         assert_eq!(summary.mutation_score(), None);
     }

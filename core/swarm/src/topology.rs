@@ -39,13 +39,21 @@ impl std::fmt::Display for TopologyError {
                 "no topology configured — set [swarm] topology = \"two-pack\"/\"four-pack\" or pipeline = [...]"
             ),
             Self::UnknownPreset(name) => {
-                write!(f, "unknown topology preset {name:?} — expected \"two-pack\" or \"four-pack\"")
+                write!(
+                    f,
+                    "unknown topology preset {name:?} — expected \"two-pack\" or \"four-pack\""
+                )
             }
             Self::Empty => write!(f, "pipeline is empty — a topology needs at least one role"),
             Self::UnknownRole(role) => {
-                write!(f, "topology names role {role:?}, which has no [[swarm.role]] entry")
+                write!(
+                    f,
+                    "topology names role {role:?}, which has no [[swarm.role]] entry"
+                )
             }
-            Self::DuplicateRole(role) => write!(f, "role {role:?} appears twice in the same topology"),
+            Self::DuplicateRole(role) => {
+                write!(f, "role {role:?} appears twice in the same topology")
+            }
         }
     }
 }
@@ -109,14 +117,19 @@ mod tests {
 
     #[test]
     fn the_two_pack_preset_resolves_to_coder_then_reviewer() {
-        let order = resolve_topology(Some("two-pack"), None, &roles(&["coder", "reviewer"])).unwrap();
+        let order =
+            resolve_topology(Some("two-pack"), None, &roles(&["coder", "reviewer"])).unwrap();
         assert_eq!(order, vec!["coder", "reviewer"]);
     }
 
     #[test]
     fn the_four_pack_preset_resolves_in_architect_coder_cleaner_qa_order() {
-        let order =
-            resolve_topology(Some("four-pack"), None, &roles(&["architect", "coder", "cleaner", "qa"])).unwrap();
+        let order = resolve_topology(
+            Some("four-pack"),
+            None,
+            &roles(&["architect", "coder", "cleaner", "qa"]),
+        )
+        .unwrap();
         assert_eq!(order, vec!["architect", "coder", "cleaner", "qa"]);
     }
 
@@ -143,7 +156,12 @@ mod tests {
     #[test]
     fn an_explicit_empty_pipeline_is_rejected_rather_than_falling_back_to_the_preset() {
         let empty: Vec<String> = Vec::new();
-        let err = resolve_topology(Some("two-pack"), Some(&empty), &roles(&["coder", "reviewer"])).unwrap_err();
+        let err = resolve_topology(
+            Some("two-pack"),
+            Some(&empty),
+            &roles(&["coder", "reviewer"]),
+        )
+        .unwrap_err();
         assert_eq!(err, TopologyError::Empty);
     }
 

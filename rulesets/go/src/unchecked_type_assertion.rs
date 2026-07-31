@@ -10,7 +10,9 @@
 //! Go's syntax doesn't allow comma-ok there at all.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{
+    Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
+};
 
 use crate::common::is_other;
 
@@ -111,7 +113,10 @@ mod tests {
 
     #[test]
     fn flags_single_value_declaration() {
-        assert_eq!(check("package main\nfunc f(x interface{}) {\n\tv := x.(string)\n\t_ = v\n}\n").len(), 1);
+        assert_eq!(
+            check("package main\nfunc f(x interface{}) {\n\tv := x.(string)\n\t_ = v\n}\n").len(),
+            1
+        );
     }
 
     #[test]
@@ -132,7 +137,12 @@ mod tests {
 
     #[test]
     fn allows_comma_ok_declaration() {
-        assert!(check("package main\nfunc f(x interface{}) {\n\tv, ok := x.(string)\n\t_, _ = v, ok\n}\n").is_empty());
+        assert!(
+            check(
+                "package main\nfunc f(x interface{}) {\n\tv, ok := x.(string)\n\t_, _ = v, ok\n}\n"
+            )
+            .is_empty()
+        );
     }
 
     #[test]

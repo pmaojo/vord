@@ -16,7 +16,9 @@ pub struct FromOverIntoRule {
 
 impl FromOverIntoRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:from-over-into").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:from-over-into").expect("valid rule id"),
+        }
     }
 }
 
@@ -103,8 +105,10 @@ mod tests {
 
     #[test]
     fn ignores_from_impl() {
-        assert!(check("impl From<Foo> for String {\n    fn from(f: Foo) -> String { f.0 }\n}\n")
-            .is_empty());
+        assert!(
+            check("impl From<Foo> for String {\n    fn from(f: Foo) -> String { f.0 }\n}\n")
+                .is_empty()
+        );
     }
 
     #[test]

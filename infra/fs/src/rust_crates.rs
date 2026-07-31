@@ -30,10 +30,18 @@ pub fn discover_rust_crates(root: &Path) -> HashMap<String, String> {
         if entry.file_name() != "Cargo.toml" {
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(entry.path()) else { continue };
-        let Some(name) = package_name(&content) else { continue };
+        let Ok(content) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let Some(name) = package_name(&content) else {
+            continue;
+        };
         let dir = entry.path().parent().unwrap_or(root);
-        let relative = dir.strip_prefix(root).unwrap_or(dir).to_string_lossy().to_string();
+        let relative = dir
+            .strip_prefix(root)
+            .unwrap_or(dir)
+            .to_string_lossy()
+            .to_string();
         crates.insert(name.replace('-', "_"), relative);
     }
     crates
@@ -41,7 +49,11 @@ pub fn discover_rust_crates(root: &Path) -> HashMap<String, String> {
 
 fn package_name(toml_content: &str) -> Option<String> {
     let value: toml::Value = toml::from_str(toml_content).ok()?;
-    value.get("package")?.get("name")?.as_str().map(str::to_string)
+    value
+        .get("package")?
+        .get("name")?
+        .as_str()
+        .map(str::to_string)
 }
 
 #[cfg(test)]
@@ -54,7 +66,10 @@ mod tests {
     }
 
     fn scratch_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("yunq-rust-crates-test-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "yunq-rust-crates-test-{name}-{}",
+            std::process::id()
+        ));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -69,13 +84,19 @@ mod tests {
         );
 
         let crates = discover_rust_crates(&root);
-        assert_eq!(crates.get("yunq_rules_engine").map(String::as_str), Some("core/rules-engine"));
+        assert_eq!(
+            crates.get("yunq_rules_engine").map(String::as_str),
+            Some("core/rules-engine")
+        );
     }
 
     #[test]
     fn skips_a_virtual_workspace_manifest_with_no_package_table() {
         let root = scratch_dir("virtual");
-        write(&root.join("Cargo.toml"), "[workspace]\nmembers = [\"core/rules-engine\"]\n");
+        write(
+            &root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"core/rules-engine\"]\n",
+        );
         write(
             &root.join("core/rules-engine/Cargo.toml"),
             "[package]\nname = \"yunq-rules-engine\"\nversion = \"0.1.0\"\n",

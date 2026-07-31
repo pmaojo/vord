@@ -30,6 +30,7 @@ mod override_narrows_contract;
 mod refused_bequest;
 mod select_star;
 mod service_locator;
+mod structural_smell;
 mod todo_comment;
 mod type_check_chain;
 mod unwrap_usage;
@@ -53,6 +54,7 @@ pub use override_narrows_contract::OverrideNarrowsContractRule;
 pub use refused_bequest::RefusedBequestRule;
 pub use select_star::SelectStarRule;
 pub use service_locator::ServiceLocatorRule;
+pub use structural_smell::StructuralSmellRule;
 pub use todo_comment::TodoCommentRule;
 pub use type_check_chain::TypeCheckChainRule;
 pub use unwrap_usage::UnwrapUsageRule;
@@ -74,6 +76,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(TypeCheckChainRule::default()),
         Box::new(ConstructorOverInjectionRule::default()),
         Box::new(ServiceLocatorRule::new()),
+        Box::new(StructuralSmellRule::new()),
     ]
 }
 

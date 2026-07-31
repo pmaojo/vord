@@ -4,7 +4,10 @@
 
 use yunq_ast::{AstNode, NodeKind};
 
-use super::{first_identifier, function_params, is_other, simple_type_name, ClassInfo, MemberInfo, MethodInfo};
+use super::{
+    ClassInfo, MemberInfo, MethodInfo, first_identifier, function_params, is_other,
+    simple_type_name,
+};
 use crate::types::declared_type;
 
 pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> {
@@ -18,7 +21,12 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
         .children()
         .iter()
         .find(|c| is_other(c, "class_heritage"))
-        .and_then(|heritage| heritage.children().iter().find(|c| is_other(c, "extends_clause")))
+        .and_then(|heritage| {
+            heritage
+                .children()
+                .iter()
+                .find(|c| is_other(c, "extends_clause"))
+        })
         .and_then(|clause| clause.first_child())
         .map(simple_type_name);
     let body = node.children().iter().find(|c| is_other(c, "class_body"));
@@ -41,7 +49,8 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
                         receiver: None,
                     });
                 }
-            } else if matches!(member.kind(), NodeKind::Other(k) if k.as_ref().ends_with("field_definition")) {
+            } else if matches!(member.kind(), NodeKind::Other(k) if k.as_ref().ends_with("field_definition"))
+            {
                 if let Some(name_node) = first_identifier(member) {
                     fields.push(MemberInfo {
                         name: name_node.text().to_string(),
@@ -52,6 +61,12 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
             }
         }
     }
-    Some(ClassInfo { name, file: file.to_string(), superclass, fields, methods, span: Some(node.span()) })
+    Some(ClassInfo {
+        name,
+        file: file.to_string(),
+        superclass,
+        fields,
+        methods,
+        span: Some(node.span()),
+    })
 }
-

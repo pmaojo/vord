@@ -23,16 +23,29 @@ use crate::common::{hook_call_name, is_other};
 /// The state getter's name from `const [name, setName] = useState(...)`, if
 /// `decl` has that shape.
 fn use_state_getter(decl: &AstNode) -> Option<&AstNode> {
-    let pattern = decl.first_child().filter(|c| is_other(c, "array_pattern"))?;
-    let getter = pattern.children().first().filter(|c| *c.kind() == NodeKind::Identifier)?;
-    let call = decl.children().iter().find(|c| *c.kind() == NodeKind::Call)?;
+    let pattern = decl
+        .first_child()
+        .filter(|c| is_other(c, "array_pattern"))?;
+    let getter = pattern
+        .children()
+        .first()
+        .filter(|c| *c.kind() == NodeKind::Identifier)?;
+    let call = decl
+        .children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::Call)?;
     (hook_call_name(call) == Some("useState")).then_some(getter)
 }
 
 fn check_use_state_decl(decl: &AstNode, component: &AstNode, findings: &mut Vec<Finding>) {
-    let Some(getter) = use_state_getter(decl) else { return };
+    let Some(getter) = use_state_getter(decl) else {
+        return;
+    };
     let name = getter.text();
-    let occurrences = component.descendants().filter(|n| *n.kind() == NodeKind::Identifier && n.text() == name).count();
+    let occurrences = component
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
+        .count();
     if occurrences <= 1 {
         findings.push(Finding::new(
             format!(
@@ -56,7 +69,11 @@ fn walk<'a>(node: &'a AstNode, enclosing: Option<&'a AstNode>, findings: &mut Ve
     if is_other(node, "class_declaration") {
         check_class_state(node, findings);
     }
-    let next_enclosing = if *node.kind() == NodeKind::FunctionDef { Some(node) } else { enclosing };
+    let next_enclosing = if *node.kind() == NodeKind::FunctionDef {
+        Some(node)
+    } else {
+        enclosing
+    };
     for child in node.children() {
         walk(child, next_enclosing, findings);
     }
@@ -85,9 +102,9 @@ fn object_literal_keys(object: &AstNode) -> Vec<&AstNode> {
         .iter()
         .filter_map(|entry| match entry.kind() {
             NodeKind::Identifier => Some(entry), // shorthand `{ a }`
-            NodeKind::Other(k) if k.as_ref() == "pair" => {
-                entry.first_child().filter(|c| *c.kind() == NodeKind::Identifier)
-            }
+            NodeKind::Other(k) if k.as_ref() == "pair" => entry
+                .first_child()
+                .filter(|c| *c.kind() == NodeKind::Identifier),
             _ => None,
         })
         .collect()
@@ -98,24 +115,36 @@ fn object_literal_keys(object: &AstNode) -> Vec<&AstNode> {
 /// (typically the constructor).
 fn initial_state_keys(class_decl: &AstNode) -> Vec<&AstNode> {
     let mut keys = Vec::new();
-    for field in class_decl
-        .descendants()
-        .filter(|n| matches!(n.kind(), NodeKind::Other(k) if k.as_ref().ends_with("field_definition")))
-    {
-        if field.first_child().is_some_and(|n| *n.kind() == NodeKind::Identifier && n.text() == "state") {
+    for field in class_decl.descendants().filter(
+        |n| matches!(n.kind(), NodeKind::Other(k) if k.as_ref().ends_with("field_definition")),
+    ) {
+        if field
+            .first_child()
+            .is_some_and(|n| *n.kind() == NodeKind::Identifier && n.text() == "state")
+        {
             if let Some(object) = field.children().get(1).filter(|c| is_other(c, "object")) {
                 keys.extend(object_literal_keys(object));
             }
         }
     }
-    for assignment in class_decl.descendants().filter(|n| *n.kind() == NodeKind::Assignment) {
-        let Some(target) = assignment.first_child().filter(|c| *c.kind() == NodeKind::MemberAccess) else {
+    for assignment in class_decl
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::Assignment)
+    {
+        let Some(target) = assignment
+            .first_child()
+            .filter(|c| *c.kind() == NodeKind::MemberAccess)
+        else {
             continue;
         };
         if target.text() != "this.state" {
             continue;
         }
-        if let Some(object) = assignment.children().get(1).filter(|c| is_other(c, "object")) {
+        if let Some(object) = assignment
+            .children()
+            .get(1)
+            .filter(|c| is_other(c, "object"))
+        {
             keys.extend(object_literal_keys(object));
         }
     }
@@ -128,18 +157,25 @@ fn initial_state_keys(class_decl: &AstNode) -> Vec<&AstNode> {
 fn state_key_is_read(class_decl: &AstNode, key: &str) -> bool {
     let via_member_access = class_decl.descendants().any(|n| {
         *n.kind() == NodeKind::MemberAccess
-            && n.first_child().is_some_and(|base| base.text() == "this.state")
-            && n.children().get(1).is_some_and(|prop| *prop.kind() == NodeKind::Identifier && prop.text() == key)
+            && n.first_child()
+                .is_some_and(|base| base.text() == "this.state")
+            && n.children()
+                .get(1)
+                .is_some_and(|prop| *prop.kind() == NodeKind::Identifier && prop.text() == key)
     });
     if via_member_access {
         return true;
     }
     class_decl.descendants().any(|n| {
         *n.kind() == NodeKind::VariableDecl
-            && n.children().get(1).is_some_and(|rhs| rhs.text() == "this.state")
+            && n.children()
+                .get(1)
+                .is_some_and(|rhs| rhs.text() == "this.state")
             && n.first_child().is_some_and(|pattern| {
                 is_other(pattern, "object_pattern")
-                    && pattern.descendants().any(|leaf| *leaf.kind() == NodeKind::Identifier && leaf.text() == key)
+                    && pattern
+                        .descendants()
+                        .any(|leaf| *leaf.kind() == NodeKind::Identifier && leaf.text() == key)
             })
     })
 }
@@ -171,7 +207,9 @@ pub struct UnusedStateRule {
 
 impl UnusedStateRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:unused-state").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:unused-state").expect("valid rule id"),
+        }
     }
 }
 
@@ -221,7 +259,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         UnusedStateRule::new().check(&file, &ast)
     }
 
@@ -237,16 +277,18 @@ mod tests {
 
     #[test]
     fn flags_use_state_value_truly_never_read() {
-        let findings =
-            check("function Comp() {\n  const [count, setCount] = useState(0);\n  setCount(1);\n  return null;\n}\n");
+        let findings = check(
+            "function Comp() {\n  const [count, setCount] = useState(0);\n  setCount(1);\n  return null;\n}\n",
+        );
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("`count`"));
     }
 
     #[test]
     fn allows_use_state_value_read_in_jsx() {
-        let findings =
-            check("function Comp() {\n  const [count, setCount] = useState(0);\n  return <div>{count}</div>;\n}\n");
+        let findings = check(
+            "function Comp() {\n  const [count, setCount] = useState(0);\n  return <div>{count}</div>;\n}\n",
+        );
         assert!(findings.is_empty());
     }
 
@@ -288,9 +330,7 @@ mod tests {
 
     #[test]
     fn ignores_state_field_on_a_non_component_class() {
-        let findings = check(
-            "class Plain {\n  state = { count: 0 };\n}\n",
-        );
+        let findings = check("class Plain {\n  state = { count: 0 };\n}\n");
         assert!(findings.is_empty());
     }
 

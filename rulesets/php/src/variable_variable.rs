@@ -17,7 +17,9 @@ pub struct VariableVariableRule {
 
 impl VariableVariableRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:variable-variable").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:variable-variable").expect("valid rule id"),
+        }
     }
 }
 

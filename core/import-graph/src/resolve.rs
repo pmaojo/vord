@@ -30,13 +30,19 @@ fn dirname_segments(path: &str) -> Vec<&str> {
 }
 
 fn strip_known_extension<'a>(path: &'a str, extensions: &[&str]) -> &'a str {
-    extensions.iter().find_map(|ext| path.strip_suffix(ext)).unwrap_or(path)
+    extensions
+        .iter()
+        .find_map(|ext| path.strip_suffix(ext))
+        .unwrap_or(path)
 }
 
 /// Joins `importer`'s directory with a `./`/`../`-relative specifier,
 /// producing a normalized, extension-less path.
 fn join_relative(importer: &str, specifier: &str) -> String {
-    let mut segments: Vec<String> = dirname_segments(importer).into_iter().map(str::to_string).collect();
+    let mut segments: Vec<String> = dirname_segments(importer)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
     for part in specifier.split('/') {
         match part {
             "" | "." => {}
@@ -52,7 +58,11 @@ fn join_relative(importer: &str, specifier: &str) -> String {
 /// Resolves a TypeScript/JS import specifier (as written, quotes already
 /// stripped) against `candidates`, returning the matching candidate path.
 /// Non-relative specifiers (no `./`/`../` prefix) are always external.
-pub fn resolve_ts_specifier<'a>(importer: &str, specifier: &str, candidates: &[&'a str]) -> Option<&'a str> {
+pub fn resolve_ts_specifier<'a>(
+    importer: &str,
+    specifier: &str,
+    candidates: &[&'a str],
+) -> Option<&'a str> {
     if !specifier.starts_with('.') {
         return None;
     }
@@ -94,7 +104,10 @@ pub fn resolve_py_relative<'a>(
     if dots == 0 {
         return None;
     }
-    let mut segments: Vec<String> = dirname_segments(importer).into_iter().map(str::to_string).collect();
+    let mut segments: Vec<String> = dirname_segments(importer)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
     for _ in 1..dots {
         segments.pop();
     }
@@ -138,7 +151,11 @@ const GO_EXTENSION: &str = ".go";
 pub fn resolve_go_import<'a>(import_path: &str, candidates: &[&'a str]) -> Option<&'a str> {
     let import_segments = split_segments(import_path.trim_matches('"'));
     let mut best: Option<(usize, &'a str)> = None;
-    for candidate in candidates.iter().copied().filter(|c| c.ends_with(GO_EXTENSION)) {
+    for candidate in candidates
+        .iter()
+        .copied()
+        .filter(|c| c.ends_with(GO_EXTENSION))
+    {
         let dir_segments = dirname_segments(candidate);
         if dir_segments.is_empty() {
             continue;
@@ -172,8 +189,15 @@ const RS_EXTENSION: &str = ".rs";
 /// `foo.rs` owns `foo/` (the 2018-edition layout, where `foo::bar` lives in
 /// `foo/bar.rs` next to `foo.rs`).
 fn rust_module_dir(importer: &str) -> Vec<String> {
-    let mut segments: Vec<String> = dirname_segments(importer).into_iter().map(str::to_string).collect();
-    let stem = importer.rsplit('/').next().map(|f| strip_known_extension(f, &[RS_EXTENSION])).unwrap_or("");
+    let mut segments: Vec<String> = dirname_segments(importer)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let stem = importer
+        .rsplit('/')
+        .next()
+        .map(|f| strip_known_extension(f, &[RS_EXTENSION]))
+        .unwrap_or("");
     if !matches!(stem, "lib" | "main" | "mod" | "") {
         segments.push(stem.to_string());
     }
@@ -190,7 +214,10 @@ fn rust_crate_root(importer: &str) -> Vec<String> {
     let segments = split_segments(importer);
     match segments.iter().position(|s| *s == "src") {
         Some(index) => segments[..=index].iter().map(|s| s.to_string()).collect(),
-        None => dirname_segments(importer).into_iter().map(str::to_string).collect(),
+        None => dirname_segments(importer)
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
     }
 }
 
@@ -210,8 +237,15 @@ fn rust_crate_root(importer: &str) -> Vec<String> {
 /// Cross-crate paths (a bare crate name) are *not* handled here — those need
 /// the workspace crate index (`build_with_rust_crates`); this is the
 /// within-crate module topology those edges never see.
-pub fn resolve_rust_module<'a>(importer: &str, use_path: &str, candidates: &[&'a str]) -> Option<&'a str> {
-    let mut segments = use_path.split("::").map(str::trim).filter(|s| !s.is_empty());
+pub fn resolve_rust_module<'a>(
+    importer: &str,
+    use_path: &str,
+    candidates: &[&'a str],
+) -> Option<&'a str> {
+    let mut segments = use_path
+        .split("::")
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let root = segments.next()?;
     let mut base = match root {
         "crate" => rust_crate_root(importer),
@@ -264,19 +298,28 @@ mod tests {
     #[test]
     fn ts_relative_sibling_import_resolves() {
         let candidates = ["main.ts", "lib.ts"];
-        assert_eq!(resolve_ts_specifier("main.ts", "./lib", &candidates), Some("lib.ts"));
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "./lib", &candidates),
+            Some("lib.ts")
+        );
     }
 
     #[test]
     fn ts_relative_parent_import_resolves() {
         let candidates = ["src/a.ts", "shared.ts"];
-        assert_eq!(resolve_ts_specifier("src/a.ts", "../shared", &candidates), Some("shared.ts"));
+        assert_eq!(
+            resolve_ts_specifier("src/a.ts", "../shared", &candidates),
+            Some("shared.ts")
+        );
     }
 
     #[test]
     fn ts_relative_index_import_resolves() {
         let candidates = ["main.ts", "utils/index.ts"];
-        assert_eq!(resolve_ts_specifier("main.ts", "./utils", &candidates), Some("utils/index.ts"));
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "./utils", &candidates),
+            Some("utils/index.ts")
+        );
     }
 
     #[test]
@@ -288,19 +331,28 @@ mod tests {
     #[test]
     fn py_absolute_module_resolves() {
         let candidates = ["foo/bar.py", "main.py"];
-        assert_eq!(resolve_py_absolute("foo.bar", &candidates), Some("foo/bar.py"));
+        assert_eq!(
+            resolve_py_absolute("foo.bar", &candidates),
+            Some("foo/bar.py")
+        );
     }
 
     #[test]
     fn py_absolute_package_init_resolves() {
         let candidates = ["foo/bar/__init__.py"];
-        assert_eq!(resolve_py_absolute("foo.bar", &candidates), Some("foo/bar/__init__.py"));
+        assert_eq!(
+            resolve_py_absolute("foo.bar", &candidates),
+            Some("foo/bar/__init__.py")
+        );
     }
 
     #[test]
     fn py_relative_submodule_resolves() {
         let candidates = ["pkg/a.py", "pkg/sibling.py"];
-        assert_eq!(resolve_py_relative("pkg/a.py", 1, Some("sibling"), None, &candidates), Some("pkg/sibling.py"));
+        assert_eq!(
+            resolve_py_relative("pkg/a.py", 1, Some("sibling"), None, &candidates),
+            Some("pkg/sibling.py")
+        );
     }
 
     #[test]
@@ -333,14 +385,20 @@ mod tests {
     #[test]
     fn a_go_package_is_represented_by_its_first_file() {
         let candidates = ["internal/infra/zebra.go", "internal/infra/apple.go"];
-        assert_eq!(resolve_go_import("app/internal/infra", &candidates), Some("internal/infra/apple.go"));
+        assert_eq!(
+            resolve_go_import("app/internal/infra", &candidates),
+            Some("internal/infra/apple.go")
+        );
     }
 
     #[test]
     fn a_go_import_resolves_when_the_scan_root_is_inside_the_module() {
         // Scanned from a directory below `go.mod`, so the module prefix is not
         // part of the candidate paths at all.
-        let candidates = ["hexagon/internal/infra/postgres.go", "hexagon/internal/domain/order.go"];
+        let candidates = [
+            "hexagon/internal/infra/postgres.go",
+            "hexagon/internal/domain/order.go",
+        ];
         assert_eq!(
             resolve_go_import("example.com/app/internal/infra", &candidates),
             Some("hexagon/internal/infra/postgres.go")
@@ -350,20 +408,30 @@ mod tests {
     #[test]
     fn a_single_shared_segment_is_not_enough_to_resolve() {
         let candidates = ["vendor/gin/gin.go"];
-        assert_eq!(resolve_go_import("github.com/gin-gonic/gin", &candidates), None);
+        assert_eq!(
+            resolve_go_import("github.com/gin-gonic/gin", &candidates),
+            None
+        );
     }
 
     #[test]
     fn a_third_party_go_import_resolves_to_nothing() {
         let candidates = ["internal/domain/order.go"];
-        assert_eq!(resolve_go_import("github.com/gin-gonic/gin", &candidates), None);
+        assert_eq!(
+            resolve_go_import("github.com/gin-gonic/gin", &candidates),
+            None
+        );
     }
 
     #[test]
     fn rust_crate_rooted_module_resolves_from_the_crate_src_root() {
         let candidates = ["svc/src/domain/order.rs", "svc/src/infrastructure/db.rs"];
         assert_eq!(
-            resolve_rust_module("svc/src/domain/order.rs", "crate::infrastructure::db", &candidates),
+            resolve_rust_module(
+                "svc/src/domain/order.rs",
+                "crate::infrastructure::db",
+                &candidates
+            ),
             Some("svc/src/infrastructure/db.rs")
         );
     }
@@ -372,7 +440,11 @@ mod tests {
     fn rust_item_tail_is_dropped_until_a_module_file_matches() {
         let candidates = ["svc/src/domain/order.rs", "svc/src/infrastructure/db.rs"];
         assert_eq!(
-            resolve_rust_module("svc/src/domain/order.rs", "crate::infrastructure::db::Pool", &candidates),
+            resolve_rust_module(
+                "svc/src/domain/order.rs",
+                "crate::infrastructure::db::Pool",
+                &candidates
+            ),
             Some("svc/src/infrastructure/db.rs")
         );
     }
@@ -381,7 +453,11 @@ mod tests {
     fn rust_mod_rs_layout_resolves() {
         let candidates = ["svc/src/app.rs", "svc/src/infrastructure/mod.rs"];
         assert_eq!(
-            resolve_rust_module("svc/src/app.rs", "crate::infrastructure::Thing", &candidates),
+            resolve_rust_module(
+                "svc/src/app.rs",
+                "crate::infrastructure::Thing",
+                &candidates
+            ),
             Some("svc/src/infrastructure/mod.rs")
         );
     }
@@ -390,7 +466,11 @@ mod tests {
     fn rust_super_climbs_one_module_level() {
         let candidates = ["svc/src/domain/order.rs", "svc/src/domain/money.rs"];
         assert_eq!(
-            resolve_rust_module("svc/src/domain/order.rs", "super::money::Money", &candidates),
+            resolve_rust_module(
+                "svc/src/domain/order.rs",
+                "super::money::Money",
+                &candidates
+            ),
             Some("svc/src/domain/money.rs")
         );
     }
@@ -407,14 +487,21 @@ mod tests {
     #[test]
     fn rust_external_crate_path_is_not_resolved_here() {
         let candidates = ["svc/src/domain/order.rs", "svc/src/infrastructure/db.rs"];
-        assert_eq!(resolve_rust_module("svc/src/domain/order.rs", "sqlx::PgPool", &candidates), None);
+        assert_eq!(
+            resolve_rust_module("svc/src/domain/order.rs", "sqlx::PgPool", &candidates),
+            None
+        );
     }
 
     #[test]
     fn rust_self_referential_path_produces_no_edge() {
         let candidates = ["svc/src/domain/order.rs"];
         assert_eq!(
-            resolve_rust_module("svc/src/domain/order.rs", "crate::domain::order::Order", &candidates),
+            resolve_rust_module(
+                "svc/src/domain/order.rs",
+                "crate::domain::order::Order",
+                &candidates
+            ),
             None
         );
     }

@@ -18,7 +18,7 @@ use yunq_ast::{AstNode, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use yunq_symbols::ClassRegistry;
 
-use crate::common::{accessor_of, declared_methods, field_names, is_domain_path, AccessorKind};
+use crate::common::{AccessorKind, accessor_of, declared_methods, field_names, is_domain_path};
 
 /// Whether a method *presents itself* as a setter: `setStatus`, `set_status`,
 /// a TypeScript `set status(..)` accessor.
@@ -37,7 +37,10 @@ fn is_setter_shaped(name: &str, node_text: &str) -> bool {
     if node_text.trim_start().starts_with("set ") {
         return true; // TypeScript `set status(value) { .. }` accessor
     }
-    let Some(rest) = name.strip_prefix("set").or_else(|| name.strip_prefix("Set")) else {
+    let Some(rest) = name
+        .strip_prefix("set")
+        .or_else(|| name.strip_prefix("Set"))
+    else {
         return false;
     };
     rest.is_empty() || rest.starts_with('_') || rest.starts_with(|c: char| c.is_uppercase())
@@ -49,7 +52,9 @@ pub struct PublicEntitySetterRule {
 
 impl PublicEntitySetterRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("ddd:public-entity-setter").expect("valid rule id") }
+        Self {
+            id: RuleId::new("ddd:public-entity-setter").expect("valid rule id"),
+        }
     }
 }
 
@@ -94,16 +99,25 @@ impl CrossFileRule for PublicEntitySetterRule {
         if domain.is_empty() {
             return Vec::new();
         }
-        let views: Vec<(&str, &AstNode)> = domain.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> = domain
+            .iter()
+            .map(|(file, ast)| (file.path(), ast))
+            .collect();
         let registry = ClassRegistry::build_cross_file(&views);
         let mut findings = Vec::new();
         for class in registry.iter() {
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let language = files[index].0.language().clone();
             let fields = field_names(class);
             for method in declared_methods(class) {
-                let Some(accessor) = accessor_of(method, &fields) else { continue };
-                if accessor.kind != AccessorKind::Setter || !crate::common::is_public(method, &language) {
+                let Some(accessor) = accessor_of(method, &fields) else {
+                    continue;
+                };
+                if accessor.kind != AccessorKind::Setter
+                    || !crate::common::is_public(method, &language)
+                {
                     continue;
                 }
                 if !is_setter_shaped(&method.name, method.node.text()) {
@@ -134,40 +148,77 @@ mod tests {
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else {
             yunq_parser_rust::RustParser::new().parse(&file).unwrap()
         };
-        PublicEntitySetterRule::new().check(&[(file, ast)]).into_iter().map(|(_, f)| f).collect()
+        PublicEntitySetterRule::new()
+            .check(&[(file, ast)])
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
     fn flags_a_public_setter_on_an_entity_that_has_behavior() {
         let code = "export class Order {\n  private status: string = 'draft';\n  setStatus(status: string): void {\n    this.status = status;\n  }\n  ship(): void {\n    if (this.status !== 'paid') {\n      throw new Error('unpaid');\n    }\n    this.status = 'shipped';\n  }\n}\n";
-        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        let findings = check(
+            "src/domain/order.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("`Order::setStatus`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`Order::setStatus`"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("`status`"));
     }
 
     #[test]
     fn silent_on_a_private_setter() {
         let code = "export class Order {\n  private status: string = 'draft';\n  private setStatus(status: string): void {\n    this.status = status;\n  }\n}\n";
-        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn silent_on_a_getter() {
         let code = "export class Order {\n  private status: string = 'draft';\n  getStatus(): string {\n    return this.status;\n  }\n}\n";
-        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn silent_outside_the_domain_layer() {
         let code = "export class OrderRow {\n  private status: string = '';\n  setStatus(status: string): void {\n    this.status = status;\n  }\n}\n";
-        assert!(check("src/infrastructure/order_row.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/infrastructure/order_row.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -175,7 +226,11 @@ mod tests {
         let code = "pub struct Order {\n    status: String,\n}\n\nimpl Order {\n    pub fn set_status(&mut self, status: String) {\n        self.status = status;\n    }\n    fn set_status_unchecked(&mut self, status: String) {\n        self.status = status;\n    }\n}\n";
         let findings = check("src/domain/order.rs", code, LanguageIdentifier::rust());
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("set_status`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("set_status`"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -197,19 +252,37 @@ mod tests {
     #[test]
     fn a_domain_verb_that_merely_starts_with_set_is_not_a_setter() {
         let code = "export class Invoice {\n  private state: string = 'open';\n  settle(state: string): void {\n    this.state = state;\n  }\n}\n";
-        assert!(check("src/domain/invoice.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/invoice.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn a_typescript_set_accessor_is_a_setter() {
         let code = "export class Order {\n  private status: string = 'draft';\n  set state(status: string) {\n    this.status = status;\n  }\n}\n";
-        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        let findings = check(
+            "src/domain/order.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
     #[test]
     fn a_setter_that_enforces_something_is_not_a_setter() {
         let code = "export class Order {\n  private status: string = 'draft';\n  setStatus(status: string): void {\n    if (status === '') {\n      throw new Error('empty');\n    }\n    this.status = status;\n  }\n}\n";
-        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 }

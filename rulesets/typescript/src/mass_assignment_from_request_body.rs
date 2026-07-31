@@ -17,7 +17,9 @@ use crate::common::{call_arguments, is_other};
 const EXTERNAL_INPUT_MARKERS: &[&str] = &["req.body", "req.query", "req.params"];
 
 fn contains_external_input(node: &AstNode) -> bool {
-    EXTERNAL_INPUT_MARKERS.iter().any(|marker| node.subtree_contains_text(marker))
+    EXTERNAL_INPUT_MARKERS
+        .iter()
+        .any(|marker| node.subtree_contains_text(marker))
 }
 
 fn flagged_object_assign(node: &AstNode) -> Option<&AstNode> {
@@ -31,13 +33,20 @@ fn flagged_object_assign(node: &AstNode) -> Option<&AstNode> {
     let args = call_arguments(node);
     // The first argument is the mutated target; only later arguments are
     // merged in, so only those count as the unvalidated-source risk.
-    args.get(1..)?.iter().find(|arg| contains_external_input(arg)).map(|_| node)
+    args.get(1..)?
+        .iter()
+        .find(|arg| contains_external_input(arg))
+        .map(|_| node)
 }
 
 fn flagged_spreads(ast: &AstNode) -> impl Iterator<Item = &AstNode> {
     ast.descendants()
         .filter(|n| is_other(n, "object"))
-        .flat_map(|obj| obj.children().iter().filter(|c| is_other(c, "spread_element")))
+        .flat_map(|obj| {
+            obj.children()
+                .iter()
+                .filter(|c| is_other(c, "spread_element"))
+        })
         .filter(|spread| spread.first_child().is_some_and(contains_external_input))
 }
 
@@ -47,7 +56,9 @@ pub struct MassAssignmentFromRequestBodyRule {
 
 impl MassAssignmentFromRequestBodyRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:mass-assignment-from-request-body").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:mass-assignment-from-request-body").expect("valid rule id"),
+        }
     }
 }
 
@@ -103,7 +114,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         MassAssignmentFromRequestBodyRule::new().check(&file, &ast)
     }
 

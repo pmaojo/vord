@@ -39,7 +39,9 @@ fn ancestor_chain<'a>(class: &ClassInfo<'a>, registry: &'a ClassRegistry<'a>) ->
             break;
         }
         chain.push(name.clone());
-        current = registry.get(&name).and_then(|parent| parent.superclass.clone());
+        current = registry
+            .get(&name)
+            .and_then(|parent| parent.superclass.clone());
     }
     chain
 }
@@ -51,7 +53,10 @@ pub struct DeepInheritanceRule {
 
 impl DeepInheritanceRule {
     pub fn new(max_depth: usize) -> Self {
-        Self { id: RuleId::new("smells:deep-inheritance").expect("valid rule id"), max_depth }
+        Self {
+            id: RuleId::new("smells:deep-inheritance").expect("valid rule id"),
+            max_depth,
+        }
     }
 }
 
@@ -100,7 +105,9 @@ impl CrossFileRule for DeepInheritanceRule {
             if chain.len() <= self.max_depth {
                 continue;
             }
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let Some(span) = class.span else { continue };
             findings.push((
                 index,
@@ -136,17 +143,31 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        DeepInheritanceRule::default().check(&files).into_iter().map(|(_, f)| f).collect()
+        DeepInheritanceRule::default()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
     fn flags_the_class_that_crosses_the_depth_limit() {
         let findings = check_ts(&ts_chain(6));
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("`C6` is 6 levels deep"), "{}", findings[0].message);
-        assert!(findings[0].message.contains("C5 -> C4 -> C3 -> C2 -> C1 -> C0"));
+        assert!(
+            findings[0].message.contains("`C6` is 6 levels deep"),
+            "{}",
+            findings[0].message
+        );
+        assert!(
+            findings[0]
+                .message
+                .contains("C5 -> C4 -> C3 -> C2 -> C1 -> C0")
+        );
     }
 
     #[test]
@@ -188,8 +209,10 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let files =
-            vec![(base.clone(), parser.parse(&base).unwrap()), (leaf.clone(), parser.parse(&leaf).unwrap())];
+        let files = vec![
+            (base.clone(), parser.parse(&base).unwrap()),
+            (leaf.clone(), parser.parse(&leaf).unwrap()),
+        ];
         let findings = DeepInheritanceRule::default().check(&files);
         assert_eq!(findings.len(), 1);
         assert_eq!(files[findings[0].0].0.path(), "leaf.ts");
@@ -202,7 +225,9 @@ mod tests {
             code.push_str(&format!("class C{level}(C{}):\n    pass\n", level - 1));
         }
         let file = SourceFile::new("t.py", code.as_str(), LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         let findings = DeepInheritanceRule::default().check(&[(file, ast)]);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].1.message.contains("`C6`"));
@@ -210,8 +235,15 @@ mod tests {
 
     #[test]
     fn threshold_is_configurable() {
-        let file = SourceFile::new("t.ts", ts_chain(3).as_str(), LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let file = SourceFile::new(
+            "t.ts",
+            ts_chain(3).as_str(),
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
         assert_eq!(DeepInheritanceRule::new(2).check(&files).len(), 1);
         assert!(DeepInheritanceRule::new(3).check(&files).is_empty());

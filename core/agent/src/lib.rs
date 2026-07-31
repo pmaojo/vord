@@ -38,8 +38,10 @@ pub use budget::{Budget, Exhaustion, Ledger, RepeatGuard};
 pub use completion::{Completion, LocatedFinding};
 pub use observer::{AgentEvent, NoopObserver, Observer};
 pub use runtime::{
-    AgentRuntime, AnalysisError, Analyzer, ChatModel, CommandOutput, JudgeError, ModelError, RunConfig,
-    RunOutcome, Workspace, WorkspaceError, WriteJudge,
+    AgentRuntime, AnalysisError, Analyzer, ChatModel, CommandOutput, JudgeError, ModelError,
+    RunConfig, RunOutcome, Workspace, WorkspaceError, WriteJudge,
 };
 pub use session::{AssistantTurn, Message, TokenUsage, ToolCall, ToolResult, Transcript};
-pub use tools::{CommandAllowlist, CommandRejection, ToolInputError, ToolInvocation, ToolName, ToolSpec};
+pub use tools::{
+    CommandAllowlist, CommandRejection, ToolInputError, ToolInvocation, ToolName, ToolSpec,
+};

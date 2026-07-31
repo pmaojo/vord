@@ -10,7 +10,10 @@ pub struct ScanJob {
 pub struct InvalidScanJobError;
 
 impl ScanJob {
-    pub fn new(project: impl Into<String>, path: impl Into<String>) -> Result<Self, InvalidScanJobError> {
+    pub fn new(
+        project: impl Into<String>,
+        path: impl Into<String>,
+    ) -> Result<Self, InvalidScanJobError> {
         let project = project.into();
         let path = path.into();
         if project.trim().is_empty() || path.trim().is_empty() {

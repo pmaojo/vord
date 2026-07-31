@@ -12,7 +12,12 @@ pub struct Span {
 
 impl Span {
     pub fn new(start_line: u32, start_col: u32, end_line: u32, end_col: u32) -> Self {
-        Self { start_line, start_col, end_line, end_col }
+        Self {
+            start_line,
+            start_col,
+            end_line,
+            end_col,
+        }
     }
 
     pub fn line_count(&self) -> u32 {
@@ -80,10 +85,22 @@ pub struct AstNode {
 impl AstNode {
     /// A node owning its own text. Intended for hand-built trees; parsers
     /// should use [`AstNode::from_source`] to share one buffer per file.
-    pub fn new(kind: NodeKind, span: Span, text: impl Into<String>, children: Vec<AstNode>) -> Self {
+    pub fn new(
+        kind: NodeKind,
+        span: Span,
+        text: impl Into<String>,
+        children: Vec<AstNode>,
+    ) -> Self {
         let source: Arc<str> = text.into().into();
         let end = source.len() as u32;
-        Self { kind, span, source, start: 0, end, children }
+        Self {
+            kind,
+            span,
+            source,
+            start: 0,
+            end,
+            children,
+        }
     }
 
     /// A zero-copy node covering `range` bytes of a shared source buffer.
@@ -94,8 +111,18 @@ impl AstNode {
         range: std::ops::Range<usize>,
         children: Vec<AstNode>,
     ) -> Self {
-        debug_assert!(source.get(range.clone()).is_some(), "range must lie on char boundaries");
-        Self { kind, span, source, start: range.start as u32, end: range.end as u32, children }
+        debug_assert!(
+            source.get(range.clone()).is_some(),
+            "range must lie on char boundaries"
+        );
+        Self {
+            kind,
+            span,
+            source,
+            start: range.start as u32,
+            end: range.end as u32,
+            children,
+        }
     }
 
     pub fn kind(&self) -> &NodeKind {
@@ -108,7 +135,9 @@ impl AstNode {
 
     /// The exact source text this node covers (a borrowed slice — no copy).
     pub fn text(&self) -> &str {
-        self.source.get(self.start as usize..self.end as usize).unwrap_or("")
+        self.source
+            .get(self.start as usize..self.end as usize)
+            .unwrap_or("")
     }
 
     pub fn children(&self) -> &[AstNode] {
@@ -217,7 +246,10 @@ mod tests {
                     NodeKind::Call,
                     Span::new(1, 1, 1, 10),
                     "eval(x)",
-                    vec![leaf(NodeKind::Identifier, "eval"), leaf(NodeKind::Identifier, "x")],
+                    vec![
+                        leaf(NodeKind::Identifier, "eval"),
+                        leaf(NodeKind::Identifier, "x"),
+                    ],
                 ),
                 leaf(NodeKind::Comment, "// done"),
             ],

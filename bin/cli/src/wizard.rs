@@ -35,9 +35,11 @@ async fn scan_for_scope(
     };
 
     println!("\nAnalizando {}...", scan_path.display());
-    let cache = scan_path
-        .is_dir()
-        .then(|| std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(scan_path.join(".yunq-cache.json"))));
+    let cache = scan_path.is_dir().then(|| {
+        std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(
+            scan_path.join(".yunq-cache.json"),
+        ))
+    });
     let report = yunq_cli::scan_with_cache(&scan_path, cache.clone()).await?;
     if let Some(cache) = &cache
         && let Err(e) = cache.persist()
@@ -65,7 +67,8 @@ pub async fn run() -> anyhow::Result<ExitCode> {
     print_welcome(&root, git_root.as_deref());
 
     'rescan: loop {
-        let (scan_path, diff_files, report, gate) = scan_for_scope(&theme, &root, git_root.as_deref()).await?;
+        let (scan_path, diff_files, report, gate) =
+            scan_for_scope(&theme, &root, git_root.as_deref()).await?;
 
         print_summary(&report, &gate, diff_files.as_deref());
 
@@ -74,7 +77,11 @@ pub async fn run() -> anyhow::Result<ExitCode> {
                 Action::AgentPrompt => {
                     println!(
                         "\n{}",
-                        output::render_agent_prompt(&report, &gate, &scan_path.display().to_string())
+                        output::render_agent_prompt(
+                            &report,
+                            &gate,
+                            &scan_path.display().to_string()
+                        )
                     );
                 }
                 Action::Remediate => {
@@ -130,8 +137,11 @@ fn prompt_scope(theme: &ColorfulTheme, git_root: Option<&Path>) -> anyhow::Resul
     }
     labels.push("Otra ruta...".to_string());
 
-    let choice =
-        Select::with_theme(theme).with_prompt("¿Qué quieres analizar?").items(&labels).default(0).interact()?;
+    let choice = Select::with_theme(theme)
+        .with_prompt("¿Qué quieres analizar?")
+        .items(&labels)
+        .default(0)
+        .interact()?;
 
     if choice == 0 {
         return Ok(Scope::WholeRepo);
@@ -141,17 +151,24 @@ fn prompt_scope(theme: &ColorfulTheme, git_root: Option<&Path>) -> anyhow::Resul
     {
         return Ok(Scope::Diff { base });
     }
-    let raw: String = Input::with_theme(theme).with_prompt("Ruta a analizar").interact_text()?;
+    let raw: String = Input::with_theme(theme)
+        .with_prompt("Ruta a analizar")
+        .interact_text()?;
     Ok(Scope::Custom(PathBuf::from(raw)))
 }
 
 fn print_summary(report: &AnalysisReport, gate: &GateEvaluation, diff_files: Option<&[String]>) {
-    let mut by_severity: std::collections::BTreeMap<Severity, usize> = std::collections::BTreeMap::new();
+    let mut by_severity: std::collections::BTreeMap<Severity, usize> =
+        std::collections::BTreeMap::new();
     for issue in report.issues() {
         *by_severity.entry(issue.severity()).or_default() += 1;
     }
     println!();
-    println!("{} issue(s) · quality gate: {}", report.issues().len(), gate.status());
+    println!(
+        "{} issue(s) · quality gate: {}",
+        report.issues().len(),
+        gate.status()
+    );
     for (severity, count) in by_severity.iter().rev() {
         println!("  {:<8} {count}", severity.as_str().to_uppercase());
     }
@@ -166,7 +183,10 @@ fn print_summary(report: &AnalysisReport, gate: &GateEvaluation, diff_files: Opt
 
 fn count_issues_in_files(issues: &[Issue], files: &[String]) -> usize {
     let set: HashSet<&str> = files.iter().map(String::as_str).collect();
-    issues.iter().filter(|issue| set.contains(issue.file())).count()
+    issues
+        .iter()
+        .filter(|issue| set.contains(issue.file()))
+        .count()
 }
 
 enum Action {
@@ -177,7 +197,11 @@ enum Action {
     Exit,
 }
 
-fn action_menu(theme: &ColorfulTheme, report: &AnalysisReport, git_root: Option<&Path>) -> anyhow::Result<Action> {
+fn action_menu(
+    theme: &ColorfulTheme,
+    report: &AnalysisReport,
+    git_root: Option<&Path>,
+) -> anyhow::Result<Action> {
     let mut labels = Vec::new();
     let mut actions = Vec::new();
     if !report.issues().is_empty() {
@@ -197,8 +221,11 @@ fn action_menu(theme: &ColorfulTheme, report: &AnalysisReport, git_root: Option<
     labels.push("Salir".to_string());
     actions.push(Action::Exit);
 
-    let choice =
-        Select::with_theme(theme).with_prompt("¿Qué quieres hacer ahora?").items(&labels).default(0).interact()?;
+    let choice = Select::with_theme(theme)
+        .with_prompt("¿Qué quieres hacer ahora?")
+        .items(&labels)
+        .default(0)
+        .interact()?;
     Ok(actions.remove(choice))
 }
 
@@ -223,7 +250,11 @@ fn issue_labels(issues: &[&Issue]) -> Vec<String> {
 /// Confirms and applies (or skips) an AI-verified fix for one issue.
 /// Always returns `Ok` — a rejected/failed fix is reported to the user,
 /// not propagated, so the caller's loop keeps offering the rest.
-async fn remediate_one(theme: &ColorfulTheme, scan_path: &Path, issue: &Issue) -> anyhow::Result<()> {
+async fn remediate_one(
+    theme: &ColorfulTheme,
+    scan_path: &Path,
+    issue: &Issue,
+) -> anyhow::Result<()> {
     let confirmed = Confirm::with_theme(theme)
         .with_prompt(format!(
             "¿Aplicar y verificar un fix con IA para `{}` en {}:{}? Se aplica directamente al archivo y se \
@@ -277,8 +308,11 @@ async fn remediate_loop(
         }
         let labels = issue_labels(&issues);
 
-        let choice =
-            Select::with_theme(theme).with_prompt("Elige un issue para arreglar").items(&labels).default(0).interact()?;
+        let choice = Select::with_theme(theme)
+            .with_prompt("Elige un issue para arreglar")
+            .items(&labels)
+            .default(0)
+            .interact()?;
         if choice == issues.len() {
             return Ok(());
         }
@@ -318,7 +352,9 @@ pub fn install_ci(root: &Path, yes: bool) -> anyhow::Result<ExitCode> {
 
     if !yes {
         if !is_interactive() {
-            eprintln!("yunq init: no hay terminal interactiva — repite con --yes para instalar sin confirmar.");
+            eprintln!(
+                "yunq init: no hay terminal interactiva — repite con --yes para instalar sin confirmar."
+            );
             return Ok(ExitCode::FAILURE);
         }
         println!("\n{}", ci_workflow_yaml());
@@ -344,12 +380,22 @@ fn detect_existing_ci(root: &Path) -> Option<PathBuf> {
     entries
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| matches!(path.extension().and_then(|e| e.to_str()), Some("yml") | Some("yaml")))
-        .find(|path| std::fs::read_to_string(path).is_ok_and(|contents| workflow_mentions_yunq(&contents)))
+        .filter(|path| {
+            matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("yml") | Some("yaml")
+            )
+        })
+        .find(|path| {
+            std::fs::read_to_string(path).is_ok_and(|contents| workflow_mentions_yunq(&contents))
+        })
 }
 
 fn workflow_mentions_yunq(contents: &str) -> bool {
-    contents.contains("pmaojo/yunq") || contents.contains("yunq scan") || contents.contains("bin/yunq") || contents.contains("bin yunq")
+    contents.contains("pmaojo/yunq")
+        || contents.contains("yunq scan")
+        || contents.contains("bin/yunq")
+        || contents.contains("bin yunq")
 }
 
 fn ci_workflow_yaml() -> String {
@@ -371,11 +417,19 @@ fn ci_workflow_yaml() -> String {
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<String> {
-    let output = ProcessCommand::new("git").arg("-C").arg(root).args(args).output().ok()?;
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
-    String::from_utf8(output.stdout).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn current_branch(root: &Path) -> Option<String> {
@@ -391,21 +445,38 @@ fn default_branch(root: &Path) -> Option<String> {
     ["main", "master"]
         .into_iter()
         .find(|candidate| {
-            git_output(root, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{candidate}")]).is_some()
+            git_output(
+                root,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{candidate}"),
+                ],
+            )
+            .is_some()
         })
         .map(str::to_string)
 }
 
 fn parse_symbolic_ref(raw: &str) -> Option<String> {
-    raw.rsplit('/').next().map(str::to_string).filter(|s| !s.is_empty())
+    raw.rsplit('/')
+        .next()
+        .map(str::to_string)
+        .filter(|s| !s.is_empty())
 }
 
 fn changed_files(root: &Path, base: &str) -> Option<Vec<String>> {
-    git_output(root, &["diff", "--name-only", &format!("{base}...HEAD")]).map(|raw| parse_name_only(&raw))
+    git_output(root, &["diff", "--name-only", &format!("{base}...HEAD")])
+        .map(|raw| parse_name_only(&raw))
 }
 
 fn parse_name_only(raw: &str) -> Vec<String> {
-    raw.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect()
+    raw.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(test)]
@@ -415,13 +486,25 @@ mod tests {
     use yunq_rules_engine::RuleId;
 
     fn issue(rule: &str, file: &str) -> Issue {
-        Issue::new(RuleId::new(rule).unwrap(), Severity::Major, "msg", file, Span::new(1, 1, 1, 1))
+        Issue::new(
+            RuleId::new(rule).unwrap(),
+            Severity::Major,
+            "msg",
+            file,
+            Span::new(1, 1, 1, 1),
+        )
     }
 
     #[test]
     fn parses_symbolic_ref_into_branch_name() {
-        assert_eq!(parse_symbolic_ref("refs/remotes/origin/main"), Some("main".to_string()));
-        assert_eq!(parse_symbolic_ref("refs/remotes/origin/release/1.0"), Some("1.0".to_string()));
+        assert_eq!(
+            parse_symbolic_ref("refs/remotes/origin/main"),
+            Some("main".to_string())
+        );
+        assert_eq!(
+            parse_symbolic_ref("refs/remotes/origin/release/1.0"),
+            Some("1.0".to_string())
+        );
         assert_eq!(parse_symbolic_ref(""), None);
     }
 
@@ -436,7 +519,10 @@ mod tests {
 
     #[test]
     fn counts_issues_touching_changed_files() {
-        let issues = vec![issue("owasp:injection", "src/a.ts"), issue("smells:long-function", "src/b.rs")];
+        let issues = vec![
+            issue("owasp:injection", "src/a.ts"),
+            issue("smells:long-function", "src/b.rs"),
+        ];
         let files = vec!["src/a.ts".to_string()];
         assert_eq!(count_issues_in_files(&issues, &files), 1);
         assert_eq!(count_issues_in_files(&issues, &[]), 0);
@@ -469,6 +555,9 @@ mod tests {
     #[test]
     fn truncates_long_messages_with_ellipsis() {
         assert_eq!(truncate("short", 60), "short");
-        assert_eq!(truncate(&"x".repeat(70), 60), format!("{}…", "x".repeat(60)));
+        assert_eq!(
+            truncate(&"x".repeat(70), 60),
+            format!("{}…", "x".repeat(60))
+        );
     }
 }

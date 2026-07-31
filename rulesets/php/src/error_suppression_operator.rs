@@ -17,7 +17,9 @@ pub struct ErrorSuppressionOperatorRule {
 
 impl ErrorSuppressionOperatorRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:error-suppression-operator").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:error-suppression-operator").expect("valid rule id"),
+        }
     }
 }
 

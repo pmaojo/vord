@@ -4,16 +4,24 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 use crate::common::{impl_trait_is, is_other, self_type_of_impl};
 
 fn derive_names(attr_item: &AstNode) -> Vec<&str> {
-    let Some(attribute) = attr_item.first_child().filter(|a| is_other(a.kind(), "attribute"))
+    let Some(attribute) = attr_item
+        .first_child()
+        .filter(|a| is_other(a.kind(), "attribute"))
     else {
         return Vec::new();
     };
-    let is_derive =
-        attribute.first_child().is_some_and(|i| *i.kind() == NodeKind::Identifier && i.text() == "derive");
+    let is_derive = attribute
+        .first_child()
+        .is_some_and(|i| *i.kind() == NodeKind::Identifier && i.text() == "derive");
     let Some(token_tree) = is_derive.then(|| attribute.children().get(1)).flatten() else {
         return Vec::new();
     };
-    token_tree.children().iter().filter(|c| *c.kind() == NodeKind::Identifier).map(|c| c.text()).collect()
+    token_tree
+        .children()
+        .iter()
+        .filter(|c| *c.kind() == NodeKind::Identifier)
+        .map(|c| c.text())
+        .collect()
 }
 
 fn item_name(node: &AstNode) -> Option<&str> {
@@ -73,7 +81,9 @@ pub struct DeriveHashManualPartialEqRule {
 
 impl DeriveHashManualPartialEqRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:derive-hash-manual-partial-eq").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:derive-hash-manual-partial-eq").expect("valid rule id"),
+        }
     }
 }
 

@@ -23,7 +23,9 @@ pub struct ProcessExitRule {
 
 impl ProcessExitRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:process-exit").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:process-exit").expect("valid rule id"),
+        }
     }
 }
 

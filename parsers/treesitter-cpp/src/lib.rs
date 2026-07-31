@@ -18,7 +18,9 @@ fn map_kind(kind: &str) -> NodeKind {
         "string_literal" | "raw_string_literal" => NodeKind::StringLiteral,
         "identifier" | "field_identifier" | "namespace_identifier" => NodeKind::Identifier,
         "declaration" | "assignment_expression" => NodeKind::Assignment,
-        "field_expression" | "pointer_expression" | "qualified_identifier" => NodeKind::MemberAccess,
+        "field_expression" | "pointer_expression" | "qualified_identifier" => {
+            NodeKind::MemberAccess
+        }
         "comment" => NodeKind::Comment,
         other => NodeKind::Other(yunq_ast::intern(other)),
     }
@@ -37,7 +39,9 @@ mod tests {
 
     #[test]
     fn maps_cpp_concepts() {
-        let ast = parse("// TODO: modernize\nint main() {\n    std::cout << \"hello\" << std::endl;\n    return 0;\n}");
+        let ast = parse(
+            "// TODO: modernize\nint main() {\n    std::cout << \"hello\" << std::endl;\n    return 0;\n}",
+        );
         assert_eq!(ast.kind(), &NodeKind::SourceUnit);
         assert_eq!(ast.find_all(&NodeKind::FunctionDef).len(), 1);
         assert_eq!(ast.find_all(&NodeKind::Comment).len(), 1);

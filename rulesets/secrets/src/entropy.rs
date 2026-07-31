@@ -107,6 +107,7 @@ fn looks_like_url_path_or_integrity_hash(s: &str) -> bool {
         || s.starts_with('/')
         || s.starts_with("./")
         || s.starts_with("../")
+        || s.starts_with('@')
         || (s.contains('/') && s.contains('.'))
         // Two or more path separators is a strong path/route signal on its
         // own — `refs/heads/main`, `api/auth/oauth/github/callback` — even
@@ -150,7 +151,7 @@ fn looks_like_format_template(s: &str) -> bool {
 /// that structural set filters most of that prose out while keeping actual
 /// token shapes (base64 uses `+/=`, hex/base62 tokens carry digits, etc).
 fn has_secret_like_charset(s: &str) -> bool {
-    const STRUCTURAL: &[u8] = b"_-:.,";
+    const STRUCTURAL: &[u8] = b"_-:.,/@";
     let has_digit = s.bytes().any(|b| b.is_ascii_digit());
     let has_symbol = s
         .bytes()
@@ -188,7 +189,7 @@ fn is_word_like_segment(s: &str) -> bool {
 /// that is not a word). So: two or more segments, every one of them
 /// word-like.
 fn looks_like_delimited_identifier(s: &str) -> bool {
-    const DELIMITERS: &[char] = &['-', '_', ':', '.', ',', '[', ']'];
+    const DELIMITERS: &[char] = &['-', '_', ':', '.', ',', '[', ']', '/', '@'];
     let segments: Vec<&str> = s
         .split(DELIMITERS)
         .filter(|part| !part.is_empty())
@@ -471,12 +472,7 @@ mod tests {
     fn respects_custom_threshold() {
         let token = ["aG3n7Zq9L", "m2XpW5vB", "t8FhKc1RdSy"].concat();
         let code = format!("const apiToken = \"{token}\";\n");
-        let file = SourceFile::new(
-            "t.ts",
-            &*code,
-            LanguageIdentifier::typescript(),
-        )
-        .unwrap();
+        let file = SourceFile::new("t.ts", &*code, LanguageIdentifier::typescript()).unwrap();
         let ast = yunq_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();

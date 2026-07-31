@@ -10,7 +10,9 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 use crate::common::is_other;
 
 fn is_error_log_call(call: &AstNode) -> bool {
-    call.first_child().is_some_and(|callee| *callee.kind() == NodeKind::Identifier && callee.text() == "error_log")
+    call.first_child().is_some_and(|callee| {
+        *callee.kind() == NodeKind::Identifier && callee.text() == "error_log"
+    })
 }
 
 /// Every top-level statement inside a PHP `compound_statement` is an
@@ -29,11 +31,17 @@ fn is_error_log_only_statement(stmt: &AstNode) -> bool {
 /// `throw` is likewise not its own top-level `NodeKind`: `throw $e;` is an
 /// `Assignment`-wrapped `Other("throw_expression")`.
 fn has_throw(block: &AstNode) -> bool {
-    block.descendants().any(|n| is_other(n.kind(), "throw_expression"))
+    block
+        .descendants()
+        .any(|n| is_other(n.kind(), "throw_expression"))
 }
 
 fn is_swallowed(catch_clause: &AstNode) -> bool {
-    let Some(block) = catch_clause.children().iter().find(|c| is_other(c.kind(), "compound_statement")) else {
+    let Some(block) = catch_clause
+        .children()
+        .iter()
+        .find(|c| is_other(c.kind(), "compound_statement"))
+    else {
         return false;
     };
     if has_throw(block) {
@@ -48,7 +56,9 @@ pub struct SwallowedExceptionRule {
 
 impl SwallowedExceptionRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:swallowed-exception").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:swallowed-exception").expect("valid rule id"),
+        }
     }
 }
 

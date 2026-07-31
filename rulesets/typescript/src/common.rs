@@ -24,7 +24,10 @@ pub(crate) fn is_other(node: &AstNode, kind: &str) -> bool {
 /// just `[callee, arguments-wrapper]` (same layout `rulesets/react::common`
 /// documents and relies on).
 pub(crate) fn call_arguments(call: &AstNode) -> &[AstNode] {
-    call.children().get(1).map(|args| args.children()).unwrap_or(&[])
+    call.children()
+        .get(1)
+        .map(|args| args.children())
+        .unwrap_or(&[])
 }
 
 #[cfg(test)]
@@ -35,20 +38,28 @@ mod tests {
 
     pub(crate) fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     #[test]
     fn call_arguments_unwraps_the_arguments_node() {
         let ast = parse("f(a, b);\n");
-        let call = ast.descendants().find(|n| *n.kind() == NodeKind::Call).unwrap();
+        let call = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::Call)
+            .unwrap();
         assert_eq!(call_arguments(call).len(), 2);
     }
 
     #[test]
     fn call_arguments_empty_for_no_args() {
         let ast = parse("f();\n");
-        let call = ast.descendants().find(|n| *n.kind() == NodeKind::Call).unwrap();
+        let call = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::Call)
+            .unwrap();
         assert!(call_arguments(call).is_empty());
     }
 }

@@ -87,13 +87,22 @@ impl Violation {
                 format!("protected path (matches `{pattern}`) — {reason}")
             }
             (Cause::BlockingRule, Some(f)) => {
-                format!("{} at line {} — {} [hard-blocked for agents]", f.rule, f.line, f.message)
+                format!(
+                    "{} at line {} — {} [hard-blocked for agents]",
+                    f.rule, f.line, f.message
+                )
             }
             (Cause::SeverityThreshold { threshold }, Some(f)) => {
-                format!("{} ({}) at line {} — {} [at/above {threshold}]", f.rule, f.severity, f.line, f.message)
+                format!(
+                    "{} ({}) at line {} — {} [at/above {threshold}]",
+                    f.rule, f.severity, f.line, f.message
+                )
             }
             (Cause::Escalation, Some(f)) => {
-                format!("{} at line {} — {} [requires human approval]", f.rule, f.line, f.message)
+                format!(
+                    "{} at line {} — {} [requires human approval]",
+                    f.rule, f.line, f.message
+                )
             }
             (Cause::MissingGherkinEvidence { pattern, reason }, _) => {
                 format!(
@@ -120,18 +129,24 @@ impl Evaluation {
     /// *can* be lifted by a caller-tracked approval, which is exactly why
     /// this crate (pure, no I/O, no approval state) treats them alike.
     pub fn is_denied(&self) -> bool {
-        self.violations.iter().any(|v| matches!(v.enforcement, Enforcement::Deny | Enforcement::Escalate))
+        self.violations
+            .iter()
+            .any(|v| matches!(v.enforcement, Enforcement::Deny | Enforcement::Escalate))
     }
 
     /// Every violation that currently blocks the write — `Deny` and
     /// `Escalate` alike, so a caller rendering "why is this blocked" text
     /// does not have to remember to query two iterators.
     pub fn denials(&self) -> impl Iterator<Item = &Violation> {
-        self.violations.iter().filter(|v| matches!(v.enforcement, Enforcement::Deny | Enforcement::Escalate))
+        self.violations
+            .iter()
+            .filter(|v| matches!(v.enforcement, Enforcement::Deny | Enforcement::Escalate))
     }
 
     pub fn warnings(&self) -> impl Iterator<Item = &Violation> {
-        self.violations.iter().filter(|v| v.enforcement == Enforcement::Warn)
+        self.violations
+            .iter()
+            .filter(|v| v.enforcement == Enforcement::Warn)
     }
 
     /// Just the escalations, for a caller that needs to tell "blocked
@@ -139,7 +154,9 @@ impl Evaluation {
     /// approval token, or to decide whether an approval could possibly
     /// apply — see `bin/cli`'s `judge`).
     pub fn escalations(&self) -> impl Iterator<Item = &Violation> {
-        self.violations.iter().filter(|v| v.enforcement == Enforcement::Escalate)
+        self.violations
+            .iter()
+            .filter(|v| v.enforcement == Enforcement::Escalate)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -191,12 +208,16 @@ impl CircuitBreakerState {
     /// `Deserialize` itself: the wire format is the caller's DTO to own, per this crate's
     /// domain-types-stay-serde-free rule.
     pub fn from_counts(counts: impl IntoIterator<Item = (RuleId, u32)>) -> Self {
-        Self { consecutive_denials: counts.into_iter().collect() }
+        Self {
+            consecutive_denials: counts.into_iter().collect(),
+        }
     }
 
     /// Every rule with a nonzero streak, for the caller to persist.
     pub fn counts(&self) -> impl Iterator<Item = (&RuleId, u32)> {
-        self.consecutive_denials.iter().map(|(rule, count)| (rule, *count))
+        self.consecutive_denials
+            .iter()
+            .map(|(rule, count)| (rule, *count))
     }
 
     pub fn count_for(&self, rule: &RuleId) -> u32 {
@@ -216,10 +237,13 @@ impl CircuitBreakerState {
     /// rule and never participates: there is no finding a retry could fix, so there is nothing for
     /// a circuit breaker to track.
     pub fn record(&mut self, evaluation: &Evaluation) -> Vec<RuleId> {
-        let denied_rules: HashSet<RuleId> =
-            evaluation.denials().filter_map(|violation| violation.finding.as_ref().map(|f| f.rule.clone())).collect();
+        let denied_rules: HashSet<RuleId> = evaluation
+            .denials()
+            .filter_map(|violation| violation.finding.as_ref().map(|f| f.rule.clone()))
+            .collect();
 
-        self.consecutive_denials.retain(|rule, _| denied_rules.contains(rule));
+        self.consecutive_denials
+            .retain(|rule, _| denied_rules.contains(rule));
 
         let mut tripped = Vec::with_capacity(denied_rules.len());
         for rule in &denied_rules {
@@ -420,26 +444,34 @@ impl AgentPolicy {
         let mut builder = GlobSetBuilder::new();
         let mut protected_meta = Vec::with_capacity(file.protected_paths.len());
         for entry in &file.protected_paths {
-            let glob = Glob::new(&entry.pattern)
-                .map_err(|source| PolicyError::Glob { pattern: entry.pattern.clone(), source })?;
+            let glob = Glob::new(&entry.pattern).map_err(|source| PolicyError::Glob {
+                pattern: entry.pattern.clone(),
+                source,
+            })?;
             builder.add(glob);
             protected_meta.push((entry.pattern.clone(), entry.reason.clone()));
         }
-        let protected = builder
-            .build()
-            .map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
+        let protected = builder.build().map_err(|source| PolicyError::Glob {
+            pattern: "<set>".to_string(),
+            source,
+        })?;
 
         let mut gherkin_builder = GlobSetBuilder::new();
         let mut gherkin_required_meta = Vec::with_capacity(file.gherkin_required.len());
         for entry in &file.gherkin_required {
-            let glob = Glob::new(&entry.pattern)
-                .map_err(|source| PolicyError::Glob { pattern: entry.pattern.clone(), source })?;
+            let glob = Glob::new(&entry.pattern).map_err(|source| PolicyError::Glob {
+                pattern: entry.pattern.clone(),
+                source,
+            })?;
             gherkin_builder.add(glob);
             gherkin_required_meta.push((entry.pattern.clone(), entry.reason.clone()));
         }
         let gherkin_required = gherkin_builder
             .build()
-            .map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
+            .map_err(|source| PolicyError::Glob {
+                pattern: "<set>".to_string(),
+                source,
+            })?;
 
         Ok(Self {
             enabled: file.agent.enabled,
@@ -491,7 +523,12 @@ impl AgentPolicy {
     /// A disabled policy returns no violations at all rather than
     /// downgrading them to warnings: `enabled = false` means "yunq is not in
     /// this agent's loop", and emitting advisory noise would contradict that.
-    pub fn evaluate_with_provenance(&self, path: &str, findings: &[Finding], provenance: Provenance) -> Evaluation {
+    pub fn evaluate_with_provenance(
+        &self,
+        path: &str,
+        findings: &[Finding],
+        provenance: Provenance,
+    ) -> Evaluation {
         if !self.enabled {
             return Evaluation::default();
         }
@@ -504,7 +541,10 @@ impl AgentPolicy {
             let (pattern, reason) = &self.protected_meta[index];
             violations.push(Violation {
                 enforcement: Enforcement::Deny,
-                cause: Cause::ProtectedPath { pattern: pattern.clone(), reason: reason.clone() },
+                cause: Cause::ProtectedPath {
+                    pattern: pattern.clone(),
+                    reason: reason.clone(),
+                },
                 finding: None,
             });
         }
@@ -540,7 +580,11 @@ impl AgentPolicy {
                 (Enforcement::Deny, Cause::SeverityThreshold { threshold })
             };
 
-            violations.push(Violation { enforcement, cause, finding: Some(finding.clone()) });
+            violations.push(Violation {
+                enforcement,
+                cause,
+                finding: Some(finding.clone()),
+            });
         }
 
         Evaluation { violations }
@@ -578,7 +622,10 @@ impl AgentPolicy {
             let (pattern, reason) = &self.gherkin_required_meta[index];
             evaluation.violations.push(Violation {
                 enforcement: Enforcement::Deny,
-                cause: Cause::MissingGherkinEvidence { pattern: pattern.clone(), reason: reason.clone() },
+                cause: Cause::MissingGherkinEvidence {
+                    pattern: pattern.clone(),
+                    reason: reason.clone(),
+                },
                 finding: None,
             });
         }
@@ -602,18 +649,24 @@ impl AgentPolicy {
         let mut builder = GlobSetBuilder::new();
         let mut protected_meta = self.protected_meta.clone();
         for (pattern, _) in &protected_meta {
-            let glob =
-                Glob::new(pattern).map_err(|source| PolicyError::Glob { pattern: pattern.clone(), source })?;
+            let glob = Glob::new(pattern).map_err(|source| PolicyError::Glob {
+                pattern: pattern.clone(),
+                source,
+            })?;
             builder.add(glob);
         }
         for (pattern, reason) in &scope.protected_paths {
-            let glob =
-                Glob::new(pattern).map_err(|source| PolicyError::Glob { pattern: pattern.clone(), source })?;
+            let glob = Glob::new(pattern).map_err(|source| PolicyError::Glob {
+                pattern: pattern.clone(),
+                source,
+            })?;
             builder.add(glob);
             protected_meta.push((pattern.clone(), reason.clone()));
         }
-        let protected =
-            builder.build().map_err(|source| PolicyError::Glob { pattern: "<set>".to_string(), source })?;
+        let protected = builder.build().map_err(|source| PolicyError::Glob {
+            pattern: "<set>".to_string(),
+            source,
+        })?;
 
         let mut blocking_rules = self.blocking_rules.clone();
         for rule in &scope.blocking_rules {
@@ -673,7 +726,12 @@ mod tests {
     }
 
     fn finding(rule_id: &str, severity: Severity) -> Finding {
-        Finding { rule: rule(rule_id), severity, message: "boom".to_string(), line: 7 }
+        Finding {
+            rule: rule(rule_id),
+            severity,
+            message: "boom".to_string(),
+            line: 7,
+        }
     }
 
     #[test]
@@ -681,9 +739,19 @@ mod tests {
         let policy = AgentPolicy::parse("").expect("parses");
         assert!(policy.enabled());
         assert_eq!(policy.block_at_or_above(), Severity::Critical);
-        assert!(policy.blocking_rules.contains(&rule("ai:llm-output-injection")));
-        assert!(policy.protected_meta.is_empty(), "path protection is opt-in");
-        assert!(!policy.has_gherkin_requirements(), "gherkin evidence is opt-in");
+        assert!(
+            policy
+                .blocking_rules
+                .contains(&rule("ai:llm-output-injection"))
+        );
+        assert!(
+            policy.protected_meta.is_empty(),
+            "path protection is opt-in"
+        );
+        assert!(
+            !policy.has_gherkin_requirements(),
+            "gherkin evidence is opt-in"
+        );
     }
 
     #[test]
@@ -702,7 +770,10 @@ mod tests {
     #[test]
     fn a_finding_below_the_threshold_does_not_deny() {
         let policy = AgentPolicy::default();
-        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Major)]);
+        let evaluation = policy.evaluate(
+            "src/a.ts",
+            &[finding("smells:long-method", Severity::Major)],
+        );
         assert!(!evaluation.is_denied());
         assert!(evaluation.is_empty());
     }
@@ -720,9 +791,13 @@ mod tests {
         let policy = AgentPolicy::default();
         // Info is as low as a severity goes — only the blocking list can
         // explain a denial here, which is the whole point of the list.
-        let evaluation = policy.evaluate("src/a.ts", &[finding("owasp:eval-usage", Severity::Info)]);
+        let evaluation =
+            policy.evaluate("src/a.ts", &[finding("owasp:eval-usage", Severity::Info)]);
         assert!(evaluation.is_denied());
-        assert!(matches!(evaluation.violations[0].cause, Cause::BlockingRule));
+        assert!(matches!(
+            evaluation.violations[0].cause,
+            Cause::BlockingRule
+        ));
     }
 
     #[test]
@@ -733,8 +808,14 @@ blocking_rules = ["owasp:eval-usage"]
 advisory_rules = ["owasp:eval-usage"]
 "#;
         let policy = AgentPolicy::parse(raw).expect("parses");
-        let evaluation = policy.evaluate("src/a.ts", &[finding("owasp:eval-usage", Severity::Blocker)]);
-        assert!(!evaluation.is_denied(), "advisory must outrank both blocking list and threshold");
+        let evaluation = policy.evaluate(
+            "src/a.ts",
+            &[finding("owasp:eval-usage", Severity::Blocker)],
+        );
+        assert!(
+            !evaluation.is_denied(),
+            "advisory must outrank both blocking list and threshold"
+        );
         assert_eq!(evaluation.warnings().count(), 1);
     }
 
@@ -748,7 +829,11 @@ reason = "CI changes need a human reviewer."
         let policy = AgentPolicy::parse(raw).expect("parses");
         let evaluation = policy.evaluate(".github/workflows/ci.yml", &[]);
         assert!(evaluation.is_denied());
-        assert!(evaluation.violations[0].describe().contains("human reviewer"));
+        assert!(
+            evaluation.violations[0]
+                .describe()
+                .contains("human reviewer")
+        );
     }
 
     fn gherkin_policy() -> AgentPolicy {
@@ -764,16 +849,34 @@ reason = "Domain logic changes must be described by a Gherkin scenario."
     fn a_gherkin_required_path_with_no_covering_scenario_denies_with_no_findings_at_all() {
         let policy = gherkin_policy();
         assert!(policy.has_gherkin_requirements());
-        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, false);
+        let evaluation = policy.evaluate_with_evidence(
+            "core/domain/order.rs",
+            &[],
+            Provenance::Unestablished,
+            false,
+        );
         assert!(evaluation.is_denied());
-        assert!(evaluation.violations[0].describe().contains("Gherkin scenario"));
-        assert!(evaluation.violations[0].describe().contains("described by a Gherkin scenario"));
+        assert!(
+            evaluation.violations[0]
+                .describe()
+                .contains("Gherkin scenario")
+        );
+        assert!(
+            evaluation.violations[0]
+                .describe()
+                .contains("described by a Gherkin scenario")
+        );
     }
 
     #[test]
     fn a_gherkin_required_path_with_a_covering_scenario_does_not_deny() {
         let policy = gherkin_policy();
-        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, true);
+        let evaluation = policy.evaluate_with_evidence(
+            "core/domain/order.rs",
+            &[],
+            Provenance::Unestablished,
+            true,
+        );
         assert!(!evaluation.is_denied());
         assert!(evaluation.is_empty());
     }
@@ -781,7 +884,12 @@ reason = "Domain logic changes must be described by a Gherkin scenario."
     #[test]
     fn a_path_outside_the_required_glob_is_unaffected_by_missing_evidence() {
         let policy = gherkin_policy();
-        let evaluation = policy.evaluate_with_evidence("src/unrelated.rs", &[], Provenance::Unestablished, false);
+        let evaluation = policy.evaluate_with_evidence(
+            "src/unrelated.rs",
+            &[],
+            Provenance::Unestablished,
+            false,
+        );
         assert!(!evaluation.is_denied());
     }
 
@@ -795,8 +903,16 @@ pattern = "core/domain/**"
 reason = "x"
 "#;
         let policy = AgentPolicy::parse(raw).expect("parses");
-        let evaluation = policy.evaluate_with_evidence("core/domain/order.rs", &[], Provenance::Unestablished, false);
-        assert!(evaluation.is_empty(), "disabled means out of the loop entirely, gherkin gate included");
+        let evaluation = policy.evaluate_with_evidence(
+            "core/domain/order.rs",
+            &[],
+            Provenance::Unestablished,
+            false,
+        );
+        assert!(
+            evaluation.is_empty(),
+            "disabled means out of the loop entirely, gherkin gate included"
+        );
     }
 
     #[test]
@@ -806,7 +922,8 @@ reason = "x"
         // opts a caller in, matching how evaluate() stayed inert to
         // provenance until a caller explicitly asked for it.
         let policy = gherkin_policy();
-        let evaluation = policy.evaluate_with_provenance("core/domain/order.rs", &[], Provenance::Unestablished);
+        let evaluation =
+            policy.evaluate_with_provenance("core/domain/order.rs", &[], Provenance::Unestablished);
         assert!(!evaluation.is_denied());
     }
 
@@ -818,7 +935,8 @@ reason = "x"
 
     #[test]
     fn an_invalid_gherkin_required_glob_is_an_error() {
-        let err = AgentPolicy::parse("[[gherkin_required]]\npattern = \"[\"\nreason = \"x\"\n").unwrap_err();
+        let err = AgentPolicy::parse("[[gherkin_required]]\npattern = \"[\"\nreason = \"x\"\n")
+            .unwrap_err();
         assert!(matches!(err, PolicyError::Glob { .. }));
     }
 
@@ -846,30 +964,43 @@ reason = "Terraform."
 "#;
         let policy = AgentPolicy::parse(raw).expect("parses");
         assert!(policy.evaluate("main.tf", &[]).is_denied(), "top-level");
-        assert!(policy.evaluate("infra/aws/main.tf", &[]).is_denied(), "nested");
+        assert!(
+            policy.evaluate("infra/aws/main.tf", &[]).is_denied(),
+            "nested"
+        );
     }
 
     #[test]
     fn a_disabled_policy_never_denies_and_stays_silent() {
         let policy = AgentPolicy::parse("[agent]\nenabled = false\n").expect("parses");
-        let evaluation = policy.evaluate("src/a.ts", &[finding("owasp:eval-usage", Severity::Blocker)]);
+        let evaluation = policy.evaluate(
+            "src/a.ts",
+            &[finding("owasp:eval-usage", Severity::Blocker)],
+        );
         assert!(!evaluation.is_denied());
-        assert!(evaluation.is_empty(), "disabled means out of the loop, not merely non-blocking");
+        assert!(
+            evaluation.is_empty(),
+            "disabled means out of the loop, not merely non-blocking"
+        );
     }
 
     #[test]
     fn a_present_key_overrides_without_resetting_the_others() {
-        let policy = AgentPolicy::parse("[agent]\nblock_at_or_above = \"blocker\"\n").expect("parses");
+        let policy =
+            AgentPolicy::parse("[agent]\nblock_at_or_above = \"blocker\"\n").expect("parses");
         assert_eq!(policy.block_at_or_above(), Severity::Blocker);
         assert!(
-            policy.blocking_rules.contains(&rule("ai:llm-output-injection")),
+            policy
+                .blocking_rules
+                .contains(&rule("ai:llm-output-injection")),
             "an unrelated key must keep its default"
         );
     }
 
     #[test]
     fn an_unparseable_severity_is_an_error_not_a_silent_default() {
-        let err = AgentPolicy::parse("[agent]\nblock_at_or_above = \"catastrophic\"\n").unwrap_err();
+        let err =
+            AgentPolicy::parse("[agent]\nblock_at_or_above = \"catastrophic\"\n").unwrap_err();
         assert!(matches!(err, PolicyError::Severity(_)));
     }
 
@@ -891,11 +1022,24 @@ reason = "Terraform."
     fn an_escalate_listed_rule_blocks_pending_approval_instead_of_denying_outright() {
         let raw = "[agent]\nescalate_rules = [\"smells:long-method\"]\n";
         let policy = AgentPolicy::parse(raw).expect("parses");
-        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Minor)]);
-        assert!(evaluation.is_denied(), "an unresolved escalation still blocks the write");
+        let evaluation = policy.evaluate(
+            "src/a.ts",
+            &[finding("smells:long-method", Severity::Minor)],
+        );
+        assert!(
+            evaluation.is_denied(),
+            "an unresolved escalation still blocks the write"
+        );
         assert_eq!(evaluation.escalations().count(), 1);
-        assert_eq!(evaluation.denials().count(), 1, "denials() surfaces escalations too");
-        assert!(matches!(evaluation.violations[0].enforcement, Enforcement::Escalate));
+        assert_eq!(
+            evaluation.denials().count(),
+            1,
+            "denials() surfaces escalations too"
+        );
+        assert!(matches!(
+            evaluation.violations[0].enforcement,
+            Enforcement::Escalate
+        ));
         assert!(matches!(evaluation.violations[0].cause, Cause::Escalation));
     }
 
@@ -903,8 +1047,15 @@ reason = "Terraform."
     fn an_escalation_describes_itself_as_requiring_human_approval() {
         let raw = "[agent]\nescalate_rules = [\"smells:long-method\"]\n";
         let policy = AgentPolicy::parse(raw).expect("parses");
-        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Minor)]);
-        assert!(evaluation.violations[0].describe().contains("requires human approval"));
+        let evaluation = policy.evaluate(
+            "src/a.ts",
+            &[finding("smells:long-method", Severity::Minor)],
+        );
+        assert!(
+            evaluation.violations[0]
+                .describe()
+                .contains("requires human approval")
+        );
     }
 
     #[test]
@@ -915,8 +1066,14 @@ escalate_rules = ["smells:long-method"]
 advisory_rules = ["smells:long-method"]
 "#;
         let policy = AgentPolicy::parse(raw).expect("parses");
-        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Minor)]);
-        assert!(!evaluation.is_denied(), "advisory is the escape hatch and must win over escalation too");
+        let evaluation = policy.evaluate(
+            "src/a.ts",
+            &[finding("smells:long-method", Severity::Minor)],
+        );
+        assert!(
+            !evaluation.is_denied(),
+            "advisory is the escape hatch and must win over escalation too"
+        );
         assert_eq!(evaluation.warnings().count(), 1);
     }
 
@@ -931,8 +1088,14 @@ escalate_rules = ["owasp:eval-usage"]
 "#;
         let policy = AgentPolicy::parse(raw).expect("parses");
         let evaluation = policy.evaluate("a.py", &[finding("owasp:eval-usage", Severity::Info)]);
-        assert!(matches!(evaluation.violations[0].enforcement, Enforcement::Deny));
-        assert!(matches!(evaluation.violations[0].cause, Cause::BlockingRule));
+        assert!(matches!(
+            evaluation.violations[0].enforcement,
+            Enforcement::Deny
+        ));
+        assert!(matches!(
+            evaluation.violations[0].cause,
+            Cause::BlockingRule
+        ));
     }
 
     #[test]
@@ -940,24 +1103,38 @@ escalate_rules = ["owasp:eval-usage"]
         // A rule only in escalate_rules, at a severity below the threshold,
         // still escalates — escalate_rules is its own opt-in list, not a
         // second severity gate.
-        let raw = "[agent]\nescalate_rules = [\"smells:long-method\"]\nblock_at_or_above = \"blocker\"\n";
+        let raw =
+            "[agent]\nescalate_rules = [\"smells:long-method\"]\nblock_at_or_above = \"blocker\"\n";
         let policy = AgentPolicy::parse(raw).expect("parses");
-        let evaluation = policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Info)]);
-        assert!(matches!(evaluation.violations[0].enforcement, Enforcement::Escalate));
+        let evaluation =
+            policy.evaluate("src/a.ts", &[finding("smells:long-method", Severity::Info)]);
+        assert!(matches!(
+            evaluation.violations[0].enforcement,
+            Enforcement::Escalate
+        ));
     }
 
     #[test]
     fn an_absent_ai_touched_section_uses_the_same_threshold_as_the_base_policy() {
         let policy = AgentPolicy::default();
-        assert_eq!(policy.block_at_or_above_for(Provenance::Unestablished), Severity::Critical);
-        assert_eq!(policy.block_at_or_above_for(Provenance::AiTouched), Severity::Critical);
+        assert_eq!(
+            policy.block_at_or_above_for(Provenance::Unestablished),
+            Severity::Critical
+        );
+        assert_eq!(
+            policy.block_at_or_above_for(Provenance::AiTouched),
+            Severity::Critical
+        );
     }
 
     #[test]
     fn evaluate_is_equivalent_to_evaluate_with_provenance_unestablished() {
         let policy = AgentPolicy::default();
         let f = [finding("owasp:xss", Severity::Critical)];
-        assert_eq!(policy.evaluate("src/a.ts", &f), policy.evaluate_with_provenance("src/a.ts", &f, Provenance::Unestablished));
+        assert_eq!(
+            policy.evaluate("src/a.ts", &f),
+            policy.evaluate_with_provenance("src/a.ts", &f, Provenance::Unestablished)
+        );
     }
 
     #[test]
@@ -967,21 +1144,34 @@ escalate_rules = ["owasp:eval-usage"]
         let f = [finding("smells:long-method", Severity::Major)];
 
         let untouched = policy.evaluate_with_provenance("src/a.ts", &f, Provenance::Unestablished);
-        assert!(!untouched.is_denied(), "major is below the base critical threshold");
+        assert!(
+            !untouched.is_denied(),
+            "major is below the base critical threshold"
+        );
 
         let touched = policy.evaluate_with_provenance("src/a.ts", &f, Provenance::AiTouched);
-        assert!(touched.is_denied(), "major meets the stricter ai_touched threshold");
+        assert!(
+            touched.is_denied(),
+            "major meets the stricter ai_touched threshold"
+        );
     }
 
     #[test]
-    fn ai_touched_threshold_can_never_be_looser_than_configured_even_though_nothing_enforces_that() {
+    fn ai_touched_threshold_can_never_be_looser_than_configured_even_though_nothing_enforces_that()
+    {
         // Not a hard invariant the type system enforces, but the shipped
         // template always sets ai_touched >= base — documented here so a
         // future change to the default doesn't silently invert it.
         let raw = "[agent.ai_touched]\nblock_at_or_above = \"blocker\"\n";
         let policy = AgentPolicy::parse(raw).expect("parses");
-        assert_eq!(policy.block_at_or_above_for(Provenance::AiTouched), Severity::Blocker);
-        assert_eq!(policy.block_at_or_above_for(Provenance::Unestablished), Severity::Critical);
+        assert_eq!(
+            policy.block_at_or_above_for(Provenance::AiTouched),
+            Severity::Blocker
+        );
+        assert_eq!(
+            policy.block_at_or_above_for(Provenance::Unestablished),
+            Severity::Critical
+        );
     }
 
     #[test]
@@ -1004,13 +1194,15 @@ escalate_rules = ["owasp:eval-usage"]
 
     #[test]
     fn an_invalid_ai_touched_severity_is_an_error_not_a_silent_default() {
-        let err = AgentPolicy::parse("[agent.ai_touched]\nblock_at_or_above = \"catastrophic\"\n").unwrap_err();
+        let err = AgentPolicy::parse("[agent.ai_touched]\nblock_at_or_above = \"catastrophic\"\n")
+            .unwrap_err();
         assert!(matches!(err, PolicyError::Severity(_)));
     }
 
     #[test]
     fn an_unknown_key_in_ai_touched_is_rejected_rather_than_ignored() {
-        let err = AgentPolicy::parse("[agent.ai_touched]\nblock_at_or_abov = \"major\"\n").unwrap_err();
+        let err =
+            AgentPolicy::parse("[agent.ai_touched]\nblock_at_or_abov = \"major\"\n").unwrap_err();
         assert!(matches!(err, PolicyError::Toml(_)));
     }
 
@@ -1038,8 +1230,16 @@ escalate_rules = ["owasp:eval-usage"]
     #[test]
     fn two_consecutive_denials_do_not_trip_the_breaker() {
         let mut breaker = CircuitBreakerState::default();
-        assert!(breaker.record(&denied_evaluation("owasp:eval-usage")).is_empty());
-        assert!(breaker.record(&denied_evaluation("owasp:eval-usage")).is_empty());
+        assert!(
+            breaker
+                .record(&denied_evaluation("owasp:eval-usage"))
+                .is_empty()
+        );
+        assert!(
+            breaker
+                .record(&denied_evaluation("owasp:eval-usage"))
+                .is_empty()
+        );
         assert_eq!(breaker.count_for(&rule("owasp:eval-usage")), 2);
     }
 
@@ -1064,7 +1264,11 @@ escalate_rules = ["owasp:eval-usage"]
 
         breaker.record(&denied_evaluation("owasp:eval-usage"));
         breaker.record(&denied_evaluation("owasp:eval-usage"));
-        assert_eq!(breaker.count_for(&rule("owasp:eval-usage")), 2, "not consecutive with the earlier pair");
+        assert_eq!(
+            breaker.count_for(&rule("owasp:eval-usage")),
+            2,
+            "not consecutive with the earlier pair"
+        );
     }
 
     #[test]
@@ -1073,17 +1277,25 @@ escalate_rules = ["owasp:eval-usage"]
         // One write attempt triggering both rules at once.
         let both = policy.evaluate(
             "a.py",
-            &[finding("owasp:eval-usage", Severity::Blocker), finding("owasp:command-execution", Severity::Blocker)],
+            &[
+                finding("owasp:eval-usage", Severity::Blocker),
+                finding("owasp:command-execution", Severity::Blocker),
+            ],
         );
         // A later attempt where `command-execution` no longer reproduces.
-        let eval_usage_only = policy.evaluate("a.py", &[finding("owasp:eval-usage", Severity::Blocker)]);
+        let eval_usage_only =
+            policy.evaluate("a.py", &[finding("owasp:eval-usage", Severity::Blocker)]);
 
         let mut breaker = CircuitBreakerState::default();
         breaker.record(&both);
         breaker.record(&both);
         let tripped = breaker.record(&eval_usage_only);
 
-        assert_eq!(tripped, vec![rule("owasp:eval-usage")], "only the rule still failing trips");
+        assert_eq!(
+            tripped,
+            vec![rule("owasp:eval-usage")],
+            "only the rule still failing trips"
+        );
         assert_eq!(
             breaker.count_for(&rule("owasp:command-execution")),
             0,
@@ -1104,7 +1316,10 @@ reason = "CI changes need a human reviewer."
         for _ in 0..5 {
             assert!(breaker.record(&evaluation).is_empty());
         }
-        assert!(breaker.counts().next().is_none(), "a path-only denial has no rule to track");
+        assert!(
+            breaker.counts().next().is_none(),
+            "a path-only denial has no rule to track"
+        );
     }
 
     #[test]
@@ -1127,27 +1342,45 @@ reason = "CI changes need a human reviewer."
         };
         let scoped = base.with_role_scope(&scope).expect("scoping succeeds");
 
-        assert!(scoped.evaluate(".github/workflows/ci.yml", &[]).is_denied(), "the base restriction still applies");
-        assert!(scoped.evaluate("docs/readme.md", &[]).is_denied(), "the role's own restriction applies");
-        assert!(!base.evaluate("docs/readme.md", &[]).is_denied(), "the base policy itself is untouched");
+        assert!(
+            scoped.evaluate(".github/workflows/ci.yml", &[]).is_denied(),
+            "the base restriction still applies"
+        );
+        assert!(
+            scoped.evaluate("docs/readme.md", &[]).is_denied(),
+            "the role's own restriction applies"
+        );
+        assert!(
+            !base.evaluate("docs/readme.md", &[]).is_denied(),
+            "the base policy itself is untouched"
+        );
     }
 
     #[test]
     fn a_role_scope_adds_a_blocking_rule_without_losing_the_base_ones() {
         let base = AgentPolicy::default();
-        let scope = RoleScope { blocking_rules: vec![rule("smells:long-method")], ..RoleScope::default() };
+        let scope = RoleScope {
+            blocking_rules: vec![rule("smells:long-method")],
+            ..RoleScope::default()
+        };
         let scoped = base.with_role_scope(&scope).expect("scoping succeeds");
 
         assert!(
-            scoped.evaluate("a.py", &[finding("smells:long-method", Severity::Minor)]).is_denied(),
+            scoped
+                .evaluate("a.py", &[finding("smells:long-method", Severity::Minor)])
+                .is_denied(),
             "the role's extra blocking rule denies regardless of severity"
         );
         assert!(
-            scoped.evaluate("a.py", &[finding("owasp:eval-usage", Severity::Critical)]).is_denied(),
+            scoped
+                .evaluate("a.py", &[finding("owasp:eval-usage", Severity::Critical)])
+                .is_denied(),
             "the base blocking rule still applies"
         );
         assert!(
-            !base.evaluate("a.py", &[finding("smells:long-method", Severity::Minor)]).is_denied(),
+            !base
+                .evaluate("a.py", &[finding("smells:long-method", Severity::Minor)])
+                .is_denied(),
             "the base policy itself is untouched"
         );
     }
@@ -1155,7 +1388,10 @@ reason = "CI changes need a human reviewer."
     #[test]
     fn a_role_scope_adds_an_escalate_rule_without_losing_the_base_ones() {
         let base = AgentPolicy::default();
-        let scope = RoleScope { escalate_rules: vec![rule("smells:god-class")], ..RoleScope::default() };
+        let scope = RoleScope {
+            escalate_rules: vec![rule("smells:god-class")],
+            ..RoleScope::default()
+        };
         let scoped = base.with_role_scope(&scope).expect("scoping succeeds");
 
         let evaluation = scoped.evaluate("a.ts", &[finding("smells:god-class", Severity::Minor)]);
@@ -1165,11 +1401,29 @@ reason = "CI changes need a human reviewer."
     #[test]
     fn scoping_twice_is_additive_not_a_reset() {
         let base = AgentPolicy::default();
-        let first = RoleScope { blocking_rules: vec![rule("smells:long-method")], ..RoleScope::default() };
-        let second = RoleScope { blocking_rules: vec![rule("smells:god-class")], ..RoleScope::default() };
-        let scoped = base.with_role_scope(&first).expect("scoping succeeds").with_role_scope(&second).expect("scoping succeeds");
+        let first = RoleScope {
+            blocking_rules: vec![rule("smells:long-method")],
+            ..RoleScope::default()
+        };
+        let second = RoleScope {
+            blocking_rules: vec![rule("smells:god-class")],
+            ..RoleScope::default()
+        };
+        let scoped = base
+            .with_role_scope(&first)
+            .expect("scoping succeeds")
+            .with_role_scope(&second)
+            .expect("scoping succeeds");
 
-        assert!(scoped.evaluate("a.py", &[finding("smells:long-method", Severity::Minor)]).is_denied());
-        assert!(scoped.evaluate("a.py", &[finding("smells:god-class", Severity::Minor)]).is_denied());
+        assert!(
+            scoped
+                .evaluate("a.py", &[finding("smells:long-method", Severity::Minor)])
+                .is_denied()
+        );
+        assert!(
+            scoped
+                .evaluate("a.py", &[finding("smells:god-class", Severity::Minor)])
+                .is_denied()
+        );
     }
 }

@@ -56,7 +56,10 @@ fn operator_between<'a>(parent: &'a AstNode, first: &AstNode, second: &AstNode) 
 /// The prefix operator ahead of a unary expression's operand (`typeof x`).
 fn prefix_operator(unary: &AstNode) -> Option<&str> {
     let operand = unary.first_child()?;
-    let end = operand.byte_range().start.saturating_sub(unary.byte_range().start);
+    let end = operand
+        .byte_range()
+        .start
+        .saturating_sub(unary.byte_range().start);
     unary.text().get(..end).map(str::trim)
 }
 
@@ -86,14 +89,18 @@ fn is_type_test(node: &AstNode) -> bool {
         return true;
     }
     if *node.kind() == NodeKind::Call {
-        let Some(callee) = node.first_child() else { return false };
+        let Some(callee) = node.first_child() else {
+            return false;
+        };
         return matches!(
             callee_name(callee),
             Some("isinstance" | "issubclass" | "downcast_ref" | "downcast_mut" | "is")
         );
     }
     if is_other(node, "binary_expression") {
-        let (Some(left), Some(right)) = (node.first_child(), node.children().get(1)) else { return false };
+        let (Some(left), Some(right)) = (node.first_child(), node.children().get(1)) else {
+            return false;
+        };
         return operator_between(node, left, right) == Some("instanceof");
     }
     if is_other(node, "unary_expression") {
@@ -101,8 +108,11 @@ fn is_type_test(node: &AstNode) -> bool {
     }
     // Python `type(x) is Circle`: an identity comparison over a `type(..)` call.
     if is_other(node, "comparison_operator") {
-        let (Some(left), Some(right)) = (node.first_child(), node.children().get(1)) else { return false };
-        let compares_identity = matches!(operator_between(node, left, right), Some("is" | "is not"));
+        let (Some(left), Some(right)) = (node.first_child(), node.children().get(1)) else {
+            return false;
+        };
+        let compares_identity =
+            matches!(operator_between(node, left, right), Some("is" | "is not"));
         let over_a_type_call = [left, right].iter().any(|operand| {
             *operand.kind() == NodeKind::Call
                 && operand.first_child().and_then(callee_name) == Some("type")
@@ -114,7 +124,9 @@ fn is_type_test(node: &AstNode) -> bool {
 
 /// Whether an `if` link's header performs a type test anywhere inside it.
 fn header_tests_a_type(link: &AstNode) -> bool {
-    header_nodes(link).iter().any(|header| header.descendants().any(is_type_test))
+    header_nodes(link)
+        .iter()
+        .any(|header| header.descendants().any(is_type_test))
 }
 
 /// The `if` nodes that continue `node`'s ladder as its else-branch.
@@ -143,7 +155,11 @@ fn else_branch_ifs(node: &AstNode) -> Vec<&AstNode> {
 /// else-branch `if`, recursively.
 fn chain_links<'a>(head: &'a AstNode, links: &mut Vec<&'a AstNode>) {
     links.push(head);
-    for child in head.children().iter().filter(|c| is_other(c, "elif_clause")) {
+    for child in head
+        .children()
+        .iter()
+        .filter(|c| is_other(c, "elif_clause"))
+    {
         links.push(child);
     }
     for nested in else_branch_ifs(head) {
@@ -172,7 +188,10 @@ pub struct TypeCheckChainRule {
 
 impl TypeCheckChainRule {
     pub fn new(max_type_tests: usize) -> Self {
-        Self { id: RuleId::new("smells:type-check-chain").expect("valid rule id"), max_type_tests }
+        Self {
+            id: RuleId::new("smells:type-check-chain").expect("valid rule id"),
+            max_type_tests,
+        }
     }
 }
 
@@ -255,13 +274,17 @@ mod tests {
 
     fn ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         TypeCheckChainRule::default().check(&file, &ast)
     }
 
     fn py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         TypeCheckChainRule::default().check(&file, &ast)
     }
 
@@ -277,7 +300,11 @@ mod tests {
             "function area(s: Shape): number {\n  if (s instanceof Circle) {\n    return 1;\n  } else if (s instanceof Square) {\n    return 2;\n  } else if (s instanceof Triangle) {\n    return 3;\n  }\n  return 0;\n}\n",
         );
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("3 runtime type tests"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("3 runtime type tests"),
+            "{}",
+            findings[0].message
+        );
         assert_eq!(findings[0].span.start_line, 2);
     }
 
@@ -372,8 +399,7 @@ func describe(s interface{}) string {
     fn the_words_alone_are_not_a_type_test() {
         // Structural detection means a string literal or an identifier that
         // merely reads like a type test cannot be counted as one.
-        let findings = ts(
-            "function label(kind: string): string {
+        let findings = ts("function label(kind: string): string {
   if (kind === 'instanceof') {
     return 'a';
   } else if (kind === 'isinstance(') {
@@ -383,8 +409,7 @@ func describe(s interface{}) string {
   }
   return 'd';
 }
-",
-        );
+");
         assert!(findings.is_empty(), "{findings:?}");
     }
 
@@ -396,7 +421,9 @@ func describe(s interface{}) string {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         assert!(TypeCheckChainRule::default().check(&file, &ast).is_empty());
     }
 

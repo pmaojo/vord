@@ -28,12 +28,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{type_identifiers, ClassInfo, ClassRegistry, MethodInfo};
+use yunq_symbols::{ClassInfo, ClassRegistry, MethodInfo, type_identifiers};
 
 use crate::common::{accessed_field, declared_methods, field_declared_type, is_application_path};
 
-const WRITE_METHODS: &[&str] =
-    &["save", "persist", "add", "update", "delete", "remove", "insert", "create", "store"];
+const WRITE_METHODS: &[&str] = &[
+    "save", "persist", "add", "update", "delete", "remove", "insert", "create", "store",
+];
 
 fn is_write_call(method_name: &str) -> bool {
     WRITE_METHODS.contains(&method_name.to_ascii_lowercase().as_str())
@@ -47,9 +48,10 @@ fn repository_fields(class: &ClassInfo<'_>) -> BTreeMap<String, String> {
         .iter()
         .filter_map(|field| {
             let declared = field_declared_type(class, field)?;
-            let aggregate = type_identifiers(declared)
-                .into_iter()
-                .find_map(|name| name.strip_suffix("Repository").filter(|prefix| !prefix.is_empty()))?;
+            let aggregate = type_identifiers(declared).into_iter().find_map(|name| {
+                name.strip_suffix("Repository")
+                    .filter(|prefix| !prefix.is_empty())
+            })?;
             Some((field.name.clone(), aggregate.to_string()))
         })
         .collect()
@@ -57,7 +59,10 @@ fn repository_fields(class: &ClassInfo<'_>) -> BTreeMap<String, String> {
 
 /// The distinct aggregates `method` calls a write operation against, through
 /// one of `repository_fields`.
-fn aggregates_written(method: &MethodInfo<'_>, repository_fields: &BTreeMap<String, String>) -> BTreeSet<String> {
+fn aggregates_written(
+    method: &MethodInfo<'_>,
+    repository_fields: &BTreeMap<String, String>,
+) -> BTreeSet<String> {
     let receiver = method.receiver.as_deref();
     method
         .node
@@ -85,7 +90,9 @@ pub struct OneAggregatePerTransactionRule {
 
 impl OneAggregatePerTransactionRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("ddd:one-aggregate-per-transaction").expect("valid rule id") }
+        Self {
+            id: RuleId::new("ddd:one-aggregate-per-transaction").expect("valid rule id"),
+        }
     }
 }
 
@@ -167,9 +174,13 @@ mod tests {
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::go() {
             yunq_parser_go::GoParser::new().parse(&file).unwrap()
         } else {
@@ -181,9 +192,17 @@ mod tests {
     #[test]
     fn flags_a_typescript_service_that_saves_two_aggregates() {
         let code = "export class PlaceOrder {\n  private orders: OrderRepository;\n  private inventory: InventoryRepository;\n  constructor(orders: OrderRepository, inventory: InventoryRepository) {\n    this.orders = orders;\n    this.inventory = inventory;\n  }\n  execute(order: Order): void {\n    this.orders.save(order);\n    this.inventory.save(order);\n  }\n}\n";
-        let findings = check("src/application/place_order.ts", code, LanguageIdentifier::typescript());
+        let findings = check(
+            "src/application/place_order.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
-        assert!(findings[0].message.contains("`PlaceOrder::execute`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`PlaceOrder::execute`"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("Order"));
         assert!(findings[0].message.contains("Inventory"));
     }
@@ -191,25 +210,50 @@ mod tests {
     #[test]
     fn silent_when_the_same_aggregate_is_saved_twice() {
         let code = "export class PlaceOrder {\n  private orders: OrderRepository;\n  private inventory: InventoryRepository;\n  constructor(orders: OrderRepository, inventory: InventoryRepository) {\n    this.orders = orders;\n    this.inventory = inventory;\n  }\n  execute(a: Order, b: Order): void {\n    this.orders.save(a);\n    this.orders.save(b);\n  }\n}\n";
-        assert!(check("src/application/place_order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/application/place_order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn silent_when_only_reads_touch_the_second_repository() {
         let code = "export class PlaceOrder {\n  private orders: OrderRepository;\n  private inventory: InventoryRepository;\n  constructor(orders: OrderRepository, inventory: InventoryRepository) {\n    this.orders = orders;\n    this.inventory = inventory;\n  }\n  execute(order: Order): void {\n    this.inventory.findById(order.id);\n    this.orders.save(order);\n  }\n}\n";
-        assert!(check("src/application/place_order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/application/place_order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn silent_outside_the_application_layer() {
         let code = "export class PlaceOrder {\n  private orders: OrderRepository;\n  private inventory: InventoryRepository;\n  constructor(orders: OrderRepository, inventory: InventoryRepository) {\n    this.orders = orders;\n    this.inventory = inventory;\n  }\n  execute(order: Order): void {\n    this.orders.save(order);\n    this.inventory.save(order);\n  }\n}\n";
-        assert!(check("src/domain/place_order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/place_order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn flags_a_rust_service_that_saves_two_aggregates() {
         let code = "pub struct PlaceOrder {\n    orders: std::sync::Arc<dyn OrderRepository>,\n    inventory: std::sync::Arc<dyn InventoryRepository>,\n}\n\nimpl PlaceOrder {\n    pub fn execute(&self, order: &Order) {\n        self.orders.save(order);\n        self.inventory.save(order);\n    }\n}\n";
-        let findings = check("src/application/place_order.rs", code, LanguageIdentifier::rust());
+        let findings = check(
+            "src/application/place_order.rs",
+            code,
+            LanguageIdentifier::rust(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("PlaceOrder::execute"));
     }
@@ -217,7 +261,11 @@ mod tests {
     #[test]
     fn flags_a_python_service_that_saves_two_aggregates_via_constructor_injection() {
         let code = "class PlaceOrder:\n    def __init__(self, orders: OrderRepository, inventory: InventoryRepository):\n        self.orders = orders\n        self.inventory = inventory\n\n    def execute(self, order):\n        self.orders.save(order)\n        self.inventory.save(order)\n";
-        let findings = check("src/application/place_order.py", code, LanguageIdentifier::python());
+        let findings = check(
+            "src/application/place_order.py",
+            code,
+            LanguageIdentifier::python(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("PlaceOrder::execute"));
     }
@@ -225,7 +273,11 @@ mod tests {
     #[test]
     fn flags_a_go_service_that_saves_two_aggregates() {
         let code = "package application\n\ntype PlaceOrder struct {\n\tOrders    OrderRepository\n\tInventory InventoryRepository\n}\n\nfunc (p *PlaceOrder) Execute(order Order) {\n\tp.Orders.Save(order)\n\tp.Inventory.Save(order)\n}\n";
-        let findings = check("internal/application/place_order.go", code, LanguageIdentifier::go());
+        let findings = check(
+            "internal/application/place_order.go",
+            code,
+            LanguageIdentifier::go(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("PlaceOrder::Execute"));
     }
@@ -233,6 +285,13 @@ mod tests {
     #[test]
     fn silent_with_only_one_repository_in_the_service() {
         let code = "export class PlaceOrder {\n  private orders: OrderRepository;\n  constructor(orders: OrderRepository) {\n    this.orders = orders;\n  }\n  execute(order: Order): void {\n    this.orders.save(order);\n  }\n}\n";
-        assert!(check("src/application/place_order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/application/place_order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 }

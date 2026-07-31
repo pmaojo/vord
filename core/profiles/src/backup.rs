@@ -36,8 +36,10 @@ pub struct ProfileBackup {
 
 /// Snapshots `profile` into its portable backup form.
 pub fn backup(profile: &QualityProfile) -> ProfileBackup {
-    let mut activations: Vec<(RuleId, Severity)> =
-        profile.own_activations().map(|(rule, severity)| (rule.clone(), severity)).collect();
+    let mut activations: Vec<(RuleId, Severity)> = profile
+        .own_activations()
+        .map(|(rule, severity)| (rule.clone(), severity))
+        .collect();
     activations.sort_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
     ProfileBackup {
         name: profile.name().to_string(),
@@ -112,7 +114,10 @@ mod tests {
 
         assert_eq!(snapshot.name, "team-way");
         assert_eq!(snapshot.parent_name, Some("company-way".to_string()));
-        assert_eq!(snapshot.activations, vec![(rule("smells:todo-comment"), Severity::Info)]);
+        assert_eq!(
+            snapshot.activations,
+            vec![(rule("smells:todo-comment"), Severity::Info)]
+        );
     }
 
     #[test]
@@ -124,7 +129,10 @@ mod tests {
         let restored = restore(&snapshot, None, None, RestorePolicy::Reject).unwrap();
 
         assert_eq!(restored.name(), "team-way");
-        assert_eq!(restored.severity_of(&rule("owasp:eval-usage")), Some(Severity::Critical));
+        assert_eq!(
+            restored.severity_of(&rule("owasp:eval-usage")),
+            Some(Severity::Critical)
+        );
     }
 
     #[test]
@@ -148,7 +156,10 @@ mod tests {
         let existing = QualityProfile::new("team-way");
         let restored = restore(&snapshot, Some(&existing), None, RestorePolicy::Overwrite).unwrap();
 
-        assert_eq!(restored.severity_of(&rule("owasp:eval-usage")), Some(Severity::Blocker));
+        assert_eq!(
+            restored.severity_of(&rule("owasp:eval-usage")),
+            Some(Severity::Blocker)
+        );
     }
 
     #[test]
@@ -163,8 +174,14 @@ mod tests {
 
         // Own activation present, and the inherited one resolves through
         // the reattached parent.
-        assert_eq!(restored.severity_of(&rule("smells:todo-comment")), Some(Severity::Info));
-        assert_eq!(restored.severity_of(&rule("owasp:eval-usage")), Some(Severity::Critical));
+        assert_eq!(
+            restored.severity_of(&rule("smells:todo-comment")),
+            Some(Severity::Info)
+        );
+        assert_eq!(
+            restored.severity_of(&rule("owasp:eval-usage")),
+            Some(Severity::Critical)
+        );
     }
 
     #[test]
@@ -180,6 +197,9 @@ mod tests {
         let restored = restore(&snapshot, None, None, RestorePolicy::Reject).unwrap();
 
         assert!(restored.parent().is_none());
-        assert_eq!(restored.severity_of(&rule("smells:todo-comment")), Some(Severity::Info));
+        assert_eq!(
+            restored.severity_of(&rule("smells:todo-comment")),
+            Some(Severity::Info)
+        );
     }
 }

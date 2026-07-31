@@ -4,7 +4,7 @@
 //! the only place the model learns that its writes are judged by something it
 //! cannot argue with, and a regression here is a behaviour regression.
 
-use crate::tools::{tool_specs, CommandAllowlist};
+use crate::tools::{CommandAllowlist, tool_specs};
 
 /// The system prompt. States the two rules that make this runtime different
 /// from every other coding agent — the policy decides whether a write lands,
@@ -55,7 +55,11 @@ mod tests {
     fn the_system_prompt_names_every_tool_the_runtime_will_execute() {
         let prompt = system_prompt(&CommandAllowlist::default());
         for spec in tool_specs() {
-            assert!(prompt.contains(spec.name.as_str()), "{} is not advertised", spec.name.as_str());
+            assert!(
+                prompt.contains(spec.name.as_str()),
+                "{} is not advertised",
+                spec.name.as_str()
+            );
         }
     }
 
@@ -68,7 +72,10 @@ mod tests {
 
     #[test]
     fn the_system_prompt_states_that_the_model_does_not_decide_completion() {
-        assert!(system_prompt(&CommandAllowlist::default()).contains("You do not decide when the task is done."));
+        assert!(
+            system_prompt(&CommandAllowlist::default())
+                .contains("You do not decide when the task is done.")
+        );
     }
 
     #[test]

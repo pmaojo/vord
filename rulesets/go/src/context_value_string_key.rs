@@ -9,7 +9,9 @@
 //! similar) so the compiler enforces uniqueness.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{
+    Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
+};
 
 use crate::common::{arguments, callee};
 
@@ -59,7 +61,7 @@ impl Rule for ContextValueStringKeyRule {
                         "context key is a bare string literal; define an unexported key type \
                         instead to avoid collisions with an unrelated package's identically-named \
                         key"
-                            .to_string(),
+                        .to_string(),
                         call.span(),
                     )
                 })

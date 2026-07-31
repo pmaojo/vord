@@ -24,8 +24,14 @@ pub enum ToolName {
 }
 
 impl ToolName {
-    pub const ALL: [ToolName; 6] =
-        [ToolName::Read, ToolName::Write, ToolName::Edit, ToolName::Search, ToolName::Run, ToolName::Scan];
+    pub const ALL: [ToolName; 6] = [
+        ToolName::Read,
+        ToolName::Write,
+        ToolName::Edit,
+        ToolName::Search,
+        ToolName::Run,
+        ToolName::Scan,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -79,7 +85,10 @@ pub fn tool_specs() -> Vec<ToolSpec> {
         ToolSpec {
             name: ToolName::Read,
             description: "Read a repository-relative file in full.",
-            input_schema: object_schema(serde_json::json!({ "path": { "type": "string" } }), &["path"]),
+            input_schema: object_schema(
+                serde_json::json!({ "path": { "type": "string" } }),
+                &["path"],
+            ),
         },
         ToolSpec {
             name: ToolName::Write,
@@ -115,12 +124,18 @@ pub fn tool_specs() -> Vec<ToolSpec> {
         ToolSpec {
             name: ToolName::Run,
             description: "Run one allow-listed command (no shell, no pipelines, no chaining).",
-            input_schema: object_schema(serde_json::json!({ "command": { "type": "string" } }), &["command"]),
+            input_schema: object_schema(
+                serde_json::json!({ "command": { "type": "string" } }),
+                &["command"],
+            ),
         },
         ToolSpec {
             name: ToolName::Scan,
             description: "Run the yunq analyzer over a path and report its findings.",
-            input_schema: object_schema(serde_json::json!({ "path": { "type": "string" } }), &["path"]),
+            input_schema: object_schema(
+                serde_json::json!({ "path": { "type": "string" } }),
+                &["path"],
+            ),
         },
     ]
 }
@@ -130,18 +145,38 @@ pub enum ToolInputError {
     #[error("no such tool `{0}` — this agent's tools are: read, write, edit, search, run, scan")]
     UnknownTool(String),
     #[error("tool `{tool}` requires a string field `{field}`")]
-    MissingField { tool: &'static str, field: &'static str },
+    MissingField {
+        tool: &'static str,
+        field: &'static str,
+    },
 }
 
 /// A parsed, validated tool call. The runtime never sees raw JSON.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToolInvocation {
-    Read { path: String },
-    Write { path: String, content: String },
-    Edit { path: String, old_string: String, new_string: String, replace_all: bool },
-    Search { pattern: String, path: Option<String> },
-    Run { command: String },
-    Scan { path: String },
+    Read {
+        path: String,
+    },
+    Write {
+        path: String,
+        content: String,
+    },
+    Edit {
+        path: String,
+        old_string: String,
+        new_string: String,
+        replace_all: bool,
+    },
+    Search {
+        pattern: String,
+        path: Option<String>,
+    },
+    Run {
+        command: String,
+    },
+    Scan {
+        path: String,
+    },
 }
 
 fn string_field(
@@ -161,23 +196,39 @@ impl ToolInvocation {
     /// argument is looked at, so an unknown tool can never be executed by
     /// accident through a permissive argument shape.
     pub fn parse(name: &str, input: &serde_json::Value) -> Result<Self, ToolInputError> {
-        let tool = ToolName::parse(name).ok_or_else(|| ToolInputError::UnknownTool(name.to_string()))?;
+        let tool =
+            ToolName::parse(name).ok_or_else(|| ToolInputError::UnknownTool(name.to_string()))?;
         let text = |field: &'static str| string_field(input, tool.as_str(), field);
         match tool {
-            ToolName::Read => Ok(Self::Read { path: text("path")? }),
-            ToolName::Write => Ok(Self::Write { path: text("path")?, content: text("content")? }),
+            ToolName::Read => Ok(Self::Read {
+                path: text("path")?,
+            }),
+            ToolName::Write => Ok(Self::Write {
+                path: text("path")?,
+                content: text("content")?,
+            }),
             ToolName::Edit => Ok(Self::Edit {
                 path: text("path")?,
                 old_string: text("old_string")?,
                 new_string: text("new_string")?,
-                replace_all: input.get("replace_all").and_then(|v| v.as_bool()).unwrap_or(false),
+                replace_all: input
+                    .get("replace_all")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
             }),
             ToolName::Search => Ok(Self::Search {
                 pattern: text("pattern")?,
-                path: input.get("path").and_then(|v| v.as_str()).map(str::to_string),
+                path: input
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
             }),
-            ToolName::Run => Ok(Self::Run { command: text("command")? }),
-            ToolName::Scan => Ok(Self::Scan { path: text("path")? }),
+            ToolName::Run => Ok(Self::Run {
+                command: text("command")?,
+            }),
+            ToolName::Scan => Ok(Self::Scan {
+                path: text("path")?,
+            }),
         }
     }
 
@@ -214,7 +265,10 @@ pub struct CommandAllowlist {
 
 impl Default for CommandAllowlist {
     fn default() -> Self {
-        Self::new(["cargo", "go", "npm", "pnpm", "yarn", "pytest", "python", "python3", "node", "make", "dotnet"])
+        Self::new([
+            "cargo", "go", "npm", "pnpm", "yarn", "pytest", "python", "python3", "node", "make",
+            "dotnet",
+        ])
     }
 }
 
@@ -234,7 +288,9 @@ impl CommandAllowlist {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Self { programs: programs.into_iter().map(Into::into).collect() }
+        Self {
+            programs: programs.into_iter().map(Into::into).collect(),
+        }
     }
 
     pub fn programs(&self) -> &[String] {
@@ -244,7 +300,10 @@ impl CommandAllowlist {
     /// Splits `command` into program plus arguments, rejecting anything that
     /// is not exactly one allow-listed invocation.
     pub fn admit(&self, command: &str) -> Result<Vec<String>, CommandRejection> {
-        if let Some(found) = SHELL_METACHARACTERS.iter().find(|meta| command.contains(**meta)) {
+        if let Some(found) = SHELL_METACHARACTERS
+            .iter()
+            .find(|meta| command.contains(**meta))
+        {
             return Err(CommandRejection::ShellMetacharacter((*found).to_string()));
         }
         let parts: Vec<String> = command.split_whitespace().map(str::to_string).collect();
@@ -278,7 +337,8 @@ mod tests {
 
     #[test]
     fn an_unknown_tool_name_is_rejected_rather_than_routed() {
-        let error = ToolInvocation::parse("bash", &serde_json::json!({ "command": "ls" })).unwrap_err();
+        let error =
+            ToolInvocation::parse("bash", &serde_json::json!({ "command": "ls" })).unwrap_err();
         assert_eq!(error, ToolInputError::UnknownTool("bash".to_string()));
     }
 
@@ -290,23 +350,41 @@ mod tests {
 
     #[test]
     fn a_write_call_parses_into_path_and_content() {
-        let call = ToolInvocation::parse("write", &serde_json::json!({ "path": "src/a.rs", "content": "fn a() {}" }))
-            .unwrap();
-        assert_eq!(call, ToolInvocation::Write { path: "src/a.rs".into(), content: "fn a() {}".into() });
+        let call = ToolInvocation::parse(
+            "write",
+            &serde_json::json!({ "path": "src/a.rs", "content": "fn a() {}" }),
+        )
+        .unwrap();
+        assert_eq!(
+            call,
+            ToolInvocation::Write {
+                path: "src/a.rs".into(),
+                content: "fn a() {}".into()
+            }
+        );
         assert_eq!(call.name(), ToolName::Write);
     }
 
     #[test]
     fn a_write_call_missing_its_content_names_the_field() {
-        let error = ToolInvocation::parse("write", &serde_json::json!({ "path": "src/a.rs" })).unwrap_err();
-        assert_eq!(error, ToolInputError::MissingField { tool: "write", field: "content" });
+        let error =
+            ToolInvocation::parse("write", &serde_json::json!({ "path": "src/a.rs" })).unwrap_err();
+        assert_eq!(
+            error,
+            ToolInputError::MissingField {
+                tool: "write",
+                field: "content"
+            }
+        );
     }
 
     #[test]
     fn edit_defaults_replace_all_to_false() {
-        let call =
-            ToolInvocation::parse("edit", &serde_json::json!({ "path": "a", "old_string": "x", "new_string": "y" }))
-                .unwrap();
+        let call = ToolInvocation::parse(
+            "edit",
+            &serde_json::json!({ "path": "a", "old_string": "x", "new_string": "y" }),
+        )
+        .unwrap();
         assert_eq!(
             call,
             ToolInvocation::Edit {
@@ -320,31 +398,53 @@ mod tests {
 
     #[test]
     fn search_path_is_optional() {
-        let call = ToolInvocation::parse("search", &serde_json::json!({ "pattern": "TODO" })).unwrap();
-        assert_eq!(call, ToolInvocation::Search { pattern: "TODO".into(), path: None });
+        let call =
+            ToolInvocation::parse("search", &serde_json::json!({ "pattern": "TODO" })).unwrap();
+        assert_eq!(
+            call,
+            ToolInvocation::Search {
+                pattern: "TODO".into(),
+                path: None
+            }
+        );
     }
 
     #[test]
     fn only_write_and_edit_mutate_the_worktree() {
-        let mutating: Vec<ToolName> = ToolName::ALL.into_iter().filter(|t| t.mutates_worktree()).collect();
+        let mutating: Vec<ToolName> = ToolName::ALL
+            .into_iter()
+            .filter(|t| t.mutates_worktree())
+            .collect();
         assert_eq!(mutating, vec![ToolName::Write, ToolName::Edit]);
     }
 
     #[test]
     fn the_allowlist_admits_a_plain_allowed_command() {
         let allowlist = CommandAllowlist::default();
-        assert_eq!(allowlist.admit("cargo test --workspace").unwrap(), vec!["cargo", "test", "--workspace"]);
+        assert_eq!(
+            allowlist.admit("cargo test --workspace").unwrap(),
+            vec!["cargo", "test", "--workspace"]
+        );
     }
 
     #[test]
     fn the_allowlist_rejects_an_unlisted_program() {
-        let error = CommandAllowlist::default().admit("curl https://example.com").unwrap_err();
-        assert!(matches!(error, CommandRejection::NotAllowed { ref program, .. } if program == "curl"));
+        let error = CommandAllowlist::default()
+            .admit("curl https://example.com")
+            .unwrap_err();
+        assert!(
+            matches!(error, CommandRejection::NotAllowed { ref program, .. } if program == "curl")
+        );
     }
 
     #[test]
     fn the_allowlist_rejects_a_second_command_smuggled_behind_an_allowed_one() {
-        for smuggled in ["cargo test; curl evil", "cargo test && rm -rf /", "cargo test | sh", "cargo test `id`"] {
+        for smuggled in [
+            "cargo test; curl evil",
+            "cargo test && rm -rf /",
+            "cargo test | sh",
+            "cargo test `id`",
+        ] {
             let error = CommandAllowlist::default().admit(smuggled).unwrap_err();
             assert!(
                 matches!(error, CommandRejection::ShellMetacharacter(_)),
@@ -355,13 +455,18 @@ mod tests {
 
     #[test]
     fn the_allowlist_rejects_output_redirection() {
-        let error = CommandAllowlist::default().admit("cargo test > /etc/passwd").unwrap_err();
+        let error = CommandAllowlist::default()
+            .admit("cargo test > /etc/passwd")
+            .unwrap_err();
         assert!(matches!(error, CommandRejection::ShellMetacharacter(_)));
     }
 
     #[test]
     fn the_allowlist_rejects_an_empty_command() {
-        assert_eq!(CommandAllowlist::default().admit("   ").unwrap_err(), CommandRejection::Empty);
+        assert_eq!(
+            CommandAllowlist::default().admit("   ").unwrap_err(),
+            CommandRejection::Empty
+        );
     }
 
     #[test]

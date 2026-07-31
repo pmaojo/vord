@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }
+yunq-taint = { workspace = true }
 
 [dev-dependencies]
 yunq-parser-rust = { workspace = true }

@@ -13,7 +13,9 @@ yunq_treesitter_adapter::declare_parser!(
 fn map_kind(kind: &str) -> NodeKind {
     match kind {
         "program" => NodeKind::SourceUnit,
-        "function_definition" | "method_declaration" | "anonymous_function_creation_expression" => NodeKind::FunctionDef,
+        "function_definition" | "method_declaration" | "anonymous_function_creation_expression" => {
+            NodeKind::FunctionDef
+        }
         "function_call_expression" | "member_call_expression" => NodeKind::Call,
         "string" | "encapsed_string" => NodeKind::StringLiteral,
         "name" | "variable_name" => NodeKind::Identifier,

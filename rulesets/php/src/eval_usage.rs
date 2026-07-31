@@ -13,7 +13,9 @@ pub struct EvalUsageRule {
 
 impl EvalUsageRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:eval-usage").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:eval-usage").expect("valid rule id"),
+        }
     }
 }
 
@@ -59,7 +61,10 @@ impl Rule for EvalUsageRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
-            .filter(|call| callee_node(call).is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == "eval"))
+            .filter(|call| {
+                callee_node(call)
+                    .is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == "eval")
+            })
             .map(|call| {
                 Finding::hotspot(
                     "confirm this `eval()` argument can never be influenced by request input",

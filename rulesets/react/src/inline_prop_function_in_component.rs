@@ -24,7 +24,9 @@ pub struct InlinePropFunctionInComponentRule {
 
 impl InlinePropFunctionInComponentRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:inline-prop-function-in-component").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:inline-prop-function-in-component").expect("valid rule id"),
+        }
     }
 }
 
@@ -95,7 +97,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         InlinePropFunctionInComponentRule::new().check(&file, &ast)
     }
 

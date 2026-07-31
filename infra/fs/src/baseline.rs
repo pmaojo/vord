@@ -40,7 +40,9 @@ impl BaselineStore {
         let raw = std::fs::read_to_string(&self.path).ok()?;
         if let Ok(entries) = serde_json::from_str::<Vec<StoredEntry>>(&raw) {
             return Some(Baseline::from_entries(
-                entries.into_iter().map(|e| (e.rule_file, e.fingerprint, e.line_hash)),
+                entries
+                    .into_iter()
+                    .map(|e| (e.rule_file, e.fingerprint, e.line_hash)),
             ));
         }
         // Legacy format: a bare array of fingerprints, no content hash.
@@ -81,8 +83,8 @@ mod tests {
 
     #[test]
     fn reads_a_legacy_bare_fingerprint_file() {
-        let dir = std::env::temp_dir()
-            .join(format!("yunq-baseline-legacy-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-baseline-legacy-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("baseline.json");
         // What a pre-content-hash yunq version wrote: a bare u64 array.

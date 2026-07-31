@@ -10,7 +10,9 @@ pub struct ImgMissingAltRule {
 
 impl ImgMissingAltRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("a11y:img-missing-alt").expect("valid rule id") }
+        Self {
+            id: RuleId::new("a11y:img-missing-alt").expect("valid rule id"),
+        }
     }
 }
 
@@ -64,7 +66,10 @@ impl Rule for ImgMissingAltRule {
                 continue;
             }
 
-            let end = lower[start..].find('>').map(|i| start + i + 1).unwrap_or(content.len());
+            let end = lower[start..]
+                .find('>')
+                .map(|i| start + i + 1)
+                .unwrap_or(content.len());
             let tag_text = &lower[start..end];
             if !tag_text.contains("alt=") {
                 let line = 1 + content[..start].matches('\n').count() as u32;
@@ -84,7 +89,12 @@ mod tests {
     use super::*;
 
     fn source_unit(code: &str) -> AstNode {
-        AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![])
+        AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        )
     }
 
     #[test]

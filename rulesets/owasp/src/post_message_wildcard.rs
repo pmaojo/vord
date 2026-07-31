@@ -2,7 +2,7 @@
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{
-    declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity,
+    Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
 };
 
 fn is_wildcard_post_message(call: &AstNode) -> bool {

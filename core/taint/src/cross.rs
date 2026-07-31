@@ -30,8 +30,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use yunq_ast::{AstNode, NodeKind, Span};
 
-use crate::module_graph::{self, FunctionKey, ModuleImports};
 use crate::TaintConfig;
+use crate::module_graph::{self, FunctionKey, ModuleImports};
 
 /// A reported cross-file flow, ready to become a finding.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,16 +91,25 @@ impl CrossFileTaint {
         let all_paths: Vec<&str> = files.iter().map(|(path, _)| *path).collect();
         let imports: HashMap<String, ModuleImports> = files
             .iter()
-            .map(|(path, ast)| (path.to_string(), module_graph::collect_imports(path, ast, &all_paths)))
+            .map(|(path, ast)| {
+                (
+                    path.to_string(),
+                    module_graph::collect_imports(path, ast, &all_paths),
+                )
+            })
             .collect();
 
         let functions = collect_functions(files);
-        let local_functions: HashSet<FunctionKey> =
-            functions.iter().map(|f| (f.file.clone(), f.name.clone())).collect();
+        let local_functions: HashSet<FunctionKey> = functions
+            .iter()
+            .map(|f| (f.file.clone(), f.name.clone()))
+            .collect();
         let global_fallback = build_global_fallback(&functions);
 
-        let mut summaries: HashMap<FunctionKey, Summary> =
-            functions.iter().map(|f| ((f.file.clone(), f.name.clone()), Summary::default())).collect();
+        let mut summaries: HashMap<FunctionKey, Summary> = functions
+            .iter()
+            .map(|f| ((f.file.clone(), f.name.clone()), Summary::default()))
+            .collect();
 
         // Phase 1: summaries to a global fixpoint (bounded).
         for _ in 0..10 {
@@ -156,7 +165,10 @@ impl CrossFileTaint {
         if ctx.local_functions.contains(&local) {
             return Some(local);
         }
-        let has_imports = ctx.imports.get(ctx.file).is_some_and(|i| i.has_import_statements);
+        let has_imports = ctx
+            .imports
+            .get(ctx.file)
+            .is_some_and(|i| i.has_import_statements);
         if has_imports {
             return None;
         }
@@ -180,7 +192,9 @@ impl CrossFileTaint {
                 .descendants()
                 .filter(|n| matches!(n.kind(), NodeKind::VariableDecl | NodeKind::Assignment))
             {
-                let Some(target) = node.first_child() else { continue };
+                let Some(target) = node.first_child() else {
+                    continue;
+                };
                 if *target.kind() != NodeKind::Identifier {
                     continue;
                 }
@@ -228,7 +242,10 @@ impl CrossFileTaint {
         for arg in &call.children()[1..] {
             for origin in self.origins_of(arg, ctx, tainted, summaries) {
                 if let Origin::Param(i) = origin {
-                    summary.param_to_sink.entry(i).or_insert_with(|| format!("`{name}` ({file})"));
+                    summary
+                        .param_to_sink
+                        .entry(i)
+                        .or_insert_with(|| format!("`{name}` ({file})"));
                 }
             }
         }
@@ -251,10 +268,16 @@ impl CrossFileTaint {
         summary: &mut Summary,
         emissions: &mut Vec<CrossFileFlow>,
     ) {
-        let Some(key) = self.resolve_callee(name, ctx) else { return };
-        let Some(callee_summary) = summaries.get(&key) else { return };
+        let Some(key) = self.resolve_callee(name, ctx) else {
+            return;
+        };
+        let Some(callee_summary) = summaries.get(&key) else {
+            return;
+        };
         for (arg_index, arg) in call.children()[1..].iter().enumerate() {
-            let Some(sink) = callee_summary.param_to_sink.get(&arg_index) else { continue };
+            let Some(sink) = callee_summary.param_to_sink.get(&arg_index) else {
+                continue;
+            };
             for origin in self.origins_of(arg, ctx, tainted, summaries) {
                 match origin {
                     Origin::Param(i) => {
@@ -285,10 +308,14 @@ impl CrossFileTaint {
         emissions: &mut Vec<CrossFileFlow>,
     ) {
         for call in body.descendants().filter(|n| *n.kind() == NodeKind::Call) {
-            let Some(callee) = call.first_child() else { continue };
+            let Some(callee) = call.first_child() else {
+                continue;
+            };
             let name = callee_name(callee);
             self.record_direct_sink(call, callee, ctx, file, tainted, summaries, summary);
-            self.record_summarized_call(call, &name, ctx, file, tainted, summaries, summary, emissions);
+            self.record_summarized_call(
+                call, &name, ctx, file, tainted, summaries, summary, emissions,
+            );
         }
     }
 
@@ -335,7 +362,15 @@ impl CrossFileTaint {
 
         let mut summary = Summary::default();
         let mut emissions = Vec::new();
-        self.analyze_calls(body, ctx, ctx.file, &tainted, summaries, &mut summary, &mut emissions);
+        self.analyze_calls(
+            body,
+            ctx,
+            ctx.file,
+            &tainted,
+            summaries,
+            &mut summary,
+            &mut emissions,
+        );
         self.analyze_returns(body, ctx, &tainted, summaries, &mut summary);
 
         (summary, emissions)
@@ -352,10 +387,16 @@ impl CrossFileTaint {
         summaries: &HashMap<FunctionKey, Summary>,
     ) -> Origins {
         let mut origins = Origins::new();
-        let Some(callee) = node.first_child() else { return origins };
+        let Some(callee) = node.first_child() else {
+            return origins;
+        };
         let name = callee_name(callee);
-        let Some(key) = self.resolve_callee(&name, ctx) else { return origins };
-        let Some(summary) = summaries.get(&key) else { return origins };
+        let Some(key) = self.resolve_callee(&name, ctx) else {
+            return origins;
+        };
+        let Some(summary) = summaries.get(&key) else {
+            return origins;
+        };
         if summary.returns_source {
             origins.insert(Origin::Source(format!("{name}()")));
         }
@@ -419,19 +460,27 @@ impl CrossFileTaint {
 
     fn is_sink(&self, callee: &AstNode) -> bool {
         let name = callee_name(callee);
-        self.config.sink_callees().iter().any(|s| *s == name || callee.text().ends_with(s.as_str()))
+        self.config
+            .sink_callees()
+            .iter()
+            .any(|s| *s == name || callee.text().ends_with(s.as_str()))
     }
 
     fn is_sanitizer(&self, callee: &AstNode) -> bool {
         let name = callee_name(callee);
-        self.config.sanitizer_callees().iter().any(|s| *s == name || callee.text().ends_with(s.as_str()))
+        self.config
+            .sanitizer_callees()
+            .iter()
+            .any(|s| *s == name || callee.text().ends_with(s.as_str()))
     }
 
     /// Whether `node` is a call to a configured sanitizer — trusted to
     /// return a clean value regardless of what flows into its arguments.
     fn is_sanitized(&self, node: &AstNode) -> bool {
         *node.kind() == NodeKind::Call
-            && node.first_child().is_some_and(|callee| self.is_sanitizer(callee))
+            && node
+                .first_child()
+                .is_some_and(|callee| self.is_sanitizer(callee))
     }
 }
 
@@ -460,7 +509,10 @@ fn collect_functions<'a>(files: &[(&'a str, &'a AstNode)]) -> Vec<FunctionInfo<'
     let mut functions = Vec::with_capacity(files.len() * 2);
     let mut seen: BTreeSet<FunctionKey> = BTreeSet::new();
     for (path, ast) in files {
-        for function in ast.descendants().filter(|n| *n.kind() == NodeKind::FunctionDef) {
+        for function in ast
+            .descendants()
+            .filter(|n| *n.kind() == NodeKind::FunctionDef)
+        {
             let Some(name_node) = function
                 .children()
                 .iter()
@@ -537,7 +589,12 @@ mod tests {
         );
         let mut children = vec![ident(name), param_node];
         children.extend(body);
-        AstNode::new(NodeKind::FunctionDef, span(), format!("function {name}"), children)
+        AstNode::new(
+            NodeKind::FunctionDef,
+            span(),
+            format!("function {name}"),
+            children,
+        )
     }
 
     fn unit(children: Vec<AstNode>) -> AstNode {
@@ -545,26 +602,35 @@ mod tests {
     }
 
     fn config() -> TaintConfig {
-        TaintConfig::new().with_source_marker("process.argv").with_sink("execSync")
+        TaintConfig::new()
+            .with_source_marker("process.argv")
+            .with_sink("execSync")
     }
 
     #[test]
     fn detects_flow_through_an_imported_function() {
         // lib.ts: function run(cmd) { execSync(cmd) }
-        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        let lib = unit(vec![function(
+            "run",
+            &["cmd"],
+            vec![call("execSync", vec![ident("cmd")])],
+        )]);
         // main.ts: input = process.argv; run(input)
         let main = unit(vec![
             AstNode::new(
                 NodeKind::VariableDecl,
                 span(),
                 "input = process.argv[2]",
-                vec![ident("input"), AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+                vec![
+                    ident("input"),
+                    AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![]),
+                ],
             ),
             call("run", vec![ident("input")]),
         ]);
 
-        let flows = CrossFileTaint::new(config())
-            .find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
+        let flows =
+            CrossFileTaint::new(config()).find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
         assert_eq!(flows.len(), 1);
         assert_eq!(flows[0].file, "main.ts");
         assert!(flows[0].message.contains("process.argv"));
@@ -580,11 +646,16 @@ mod tests {
         ]);
         let main = unit(vec![call(
             "launch",
-            vec![AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+            vec![AstNode::new(
+                NodeKind::MemberAccess,
+                span(),
+                "process.argv[2]",
+                vec![],
+            )],
         )]);
 
-        let flows = CrossFileTaint::new(config())
-            .find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
+        let flows =
+            CrossFileTaint::new(config()).find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
         assert_eq!(flows.len(), 1);
         assert!(flows[0].message.contains("through call to `launch`"));
     }
@@ -599,11 +670,20 @@ mod tests {
                 NodeKind::Other("return_statement".into()),
                 span(),
                 "return process.argv[2]",
-                vec![AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+                vec![AstNode::new(
+                    NodeKind::MemberAccess,
+                    span(),
+                    "process.argv[2]",
+                    vec![],
+                )],
             )],
         )]);
         // lib.ts: function run(cmd) { execSync(cmd) }
-        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        let lib = unit(vec![function(
+            "run",
+            &["cmd"],
+            vec![call("execSync", vec![ident("cmd")])],
+        )]);
         // main.ts: data = readInput(); run(data)
         let main = unit(vec![
             AstNode::new(
@@ -626,10 +706,19 @@ mod tests {
 
     #[test]
     fn clean_calls_produce_nothing() {
-        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        let lib = unit(vec![function(
+            "run",
+            &["cmd"],
+            vec![call("execSync", vec![ident("cmd")])],
+        )]);
         let main = unit(vec![call(
             "run",
-            vec![AstNode::new(NodeKind::StringLiteral, span(), "\"ls\"", vec![])],
+            vec![AstNode::new(
+                NodeKind::StringLiteral,
+                span(),
+                "\"ls\"",
+                vec![],
+            )],
         )]);
         let flows =
             CrossFileTaint::new(config()).find_flows(&[("lib.ts", &lib), ("main.ts", &main)]);
@@ -643,14 +732,21 @@ mod tests {
     #[test]
     fn sanitized_argument_to_a_summarized_call_does_not_flow() {
         // lib.ts: function run(cmd) { execSync(cmd) }
-        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        let lib = unit(vec![function(
+            "run",
+            &["cmd"],
+            vec![call("execSync", vec![ident("cmd")])],
+        )]);
         // main.ts: input = process.argv[2]; run(sanitize(input))
         let main = unit(vec![
             AstNode::new(
                 NodeKind::VariableDecl,
                 span(),
                 "input = process.argv[2]",
-                vec![ident("input"), AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+                vec![
+                    ident("input"),
+                    AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![]),
+                ],
             ),
             call("run", vec![call("sanitize", vec![ident("input")])]),
         ]);
@@ -662,12 +758,21 @@ mod tests {
 
     #[test]
     fn sanitized_source_directly_at_a_summarized_call_does_not_flow() {
-        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        let lib = unit(vec![function(
+            "run",
+            &["cmd"],
+            vec![call("execSync", vec![ident("cmd")])],
+        )]);
         let main = unit(vec![call(
             "run",
             vec![call(
                 "sanitize",
-                vec![AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+                vec![AstNode::new(
+                    NodeKind::MemberAccess,
+                    span(),
+                    "process.argv[2]",
+                    vec![],
+                )],
             )],
         )]);
 
@@ -678,10 +783,19 @@ mod tests {
 
     #[test]
     fn unsanitized_cross_file_flow_is_still_detected() {
-        let lib = unit(vec![function("run", &["cmd"], vec![call("execSync", vec![ident("cmd")])])]);
+        let lib = unit(vec![function(
+            "run",
+            &["cmd"],
+            vec![call("execSync", vec![ident("cmd")])],
+        )]);
         let main = unit(vec![call(
             "run",
-            vec![AstNode::new(NodeKind::MemberAccess, span(), "process.argv[2]", vec![])],
+            vec![AstNode::new(
+                NodeKind::MemberAccess,
+                span(),
+                "process.argv[2]",
+                vec![],
+            )],
         )]);
 
         let flows = CrossFileTaint::new(config_with_sanitizer())
@@ -695,7 +809,9 @@ mod tests {
         use yunq_ast::{LanguageIdentifier, SourceFile};
         use yunq_rules_engine::AstParser;
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         (file, ast)
     }
 
@@ -706,17 +822,29 @@ mod tests {
         // same-named sink function must play no part in resolving that
         // call. Before the module graph, project-wide by-name resolution
         // risked exactly this conflation.
-        let danger = parse_ts("danger.ts", "export function run(cmd) {\n  execSync(cmd);\n}\n");
-        let safe = parse_ts("safe.ts", "export function run(cmd) {\n  console.log(cmd);\n}\n");
+        let danger = parse_ts(
+            "danger.ts",
+            "export function run(cmd) {\n  execSync(cmd);\n}\n",
+        );
+        let safe = parse_ts(
+            "safe.ts",
+            "export function run(cmd) {\n  console.log(cmd);\n}\n",
+        );
         let main = parse_ts(
             "main.ts",
             "import { run } from './safe';\nconst input = process.argv[2];\nrun(input);\n",
         );
 
-        let files: Vec<(&str, &AstNode)> =
-            vec![(danger.0.path(), &danger.1), (safe.0.path(), &safe.1), (main.0.path(), &main.1)];
+        let files: Vec<(&str, &AstNode)> = vec![
+            (danger.0.path(), &danger.1),
+            (safe.0.path(), &safe.1),
+            (main.0.path(), &main.1),
+        ];
         let flows = CrossFileTaint::new(config()).find_flows(&files);
-        assert!(flows.is_empty(), "safe.ts's run() must not be conflated with danger.ts's: {flows:?}");
+        assert!(
+            flows.is_empty(),
+            "safe.ts's run() must not be conflated with danger.ts's: {flows:?}"
+        );
     }
 
     #[test]
@@ -724,15 +852,24 @@ mod tests {
         // Mirror of the above with the import pointed at the dangerous file
         // instead — proves the graph resolves to the *specific* imported
         // file, not just "avoids the wrong one by luck".
-        let danger = parse_ts("danger.ts", "export function run(cmd) {\n  execSync(cmd);\n}\n");
-        let safe = parse_ts("safe.ts", "export function run(cmd) {\n  console.log(cmd);\n}\n");
+        let danger = parse_ts(
+            "danger.ts",
+            "export function run(cmd) {\n  execSync(cmd);\n}\n",
+        );
+        let safe = parse_ts(
+            "safe.ts",
+            "export function run(cmd) {\n  console.log(cmd);\n}\n",
+        );
         let main = parse_ts(
             "main.ts",
             "import { run } from './danger';\nconst input = process.argv[2];\nrun(input);\n",
         );
 
-        let files: Vec<(&str, &AstNode)> =
-            vec![(danger.0.path(), &danger.1), (safe.0.path(), &safe.1), (main.0.path(), &main.1)];
+        let files: Vec<(&str, &AstNode)> = vec![
+            (danger.0.path(), &danger.1),
+            (safe.0.path(), &safe.1),
+            (main.0.path(), &main.1),
+        ];
         let flows = CrossFileTaint::new(config()).find_flows(&files);
         assert_eq!(flows.len(), 1);
         assert!(flows[0].message.contains("danger.ts"));
@@ -740,7 +877,10 @@ mod tests {
 
     #[test]
     fn aliased_named_import_resolves_through_its_original_export_name() {
-        let lib = parse_ts("lib.ts", "export function run(cmd) {\n  execSync(cmd);\n}\n");
+        let lib = parse_ts(
+            "lib.ts",
+            "export function run(cmd) {\n  execSync(cmd);\n}\n",
+        );
         let main = parse_ts(
             "main.ts",
             "import { run as execute } from './lib';\nconst input = process.argv[2];\nexecute(input);\n",
@@ -754,7 +894,10 @@ mod tests {
 
     #[test]
     fn default_import_resolves_by_the_target_functions_own_declared_name() {
-        let lib = parse_ts("lib.ts", "export default function run(cmd) {\n  execSync(cmd);\n}\n");
+        let lib = parse_ts(
+            "lib.ts",
+            "export default function run(cmd) {\n  execSync(cmd);\n}\n",
+        );
         let main = parse_ts(
             "main.ts",
             "import run from './lib';\nconst input = process.argv[2];\nrun(input);\n",
@@ -767,7 +910,10 @@ mod tests {
 
     #[test]
     fn relative_import_resolves_across_subdirectories() {
-        let lib = parse_ts("src/lib/util.ts", "export function run(cmd) {\n  execSync(cmd);\n}\n");
+        let lib = parse_ts(
+            "src/lib/util.ts",
+            "export function run(cmd) {\n  execSync(cmd);\n}\n",
+        );
         let main = parse_ts(
             "src/main.ts",
             "import { run } from './lib/util';\nconst input = process.argv[2];\nrun(input);\n",

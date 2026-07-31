@@ -16,8 +16,14 @@ pub struct InvalidCommitShaError(String);
 impl CommitSha {
     pub fn new(raw: &str) -> Result<Self, InvalidCommitShaError> {
         let valid = (7..=40).contains(&raw.len())
-            && raw.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
-        if valid { Ok(Self(raw.to_string())) } else { Err(InvalidCommitShaError(raw.to_string())) }
+            && raw
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+        if valid {
+            Ok(Self(raw.to_string()))
+        } else {
+            Err(InvalidCommitShaError(raw.to_string()))
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -73,7 +79,12 @@ pub struct CommitStatus {
 
 impl CommitStatus {
     pub fn new(state: CommitStatusState, description: impl Into<String>) -> Self {
-        Self { state, description: description.into(), context: "yunq".to_string(), target_url: None }
+        Self {
+            state,
+            description: description.into(),
+            context: "yunq".to_string(),
+            target_url: None,
+        }
     }
 
     pub fn with_target_url(mut self, url: impl Into<String>) -> Self {

@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use yunq_remediation::{FixPrompt, FixProposal, LlmError, LlmProvider};
 
-use crate::common::{parse_fix_proposal, user_prompt, SYSTEM_PROMPT};
+use crate::common::{SYSTEM_PROMPT, parse_fix_proposal, user_prompt};
 
 const DEFAULT_ANTHROPIC_BASE: &str = "https://api.anthropic.com";
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-5-20250929";
@@ -23,7 +23,11 @@ pub struct AnthropicAdapter {
 }
 
 impl AnthropicAdapter {
-    pub fn new(api_base: impl Into<String>, model: impl Into<String>, api_key: impl Into<String>) -> Self {
+    pub fn new(
+        api_base: impl Into<String>,
+        model: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_base: api_base.into().trim_end_matches('/').to_string(),
@@ -77,7 +81,9 @@ struct MessagesRequest<'a> {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlock {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     #[serde(other)]
     Other,
 }
@@ -104,7 +110,10 @@ impl AnthropicAdapter {
             model: &self.model,
             max_tokens: MAX_TOKENS,
             system: SYSTEM_PROMPT,
-            messages: vec![AnthropicMessage { role: "user", content: user_prompt }],
+            messages: vec![AnthropicMessage {
+                role: "user",
+                content: user_prompt,
+            }],
             temperature: 0.1,
         };
 
@@ -124,13 +133,14 @@ impl AnthropicAdapter {
             let detail = serde_json::from_str::<AnthropicErrorBody>(&err_text)
                 .map(|body| body.error.message)
                 .unwrap_or(err_text);
-            return Err(LlmError::ApiFailure(format!("Anthropic API returned {status}: {detail}")));
+            return Err(LlmError::ApiFailure(format!(
+                "Anthropic API returned {status}: {detail}"
+            )));
         }
 
-        let data: MessagesResponse = resp
-            .json()
-            .await
-            .map_err(|e| LlmError::InvalidOutput(format!("Failed to parse Anthropic response JSON: {e}")))?;
+        let data: MessagesResponse = resp.json().await.map_err(|e| {
+            LlmError::InvalidOutput(format!("Failed to parse Anthropic response JSON: {e}"))
+        })?;
 
         data.content
             .into_iter()
@@ -138,7 +148,9 @@ impl AnthropicAdapter {
                 ContentBlock::Text { text } => Some(text.trim().to_string()),
                 ContentBlock::Other => None,
             })
-            .ok_or_else(|| LlmError::InvalidOutput("No text content block in Anthropic response".to_string()))
+            .ok_or_else(|| {
+                LlmError::InvalidOutput("No text content block in Anthropic response".to_string())
+            })
     }
 }
 
@@ -159,7 +171,10 @@ mod tests {
             model: "claude-sonnet-4-5-20250929",
             max_tokens: MAX_TOKENS,
             system: "sys",
-            messages: vec![AnthropicMessage { role: "user", content: "hi" }],
+            messages: vec![AnthropicMessage {
+                role: "user",
+                content: "hi",
+            }],
             temperature: 0.1,
         };
         let json = serde_json::to_value(&req).unwrap();

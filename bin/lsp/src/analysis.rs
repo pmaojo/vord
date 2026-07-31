@@ -31,7 +31,9 @@ pub fn language_for(uri: &Url) -> Option<LanguageIdentifier> {
 /// Runs the full default rule set against one document's current text and
 /// returns LSP diagnostics, sorted by position for stable output.
 pub async fn diagnose(uri: &Url, text: &str) -> Vec<Diagnostic> {
-    let Some(language) = language_for(uri) else { return Vec::new() };
+    let Some(language) = language_for(uri) else {
+        return Vec::new();
+    };
     let relative_path = Path::new(uri.path())
         .file_name()
         .and_then(|n| n.to_str())
@@ -50,7 +52,8 @@ pub async fn diagnose(uri: &Url, text: &str) -> Vec<Diagnostic> {
         return Vec::new();
     };
 
-    let mut diagnostics: Vec<Diagnostic> = report.issues().iter().map(issue_to_diagnostic).collect();
+    let mut diagnostics: Vec<Diagnostic> =
+        report.issues().iter().map(issue_to_diagnostic).collect();
     diagnostics.sort_by_key(|d| (d.range.start.line, d.range.start.character));
     diagnostics
 }
@@ -59,7 +62,9 @@ fn issue_to_diagnostic(issue: &Issue) -> Diagnostic {
     Diagnostic {
         range: span_to_range(issue.span()),
         severity: Some(severity_to_lsp(issue.severity())),
-        code: Some(tower_lsp::lsp_types::NumberOrString::String(issue.rule().to_string())),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            issue.rule().to_string(),
+        )),
         code_description: None,
         source: Some("yunq".to_string()),
         message: issue.message().to_string(),
@@ -108,7 +113,13 @@ mod tests {
         assert_eq!(d.source.as_deref(), Some("yunq"));
         assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
         // 1-based col 20 in yunq -> 0-based character 19 in LSP.
-        assert_eq!(d.range.start, Position { line: 0, character: 19 });
+        assert_eq!(
+            d.range.start,
+            Position {
+                line: 0,
+                character: 19
+            }
+        );
     }
 
     #[tokio::test]
@@ -139,9 +150,21 @@ mod tests {
     #[test]
     fn severity_mapping_covers_every_variant() {
         assert_eq!(severity_to_lsp(Severity::Info), DiagnosticSeverity::HINT);
-        assert_eq!(severity_to_lsp(Severity::Minor), DiagnosticSeverity::INFORMATION);
-        assert_eq!(severity_to_lsp(Severity::Major), DiagnosticSeverity::WARNING);
-        assert_eq!(severity_to_lsp(Severity::Critical), DiagnosticSeverity::ERROR);
-        assert_eq!(severity_to_lsp(Severity::Blocker), DiagnosticSeverity::ERROR);
+        assert_eq!(
+            severity_to_lsp(Severity::Minor),
+            DiagnosticSeverity::INFORMATION
+        );
+        assert_eq!(
+            severity_to_lsp(Severity::Major),
+            DiagnosticSeverity::WARNING
+        );
+        assert_eq!(
+            severity_to_lsp(Severity::Critical),
+            DiagnosticSeverity::ERROR
+        );
+        assert_eq!(
+            severity_to_lsp(Severity::Blocker),
+            DiagnosticSeverity::ERROR
+        );
     }
 }

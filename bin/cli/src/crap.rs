@@ -8,8 +8,8 @@
 //! with no new plumbing.
 
 use yunq_rules_engine::{
-    AnalysisReport, CrapFinding, ExternalIssue, Issue, IssueType, RuleId, Severity,
-    HIGH_RISK_THRESHOLD,
+    AnalysisReport, CrapFinding, ExternalIssue, HIGH_RISK_THRESHOLD, Issue, IssueType, RuleId,
+    Severity,
 };
 
 const CRAP_RULE_ID: &str = "crap:high-risk-function";
@@ -27,14 +27,23 @@ pub fn apply(report: &mut AnalysisReport) -> Vec<CrapFinding> {
     let issues: Vec<ExternalIssue> = findings
         .iter()
         .map(|finding| {
-            let severity =
-                if finding.score > HIGH_RISK_THRESHOLD { Severity::Critical } else { Severity::Major };
+            let severity = if finding.score > HIGH_RISK_THRESHOLD {
+                Severity::Critical
+            } else {
+                Severity::Major
+            };
             let message = format!(
                 "function has CRAP score {:.1} (cyclomatic complexity {}, {:.0}% line coverage)",
                 finding.score, finding.cyclomatic, finding.coverage_percent
             );
             ExternalIssue::new(
-                Issue::new(rule_id.clone(), severity, message, finding.path.clone(), finding.span),
+                Issue::new(
+                    rule_id.clone(),
+                    severity,
+                    message,
+                    finding.path.clone(),
+                    finding.span,
+                ),
                 IssueType::CodeSmell,
             )
         })
@@ -46,8 +55,8 @@ pub fn apply(report: &mut AnalysisReport) -> Vec<CrapFinding> {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::{CoverageReport, FileCoverage, FileFunctionComplexity, Metrics};
     use yunq_ast::Span;
+    use yunq_rules_engine::{CoverageReport, FileCoverage, FileFunctionComplexity, Metrics};
 
     use super::*;
 

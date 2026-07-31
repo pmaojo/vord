@@ -13,7 +13,9 @@ pub struct UnsafeUndocumentedRule {
 
 impl UnsafeUndocumentedRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:unsafe-undocumented").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:unsafe-undocumented").expect("valid rule id"),
+        }
     }
 }
 

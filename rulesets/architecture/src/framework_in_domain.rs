@@ -19,13 +19,16 @@
 //! own import list.
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_import_graph::{imported_modules, infra_roster, layer_of, matches_module, HexLayer};
+use yunq_import_graph::{HexLayer, imported_modules, infra_roster, layer_of, matches_module};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// The rings that must stay pure. Adapters and infrastructure are *supposed*
 /// to import frameworks — that is their entire job.
 fn is_inner_ring(layer: HexLayer) -> bool {
-    matches!(layer, HexLayer::Domain | HexLayer::Application | HexLayer::Port)
+    matches!(
+        layer,
+        HexLayer::Domain | HexLayer::Application | HexLayer::Port
+    )
 }
 
 pub struct FrameworkInDomainRule {
@@ -34,7 +37,9 @@ pub struct FrameworkInDomainRule {
 
 impl FrameworkInDomainRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("architecture:framework-in-domain").expect("valid rule id") }
+        Self {
+            id: RuleId::new("architecture:framework-in-domain").expect("valid rule id"),
+        }
     }
 }
 
@@ -115,9 +120,13 @@ mod tests {
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast: AstNode = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else {
             yunq_parser_rust::RustParser::new().parse(&file).unwrap()
         };
@@ -138,9 +147,18 @@ mod tests {
 
     #[test]
     fn flags_an_orm_import_in_a_typescript_entity() {
-        let findings = ts("src/domain/order.ts", "import { Entity } from 'typeorm';\nexport class Order {}\n");
+        let findings = ts(
+            "src/domain/order.ts",
+            "import { Entity } from 'typeorm';\nexport class Order {}\n",
+        );
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("domain code imports `typeorm`"), "{}", findings[0].message);
+        assert!(
+            findings[0]
+                .message
+                .contains("domain code imports `typeorm`"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("an ORM"));
     }
 
@@ -156,8 +174,20 @@ mod tests {
 
     #[test]
     fn silent_in_an_adapter_where_frameworks_belong() {
-        assert!(ts("src/adapters/http/order_controller.ts", "import axios from 'axios';\n").is_empty());
-        assert!(ts("src/infrastructure/postgres.ts", "import { Pool } from 'pg';\n").is_empty());
+        assert!(
+            ts(
+                "src/adapters/http/order_controller.ts",
+                "import axios from 'axios';\n"
+            )
+            .is_empty()
+        );
+        assert!(
+            ts(
+                "src/infrastructure/postgres.ts",
+                "import { Pool } from 'pg';\n"
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -179,28 +209,43 @@ mod tests {
 
     #[test]
     fn flags_a_sqlalchemy_submodule_in_a_python_entity() {
-        let findings = py("src/domain/order.py", "from sqlalchemy.orm import declarative_base\n");
+        let findings = py(
+            "src/domain/order.py",
+            "from sqlalchemy.orm import declarative_base\n",
+        );
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("sqlalchemy.orm"));
     }
 
     #[test]
     fn flags_sqlx_in_a_rust_domain_module() {
-        let findings = rs("svc/src/domain/order.rs", "use sqlx::PgPool;\n\npub struct Order;\n");
+        let findings = rs(
+            "svc/src/domain/order.rs",
+            "use sqlx::PgPool;\n\npub struct Order;\n",
+        );
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("a database driver"));
     }
 
     #[test]
     fn flags_std_fs_in_a_rust_port_declaration() {
-        let findings = rs("svc/src/ports/orders.rs", "use std::fs::File;\n\npub trait Orders {}\n");
+        let findings = rs(
+            "svc/src/ports/orders.rs",
+            "use std::fs::File;\n\npub trait Orders {}\n",
+        );
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("the filesystem"));
     }
 
     #[test]
     fn silent_on_std_collections_in_a_rust_domain_module() {
-        assert!(rs("svc/src/domain/order.rs", "use std::collections::BTreeMap;\n").is_empty());
+        assert!(
+            rs(
+                "svc/src/domain/order.rs",
+                "use std::collections::BTreeMap;\n"
+            )
+            .is_empty()
+        );
     }
 
     #[test]

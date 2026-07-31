@@ -2,7 +2,10 @@
 
 use reqwest::Client;
 use serde::Serialize;
-use yunq_rules_engine::{AlmError, AlmPullRequestReporter, AlmStatusReporter, CommitSha, CommitStatus, CommitStatusState, Issue, PullRequestNumber};
+use yunq_rules_engine::{
+    AlmError, AlmPullRequestReporter, AlmStatusReporter, CommitSha, CommitStatus,
+    CommitStatusState, Issue, PullRequestNumber,
+};
 
 #[derive(Clone)]
 pub struct BitbucketAdapter {
@@ -13,7 +16,11 @@ pub struct BitbucketAdapter {
 }
 
 impl BitbucketAdapter {
-    pub fn new(workspace: impl Into<String>, repo_slug: impl Into<String>, token: impl Into<String>) -> Self {
+    pub fn new(
+        workspace: impl Into<String>,
+        repo_slug: impl Into<String>,
+        token: impl Into<String>,
+    ) -> Self {
         Self {
             client: Client::new(),
             workspace: workspace.into(),
@@ -31,7 +38,11 @@ struct BitbucketStatusPayload<'a> {
 }
 
 impl AlmStatusReporter for BitbucketAdapter {
-    async fn report_commit_status(&self, sha: &CommitSha, status: &CommitStatus) -> Result<(), AlmError> {
+    async fn report_commit_status(
+        &self,
+        sha: &CommitSha,
+        status: &CommitStatus,
+    ) -> Result<(), AlmError> {
         let state = match status.state {
             CommitStatusState::Success => "SUCCESSFUL",
             CommitStatusState::Failure | CommitStatusState::Error => "FAILED",
@@ -39,7 +50,9 @@ impl AlmStatusReporter for BitbucketAdapter {
         };
         let url = format!(
             "https://api.bitbucket.org/2.0/repositories/{}/{}/commit/{}/statuses/build",
-            self.workspace, self.repo_slug, sha.as_str()
+            self.workspace,
+            self.repo_slug,
+            sha.as_str()
         );
         let payload = BitbucketStatusPayload {
             state,
@@ -61,7 +74,9 @@ impl AlmStatusReporter for BitbucketAdapter {
         } else {
             let status_code = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
-            Err(AlmError(format!("Bitbucket returned status {status_code}: {body}")))
+            Err(AlmError(format!(
+                "Bitbucket returned status {status_code}: {body}"
+            )))
         }
     }
 }
@@ -89,13 +104,22 @@ impl AlmPullRequestReporter for BitbucketAdapter {
         if !new_issues.is_empty() {
             content.push_str(&format!("### New Issues ({})\n", new_issues.len()));
             for issue in new_issues {
-                content.push_str(&format!("- [{:?}] `{}`: {} ({}:{})\n", issue.severity(), issue.rule().as_str(), issue.message(), issue.file(), issue.span().start_line));
+                content.push_str(&format!(
+                    "- [{:?}] `{}`: {} ({}:{})\n",
+                    issue.severity(),
+                    issue.rule().as_str(),
+                    issue.message(),
+                    issue.file(),
+                    issue.span().start_line
+                ));
             }
         }
 
         let url = format!(
             "https://api.bitbucket.org/2.0/repositories/{}/{}/pullrequests/{}/comments",
-            self.workspace, self.repo_slug, pr_number.get()
+            self.workspace,
+            self.repo_slug,
+            pr_number.get()
         );
 
         let payload = BitbucketCommentPayload {
@@ -116,7 +140,9 @@ impl AlmPullRequestReporter for BitbucketAdapter {
         } else {
             let status_code = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
-            Err(AlmError(format!("Bitbucket returned status {status_code}: {body}")))
+            Err(AlmError(format!(
+                "Bitbucket returned status {status_code}: {body}"
+            )))
         }
     }
 }

@@ -20,9 +20,21 @@ fn ts_interfaces(ast: &AstNode) -> Vec<(&AstNode, String, usize)> {
     ast.descendants()
         .filter(|n| is_other(n, "interface_declaration"))
         .filter_map(|node| {
-            let name = node.children().iter().find(|c| is_other(c, "type_identifier"))?.text().to_string();
-            let body = node.children().iter().find(|c| is_other(c, "interface_body"))?;
-            let method_count = body.children().iter().filter(|c| is_other(c, "method_signature")).count();
+            let name = node
+                .children()
+                .iter()
+                .find(|c| is_other(c, "type_identifier"))?
+                .text()
+                .to_string();
+            let body = node
+                .children()
+                .iter()
+                .find(|c| is_other(c, "interface_body"))?;
+            let method_count = body
+                .children()
+                .iter()
+                .filter(|c| is_other(c, "method_signature"))
+                .count();
             Some((node, name, method_count))
         })
         .collect()
@@ -35,12 +47,22 @@ fn rust_traits(ast: &AstNode) -> Vec<(&AstNode, String, usize)> {
     ast.descendants()
         .filter(|n| is_other(n, "trait_item"))
         .filter_map(|node| {
-            let name = node.children().iter().find(|c| is_other(c, "type_identifier"))?.text().to_string();
-            let body = node.children().iter().find(|c| is_other(c, "declaration_list"))?;
+            let name = node
+                .children()
+                .iter()
+                .find(|c| is_other(c, "type_identifier"))?
+                .text()
+                .to_string();
+            let body = node
+                .children()
+                .iter()
+                .find(|c| is_other(c, "declaration_list"))?;
             let method_count = body
                 .children()
                 .iter()
-                .filter(|c| is_other(c, "function_signature_item") || *c.kind() == NodeKind::FunctionDef)
+                .filter(|c| {
+                    is_other(c, "function_signature_item") || *c.kind() == NodeKind::FunctionDef
+                })
                 .count();
             Some((node, name, method_count))
         })
@@ -55,9 +77,21 @@ fn go_interfaces(ast: &AstNode) -> Vec<(&AstNode, String, usize)> {
     ast.descendants()
         .filter(|n| is_other(n, "type_spec"))
         .filter_map(|node| {
-            let name = node.children().iter().find(|c| is_other(c, "type_identifier"))?.text().to_string();
-            let body = node.children().iter().find(|c| is_other(c, "interface_type"))?;
-            let method_count = body.children().iter().filter(|c| is_other(c, "method_elem")).count();
+            let name = node
+                .children()
+                .iter()
+                .find(|c| is_other(c, "type_identifier"))?
+                .text()
+                .to_string();
+            let body = node
+                .children()
+                .iter()
+                .find(|c| is_other(c, "interface_type"))?;
+            let method_count = body
+                .children()
+                .iter()
+                .filter(|c| is_other(c, "method_elem"))
+                .count();
             Some((node, name, method_count))
         })
         .collect()
@@ -70,7 +104,10 @@ pub struct FatInterfaceRule {
 
 impl FatInterfaceRule {
     pub fn new(max_methods: usize) -> Self {
-        Self { id: RuleId::new("smells:fat-interface").expect("valid rule id"), max_methods }
+        Self {
+            id: RuleId::new("smells:fat-interface").expect("valid rule id"),
+            max_methods,
+        }
     }
 }
 
@@ -86,8 +123,12 @@ impl Rule for FatInterfaceRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        [LanguageIdentifier::typescript(), LanguageIdentifier::rust(), LanguageIdentifier::go()]
-            .contains(language)
+        [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::rust(),
+            LanguageIdentifier::go(),
+        ]
+        .contains(language)
     }
 
     fn default_severity(&self) -> Severity {
@@ -133,7 +174,9 @@ mod tests {
 
     fn check_ts(code: &str, max_methods: usize) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         FatInterfaceRule::new(max_methods).check(&file, &ast)
     }
 
@@ -154,13 +197,15 @@ mod tests {
 
     #[test]
     fn does_not_count_property_signatures() {
-        let code = "interface Config {\n  a: string;\n  b: number;\n  c: boolean;\n  d: string;\n}\n";
+        let code =
+            "interface Config {\n  a: string;\n  b: number;\n  c: boolean;\n  d: string;\n}\n";
         assert!(check_ts(code, 3).is_empty());
     }
 
     #[test]
     fn flags_rust_trait_with_too_many_methods_mixing_signatures_and_defaults() {
-        let code = "trait Big {\n  fn a(&self);\n  fn b(&self);\n  fn c(&self);\n  fn d(&self) {}\n}\n";
+        let code =
+            "trait Big {\n  fn a(&self);\n  fn b(&self);\n  fn c(&self);\n  fn d(&self) {}\n}\n";
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
         let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
         let findings = FatInterfaceRule::new(3).check(&file, &ast);

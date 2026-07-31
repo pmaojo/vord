@@ -126,7 +126,10 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
         if target_rule_still_fails {
             let _ = self.sandbox.rollback();
             return RemediationVerdict::Rejected {
-                reason: format!("Target issue {} still detected after applying fix", issue.rule()),
+                reason: format!(
+                    "Target issue {} still detected after applying fix",
+                    issue.rule()
+                ),
             };
         }
 
@@ -158,15 +161,20 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
         let modified_source = self.reread_modified_source(file_path)?;
 
         let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let language = LanguageIdentifier::from_extension(ext)
-            .unwrap_or_else(LanguageIdentifier::rust);
+        let language =
+            LanguageIdentifier::from_extension(ext).unwrap_or_else(LanguageIdentifier::rust);
 
-        let rel_path = file_path.to_string_lossy().trim_start_matches('/').to_string();
+        let rel_path = file_path
+            .to_string_lossy()
+            .trim_start_matches('/')
+            .to_string();
         let file_input = match SourceFile::new(rel_path, modified_source, language) {
             Ok(f) => f,
             Err(e) => {
                 let _ = self.sandbox.rollback();
-                return Err(RemediationError::AnalysisError(format!("Invalid file path: {e}")));
+                return Err(RemediationError::AnalysisError(format!(
+                    "Invalid file path: {e}"
+                )));
             }
         };
 
@@ -223,7 +231,10 @@ mod tests {
 
         fn check(&self, file: &yunq_ast::SourceFile, _ast: &AstNode) -> Vec<Finding> {
             if file.content().contains(self.marker) {
-                vec![Finding::new(format!("found {}", self.marker), Span::new(1, 1, 1, 1))]
+                vec![Finding::new(
+                    format!("found {}", self.marker),
+                    Span::new(1, 1, 1, 1),
+                )]
             } else {
                 vec![]
             }
@@ -240,7 +251,12 @@ mod tests {
         }
 
         fn parse(&self, file: &yunq_ast::SourceFile) -> Result<AstNode, ParseError> {
-            Ok(AstNode::new(NodeKind::Other("root".into()), Span::new(1, 1, 1, 1), file.content().to_string(), vec![]))
+            Ok(AstNode::new(
+                NodeKind::Other("root".into()),
+                Span::new(1, 1, 1, 1),
+                file.content().to_string(),
+                vec![],
+            ))
         }
     }
 
@@ -296,7 +312,13 @@ mod tests {
     }
 
     fn issue_for(rule: &str, file: &str) -> Issue {
-        Issue::new(RuleId::new(rule).unwrap(), Severity::Major, "test issue", file, Span::new(1, 1, 1, 1))
+        Issue::new(
+            RuleId::new(rule).unwrap(),
+            Severity::Major,
+            "test issue",
+            file,
+            Span::new(1, 1, 1, 1),
+        )
     }
 
     /// Fake `Sandbox`: an in-memory single file, with the same exact-once
@@ -311,14 +333,18 @@ mod tests {
     impl FakeSandbox {
         fn new(content: impl Into<String>) -> Self {
             let content = content.into();
-            Self { original: content.clone(), current: Mutex::new(content) }
+            Self {
+                original: content.clone(),
+                current: Mutex::new(content),
+            }
         }
     }
 
     impl Sandbox for FakeSandbox {
         fn apply_proposal(&self, proposal: &FixProposal) -> Result<(), RemediationError> {
             let mut current = self.current.lock().unwrap();
-            *current = current.replacen(&proposal.original_snippet, &proposal.replacement_snippet, 1);
+            *current =
+                current.replacen(&proposal.original_snippet, &proposal.replacement_snippet, 1);
             Ok(())
         }
 
@@ -395,7 +421,10 @@ mod tests {
 
         match verdict {
             RemediationVerdict::Rejected { reason } => {
-                assert!(reason.contains("still detected"), "unexpected reason: {reason}");
+                assert!(
+                    reason.contains("still detected"),
+                    "unexpected reason: {reason}"
+                );
             }
             RemediationVerdict::Accepted { .. } => panic!("expected rejection"),
         }

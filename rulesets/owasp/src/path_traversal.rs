@@ -11,12 +11,7 @@ pub struct PathTraversalRule {
 
 impl PathTraversalRule {
     pub fn new() -> Self {
-        let config = TaintConfig::new()
-            .with_source_marker("process.argv")
-            .with_source_marker("process.env")
-            .with_source_marker("req.query")
-            .with_source_marker("req.body")
-            .with_source_marker("req.params")
+        let config = TaintConfig::web_defaults()
             .with_sink("readFile")
             .with_sink("readFileSync")
             .with_sink("writeFile")

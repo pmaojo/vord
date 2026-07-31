@@ -10,7 +10,7 @@
 //! built-in/library call (`new Map()`, `list()`, ...), which resolves to
 //! nothing in the registry and is silently allowed.
 
-use yunq_ast::{AstNode, NodeKind, Span, SourceFile};
+use yunq_ast::{AstNode, NodeKind, SourceFile, Span};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use yunq_symbols::{ClassInfo, ClassRegistry};
 
@@ -21,8 +21,13 @@ const CONSTRUCTOR_NAMES: &[&str] = &["constructor", "__init__"];
 /// name, assignment span).
 fn direct_instantiations(body: &AstNode) -> Vec<(&str, &str, Span)> {
     let mut found = Vec::new();
-    for assignment in body.descendants().filter(|n| *n.kind() == NodeKind::Assignment) {
-        let Some(target) = assignment.first_child() else { continue };
+    for assignment in body
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::Assignment)
+    {
+        let Some(target) = assignment.first_child() else {
+            continue;
+        };
         if *target.kind() != NodeKind::MemberAccess {
             continue;
         }
@@ -31,16 +36,33 @@ fn direct_instantiations(body: &AstNode) -> Vec<(&str, &str, Span)> {
         if base.text() != "self" && base.text() != "this" {
             continue;
         }
-        let Some(field) = parts.next().filter(|n| *n.kind() == NodeKind::Identifier) else { continue };
-        let Some(value) = assignment.children().get(1).filter(|n| *n.kind() == NodeKind::Call) else { continue };
-        let Some(callee) = value.first_child().filter(|n| *n.kind() == NodeKind::Identifier) else { continue };
+        let Some(field) = parts.next().filter(|n| *n.kind() == NodeKind::Identifier) else {
+            continue;
+        };
+        let Some(value) = assignment
+            .children()
+            .get(1)
+            .filter(|n| *n.kind() == NodeKind::Call)
+        else {
+            continue;
+        };
+        let Some(callee) = value
+            .first_child()
+            .filter(|n| *n.kind() == NodeKind::Identifier)
+        else {
+            continue;
+        };
         found.push((field.text(), callee.text(), assignment.span()));
     }
     found
 }
 
 fn check_class(class: &ClassInfo<'_>, registry: &ClassRegistry<'_>, findings: &mut Vec<Finding>) {
-    let Some(constructor) = class.methods.iter().find(|m| CONSTRUCTOR_NAMES.contains(&m.name.as_str())) else {
+    let Some(constructor) = class
+        .methods
+        .iter()
+        .find(|m| CONSTRUCTOR_NAMES.contains(&m.name.as_str()))
+    else {
         return;
     };
     for (field, callee, span) in direct_instantiations(constructor.node) {
@@ -63,7 +85,9 @@ pub struct ConcreteDependencyRule {
 
 impl ConcreteDependencyRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:concrete-dependency").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:concrete-dependency").expect("valid rule id"),
+        }
     }
 }
 
@@ -96,11 +120,14 @@ impl CrossFileRule for ConcreteDependencyRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let registry = ClassRegistry::build_cross_file(&views);
         let mut findings = Vec::new();
         for class in registry.iter() {
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let mut plain = Vec::new();
             check_class(class, &registry, &mut plain);
             findings.extend(plain.into_iter().map(|f| (index, f)));
@@ -117,9 +144,15 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        ConcreteDependencyRule::new().check(&files).into_iter().map(|(_, f)| f).collect()
+        ConcreteDependencyRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
@@ -164,10 +197,15 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        let findings: Vec<Finding> =
-            ConcreteDependencyRule::new().check(&files).into_iter().map(|(_, f)| f).collect();
+        let findings: Vec<Finding> = ConcreteDependencyRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Service"));
         assert!(findings[0].message.contains("Repo"));
@@ -175,7 +213,12 @@ mod tests {
 
     #[test]
     fn flags_when_the_concrete_class_is_declared_in_another_file() {
-        let repo_file = SourceFile::new("repo.ts", "class Repo {}\n", LanguageIdentifier::typescript()).unwrap();
+        let repo_file = SourceFile::new(
+            "repo.ts",
+            "class Repo {}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
         let service_file = SourceFile::new(
             "service.ts",
             "class Service {\n  repo: Repo;\n  constructor() {\n    this.repo = new Repo();\n  }\n}\n",

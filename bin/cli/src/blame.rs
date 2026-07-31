@@ -52,13 +52,19 @@ fn parse_header_line(line: &str) -> Option<Header> {
     }
     let _orig_line = parts.next()?;
     let final_line: u32 = parts.next()?.parse().ok()?;
-    Some(Header { sha: sha.to_string(), final_line })
+    Some(Header {
+        sha: sha.to_string(),
+        final_line,
+    })
 }
 
 /// Strips the surrounding quotes `git blame --porcelain` puts around
 /// `author-mail` (`<user@example.com>`), keeping just the address.
 fn strip_angle_brackets(raw: &str) -> String {
-    raw.trim().trim_start_matches('<').trim_end_matches('>').to_string()
+    raw.trim()
+        .trim_start_matches('<')
+        .trim_end_matches('>')
+        .to_string()
 }
 
 /// Parses `git blame --porcelain <file>` output into one [`BlameLine`] per
@@ -93,7 +99,9 @@ pub fn parse_porcelain_blame(porcelain: &str) -> Vec<BlameLine> {
             continue;
         }
 
-        let Some(sha) = current.as_ref().map(|h| h.sha.clone()) else { continue };
+        let Some(sha) = current.as_ref().map(|h| h.sha.clone()) else {
+            continue;
+        };
         let meta = commits.entry(sha).or_default();
         if let Some(rest) = line.strip_prefix("author-mail ") {
             meta.author_mail = strip_angle_brackets(rest);
@@ -114,7 +122,14 @@ pub fn parse_porcelain_blame(porcelain: &str) -> Vec<BlameLine> {
 /// tracked, binary file, git missing, ...) — blame is supplementary, so
 /// callers should warn and continue rather than fail the scan.
 pub fn blame_file(repo_root: &Path, file: &str) -> Option<Vec<BlameLine>> {
-    let output = Command::new("git").arg("-C").arg(repo_root).arg("blame").arg("--porcelain").arg(file).output().ok()?;
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("blame")
+        .arg("--porcelain")
+        .arg(file)
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -128,7 +143,10 @@ pub fn blame_file(repo_root: &Path, file: &str) -> Option<Vec<BlameLine>> {
 /// the sources endpoint (issue #26) needs rather than flattening everything
 /// into one undifferentiated line list.
 pub fn blame_files(repo_root: &Path, files: &[String]) -> BTreeMap<String, Vec<BlameLine>> {
-    files.iter().filter_map(|file| blame_file(repo_root, file).map(|lines| (file.clone(), lines))).collect()
+    files
+        .iter()
+        .filter_map(|file| blame_file(repo_root, file).map(|lines| (file.clone(), lines)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -195,7 +213,10 @@ filename f.rs
     #[test]
     fn ignores_malformed_input_without_panicking() {
         assert_eq!(parse_porcelain_blame(""), Vec::new());
-        assert_eq!(parse_porcelain_blame("not a valid porcelain blob\nrandom text"), Vec::new());
+        assert_eq!(
+            parse_porcelain_blame("not a valid porcelain blob\nrandom text"),
+            Vec::new()
+        );
     }
 
     #[test]
@@ -206,7 +227,8 @@ filename f.rs
 
     #[test]
     fn blame_file_returns_none_outside_a_git_repo() {
-        let dir = std::env::temp_dir().join(format!("yunq-blame-not-a-repo-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-blame-not-a-repo-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("f.txt"), "hello\n").unwrap();
         assert!(blame_file(&dir, "f.txt").is_none());

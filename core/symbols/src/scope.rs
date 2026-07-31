@@ -87,7 +87,10 @@ fn walk_own_scope(node: &AstNode, is_root: bool, out: &mut BTreeSet<String>) {
             // A nested function's *name* (if it's a named declaration, not
             // an anonymous arrow/closure) is itself a binding visible in the
             // outer scope.
-            if let Some(name) = child.first_child().filter(|n| *n.kind() == NodeKind::Identifier) {
+            if let Some(name) = child
+                .first_child()
+                .filter(|n| *n.kind() == NodeKind::Identifier)
+            {
                 out.insert(name.text().to_string());
             }
         }
@@ -120,7 +123,12 @@ pub fn free_identifiers(body: &AstNode) -> BTreeSet<String> {
     free
 }
 
-fn collect_free(node: &AstNode, own: &BTreeSet<String>, free: &mut BTreeSet<String>, is_root: bool) {
+fn collect_free(
+    node: &AstNode,
+    own: &BTreeSet<String>,
+    free: &mut BTreeSet<String>,
+    is_root: bool,
+) {
     match node.kind() {
         NodeKind::Identifier if !is_root => {
             if !own.contains(node.text()) {
@@ -172,14 +180,17 @@ mod tests {
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     fn first_function<'a>(ast: &'a AstNode, name: &str) -> &'a AstNode {
         ast.descendants()
             .find(|n| {
                 *n.kind() == NodeKind::FunctionDef
-                    && n.first_child().is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == name)
+                    && n.first_child()
+                        .is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == name)
             })
             .unwrap()
     }
@@ -209,7 +220,9 @@ mod tests {
     fn free_identifiers_finds_captured_outer_names() {
         // Simulates a useEffect callback: `count` and `other` are free
         // (from the enclosing component), `local` is bound inside.
-        let ast = parse("function comp() {\n  const cb = () => {\n    const local = 1;\n    doThing(count, other, local);\n  };\n}\n");
+        let ast = parse(
+            "function comp() {\n  const cb = () => {\n    const local = 1;\n    doThing(count, other, local);\n  };\n}\n",
+        );
         // Locate the arrow function assigned to `cb`.
         let arrow = ast
             .descendants()

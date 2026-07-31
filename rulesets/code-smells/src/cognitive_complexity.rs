@@ -31,8 +31,8 @@ const NESTING_KINDS: &[&str] = &[
     "match_expression",
     "match_statement",
     "enhanced_for_statement", // Groovy/Java-family for-each
-    "switch_expression", // Groovy's unified switch statement/expression form
-    "repeat_statement", // Lua's `repeat ... until`
+    "switch_expression",      // Groovy's unified switch statement/expression form
+    "repeat_statement",       // Lua's `repeat ... until`
 ];
 
 /// Structures that add a flat `+1` without increasing nesting depth —
@@ -41,14 +41,19 @@ const FLAT_KINDS: &[&str] = &[
     "else_clause",
     "elif_clause",
     "elseif_statement", // Lua
-    "else_statement", // Lua (no wrapping `else_clause` node)
+    "else_statement",   // Lua (no wrapping `else_clause` node)
 ];
 
 /// `break`/`continue` node kinds across the wired grammars. A plain
 /// `break`/`continue` is free (it doesn't add a new way to misread the
 /// function); only a jump to an explicit label costs — see
 /// [`is_labeled_jump`].
-const JUMP_KINDS: &[&str] = &["break_expression", "continue_expression", "break_statement", "continue_statement"];
+const JUMP_KINDS: &[&str] = &[
+    "break_expression",
+    "continue_expression",
+    "break_statement",
+    "continue_statement",
+];
 
 /// Node kinds a labeled `break`/`continue` uses for the label/lifetime
 /// child: Rust wraps it in a `label` node, C-like grammars (JS/TS/Java/Go)
@@ -60,10 +65,9 @@ const LABEL_KINDS: &[&str] = &["label", "statement_identifier"];
 /// enclosing label doesn't itself nest anything new).
 fn is_labeled_jump(node: &AstNode) -> bool {
     matches!(node.kind(), NodeKind::Other(kind) if JUMP_KINDS.contains(&kind.as_ref()))
-        && node
-            .children()
-            .iter()
-            .any(|c| matches!(c.kind(), NodeKind::Other(kind) if LABEL_KINDS.contains(&kind.as_ref())))
+        && node.children().iter().any(
+            |c| matches!(c.kind(), NodeKind::Other(kind) if LABEL_KINDS.contains(&kind.as_ref())),
+        )
 }
 
 /// Cognitive Complexity: unlike cyclomatic
@@ -84,7 +88,10 @@ pub struct CognitiveComplexityRule {
 
 impl CognitiveComplexityRule {
     pub fn new(max: u32) -> Self {
-        Self { id: RuleId::new("smells:cognitive-complexity").expect("valid rule id"), max }
+        Self {
+            id: RuleId::new("smells:cognitive-complexity").expect("valid rule id"),
+            max,
+        }
     }
 }
 
@@ -119,7 +126,8 @@ enum LogicalOp {
 /// inspecting an operand's shape needs to see through them first.
 fn unwrap_parens(node: &AstNode) -> &AstNode {
     let mut current = node;
-    while matches!(current.kind(), NodeKind::Other(kind) if kind.as_ref() == "parenthesized_expression") {
+    while matches!(current.kind(), NodeKind::Other(kind) if kind.as_ref() == "parenthesized_expression")
+    {
         match current.children() {
             [inner] => current = inner,
             _ => break,
@@ -140,7 +148,9 @@ fn logical_op(node: &AstNode) -> Option<LogicalOp> {
         NodeKind::Other(kind) if BOOLEAN_OPS.contains(&kind.as_ref()) => {}
         _ => return None,
     }
-    let [left, right] = node.children() else { return None };
+    let [left, right] = node.children() else {
+        return None;
+    };
     let node_start = node.byte_range().start;
     let gap_start = left.byte_range().end.saturating_sub(node_start);
     let gap_end = right.byte_range().start.saturating_sub(node_start);
@@ -157,8 +167,12 @@ fn logical_op(node: &AstNode) -> Option<LogicalOp> {
 /// `(a && b) && c`) into the ordered sequence of operators a reader would
 /// scan left to right, so a homogeneous run can be told apart from a break.
 fn logical_sequence(node: &AstNode) -> Vec<LogicalOp> {
-    let Some(op) = logical_op(node) else { return Vec::new() };
-    let [left, right] = unwrap_parens(node).children() else { return Vec::new() };
+    let Some(op) = logical_op(node) else {
+        return Vec::new();
+    };
+    let [left, right] = unwrap_parens(node).children() else {
+        return Vec::new();
+    };
     let mut sequence = logical_sequence(left);
     sequence.push(op);
     sequence.extend(logical_sequence(right));
@@ -214,7 +228,9 @@ fn function_name(function: &AstNode) -> Option<&str> {
 /// scoped to *direct* recursion only — no cross-function call graph, no
 /// indirect/mutual recursion.
 fn is_recursive_call(call: &AstNode, fn_name: &str) -> bool {
-    let Some(callee) = call.first_child() else { return false };
+    let Some(callee) = call.first_child() else {
+        return false;
+    };
     match callee.kind() {
         NodeKind::Identifier => callee.text() == fn_name,
         NodeKind::MemberAccess => callee
@@ -241,7 +257,8 @@ fn score_common(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> Option<
     if is_labeled_jump(child) {
         return Some(1 + score(child, nesting, fn_name));
     }
-    if *child.kind() == NodeKind::Call && fn_name.is_some_and(|name| is_recursive_call(child, name)) {
+    if *child.kind() == NodeKind::Call && fn_name.is_some_and(|name| is_recursive_call(child, name))
+    {
         return Some(1 + score(child, nesting, fn_name));
     }
     if logical_op(child).is_some() {
@@ -249,13 +266,22 @@ fn score_common(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> Option<
         let bool_cost = logical_chain_cost(&sequence);
         let mut leaves = Vec::new();
         logical_leaves(child, &mut leaves);
-        return Some(bool_cost + leaves.iter().map(|leaf| score(leaf, nesting, fn_name)).sum::<u32>());
+        return Some(
+            bool_cost
+                + leaves
+                    .iter()
+                    .map(|leaf| score(leaf, nesting, fn_name))
+                    .sum::<u32>(),
+        );
     }
     None
 }
 
 fn score(node: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 {
-    node.children().iter().map(|child| score_child(child, nesting, fn_name)).sum()
+    node.children()
+        .iter()
+        .map(|child| score_child(child, nesting, fn_name))
+        .sum()
 }
 
 fn score_child(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 {
@@ -263,8 +289,12 @@ fn score_child(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 {
         return cost;
     }
     match child.kind() {
-        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_ref()) => 1 + score_branch_body(child, nesting, fn_name),
-        NodeKind::Other(kind) if IF_KINDS.contains(&kind.as_ref()) => score_if_chain(child, nesting, false, fn_name),
+        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_ref()) => {
+            1 + score_branch_body(child, nesting, fn_name)
+        }
+        NodeKind::Other(kind) if IF_KINDS.contains(&kind.as_ref()) => {
+            score_if_chain(child, nesting, false, fn_name)
+        }
         NodeKind::Other(kind) if NESTING_KINDS.contains(&kind.as_ref()) => {
             (1 + nesting) + score(child, nesting + 1, fn_name)
         }
@@ -292,7 +322,12 @@ fn score_branch_body(clause: &AstNode, nesting: u32, fn_name: Option<&str>) -> u
 /// a terminal plain `else` block) sits one level deeper, at `nesting + 1`.
 fn score_if_chain(if_node: &AstNode, nesting: u32, is_link: bool, fn_name: Option<&str>) -> u32 {
     let header = if is_link { 0 } else { 1 + nesting };
-    header + if_node.children().iter().map(|child| score_if_member(child, nesting, fn_name)).sum::<u32>()
+    header
+        + if_node
+            .children()
+            .iter()
+            .map(|child| score_if_member(child, nesting, fn_name))
+            .sum::<u32>()
 }
 
 /// Scores one direct child of an `if`/`else if` node (its condition or
@@ -304,7 +339,9 @@ fn score_if_member(child: &AstNode, nesting: u32, fn_name: Option<&str>) -> u32 
         return cost;
     }
     match child.kind() {
-        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_ref()) => 1 + score_branch_body(child, nesting, fn_name),
+        NodeKind::Other(kind) if FLAT_KINDS.contains(&kind.as_ref()) => {
+            1 + score_branch_body(child, nesting, fn_name)
+        }
         _ => score(child, nesting + 1, fn_name),
     }
 }
@@ -388,7 +425,9 @@ mod tests {
 
     fn check_python(code: &str, max: u32) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         CognitiveComplexityRule::new(max).check(&file, &ast)
     }
 
@@ -441,7 +480,11 @@ mod tests {
         let code = "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b && c\n}\n";
         let findings = check_rust(code, 0);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 1"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 1"),
+            "{}",
+            findings[0].message
+        );
         assert!(check_rust(code, 1).is_empty());
     }
 
@@ -452,7 +495,11 @@ mod tests {
         let code = "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b || c\n}\n";
         let findings = check_rust(code, 1);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 2"),
+            "{}",
+            findings[0].message
+        );
         assert!(check_rust(code, 2).is_empty());
     }
 
@@ -465,7 +512,11 @@ mod tests {
         let code = "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {\n    a || b || c && d\n}\n";
         let findings = check_rust(code, 1);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 2"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -473,11 +524,16 @@ mod tests {
         // The `&&` itself doesn't add nesting depth for its operands — an
         // `if` sitting inside one operand is scored at the *outer* nesting
         // level, not one level deeper because it's behind a `&&`.
-        let code = "fn f(a: bool, b: i32) -> bool {\n    a && (if b > 0 { true } else { false })\n}\n";
+        let code =
+            "fn f(a: bool, b: i32) -> bool {\n    a && (if b > 0 { true } else { false })\n}\n";
         // bool chain (1) + nested if at nesting 0 (1+0) + its else (flat +1) = 3.
         let findings = check_rust(code, 2);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 3"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 3"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -488,7 +544,11 @@ mod tests {
         let code = "def f(a, b, c):\n    return a and b or c\n";
         let findings = check_python(code, 1);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 2"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -500,7 +560,11 @@ mod tests {
         let code = "fn sum(n: i32) -> i32 {\n    if n <= 1 {\n        return n;\n    }\n    n + sum(n - 1)\n}\n";
         let findings = check_rust(code, 1);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 2"),
+            "{}",
+            findings[0].message
+        );
         assert!(check_rust(code, 2).is_empty());
     }
 
@@ -513,7 +577,11 @@ mod tests {
         // if (1+0) + else (flat +1) + recursive call (flat +1) = 3.
         let findings = check_rust(code, 2);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 3"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 3"),
+            "{}",
+            findings[0].message
+        );
         assert!(check_rust(code, 3).is_empty());
     }
 
@@ -528,7 +596,11 @@ mod tests {
         let code = "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n";
         let findings = check_python(code, 1);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 2"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 2"),
+            "{}",
+            findings[0].message
+        );
         assert!(check_python(code, 2).is_empty());
     }
 
@@ -553,7 +625,11 @@ mod tests {
         let code = "fn f(cond: bool) {\n    loop {\n        if cond {\n            loop {\n                if cond {\n                } else if cond {\n                } else {\n                    if cond {\n                    }\n                }\n                if cond {}\n            }\n        }\n    }\n}\n";
         let findings = check_rust(code, 20);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 21"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 21"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -564,7 +640,11 @@ mod tests {
         assert!(check_rust(code, 1).is_empty());
         let findings = check_rust(code, 0);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("complexity 1"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("complexity 1"),
+            "{}",
+            findings[0].message
+        );
     }
 
     /// Regression table covering the metric's scoring rules across
@@ -574,28 +654,108 @@ mod tests {
     #[test]
     fn scores_match_the_expected_value_for_every_case() {
         let rust_cases: &[(&str, &str, u32)] = &[
-            ("and_or_mixed_with_a_nested_call", "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b || foo(b && c)\n}\n", 3),
-            ("parenthesized_or_inside_and", "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {\n    a && (b || c) || d\n}\n", 2),
-            ("if_with_and_then_two_ors", "fn f(a: bool, b: bool, c: bool, d: bool) {\n    if a && b || c || d {}\n}\n", 3),
-            ("if_alternating_and_or_and_or", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b || c && d || e {}\n}\n", 5),
-            ("if_or_and_or_and", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b && c || d && e {}\n}\n", 5),
-            ("if_three_ands_then_two_ors", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c || d || e {}\n}\n", 3),
-            ("if_single_condition", "fn f(a: bool) {\n    if a {}\n}\n", 1),
-            ("if_five_ands_one_sequence", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c && d && e {}\n}\n", 2),
-            ("if_five_ors_one_sequence", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b || c || d || e {}\n}\n", 2),
-            ("if_ands_then_ors_then_ands", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool) {\n    if a && b && c || d || e && f {}\n}\n", 4),
-            ("if_or_with_parenthesized_or", "fn f(a: bool, b: bool, c: bool) {\n    if a || (b || c) {}\n}\n", 2),
-            ("if_deeply_mixed_boolean_sequences", "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool, g: bool, h: bool, i: bool, j: bool, k: bool, l: bool, m: bool) {\n    if a && b && c || d || e && f && g || (h || (i && j || k)) || l || m {}\n}\n", 7),
-            ("match_arm_containing_nested_ifs", "fn f(foo: i32, lhs_is_identifier: bool, a: bool, b: bool, c: bool, d: bool, element_is_assignment: bool) {\n    match foo {\n        1 => {}\n        2 => {\n            if lhs_is_identifier {\n                if a && b && c || d {}\n                if element_is_assignment {\n                } else {\n                }\n            }\n        }\n        _ => {}\n    }\n}\n", 12),
-            ("labelled_break_out_of_a_loop", "fn f(objects: &[bool]) {\n    'outer: for o in objects {\n        break 'outer;\n    }\n}\n", 2),
-            ("three_loops_one_of_them_nested", "fn f(args: &[String], chain: &[i32], foo: bool) {\n    for ctr in 0..args.len() {\n        if args[ctr] == \"-debug\" {\n        }\n    }\n    for i in (0..chain.len()).rev() {\n    }\n    if foo {\n        for i in 0..10 {\n        }\n    }\n}\n", 7),
-            ("if_else_if_else_with_a_nested_while", "fn f(alert_level: i32, foo: i32) -> i32 {\n    if alert_level == 1 && foo == 2 {\n        1\n    } else if alert_level == 3 {\n        2\n    } else {\n        while true {\n        }\n        3\n    }\n}\n", 6),
-            ("four_sequential_guard_ifs", "fn f(i: i32) -> i32 {\n    if i <= 0 {\n        return 1;\n    }\n    if i < 10 {\n        return 2;\n    }\n    if i < 20 {\n        return 3;\n    }\n    if i < 30 {\n        return 4;\n    }\n    5\n}\n", 4),
-            ("nested_loops_with_labelled_continue", "fn f(limit: i32) -> i32 {\n    let mut sum = 0;\n    'outer: for i in 0..limit {\n        if i <= 2 {\n            continue;\n        }\n        for j in 2..1 {\n            if i % j == 0 {\n                continue 'outer;\n            }\n        }\n        sum += i;\n    }\n    sum\n}\n", 9),
+            (
+                "and_or_mixed_with_a_nested_call",
+                "fn f(a: bool, b: bool, c: bool) -> bool {\n    a && b || foo(b && c)\n}\n",
+                3,
+            ),
+            (
+                "parenthesized_or_inside_and",
+                "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {\n    a && (b || c) || d\n}\n",
+                2,
+            ),
+            (
+                "if_with_and_then_two_ors",
+                "fn f(a: bool, b: bool, c: bool, d: bool) {\n    if a && b || c || d {}\n}\n",
+                3,
+            ),
+            (
+                "if_alternating_and_or_and_or",
+                "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b || c && d || e {}\n}\n",
+                5,
+            ),
+            (
+                "if_or_and_or_and",
+                "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b && c || d && e {}\n}\n",
+                5,
+            ),
+            (
+                "if_three_ands_then_two_ors",
+                "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c || d || e {}\n}\n",
+                3,
+            ),
+            (
+                "if_single_condition",
+                "fn f(a: bool) {\n    if a {}\n}\n",
+                1,
+            ),
+            (
+                "if_five_ands_one_sequence",
+                "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a && b && c && d && e {}\n}\n",
+                2,
+            ),
+            (
+                "if_five_ors_one_sequence",
+                "fn f(a: bool, b: bool, c: bool, d: bool, e: bool) {\n    if a || b || c || d || e {}\n}\n",
+                2,
+            ),
+            (
+                "if_ands_then_ors_then_ands",
+                "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool) {\n    if a && b && c || d || e && f {}\n}\n",
+                4,
+            ),
+            (
+                "if_or_with_parenthesized_or",
+                "fn f(a: bool, b: bool, c: bool) {\n    if a || (b || c) {}\n}\n",
+                2,
+            ),
+            (
+                "if_deeply_mixed_boolean_sequences",
+                "fn f(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool, g: bool, h: bool, i: bool, j: bool, k: bool, l: bool, m: bool) {\n    if a && b && c || d || e && f && g || (h || (i && j || k)) || l || m {}\n}\n",
+                7,
+            ),
+            (
+                "match_arm_containing_nested_ifs",
+                "fn f(foo: i32, lhs_is_identifier: bool, a: bool, b: bool, c: bool, d: bool, element_is_assignment: bool) {\n    match foo {\n        1 => {}\n        2 => {\n            if lhs_is_identifier {\n                if a && b && c || d {}\n                if element_is_assignment {\n                } else {\n                }\n            }\n        }\n        _ => {}\n    }\n}\n",
+                12,
+            ),
+            (
+                "labelled_break_out_of_a_loop",
+                "fn f(objects: &[bool]) {\n    'outer: for o in objects {\n        break 'outer;\n    }\n}\n",
+                2,
+            ),
+            (
+                "three_loops_one_of_them_nested",
+                "fn f(args: &[String], chain: &[i32], foo: bool) {\n    for ctr in 0..args.len() {\n        if args[ctr] == \"-debug\" {\n        }\n    }\n    for i in (0..chain.len()).rev() {\n    }\n    if foo {\n        for i in 0..10 {\n        }\n    }\n}\n",
+                7,
+            ),
+            (
+                "if_else_if_else_with_a_nested_while",
+                "fn f(alert_level: i32, foo: i32) -> i32 {\n    if alert_level == 1 && foo == 2 {\n        1\n    } else if alert_level == 3 {\n        2\n    } else {\n        while true {\n        }\n        3\n    }\n}\n",
+                6,
+            ),
+            (
+                "four_sequential_guard_ifs",
+                "fn f(i: i32) -> i32 {\n    if i <= 0 {\n        return 1;\n    }\n    if i < 10 {\n        return 2;\n    }\n    if i < 20 {\n        return 3;\n    }\n    if i < 30 {\n        return 4;\n    }\n    5\n}\n",
+                4,
+            ),
+            (
+                "nested_loops_with_labelled_continue",
+                "fn f(limit: i32) -> i32 {\n    let mut sum = 0;\n    'outer: for i in 0..limit {\n        if i <= 2 {\n            continue;\n        }\n        for j in 2..1 {\n            if i % j == 0 {\n                continue 'outer;\n            }\n        }\n        sum += i;\n    }\n    sum\n}\n",
+                9,
+            ),
         ];
         let python_cases: &[(&str, &str, u32)] = &[
-            ("guard_clause_try_except_and_if_elif_chain", "def f(consumed, redirected, not_set, has_other, is_wrapper, external, is_set, chain):\n    if consumed:\n        return\n    try:\n        pass\n    except HaltException:\n        pass\n    except Exception:\n        pass\n    if not_set and redirected:\n        pass\n    if not_set and has_other:\n        if is_wrapper:\n            pass\n    if not_set and not external:\n        pass\n    if is_set:\n        pass\n    elif chain is not None:\n        pass\n", 13),
-            ("try_finally_wrapping_a_while_with_nested_if", "def f(rules, changes, condition):\n    try:\n        while rules.has_next():\n            try:\n                if not changes.is_empty():\n                    pass\n            except BadRequestException:\n                pass\n    finally:\n        if condition:\n            pass\n    return 0\n", 6),
+            (
+                "guard_clause_try_except_and_if_elif_chain",
+                "def f(consumed, redirected, not_set, has_other, is_wrapper, external, is_set, chain):\n    if consumed:\n        return\n    try:\n        pass\n    except HaltException:\n        pass\n    except Exception:\n        pass\n    if not_set and redirected:\n        pass\n    if not_set and has_other:\n        if is_wrapper:\n            pass\n    if not_set and not external:\n        pass\n    if is_set:\n        pass\n    elif chain is not None:\n        pass\n",
+                13,
+            ),
+            (
+                "try_finally_wrapping_a_while_with_nested_if",
+                "def f(rules, changes, condition):\n    try:\n        while rules.has_next():\n            try:\n                if not changes.is_empty():\n                    pass\n            except BadRequestException:\n                pass\n    finally:\n        if condition:\n            pass\n    return 0\n",
+                6,
+            ),
         ];
 
         let mut mismatches = Vec::new();
@@ -617,14 +777,22 @@ mod tests {
     fn complexity_rust(code: &str) -> u32 {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
         let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
-        let function = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
+        let function = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::FunctionDef)
+            .unwrap();
         score(function, 0, function_name(function))
     }
 
     fn complexity_python(code: &str) -> u32 {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
-        let function = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
+        let function = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::FunctionDef)
+            .unwrap();
         score(function, 0, function_name(function))
     }
 }

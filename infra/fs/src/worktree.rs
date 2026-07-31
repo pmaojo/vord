@@ -22,7 +22,10 @@ impl WorktreeSandbox {
                 "sandbox root must be a Git worktree".to_string(),
             ));
         }
-        Ok(Self { root, originals: Mutex::new(HashMap::new()) })
+        Ok(Self {
+            root,
+            originals: Mutex::new(HashMap::new()),
+        })
     }
 
     fn resolve(&self, file_path: &Path) -> Result<PathBuf, RemediationError> {
@@ -66,12 +69,14 @@ impl Sandbox for WorktreeSandbox {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .entry(target.clone())
             .or_insert(source);
-        std::fs::write(target, updated).map_err(|error| RemediationError::SandboxError(error.to_string()))
+        std::fs::write(target, updated)
+            .map_err(|error| RemediationError::SandboxError(error.to_string()))
     }
 
     fn read_source(&self, file_path: &Path) -> Result<String, RemediationError> {
         let target = self.resolve(file_path)?;
-        std::fs::read_to_string(target).map_err(|error| RemediationError::SandboxError(error.to_string()))
+        std::fs::read_to_string(target)
+            .map_err(|error| RemediationError::SandboxError(error.to_string()))
     }
 
     fn rollback(&self) -> Result<(), RemediationError> {
@@ -82,7 +87,8 @@ impl Sandbox for WorktreeSandbox {
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         );
         for (path, source) in originals {
-            std::fs::write(path, source).map_err(|error| RemediationError::SandboxError(error.to_string()))?;
+            std::fs::write(path, source)
+                .map_err(|error| RemediationError::SandboxError(error.to_string()))?;
         }
         Ok(())
     }
@@ -98,7 +104,10 @@ mod tests {
     fn applies_reads_and_rolls_back_inside_the_worktree() {
         let root = std::env::temp_dir().join(format!(
             "yunq-worktree-sandbox-{}",
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(root.join(".git")).unwrap();
         let source = root.join("src.rs");
@@ -114,7 +123,10 @@ mod tests {
         sandbox.apply_proposal(&proposal).unwrap();
         assert_eq!(sandbox.read_source(&source).unwrap(), "let value = 2;\n");
         sandbox.rollback().unwrap();
-        assert_eq!(std::fs::read_to_string(&source).unwrap(), "let value = 1;\n");
+        assert_eq!(
+            std::fs::read_to_string(&source).unwrap(),
+            "let value = 1;\n"
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }

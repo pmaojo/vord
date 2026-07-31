@@ -10,11 +10,15 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 
 use crate::common::call_arguments;
 
-const SENSITIVE_KEY_MARKERS: &[&str] = &["token", "password", "passwd", "secret", "apikey", "session", "auth"];
+const SENSITIVE_KEY_MARKERS: &[&str] = &[
+    "token", "password", "passwd", "secret", "apikey", "session", "auth",
+];
 
 fn looks_sensitive(key_text: &str) -> bool {
     let lower = key_text.to_ascii_lowercase();
-    SENSITIVE_KEY_MARKERS.iter().any(|marker| lower.contains(marker))
+    SENSITIVE_KEY_MARKERS
+        .iter()
+        .any(|marker| lower.contains(marker))
 }
 
 fn flagged_call(node: &AstNode) -> Option<&AstNode> {
@@ -42,7 +46,9 @@ pub struct SensitiveDataInWebStorageRule {
 
 impl SensitiveDataInWebStorageRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:sensitive-data-in-web-storage").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:sensitive-data-in-web-storage").expect("valid rule id"),
+        }
     }
 }
 
@@ -95,7 +101,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         SensitiveDataInWebStorageRule::new().check(&file, &ast)
     }
 

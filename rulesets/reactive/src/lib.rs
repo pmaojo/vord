@@ -14,5 +14,8 @@ use yunq_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
-    vec![Box::new(MissingUnsubscribeRule::new()), Box::new(SubjectNeverCompletedRule::new())]
+    vec![
+        Box::new(MissingUnsubscribeRule::new()),
+        Box::new(SubjectNeverCompletedRule::new()),
+    ]
 }

@@ -1,9 +1,13 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-use crate::common::{callee_node, is_other, SUPERGLOBALS};
+use crate::common::{SUPERGLOBALS, callee_node, is_other};
 
-const DYNAMIC_CALL_FUNCTIONS: &[&str] = &["call_user_func", "call_user_func_array", "forward_static_call"];
+const DYNAMIC_CALL_FUNCTIONS: &[&str] = &[
+    "call_user_func",
+    "call_user_func_array",
+    "forward_static_call",
+];
 
 fn is_superglobal_read(node: &AstNode) -> bool {
     match node.kind() {
@@ -28,7 +32,9 @@ pub struct DynamicFunctionCallRule {
 
 impl DynamicFunctionCallRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:dynamic-function-call-from-superglobal").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:dynamic-function-call-from-superglobal").expect("valid rule id"),
+        }
     }
 }
 
@@ -83,8 +89,13 @@ impl Rule for DynamicFunctionCallRule {
                     return Some(call);
                 }
                 // `call_user_func($_GET['f'], ...)` / `call_user_func_array(...)`.
-                if *callee.kind() == NodeKind::Identifier && DYNAMIC_CALL_FUNCTIONS.contains(&callee.text()) {
-                    let args = call.children().iter().find(|c| is_other(c.kind(), "arguments"))?;
+                if *callee.kind() == NodeKind::Identifier
+                    && DYNAMIC_CALL_FUNCTIONS.contains(&callee.text())
+                {
+                    let args = call
+                        .children()
+                        .iter()
+                        .find(|c| is_other(c.kind(), "arguments"))?;
                     let first = args.children().first()?;
                     if first.descendants().any(is_superglobal_read) {
                         return Some(call);

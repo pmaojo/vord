@@ -10,19 +10,19 @@ mod gate;
 mod impact;
 mod rating;
 
-pub use backup::{backup, restore, ProfileBackup, RestoreError, RestorePolicy};
-pub use builtin::{default_profile, default_profile_for_language, DEFAULT_PROFILE_NAME};
-pub use compare::{compare, ProfileDiff, SeverityDifference};
+pub use backup::{ProfileBackup, RestoreError, RestorePolicy, backup, restore};
+pub use builtin::{DEFAULT_PROFILE_NAME, default_profile, default_profile_for_language};
+pub use compare::{ProfileDiff, SeverityDifference, compare};
 pub use copy::copy_profile;
 pub use gate::{
     ComparisonOperator, Condition, ConditionResult, ConditionStatus, GateEvaluation, GateStatus,
     InvalidMetricKeyError, MetricKey, QualityGate,
 };
-pub use impact::{default_impact, ImpactSeverity, SoftwareQuality, SoftwareQualityImpact};
+pub use impact::{ImpactSeverity, SoftwareQuality, SoftwareQualityImpact, default_impact};
 pub use rating::{
-    aggregate_remediation_effort, debt_ratio, reliability_and_security_ratings, DebtRatingGrid,
-    IssueType, Rating, RemediationEffortSummary, ReliabilitySecurityRatings,
-    DEFAULT_DEV_COST_MINUTES_PER_LINE,
+    DEFAULT_DEV_COST_MINUTES_PER_LINE, DebtRatingGrid, IssueType, Rating,
+    ReliabilitySecurityRatings, RemediationEffortSummary, aggregate_remediation_effort, debt_ratio,
+    reliability_and_security_ratings,
 };
 
 use std::collections::HashMap;
@@ -38,8 +38,11 @@ pub struct InvalidRuleIdError(String);
 
 impl RuleId {
     pub fn new(raw: &str) -> Result<Self, InvalidRuleIdError> {
-        let valid_part =
-            |p: &str| !p.is_empty() && p.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        let valid_part = |p: &str| {
+            !p.is_empty()
+                && p.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        };
         match raw.split_once(':') {
             Some((ns, code)) if valid_part(ns) && valid_part(code) => Ok(Self(raw.to_string())),
             _ => Err(InvalidRuleIdError(raw.to_string())),
@@ -110,7 +113,11 @@ pub struct QualityProfile {
 
 impl QualityProfile {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), activations: HashMap::new(), parent: None }
+        Self {
+            name: name.into(),
+            activations: HashMap::new(),
+            parent: None,
+        }
     }
 
     pub fn from_activations(
@@ -161,7 +168,9 @@ impl QualityProfile {
     /// This profile's own activations (excluding inherited ones) — the data
     /// an adapter serializes for backup/restore.
     pub fn own_activations(&self) -> impl Iterator<Item = (&RuleId, Severity)> {
-        self.activations.iter().map(|(rule, severity)| (rule, *severity))
+        self.activations
+            .iter()
+            .map(|(rule, severity)| (rule, *severity))
     }
 
     /// Every rule active in this profile, own or inherited, with the
@@ -174,7 +183,11 @@ impl QualityProfile {
             Some(parent) => parent.effective_activations(),
             None => HashMap::new(),
         };
-        merged.extend(self.activations.iter().map(|(rule, severity)| (rule.clone(), *severity)));
+        merged.extend(
+            self.activations
+                .iter()
+                .map(|(rule, severity)| (rule.clone(), *severity)),
+        );
         merged
     }
 }

@@ -81,8 +81,7 @@ impl Rule for UnverifiedJwtRule {
             if is_python
                 && (call_text.contains("verify=False")
                     || call_text.contains("verify=false")
-                    || call_text.contains("\"verify_signature\":False")
-                    || call_text.contains("'verify_signature':False")
+                    || call_text.contains("verify_signature") && call_text.contains("False")
                     || call_text.contains("algorithms=[\"none\"]")
                     || call_text.contains("algorithms=['none']"))
             {

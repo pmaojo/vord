@@ -40,14 +40,24 @@ fn cohesion_relevant_methods<'a, 'b>(class: &'b ClassInfo<'a>) -> Vec<&'b Method
 
 /// The subset of `field_names` that `method_body` reads or writes via a bare
 /// `self.field`/`this.field` access.
-fn own_field_accesses<'a>(method_body: &AstNode, field_names: &BTreeSet<&'a str>) -> BTreeSet<&'a str> {
+fn own_field_accesses<'a>(
+    method_body: &AstNode,
+    field_names: &BTreeSet<&'a str>,
+) -> BTreeSet<&'a str> {
     let mut used = BTreeSet::new();
-    for access in method_body.descendants().filter(|n| *n.kind() == NodeKind::MemberAccess) {
-        let Some(base) = access.first_child() else { continue };
+    for access in method_body
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::MemberAccess)
+    {
+        let Some(base) = access.first_child() else {
+            continue;
+        };
         if base.text() != "self" && base.text() != "this" {
             continue;
         }
-        let Some(prop) = access.children().get(1) else { continue };
+        let Some(prop) = access.children().get(1) else {
+            continue;
+        };
         if let Some(&name) = field_names.get(prop.text()) {
             used.insert(name);
         }
@@ -63,7 +73,9 @@ struct UnionFind {
 
 impl UnionFind {
     fn new(n: usize) -> Self {
-        Self { parent: (0..n).collect() }
+        Self {
+            parent: (0..n).collect(),
+        }
     }
 
     fn find(&mut self, x: usize) -> usize {
@@ -119,7 +131,10 @@ fn method_clusters(class: &ClassInfo<'_>) -> Vec<Vec<String>> {
     }
     let mut groups: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     for (i, (method, _)) in stateful.iter().enumerate() {
-        groups.entry(uf.find(i)).or_default().push(method.name.clone());
+        groups
+            .entry(uf.find(i))
+            .or_default()
+            .push(method.name.clone());
     }
     groups.into_values().collect()
 }
@@ -132,7 +147,11 @@ pub struct LowCohesionRule {
 
 impl LowCohesionRule {
     pub fn new(min_methods: usize, min_fields: usize) -> Self {
-        Self { id: RuleId::new("smells:low-cohesion").expect("valid rule id"), min_methods, min_fields }
+        Self {
+            id: RuleId::new("smells:low-cohesion").expect("valid rule id"),
+            min_methods,
+            min_fields,
+        }
     }
 }
 
@@ -168,7 +187,8 @@ impl CrossFileRule for LowCohesionRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let registry = ClassRegistry::build_cross_file(&views);
         // Per-file `#[cfg(test)]` line ranges, computed once rather than
         // per class. Test doubles are written to satisfy a trait as
@@ -232,9 +252,15 @@ mod tests {
 
     fn check_ts(code: &str, min_methods: usize, min_fields: usize) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        LowCohesionRule::new(min_methods, min_fields).check(&files).into_iter().map(|(_, f)| f).collect()
+        LowCohesionRule::new(min_methods, min_fields)
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
@@ -277,10 +303,15 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        let findings: Vec<Finding> =
-            LowCohesionRule::new(4, 2).check(&files).into_iter().map(|(_, f)| f).collect();
+        let findings: Vec<Finding> = LowCohesionRule::new(4, 2)
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Mixed"));
     }
@@ -289,7 +320,11 @@ mod tests {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
         let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
         let files = vec![(file, ast)];
-        LowCohesionRule::new(min_methods, min_fields).check(&files).into_iter().map(|(_, f)| f).collect()
+        LowCohesionRule::new(min_methods, min_fields)
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
@@ -313,7 +348,10 @@ mod tests {
             4,
             2,
         );
-        assert!(findings.is_empty(), "trait obligations reported as a design smell: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "trait obligations reported as a design smell: {findings:?}"
+        );
     }
 
     #[test]
@@ -333,7 +371,10 @@ mod tests {
             4,
             2,
         );
-        assert!(findings.is_empty(), "pure helpers counted as responsibilities: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "pure helpers counted as responsibilities: {findings:?}"
+        );
     }
 
     #[test]
@@ -368,7 +409,10 @@ mod tests {
             4,
             2,
         );
-        assert!(findings.is_empty(), "test double reported as a design smell: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "test double reported as a design smell: {findings:?}"
+        );
     }
 
     #[test]
@@ -377,8 +421,11 @@ mod tests {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
         let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
         let files = vec![(file, ast)];
-        let findings: Vec<Finding> =
-            LowCohesionRule::new(4, 2).check(&files).into_iter().map(|(_, f)| f).collect();
+        let findings: Vec<Finding> = LowCohesionRule::new(4, 2)
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Mixed"));
     }

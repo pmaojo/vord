@@ -32,7 +32,7 @@
 //!   only ever miss, never over-match.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_import_graph::{infra_roster, InfraModule};
+use yunq_import_graph::{InfraModule, infra_roster};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
@@ -43,7 +43,10 @@ fn is_other(node: &AstNode, kind: &str) -> bool {
 /// grammar here wraps them in — `Call`'s own children are just `[callee,
 /// arguments-wrapper]`, not `[callee, arg1, arg2, ..]`.
 fn call_arguments(call: &AstNode) -> &[AstNode] {
-    call.children().get(1).map(|args| args.children()).unwrap_or(&[])
+    call.children()
+        .get(1)
+        .map(|args| args.children())
+        .unwrap_or(&[])
 }
 
 /// Every step-definition function `Given`/`When`/`Then(...)` binds in a
@@ -53,10 +56,15 @@ fn ts_step_bodies(ast: &AstNode) -> Vec<&AstNode> {
         .filter(|node| *node.kind() == NodeKind::Call)
         .filter_map(|call| {
             let callee = call.first_child()?;
-            if *callee.kind() != NodeKind::Identifier || !["Given", "When", "Then"].contains(&callee.text()) {
+            if *callee.kind() != NodeKind::Identifier
+                || !["Given", "When", "Then"].contains(&callee.text())
+            {
                 return None;
             }
-            call_arguments(call).iter().rev().find(|child| *child.kind() == NodeKind::FunctionDef)
+            call_arguments(call)
+                .iter()
+                .rev()
+                .find(|child| *child.kind() == NodeKind::FunctionDef)
         })
         .collect()
 }
@@ -73,7 +81,14 @@ fn python_step_bodies(ast: &AstNode) -> Vec<&AstNode> {
                         .iter()
                         .any(|marker| child.text().to_ascii_lowercase().starts_with(marker))
             });
-            is_step.then(|| decorated.children().iter().find(|c| *c.kind() == NodeKind::FunctionDef)).flatten()
+            is_step
+                .then(|| {
+                    decorated
+                        .children()
+                        .iter()
+                        .find(|c| *c.kind() == NodeKind::FunctionDef)
+                })
+                .flatten()
         })
         .collect()
 }
@@ -91,7 +106,10 @@ fn rust_step_bodies(ast: &AstNode) -> Vec<&AstNode> {
                 continue;
             }
             let lower = node.text().to_ascii_lowercase();
-            if !["#[given", "#[when", "#[then"].iter().any(|marker| lower.starts_with(marker)) {
+            if !["#[given", "#[when", "#[then"]
+                .iter()
+                .any(|marker| lower.starts_with(marker))
+            {
                 continue;
             }
             let function = children[index + 1..]
@@ -130,7 +148,9 @@ fn root_identifier(expression: &AstNode) -> Option<&str> {
         match node.kind() {
             NodeKind::Identifier => return Some(node.text()),
             NodeKind::MemberAccess => node = node.first_child()?,
-            NodeKind::Other(kind) if kind.as_ref() == "scoped_identifier" => node = node.first_child()?,
+            NodeKind::Other(kind) if kind.as_ref() == "scoped_identifier" => {
+                node = node.first_child()?
+            }
             _ => return None,
         }
     }
@@ -142,17 +162,25 @@ fn root_identifier(expression: &AstNode) -> Option<&str> {
 /// (`node:fs`, `@nestjs/common`, `std::fs`) that never appears in source as
 /// its own identifier.
 fn bare_word_modules(language: &LanguageIdentifier) -> Vec<&'static InfraModule> {
-    infra_roster(language).iter().filter(|entry| !entry.module.contains(['/', '.', ':', '@'])).collect()
+    infra_roster(language)
+        .iter()
+        .filter(|entry| !entry.module.contains(['/', '.', ':', '@']))
+        .collect()
 }
 
 /// The first infra-roster module `body` calls into, if any.
 fn infra_call_in(body: &AstNode, language: &LanguageIdentifier) -> Option<&'static InfraModule> {
     let candidates = bare_word_modules(language);
-    body.descendants().filter(|node| *node.kind() == NodeKind::Call).find_map(|call| {
-        let callee = call.first_child()?;
-        let root = root_identifier(callee)?;
-        candidates.iter().find(|entry| entry.module == root).copied()
-    })
+    body.descendants()
+        .filter(|node| *node.kind() == NodeKind::Call)
+        .find_map(|call| {
+            let callee = call.first_child()?;
+            let root = root_identifier(callee)?;
+            candidates
+                .iter()
+                .find(|entry| entry.module == root)
+                .copied()
+        })
 }
 
 pub struct BddStepReachesInfraRule {
@@ -161,7 +189,9 @@ pub struct BddStepReachesInfraRule {
 
 impl BddStepReachesInfraRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("ddd:bdd-step-reaches-infra").expect("valid rule id") }
+        Self {
+            id: RuleId::new("ddd:bdd-step-reaches-infra").expect("valid rule id"),
+        }
     }
 }
 
@@ -177,8 +207,12 @@ impl Rule for BddStepReachesInfraRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        [LanguageIdentifier::typescript(), LanguageIdentifier::python(), LanguageIdentifier::rust()]
-            .contains(language)
+        [
+            LanguageIdentifier::typescript(),
+            LanguageIdentifier::python(),
+            LanguageIdentifier::rust(),
+        ]
+        .contains(language)
     }
 
     fn default_severity(&self) -> Severity {
@@ -228,9 +262,13 @@ mod tests {
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else {
             yunq_parser_rust::RustParser::new().parse(&file).unwrap()
         };
@@ -240,24 +278,44 @@ mod tests {
     #[test]
     fn flags_a_cucumber_js_step_that_calls_axios_directly() {
         let code = "Given('an order exists', function () {\n  axios.get('/orders/1');\n});\n";
-        let findings = check("features/step_definitions/order_steps.ts", code, LanguageIdentifier::typescript());
+        let findings = check(
+            "features/step_definitions/order_steps.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
-        assert!(findings[0].message.contains("`axios`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`axios`"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("an HTTP client"));
     }
 
     #[test]
     fn flags_a_cucumber_js_arrow_function_step() {
-        let code = "When('the order is placed', async () => {\n  await axios.post('/orders', {});\n});\n";
-        let findings = check("features/step_definitions/order_steps.ts", code, LanguageIdentifier::typescript());
+        let code =
+            "When('the order is placed', async () => {\n  await axios.post('/orders', {});\n});\n";
+        let findings = check(
+            "features/step_definitions/order_steps.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
     #[test]
     fn silent_when_the_step_calls_a_use_case_instead() {
-        let code = "When('the order is placed', function () {\n  placeOrder.execute(this.command);\n});\n";
-        assert!(check("features/step_definitions/order_steps.ts", code, LanguageIdentifier::typescript())
-            .is_empty());
+        let code =
+            "When('the order is placed', function () {\n  placeOrder.execute(this.command);\n});\n";
+        assert!(
+            check(
+                "features/step_definitions/order_steps.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -270,8 +328,13 @@ mod tests {
 
     #[test]
     fn flags_a_behave_step_that_calls_requests_directly() {
-        let code = "@given('an order exists')\ndef step_impl(context):\n    requests.get('/orders/1')\n";
-        let findings = check("features/steps/order_steps.py", code, LanguageIdentifier::python());
+        let code =
+            "@given('an order exists')\ndef step_impl(context):\n    requests.get('/orders/1')\n";
+        let findings = check(
+            "features/steps/order_steps.py",
+            code,
+            LanguageIdentifier::python(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("`requests`"));
     }
@@ -279,13 +342,24 @@ mod tests {
     #[test]
     fn silent_when_the_behave_step_calls_the_application_layer() {
         let code = "@when('the order is placed')\ndef step_impl(context):\n    place_order(context.command)\n";
-        assert!(check("features/steps/order_steps.py", code, LanguageIdentifier::python()).is_empty());
+        assert!(
+            check(
+                "features/steps/order_steps.py",
+                code,
+                LanguageIdentifier::python()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn flags_a_cucumber_rs_step_that_calls_reqwest_directly() {
         let code = "#[given(expr = \"an order exists\")]\nasync fn an_order_exists(world: &mut World) {\n    reqwest::get(\"http://localhost/orders/1\").await;\n}\n";
-        let findings = check("tests/steps/order_steps.rs", code, LanguageIdentifier::rust());
+        let findings = check(
+            "tests/steps/order_steps.rs",
+            code,
+            LanguageIdentifier::rust(),
+        );
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("`reqwest`"));
     }
@@ -293,7 +367,14 @@ mod tests {
     #[test]
     fn silent_when_the_cucumber_rs_step_calls_the_application_layer() {
         let code = "#[when(expr = \"the order is placed\")]\nasync fn the_order_is_placed(world: &mut World) {\n    place_order(&world.command).await;\n}\n";
-        assert!(check("tests/steps/order_steps.rs", code, LanguageIdentifier::rust()).is_empty());
+        assert!(
+            check(
+                "tests/steps/order_steps.rs",
+                code,
+                LanguageIdentifier::rust()
+            )
+            .is_empty()
+        );
     }
 
     #[test]

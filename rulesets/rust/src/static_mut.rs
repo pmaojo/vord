@@ -15,7 +15,9 @@ pub struct StaticMutRule {
 
 impl StaticMutRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:static-mut").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:static-mut").expect("valid rule id"),
+        }
     }
 }
 
@@ -61,7 +63,11 @@ impl Rule for StaticMutRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         ast.descendants()
             .filter(|n| is_other(n.kind(), "static_item"))
-            .filter(|s| s.children().iter().any(|c| is_other(c.kind(), "mutable_specifier")))
+            .filter(|s| {
+                s.children()
+                    .iter()
+                    .any(|c| is_other(c.kind(), "mutable_specifier"))
+            })
             .map(|s| {
                 Finding::new(
                     "`static mut` allows unsynchronized global mutable state; use an atomic \

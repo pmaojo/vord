@@ -22,7 +22,7 @@ use crate::gate::{advisory_note, denial_feedback};
 use crate::observer::{AgentEvent, NoopObserver, Observer};
 use crate::prompt::{system_prompt, task_prompt};
 use crate::session::{AssistantTurn, ToolCall, ToolResult, Transcript};
-use crate::tools::{tool_specs, CommandAllowlist, ToolInvocation, ToolSpec};
+use crate::tools::{CommandAllowlist, ToolInvocation, ToolSpec, tool_specs};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("model error: {0}")]
@@ -56,7 +56,10 @@ impl CommandOutput {
             Some(code) => format!("exit {code}"),
             None => "terminated by signal".to_string(),
         };
-        format!("{status}\n--- stdout ---\n{}\n--- stderr ---\n{}", self.stdout, self.stderr)
+        format!(
+            "{status}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            self.stdout, self.stderr
+        )
     }
 }
 
@@ -87,13 +90,19 @@ pub trait Workspace: Send + Sync {
 /// — same policy file, same provenance ledger, same Gherkin evidence, same
 /// approvals — so this runtime cannot drift from the guardrail it ships.
 pub trait WriteJudge: Send + Sync {
-    fn judge(&self, path: &str, content: &str)
-        -> impl Future<Output = Result<Evaluation, JudgeError>> + Send;
+    fn judge(
+        &self,
+        path: &str,
+        content: &str,
+    ) -> impl Future<Output = Result<Evaluation, JudgeError>> + Send;
 }
 
 /// Outbound port: the analyzer, over a path on disk.
 pub trait Analyzer: Send + Sync {
-    fn scan(&self, path: &str) -> impl Future<Output = Result<Vec<LocatedFinding>, AnalysisError>> + Send;
+    fn scan(
+        &self,
+        path: &str,
+    ) -> impl Future<Output = Result<Vec<LocatedFinding>, AnalysisError>> + Send;
 }
 
 /// One run's parameters.
@@ -134,19 +143,37 @@ impl RunConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunOutcome {
     /// The analyzer agrees. The only success.
-    Completed { turns: u32, summary: Option<String> },
+    Completed {
+        turns: u32,
+        summary: Option<String>,
+    },
     /// The model stopped, the analyzer did not agree, and the model could not
     /// close the gap within `max_rejections`.
-    Incomplete { turns: u32, completion: Completion },
-    BudgetExhausted { turns: u32, exhaustion: Exhaustion },
+    Incomplete {
+        turns: u32,
+        completion: Completion,
+    },
+    BudgetExhausted {
+        turns: u32,
+        exhaustion: Exhaustion,
+    },
     /// The circuit breaker tripped: one rule denied the agent three times
     /// running.
-    CircuitBreakerTripped { turns: u32, rules: Vec<RuleId> },
+    CircuitBreakerTripped {
+        turns: u32,
+        rules: Vec<RuleId>,
+    },
     /// The same bytes written to the same path three times running.
-    Looping { turns: u32, path: String },
+    Looping {
+        turns: u32,
+        path: String,
+    },
     /// yunq, the model or the workspace failed. Never conflated with a
     /// verdict — "we could not look" is not "we looked and saw nothing".
-    Failed { turns: u32, error: String },
+    Failed {
+        turns: u32,
+        error: String,
+    },
 }
 
 impl RunOutcome {
@@ -178,13 +205,20 @@ impl RunOutcome {
     pub fn describe(&self) -> String {
         match self {
             Self::Completed { summary, .. } => {
-                format!("complete — the analyzer agrees. {}", summary.as_deref().unwrap_or(""))
+                format!(
+                    "complete — the analyzer agrees. {}",
+                    summary.as_deref().unwrap_or("")
+                )
             }
-            Self::Incomplete { completion, .. } => format!("incomplete — {}", completion.describe()),
+            Self::Incomplete { completion, .. } => {
+                format!("incomplete — {}", completion.describe())
+            }
             Self::BudgetExhausted { exhaustion, .. } => exhaustion.to_string(),
             Self::CircuitBreakerTripped { rules, .. } => crate::gate::circuit_breaker_stop(rules),
             Self::Looping { path, .. } => {
-                format!("stopped: the agent wrote identical content to `{path}` three times running")
+                format!(
+                    "stopped: the agent wrote identical content to `{path}` three times running"
+                )
             }
             Self::Failed { error, .. } => format!("failed: {error}"),
         }
@@ -218,8 +252,18 @@ where
     A: Analyzer,
 {
     pub fn new(model: M, workspace: W, judge: J, analyzer: A, config: RunConfig) -> Self {
-        let tools = WorkspaceTools { workspace, allowlist: config.allowlist.clone() };
-        Self { model, tools, judge, analyzer, config, observer: Box::new(NoopObserver) }
+        let tools = WorkspaceTools {
+            workspace,
+            allowlist: config.allowlist.clone(),
+        };
+        Self {
+            model,
+            tools,
+            judge,
+            analyzer,
+            config,
+            observer: Box::new(NoopObserver),
+        }
     }
 
     /// Swaps in an observer that watches this run — `yunq agent tui`
@@ -251,8 +295,13 @@ where
         let baseline = match self.analyzer.scan(&self.config.scope).await {
             Ok(findings) => findings,
             Err(error) => {
-                let outcome = RunOutcome::Failed { turns: 0, error: error.to_string() };
-                self.observer.on_event(AgentEvent::Finished { outcome: outcome.clone() });
+                let outcome = RunOutcome::Failed {
+                    turns: 0,
+                    error: error.to_string(),
+                };
+                self.observer.on_event(AgentEvent::Finished {
+                    outcome: outcome.clone(),
+                });
                 return outcome;
             }
         };
@@ -264,7 +313,9 @@ where
                 break outcome;
             }
         };
-        self.observer.on_event(AgentEvent::Finished { outcome: outcome.clone() });
+        self.observer.on_event(AgentEvent::Finished {
+            outcome: outcome.clone(),
+        });
         outcome
     }
 
@@ -278,18 +329,27 @@ where
         state: &mut LoopState,
     ) -> Option<RunOutcome> {
         if let Some(exhaustion) = state.ledger.exhausted(&self.config.budget) {
-            return Some(RunOutcome::BudgetExhausted { turns: state.ledger.turns(), exhaustion });
+            return Some(RunOutcome::BudgetExhausted {
+                turns: state.ledger.turns(),
+                exhaustion,
+            });
         }
-        self.observer.on_event(AgentEvent::TurnStarted { turn: state.ledger.turns() + 1 });
+        self.observer.on_event(AgentEvent::TurnStarted {
+            turn: state.ledger.turns() + 1,
+        });
         let turn = match self.model.next_turn(&state.transcript, specs).await {
             Ok(turn) => turn,
             Err(error) => {
-                return Some(RunOutcome::Failed { turns: state.ledger.turns(), error: error.to_string() })
+                return Some(RunOutcome::Failed {
+                    turns: state.ledger.turns(),
+                    error: error.to_string(),
+                });
             }
         };
         state.ledger.record_turn(turn.usage);
         state.transcript.push_assistant(&turn);
-        self.observer.on_event(AgentEvent::ModelResponded { turn: turn.clone() });
+        self.observer
+            .on_event(AgentEvent::ModelResponded { turn: turn.clone() });
 
         if turn.claims_completion() {
             return self.adjudicate(baseline, &turn, state).await;
@@ -315,16 +375,29 @@ where
         let turns = state.ledger.turns();
         let current = match self.analyzer.scan(&self.config.scope).await {
             Ok(findings) => findings,
-            Err(error) => return Some(RunOutcome::Failed { turns, error: error.to_string() }),
+            Err(error) => {
+                return Some(RunOutcome::Failed {
+                    turns,
+                    error: error.to_string(),
+                });
+            }
         };
         let verdict = completion::judge(baseline, &current, self.config.target_rule.as_ref());
-        self.observer.on_event(AgentEvent::Adjudicated { completion: verdict.clone() });
+        self.observer.on_event(AgentEvent::Adjudicated {
+            completion: verdict.clone(),
+        });
         if verdict.is_done() {
-            return Some(RunOutcome::Completed { turns, summary: turn.text.clone() });
+            return Some(RunOutcome::Completed {
+                turns,
+                summary: turn.text.clone(),
+            });
         }
         state.rejections += 1;
         if state.rejections > self.config.max_rejections {
-            return Some(RunOutcome::Incomplete { turns, completion: verdict });
+            return Some(RunOutcome::Incomplete {
+                turns,
+                completion: verdict,
+            });
         }
         state.transcript.push_user(format!(
             "{}\nKeep working: this session does not end until the analyzer agrees.",
@@ -351,10 +424,13 @@ where
     }
 
     async fn execute_call(&self, call: &ToolCall, state: &mut LoopState) -> Step {
-        self.observer.on_event(AgentEvent::ToolCallStarted { call: call.clone() });
+        self.observer
+            .on_event(AgentEvent::ToolCallStarted { call: call.clone() });
         let step = self.execute_call_inner(call, state).await;
         if let Step::Answer(result) = &step {
-            self.observer.on_event(AgentEvent::ToolCallFinished { result: result.clone() });
+            self.observer.on_event(AgentEvent::ToolCallFinished {
+                result: result.clone(),
+            });
         }
         step
     }
@@ -369,11 +445,21 @@ where
             ToolInvocation::Search { pattern, path } => {
                 Step::Answer(self.tools.search(&call.id, &pattern, path.as_deref()))
             }
-            ToolInvocation::Run { command } => Step::Answer(self.tools.run_command(&call.id, &command)),
+            ToolInvocation::Run { command } => {
+                Step::Answer(self.tools.run_command(&call.id, &command))
+            }
             ToolInvocation::Scan { path } => Step::Answer(self.scan(&call.id, &path).await),
-            ToolInvocation::Write { path, content } => self.apply_write(&call.id, &path, content, state).await,
-            ToolInvocation::Edit { path, old_string, new_string, replace_all } => {
-                self.apply_edit(call, &path, (&old_string, &new_string, replace_all), state).await
+            ToolInvocation::Write { path, content } => {
+                self.apply_write(&call.id, &path, content, state).await
+            }
+            ToolInvocation::Edit {
+                path,
+                old_string,
+                new_string,
+                replace_all,
+            } => {
+                self.apply_edit(call, &path, (&old_string, &new_string, replace_all), state)
+                    .await
             }
         }
     }
@@ -397,7 +483,9 @@ where
 
     async fn scan(&self, call_id: &str, path: &str) -> ToolResult {
         match self.analyzer.scan(path).await {
-            Ok(findings) if findings.is_empty() => ToolResult::ok(call_id, format!("no findings in `{path}`")),
+            Ok(findings) if findings.is_empty() => {
+                ToolResult::ok(call_id, format!("no findings in `{path}`"))
+            }
             Ok(findings) => {
                 let lines: Vec<String> = findings.iter().map(LocatedFinding::describe).collect();
                 ToolResult::ok(call_id, lines.join("\n"))
@@ -421,25 +509,43 @@ where
             // silently allowing an unjudged write is precisely the failure
             // this runtime exists to make impossible.
             Err(error) => {
-                return Step::Stop(RunOutcome::Failed { turns: state.ledger.turns(), error: error.to_string() })
+                return Step::Stop(RunOutcome::Failed {
+                    turns: state.ledger.turns(),
+                    error: error.to_string(),
+                });
             }
         };
-        self.observer
-            .on_event(AgentEvent::WriteJudged { path: path.to_string(), evaluation: evaluation.clone() });
+        self.observer.on_event(AgentEvent::WriteJudged {
+            path: path.to_string(),
+            evaluation: evaluation.clone(),
+        });
         let tripped = state.breaker.record(&evaluation);
         if evaluation.is_denied() {
             if !tripped.is_empty() {
-                return Step::Stop(RunOutcome::CircuitBreakerTripped { turns: state.ledger.turns(), rules: tripped });
+                return Step::Stop(RunOutcome::CircuitBreakerTripped {
+                    turns: state.ledger.turns(),
+                    rules: tripped,
+                });
             }
-            return Step::Answer(ToolResult::error(call_id, denial_feedback(path, &evaluation)));
+            return Step::Answer(ToolResult::error(
+                call_id,
+                denial_feedback(path, &evaluation),
+            ));
         }
         if state.repeats.record(path, &content) {
-            return Step::Stop(RunOutcome::Looping { turns: state.ledger.turns(), path: path.to_string() });
+            return Step::Stop(RunOutcome::Looping {
+                turns: state.ledger.turns(),
+                path: path.to_string(),
+            });
         }
         match self.tools.workspace.write(path, &content) {
             Ok(()) => Step::Answer(ToolResult::ok(
                 call_id,
-                format!("wrote {} bytes to `{path}`{}", content.len(), advisory_note(&evaluation)),
+                format!(
+                    "wrote {} bytes to `{path}`{}",
+                    content.len(),
+                    advisory_note(&evaluation)
+                ),
             )),
             Err(error) => Step::Answer(ToolResult::error(call_id, error.to_string())),
         }
@@ -505,9 +611,15 @@ impl<W: Workspace> WorkspaceTools<W> {
         path: &str,
         (old_string, new_string, replace_all): (&str, &str, bool),
     ) -> Result<String, ToolResult> {
-        let current = self.workspace.read(path).map_err(|error| ToolResult::error(call_id, error.to_string()))?;
+        let current = self
+            .workspace
+            .read(path)
+            .map_err(|error| ToolResult::error(call_id, error.to_string()))?;
         if !current.contains(old_string) {
-            return Err(ToolResult::error(call_id, format!("`{path}` does not contain the string to replace")));
+            return Err(ToolResult::error(
+                call_id,
+                format!("`{path}` does not contain the string to replace"),
+            ));
         }
         Ok(if replace_all {
             current.replace(old_string, new_string)

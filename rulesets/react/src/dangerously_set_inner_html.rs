@@ -13,7 +13,9 @@ pub struct DangerouslySetInnerHtmlRule {
 
 impl DangerouslySetInnerHtmlRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:dangerously-set-inner-html").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:dangerously-set-inner-html").expect("valid rule id"),
+        }
     }
 }
 
@@ -71,7 +73,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         DangerouslySetInnerHtmlRule::new().check(&file, &ast)
     }
 

@@ -16,8 +16,14 @@ pub struct InvalidMetricKeyError(String);
 impl MetricKey {
     pub fn new(raw: &str) -> Result<Self, InvalidMetricKeyError> {
         let valid = !raw.is_empty()
-            && raw.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
-        if valid { Ok(Self(raw.to_string())) } else { Err(InvalidMetricKeyError(raw.to_string())) }
+            && raw
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        if valid {
+            Ok(Self(raw.to_string()))
+        } else {
+            Err(InvalidMetricKeyError(raw.to_string()))
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -58,7 +64,11 @@ pub struct Condition {
 
 impl Condition {
     pub fn new(metric: MetricKey, operator: ComparisonOperator, threshold: f64) -> Self {
-        Self { metric, operator, threshold }
+        Self {
+            metric,
+            operator,
+            threshold,
+        }
     }
 
     pub fn metric(&self) -> &MetricKey {
@@ -127,7 +137,9 @@ impl GateEvaluation {
     }
 
     pub fn failed_conditions(&self) -> impl Iterator<Item = &ConditionResult> {
-        self.results.iter().filter(|r| r.status == ConditionStatus::Failed)
+        self.results
+            .iter()
+            .filter(|r| r.status == ConditionStatus::Failed)
     }
 }
 
@@ -140,7 +152,10 @@ pub struct QualityGate {
 
 impl QualityGate {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), conditions: Vec::new() }
+        Self {
+            name: name.into(),
+            conditions: Vec::new(),
+        }
     }
 
     pub fn with_condition(mut self, condition: Condition) -> Self {
@@ -172,7 +187,11 @@ impl QualityGate {
                     Some(v) if condition.is_breached(v) => ConditionStatus::Failed,
                     Some(_) => ConditionStatus::Passed,
                 };
-                ConditionResult { condition: condition.clone(), value, status }
+                ConditionResult {
+                    condition: condition.clone(),
+                    value,
+                    status,
+                }
             })
             .collect();
         let status = if results.iter().any(|r| r.status == ConditionStatus::Failed) {

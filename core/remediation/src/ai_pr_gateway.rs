@@ -15,15 +15,13 @@
 //! `core/remediation`) nor an ALM provider (use `AlmGateway` from
 //! `core/rules_engine/alm_gateway`).
 
-
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{FixProposal, RemediationError};
 use yunq_rules_engine::{
-    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport,
-    InlineComment, PrDecoration,
+    AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, InlineComment, PrDecoration,
 };
 use yunq_rules_engine::{ProjectKey, RuleId, Severity};
 
@@ -100,7 +98,9 @@ pub enum AiAssignmentState {
     },
     /// Issue was already in a state that doesn't need an AI fix
     /// (e.g. closed, won't-fix, already resolved).
-    Skipped { reason: String },
+    Skipped {
+        reason: String,
+    },
 }
 
 /// Summary returned by `bulk_assign_to_agent`.
@@ -124,7 +124,10 @@ pub struct AiPrGateway<A: AlmGateway> {
 
 impl<A: AlmGateway> AiPrGateway<A> {
     pub fn new(alm: A) -> Self {
-        Self { alm, concurrency: 4 }
+        Self {
+            alm,
+            concurrency: 4,
+        }
     }
 
     /// Assign a single issue to the given agent and (on success) open a PR.
@@ -233,8 +236,8 @@ pub enum AiPrGatewayError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::DecorationReceipt;
     use std::sync::{Arc, Mutex};
+    use yunq_rules_engine::DecorationReceipt;
 
     /// In-memory `AlmGateway` that records every decoration + check run.
     #[derive(Debug, Clone, Default)]
@@ -263,7 +266,10 @@ mod tests {
             pr_id: String,
             report: CheckRunReport,
         ) -> Result<String, AlmGatewayError> {
-            self.check_runs.lock().unwrap().push((project_key, repo, pr_id, report));
+            self.check_runs
+                .lock()
+                .unwrap()
+                .push((project_key, repo, pr_id, report));
             Ok("fake-run-id".to_string())
         }
         fn name(&self) -> &'static str {
@@ -297,7 +303,10 @@ mod tests {
         let alm = FakeAlm::default();
         let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
-        let task = gateway.assign_to_agent(&issue, AiAgent::YunqAutoFix).await.unwrap();
+        let task = gateway
+            .assign_to_agent(&issue, AiAgent::YunqAutoFix)
+            .await
+            .unwrap();
         assert_eq!(task.issue, issue);
         assert_eq!(task.agent, AiAgent::YunqAutoFix);
         assert_eq!(task.id, AiAssignmentTaskId(task.id.0));
@@ -308,7 +317,10 @@ mod tests {
         let alm = FakeAlm::default();
         let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
-        let task = gateway.assign_to_agent(&issue, AiAgent::YunqAutoFix).await.unwrap();
+        let task = gateway
+            .assign_to_agent(&issue, AiAgent::YunqAutoFix)
+            .await
+            .unwrap();
         assert!(matches!(
             task.state,
             AiAssignmentState::Done { .. } | AiAssignmentState::Skipped { .. }
@@ -324,7 +336,10 @@ mod tests {
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
         let decorations = alm.decorations.lock().unwrap();
         let decoration = decorations.first().expect("a decoration was posted");
-        assert_eq!(decoration.project_key, "acme", "decoration must carry the project key");
+        assert_eq!(
+            decoration.project_key, "acme",
+            "decoration must carry the project key"
+        );
         assert_eq!(decoration.provider, "fake");
     }
 
@@ -338,9 +353,18 @@ mod tests {
         let decorations = alm.decorations.lock().unwrap();
         let decoration = decorations.first().unwrap();
         let summary = decoration.summary.as_deref().unwrap_or("");
-        assert!(summary.contains("owasp:sqli"), "summary must cite the rule: {summary}");
-        assert!(summary.contains("src/api/users.rs"), "summary must cite the file: {summary}");
-        assert!(summary.contains("42"), "summary must cite the line: {summary}");
+        assert!(
+            summary.contains("owasp:sqli"),
+            "summary must cite the rule: {summary}"
+        );
+        assert!(
+            summary.contains("src/api/users.rs"),
+            "summary must cite the file: {summary}"
+        );
+        assert!(
+            summary.contains("42"),
+            "summary must cite the line: {summary}"
+        );
     }
 
     #[tokio::test]
@@ -352,7 +376,10 @@ mod tests {
         let _url = gateway.open_ai_pr(&proposal, &issue).await.unwrap();
         let decorations = alm.decorations.lock().unwrap();
         let decoration = decorations.first().unwrap();
-        let comment = decoration.comments.first().expect("at least one inline comment");
+        let comment = decoration
+            .comments
+            .first()
+            .expect("at least one inline comment");
         assert_eq!(comment.path, "src/api/users.rs");
         assert_eq!(comment.line, 42);
         assert!(comment.body.contains("param_sql"));
@@ -377,7 +404,10 @@ mod tests {
         let alm = FakeAlm::default();
         let gateway = AiPrGateway::new(alm.clone());
         let issues: Vec<IssueRef> = (0..5).map(|_| sample_issue()).collect();
-        let summary = gateway.bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix).await.unwrap();
+        let summary = gateway
+            .bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix)
+            .await
+            .unwrap();
         assert_eq!(summary.total, 5);
         assert_eq!(
             summary.assigned + summary.already_open + summary.skipped + summary.failed,
@@ -393,9 +423,15 @@ mod tests {
         gateway.concurrency = 2;
         let issues: Vec<IssueRef> = (0..6).map(|_| sample_issue()).collect();
         let started = Utc::now();
-        let _summary = gateway.bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix).await.unwrap();
+        let _summary = gateway
+            .bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix)
+            .await
+            .unwrap();
         let duration = Utc::now() - started;
-        assert!(duration.num_seconds() < 30, "bulk_assign took too long: {duration:?}");
+        assert!(
+            duration.num_seconds() < 30,
+            "bulk_assign took too long: {duration:?}"
+        );
     }
 
     #[tokio::test]
@@ -403,7 +439,10 @@ mod tests {
         let alm = FakeAlm::default();
         let gateway = AiPrGateway::new(alm.clone());
         let issues: Vec<IssueRef> = (0..3).map(|_| sample_issue()).collect();
-        let summary = gateway.bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix).await.unwrap();
+        let summary = gateway
+            .bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix)
+            .await
+            .unwrap();
         assert_eq!(summary.tasks.len(), 3);
     }
 
@@ -425,7 +464,9 @@ mod tests {
 
     #[test]
     fn skipped_state_carries_reason() {
-        let s = AiAssignmentState::Skipped { reason: "already-resolved".into() };
+        let s = AiAssignmentState::Skipped {
+            reason: "already-resolved".into(),
+        };
         if let AiAssignmentState::Skipped { reason } = s {
             assert_eq!(reason, "already-resolved");
         } else {
@@ -440,7 +481,11 @@ mod tests {
             proposal: proposal.clone(),
             pr_url: "https://example/pr/1".into(),
         };
-        if let AiAssignmentState::Done { proposal: p, pr_url } = s {
+        if let AiAssignmentState::Done {
+            proposal: p,
+            pr_url,
+        } = s
+        {
             assert_eq!(p, proposal);
             assert_eq!(pr_url, "https://example/pr/1");
         } else {

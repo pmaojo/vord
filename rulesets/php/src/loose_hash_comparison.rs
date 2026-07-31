@@ -6,7 +6,10 @@ use crate::common::{callee_node, is_other, operator_between};
 const HASH_FUNCTIONS: &[&str] = &["md5", "sha1", "hash", "crc32"];
 
 fn is_hash_call(node: &AstNode) -> bool {
-    *node.kind() == NodeKind::Call && callee_node(node).is_some_and(|c| *c.kind() == NodeKind::Identifier && HASH_FUNCTIONS.contains(&c.text()))
+    *node.kind() == NodeKind::Call
+        && callee_node(node).is_some_and(|c| {
+            *c.kind() == NodeKind::Identifier && HASH_FUNCTIONS.contains(&c.text())
+        })
 }
 
 /// PHP's loose `==`/`!=` compares two numeric-looking strings as numbers.
@@ -24,7 +27,9 @@ pub struct LooseHashComparisonRule {
 
 impl LooseHashComparisonRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:loose-hash-comparison").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:loose-hash-comparison").expect("valid rule id"),
+        }
     }
 }
 

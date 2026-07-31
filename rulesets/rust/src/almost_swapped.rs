@@ -21,7 +21,9 @@ pub struct AlmostSwappedRule {
 
 impl AlmostSwappedRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:almost-swapped").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:almost-swapped").expect("valid rule id"),
+        }
     }
 }
 
@@ -120,29 +122,29 @@ mod tests {
 
     #[test]
     fn flags_almost_swapped_deref() {
-        let findings =
-            check("fn f(a: &mut i32, b: &mut i32) { *a = *b; *b = *a; }\n");
+        let findings = check("fn f(a: &mut i32, b: &mut i32) { *a = *b; *b = *a; }\n");
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn ignores_real_swap_with_temp() {
-        assert!(check(
-            "fn f(mut a: i32, mut b: i32) { let tmp = a; a = b; b = tmp; }\n"
-        )
-        .is_empty());
+        assert!(
+            check("fn f(mut a: i32, mut b: i32) { let tmp = a; a = b; b = tmp; }\n").is_empty()
+        );
     }
 
     #[test]
     fn ignores_mem_swap() {
-        assert!(check("fn f(mut a: i32, mut b: i32) { std::mem::swap(&mut a, &mut b); }\n")
-            .is_empty());
+        assert!(
+            check("fn f(mut a: i32, mut b: i32) { std::mem::swap(&mut a, &mut b); }\n").is_empty()
+        );
     }
 
     #[test]
     fn ignores_non_adjacent_assignments() {
-        assert!(check("fn f(mut a: i32, mut b: i32, mut c: i32) { a = b; c = 1; b = a; }\n")
-            .is_empty());
+        assert!(
+            check("fn f(mut a: i32, mut b: i32, mut c: i32) { a = b; c = 1; b = a; }\n").is_empty()
+        );
     }
 
     #[test]

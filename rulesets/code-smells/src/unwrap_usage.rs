@@ -14,7 +14,9 @@ pub struct UnwrapUsageRule {
 
 impl UnwrapUsageRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:unwrap-usage").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:unwrap-usage").expect("valid rule id"),
+        }
     }
 }
 
@@ -96,7 +98,10 @@ mod tests {
 
     #[test]
     fn does_not_flag_a_justified_expect() {
-        assert!(check("fn f() { let a = g().expect(\"connection pool is never empty\"); }\n").is_empty());
+        assert!(
+            check("fn f() { let a = g().expect(\"connection pool is never empty\"); }\n")
+                .is_empty()
+        );
     }
 
     #[test]

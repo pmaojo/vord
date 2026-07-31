@@ -5,14 +5,17 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::{is_other, operator_between};
 
-const UNSIGNED_TYPES: &[&str] =
-    &["u8", "u16", "u32", "u64", "u128", "usize"];
+const UNSIGNED_TYPES: &[&str] = &["u8", "u16", "u32", "u64", "u128", "usize"];
 
 /// The names of `fn`'s parameters declared with an unsigned primitive type
 /// (`u8`..`usize`) — comparing one of these against `0` with `<`/`>=` is a
 /// tautology, since an unsigned value can never be negative.
 fn unsigned_params(func: &AstNode) -> HashSet<&str> {
-    let Some(params) = func.children().iter().find(|c| is_other(c.kind(), "parameters")) else {
+    let Some(params) = func
+        .children()
+        .iter()
+        .find(|c| is_other(c.kind(), "parameters"))
+    else {
         return HashSet::new();
     };
     params
@@ -20,8 +23,14 @@ fn unsigned_params(func: &AstNode) -> HashSet<&str> {
         .iter()
         .filter(|c| is_other(c.kind(), "parameter"))
         .filter_map(|p| {
-            let ident = p.children().iter().find(|c| *c.kind() == NodeKind::Identifier)?;
-            let ty = p.children().iter().find(|c| is_other(c.kind(), "primitive_type"))?;
+            let ident = p
+                .children()
+                .iter()
+                .find(|c| *c.kind() == NodeKind::Identifier)?;
+            let ty = p
+                .children()
+                .iter()
+                .find(|c| is_other(c.kind(), "primitive_type"))?;
             UNSIGNED_TYPES.contains(&ty.text()).then_some(ident.text())
         })
         .collect()
@@ -30,7 +39,12 @@ fn unsigned_params(func: &AstNode) -> HashSet<&str> {
 /// Whether `left OP right` is an always-false or always-true comparison
 /// given that `unsigned` names an unsigned local, returning the explanatory
 /// message if so.
-fn absurd_message(unsigned: &HashSet<&str>, left: &AstNode, right: &AstNode, op: &str) -> Option<String> {
+fn absurd_message(
+    unsigned: &HashSet<&str>,
+    left: &AstNode,
+    right: &AstNode,
+    op: &str,
+) -> Option<String> {
     if unsigned.contains(left.text()) && right.text() == "0" {
         return match op {
             "<" => Some(format!(
@@ -74,7 +88,9 @@ pub struct AbsurdExtremeComparisonRule {
 
 impl AbsurdExtremeComparisonRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:absurd-extreme-comparison").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:absurd-extreme-comparison").expect("valid rule id"),
+        }
     }
 }
 

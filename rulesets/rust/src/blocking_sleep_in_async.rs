@@ -5,7 +5,8 @@ use crate::common::is_other;
 
 fn is_async_fn(node: &AstNode) -> bool {
     node.children().iter().any(|c| {
-        is_other(c.kind(), "function_modifiers") && c.text().split_whitespace().any(|w| w == "async")
+        is_other(c.kind(), "function_modifiers")
+            && c.text().split_whitespace().any(|w| w == "async")
     })
 }
 
@@ -24,7 +25,11 @@ fn collect_blocking_sleeps<'a>(node: &'a AstNode, out: &mut Vec<&'a AstNode>) {
         if *child.kind() == NodeKind::FunctionDef {
             continue;
         }
-        if *child.kind() == NodeKind::Call && child.first_child().is_some_and(|c| is_thread_sleep_call(c.text())) {
+        if *child.kind() == NodeKind::Call
+            && child
+                .first_child()
+                .is_some_and(|c| is_thread_sleep_call(c.text()))
+        {
             out.push(child);
         }
         collect_blocking_sleeps(child, out);
@@ -45,7 +50,9 @@ pub struct BlockingSleepInAsyncRule {
 
 impl BlockingSleepInAsyncRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:blocking-sleep-in-async").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:blocking-sleep-in-async").expect("valid rule id"),
+        }
     }
 }
 
@@ -91,7 +98,10 @@ impl Rule for BlockingSleepInAsyncRule {
 
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut spans: Vec<Span> = Vec::new();
-        for async_fn in ast.descendants().filter(|n| *n.kind() == NodeKind::FunctionDef && is_async_fn(n)) {
+        for async_fn in ast
+            .descendants()
+            .filter(|n| *n.kind() == NodeKind::FunctionDef && is_async_fn(n))
+        {
             let mut sleeps = Vec::new();
             collect_blocking_sleeps(async_fn, &mut sleeps);
             spans.extend(sleeps.into_iter().map(AstNode::span));
@@ -148,12 +158,18 @@ mod tests {
 
     #[test]
     fn ignores_sleep_in_non_async_fn() {
-        assert!(check("fn f() { std::thread::sleep(std::time::Duration::from_secs(1)); }\n").is_empty());
+        assert!(
+            check("fn f() { std::thread::sleep(std::time::Duration::from_secs(1)); }\n").is_empty()
+        );
     }
 
     #[test]
     fn ignores_awaited_async_sleep() {
-        assert!(check("async fn f() { tokio::time::sleep(std::time::Duration::from_secs(1)).await; }\n")
-            .is_empty());
+        assert!(
+            check(
+                "async fn f() { tokio::time::sleep(std::time::Duration::from_secs(1)).await; }\n"
+            )
+            .is_empty()
+        );
     }
 }

@@ -11,9 +11,15 @@
 //! Pure: no I/O, no framework dependencies, `yunq-ast` only.
 
 pub mod classes;
+pub mod pointer_analysis;
 pub mod scope;
+pub mod scope_tree;
 pub mod types;
 
-pub use classes::{function_params, is_constructor_name, ClassInfo, ClassRegistry, MemberInfo, MethodInfo};
+pub use classes::{
+    ClassInfo, ClassRegistry, MemberInfo, MethodInfo, function_params, is_constructor_name,
+};
+pub use pointer_analysis::{AndersenAnalysis, PointerConstraint, SteensgaardAnalysis};
 pub use scope::{free_identifiers, own_bindings};
+pub use scope_tree::{BindingInfo, BindingResolution, Scope, ScopeKind, ScopeTree};
 pub use types::{declared_type, is_primitive_type, mentions_collaborator, type_identifiers};

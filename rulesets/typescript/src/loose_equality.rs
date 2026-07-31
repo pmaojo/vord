@@ -16,7 +16,9 @@ fn loose_operator(node: &AstNode) -> Option<&'static str> {
     if !is_other(node, "binary_expression") {
         return None;
     }
-    let [left, right] = node.children() else { return None };
+    let [left, right] = node.children() else {
+        return None;
+    };
     let node_start = node.byte_range().start;
     let gap_start = left.byte_range().end.saturating_sub(node_start);
     let gap_end = right.byte_range().start.saturating_sub(node_start);
@@ -34,7 +36,9 @@ pub struct LooseEqualityRule {
 
 impl LooseEqualityRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:loose-equality").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:loose-equality").expect("valid rule id"),
+        }
     }
 }
 
@@ -79,7 +83,10 @@ impl Rule for LooseEqualityRule {
             .filter_map(|n| loose_operator(n).map(|op| (n, op)))
             .map(|(n, op)| {
                 let strict = if op == "==" { "===" } else { "!==" };
-                Finding::new(format!("`{op}` performs type coercion; use `{strict}` instead"), n.span())
+                Finding::new(
+                    format!("`{op}` performs type coercion; use `{strict}` instead"),
+                    n.span(),
+                )
             })
             .collect()
     }
@@ -94,7 +101,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         LooseEqualityRule::new().check(&file, &ast)
     }
 

@@ -38,7 +38,9 @@ pub struct PromiseThenWithoutCatchRule {
 
 impl PromiseThenWithoutCatchRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:promise-then-without-catch").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:promise-then-without-catch").expect("valid rule id"),
+        }
     }
 }
 
@@ -96,7 +98,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         PromiseThenWithoutCatchRule::new().check(&file, &ast)
     }
 

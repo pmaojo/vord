@@ -52,7 +52,12 @@ pub struct Hotspot {
 }
 
 impl Hotspot {
-    pub fn new(rule: RuleId, message: impl Into<String>, file: impl Into<String>, span: Span) -> Self {
+    pub fn new(
+        rule: RuleId,
+        message: impl Into<String>,
+        file: impl Into<String>,
+        span: Span,
+    ) -> Self {
         Self {
             rule,
             message: message.into(),
@@ -69,7 +74,13 @@ impl Hotspot {
         span: Span,
         status: HotspotStatus,
     ) -> Self {
-        Self { rule, message: message.into(), file: file.into(), span, status }
+        Self {
+            rule,
+            message: message.into(),
+            file: file.into(),
+            span,
+            status,
+        }
     }
 
     pub fn rule(&self) -> &RuleId {

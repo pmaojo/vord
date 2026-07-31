@@ -33,10 +33,10 @@ use yunq_ast::{AstNode, NodeKind, Span};
 
 pub use boundary::{ArchitectureConfig, BoundaryViolation, DependencyEdge, ViolationKind};
 pub use component::component_of;
-pub use infra::{imported_modules, infra_roster, matches_module, ImportedModule, InfraModule};
-pub use layer::{inward_dependency_violations, layer_of, HexLayer, LayerViolation};
+pub use infra::{ImportedModule, InfraModule, imported_modules, infra_roster, matches_module};
+pub use layer::{HexLayer, LayerViolation, inward_dependency_violations, layer_of};
 pub use metrics::{
-    component_metrics, stability_violations, ComponentMetrics, StabilityViolation, TypeCensus,
+    ComponentMetrics, StabilityViolation, TypeCensus, component_metrics, stability_violations,
 };
 
 /// One resolved dependency edge: `from` imports `to`, at `span` in `from`.
@@ -52,11 +52,14 @@ pub struct ImportGraph {
 }
 
 fn is_ts_like(path: &str) -> bool {
-    [".ts", ".tsx", ".js", ".jsx"].iter().any(|ext| path.ends_with(ext))
+    [".ts", ".tsx", ".js", ".jsx"]
+        .iter()
+        .any(|ext| path.ends_with(ext))
 }
 
 fn strip_quotes(text: &str) -> String {
-    text.trim_matches(|c| c == '\'' || c == '"' || c == '`').to_string()
+    text.trim_matches(|c| c == '\'' || c == '"' || c == '`')
+        .to_string()
 }
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
@@ -64,16 +67,24 @@ fn is_other(node: &AstNode, kind: &str) -> bool {
 }
 
 fn extract_ts_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut Vec<ImportEdge>) {
-    for node in
-        ast.descendants().filter(|n| is_other(n, "import_statement") || is_other(n, "export_statement"))
+    for node in ast
+        .descendants()
+        .filter(|n| is_other(n, "import_statement") || is_other(n, "export_statement"))
     {
-        let Some(spec_node) = node.descendants().find(|n| *n.kind() == NodeKind::StringLiteral) else {
+        let Some(spec_node) = node
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::StringLiteral)
+        else {
             continue;
         };
         let specifier = strip_quotes(spec_node.text());
         if let Some(target) = resolve::resolve_ts_specifier(path, &specifier, candidates) {
             if target != path {
-                edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                edges.push(ImportEdge {
+                    from: path.to_string(),
+                    to: target.to_string(),
+                    span: node.span(),
+                });
             }
         }
     }
@@ -86,7 +97,10 @@ fn dotted_module_text(node: &AstNode) -> Option<String> {
         return Some(node.text().to_string());
     }
     if is_other(node, "aliased_import") {
-        return node.first_child().filter(|c| is_other(c, "dotted_name")).map(|c| c.text().to_string());
+        return node
+            .first_child()
+            .filter(|c| is_other(c, "dotted_name"))
+            .map(|c| c.text().to_string());
     }
     None
 }
@@ -95,15 +109,23 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
     for node in ast.descendants() {
         if is_other(node, "import_statement") {
             for child in node.children() {
-                let Some(module) = dotted_module_text(child) else { continue };
+                let Some(module) = dotted_module_text(child) else {
+                    continue;
+                };
                 if let Some(target) = resolve::resolve_py_absolute(&module, candidates) {
                     if target != path {
-                        edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                        edges.push(ImportEdge {
+                            from: path.to_string(),
+                            to: target.to_string(),
+                            span: node.span(),
+                        });
                     }
                 }
             }
         } else if is_other(node, "import_from_statement") {
-            let Some(target_node) = node.first_child() else { continue };
+            let Some(target_node) = node.first_child() else {
+                continue;
+            };
             let imported_name = node.children().get(1).map(|n| n.text());
             let resolved = if is_other(target_node, "dotted_name") {
                 resolve::resolve_py_absolute(target_node.text(), candidates)
@@ -114,15 +136,22 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
                     .find(|c| is_other(c, "import_prefix"))
                     .map(|c| c.text().len())
                     .unwrap_or(0);
-                let submodule =
-                    target_node.children().iter().find(|c| is_other(c, "dotted_name")).map(|c| c.text());
+                let submodule = target_node
+                    .children()
+                    .iter()
+                    .find(|c| is_other(c, "dotted_name"))
+                    .map(|c| c.text());
                 resolve::resolve_py_relative(path, dots, submodule, imported_name, candidates)
             } else {
                 None
             };
             if let Some(target) = resolved {
                 if target != path {
-                    edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                    edges.push(ImportEdge {
+                        from: path.to_string(),
+                        to: target.to_string(),
+                        span: node.span(),
+                    });
                 }
             }
         }
@@ -133,12 +162,22 @@ fn extract_py_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
 /// directory suffix (`resolve::resolve_go_import` — Go's module prefix lives in
 /// `go.mod`, which this I/O-free crate cannot read).
 fn extract_go_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut Vec<ImportEdge>) {
-    for node in ast.descendants().filter(|n| is_other(n, "import_declaration")) {
-        for spec in node.descendants().filter(|n| *n.kind() == NodeKind::StringLiteral) {
+    for node in ast
+        .descendants()
+        .filter(|n| is_other(n, "import_declaration"))
+    {
+        for spec in node
+            .descendants()
+            .filter(|n| *n.kind() == NodeKind::StringLiteral)
+        {
             let specifier = strip_quotes(spec.text());
             if let Some(target) = resolve::resolve_go_import(&specifier, candidates) {
                 if target != path {
-                    edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+                    edges.push(ImportEdge {
+                        from: path.to_string(),
+                        to: target.to_string(),
+                        span: node.span(),
+                    });
                 }
             }
         }
@@ -160,7 +199,10 @@ fn rust_path_root(node: &AstNode) -> Option<String> {
         NodeKind::Identifier => Some(node.text().to_string()),
         NodeKind::Other(kind) => match kind.as_ref() {
             "crate" | "self" | "super" => Some(node.text().to_string()),
-            "scoped_identifier" | "scoped_type_identifier" | "scoped_use_list" | "use_as_clause"
+            "scoped_identifier"
+            | "scoped_type_identifier"
+            | "scoped_use_list"
+            | "use_as_clause"
             | "use_wildcard" => node.first_child().and_then(rust_path_root),
             _ => None,
         },
@@ -184,17 +226,28 @@ fn push_rust_edge(
     seen: &mut HashSet<String>,
     edges: &mut Vec<ImportEdge>,
 ) {
-    let Some(segment) = rust_path_root(path_node) else { return };
-    if matches!(segment.as_str(), "crate" | "self" | "super" | "std" | "core" | "alloc") {
+    let Some(segment) = rust_path_root(path_node) else {
+        return;
+    };
+    if matches!(
+        segment.as_str(),
+        "crate" | "self" | "super" | "std" | "core" | "alloc"
+    ) {
         return;
     }
-    let Some(crate_dir) = crate_index.get(&segment) else { return };
+    let Some(crate_dir) = crate_index.get(&segment) else {
+        return;
+    };
     let target = format!("{crate_dir}/Cargo.toml");
     if component_of(&target) == component_of(path) {
         return;
     }
     if seen.insert(target.clone()) {
-        edges.push(ImportEdge { from: path.to_string(), to: target, span });
+        edges.push(ImportEdge {
+            from: path.to_string(),
+            to: target,
+            span,
+        });
     }
 }
 
@@ -232,7 +285,12 @@ fn push_rust_edge(
 /// cycle check could add there that isn't already a build failure — unlike
 /// the boundary-violation check, which catches something Cargo doesn't
 /// enforce at all (an edge's *direction*, not just its declaredness).
-fn extract_rust_edges(path: &str, ast: &AstNode, crate_index: &HashMap<String, String>, edges: &mut Vec<ImportEdge>) {
+fn extract_rust_edges(
+    path: &str,
+    ast: &AstNode,
+    crate_index: &HashMap<String, String>,
+    edges: &mut Vec<ImportEdge>,
+) {
     if yunq_rules_engine::is_test_only_path(path) {
         return;
     }
@@ -243,14 +301,19 @@ fn extract_rust_edges(path: &str, ast: &AstNode, crate_index: &HashMap<String, S
         if yunq_rules_engine::in_ranges(&test_ranges, node.span().start_line) {
             continue;
         }
-        let Some(path_node) = node.children().iter().find(|c| !is_other(c, "visibility_modifier")) else {
+        let Some(path_node) = node
+            .children()
+            .iter()
+            .find(|c| !is_other(c, "visibility_modifier"))
+        else {
             continue;
         };
         push_rust_edge(path, path_node, node.span(), crate_index, &mut seen, edges);
     }
 
-    for node in
-        ast.descendants().filter(|n| is_other(n, "scoped_identifier") || is_other(n, "scoped_type_identifier"))
+    for node in ast
+        .descendants()
+        .filter(|n| is_other(n, "scoped_identifier") || is_other(n, "scoped_type_identifier"))
     {
         if yunq_rules_engine::in_ranges(&test_ranges, node.span().start_line) {
             continue;
@@ -266,7 +329,12 @@ fn module_path_prefix(node: &AstNode) -> String {
     let text = node.text();
     let head = text.split('{').next().unwrap_or(text);
     let head = head.split(" as ").next().unwrap_or(head);
-    head.trim().trim_end_matches(':').trim_end_matches('*').trim_end_matches(':').trim().to_string()
+    head.trim()
+        .trim_end_matches(':')
+        .trim_end_matches('*')
+        .trim_end_matches(':')
+        .trim()
+        .to_string()
 }
 
 /// Rust *intra-crate* module edges: `use crate::infrastructure::db`,
@@ -282,7 +350,12 @@ fn module_path_prefix(node: &AstNode) -> String {
 /// in" is a *path* question that a single-crate `src/domain` /
 /// `src/infrastructure` layout answers perfectly well without any crate
 /// index at all.
-fn extract_rust_module_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut Vec<ImportEdge>) {
+fn extract_rust_module_edges(
+    path: &str,
+    ast: &AstNode,
+    candidates: &[&str],
+    edges: &mut Vec<ImportEdge>,
+) {
     if yunq_rules_engine::is_test_only_path(path) {
         return;
     }
@@ -292,13 +365,23 @@ fn extract_rust_module_edges(path: &str, ast: &AstNode, candidates: &[&str], edg
         if yunq_rules_engine::in_ranges(&test_ranges, node.span().start_line) {
             continue;
         }
-        let Some(path_node) = node.children().iter().find(|c| !is_other(c, "visibility_modifier")) else {
+        let Some(path_node) = node
+            .children()
+            .iter()
+            .find(|c| !is_other(c, "visibility_modifier"))
+        else {
             continue;
         };
         let prefix = module_path_prefix(path_node);
-        let Some(target) = resolve::resolve_rust_module(path, &prefix, candidates) else { continue };
+        let Some(target) = resolve::resolve_rust_module(path, &prefix, candidates) else {
+            continue;
+        };
         if seen.insert(target.to_string()) {
-            edges.push(ImportEdge { from: path.to_string(), to: target.to_string(), span: node.span() });
+            edges.push(ImportEdge {
+                from: path.to_string(),
+                to: target.to_string(),
+                span: node.span(),
+            });
         }
     }
 }
@@ -319,7 +402,10 @@ impl ImportGraph {
     /// behaves exactly like [`Self::build`]: every `use` path is left
     /// unresolved, harmless rather than an error, the same convention every
     /// unmatched specifier in `resolve` already follows.
-    pub fn build_with_rust_crates(files: &[(&str, &AstNode)], rust_crates: &HashMap<String, String>) -> Self {
+    pub fn build_with_rust_crates(
+        files: &[(&str, &AstNode)],
+        rust_crates: &HashMap<String, String>,
+    ) -> Self {
         let candidates: Vec<&str> = files.iter().map(|(path, _)| *path).collect();
         let mut edges = Vec::new();
         for (path, ast) in files {
@@ -373,7 +459,10 @@ impl ImportGraph {
     /// edge, if one exists — used to point a cycle finding at the actual
     /// import line rather than the top of the file.
     pub fn edge_span(&self, from: &str, to: &str) -> Option<Span> {
-        self.edges.iter().find(|e| e.from == from && e.to == to).map(|e| e.span)
+        self.edges
+            .iter()
+            .find(|e| e.from == from && e.to == to)
+            .map(|e| e.span)
     }
 
     /// Every import cycle in the graph, each as an ordered path
@@ -385,7 +474,10 @@ impl ImportGraph {
     pub fn cycles(&self) -> Vec<Vec<String>> {
         let mut adjacency: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for edge in &self.edges {
-            adjacency.entry(edge.from.clone()).or_default().push(edge.to.clone());
+            adjacency
+                .entry(edge.from.clone())
+                .or_default()
+                .push(edge.to.clone());
             adjacency.entry(edge.to.clone()).or_default();
         }
         Tarjan::new(&adjacency)
@@ -489,7 +581,10 @@ impl<'g> Tarjan<'g> {
         if self.lowlink[&v] == self.indices[&v] {
             let mut component = Vec::new();
             loop {
-                let w = self.stack.pop().expect("component root is always on the stack");
+                let w = self
+                    .stack
+                    .pop()
+                    .expect("component root is always on the stack");
                 self.on_stack.remove(&w);
                 let done = w == v;
                 component.push(w);
@@ -510,13 +605,17 @@ mod tests {
 
     fn parse_ts(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         (file, ast)
     }
 
     fn parse_py(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         (file, ast)
     }
 
@@ -534,7 +633,10 @@ mod tests {
         let graph = ImportGraph::build(&files);
         let cycles = graph.cycles();
         assert_eq!(cycles.len(), 1);
-        assert_eq!(cycles[0], vec!["a.ts".to_string(), "b.ts".to_string(), "a.ts".to_string()]);
+        assert_eq!(
+            cycles[0],
+            vec!["a.ts".to_string(), "b.ts".to_string(), "a.ts".to_string()]
+        );
     }
 
     #[test]
@@ -542,7 +644,8 @@ mod tests {
         let a = parse_ts("a.ts", "import { b } from './b';\n");
         let b = parse_ts("b.ts", "import { c } from './c';\n");
         let c = parse_ts("c.ts", "export const c = 1;\n");
-        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1), (c.0.path(), &c.1)];
+        let files: Vec<(&str, &AstNode)> =
+            vec![(a.0.path(), &a.1), (b.0.path(), &b.1), (c.0.path(), &c.1)];
         assert!(ImportGraph::build(&files).cycles().is_empty());
     }
 
@@ -551,7 +654,8 @@ mod tests {
         let a = parse_ts("a.ts", "import { b } from './b';\n");
         let b = parse_ts("b.ts", "import { c } from './c';\n");
         let c = parse_ts("c.ts", "import { a } from './a';\n");
-        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1), (c.0.path(), &c.1)];
+        let files: Vec<(&str, &AstNode)> =
+            vec![(a.0.path(), &a.1), (b.0.path(), &b.1), (c.0.path(), &c.1)];
         let cycles = ImportGraph::build(&files).cycles();
         assert_eq!(cycles.len(), 1);
         assert_eq!(cycles[0].first(), cycles[0].last());
@@ -560,7 +664,10 @@ mod tests {
 
     #[test]
     fn external_bare_specifiers_produce_no_edges() {
-        let a = parse_ts("a.ts", "import React from 'react';\nimport { b } from './b';\n");
+        let a = parse_ts(
+            "a.ts",
+            "import React from 'react';\nimport { b } from './b';\n",
+        );
         let b = parse_ts("b.ts", "export const b = 1;\n");
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1)];
         let graph = ImportGraph::build(&files);
@@ -575,7 +682,14 @@ mod tests {
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1)];
         let cycles = ImportGraph::build(&files).cycles();
         assert_eq!(cycles.len(), 1);
-        assert_eq!(cycles[0], vec!["pkg/a.py".to_string(), "pkg/b.py".to_string(), "pkg/a.py".to_string()]);
+        assert_eq!(
+            cycles[0],
+            vec![
+                "pkg/a.py".to_string(),
+                "pkg/b.py".to_string(),
+                "pkg/a.py".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -606,7 +720,10 @@ mod tests {
     }
 
     fn rust_crate_index(entries: &[(&str, &str)]) -> HashMap<String, String> {
-        entries.iter().map(|(name, dir)| (name.to_string(), dir.to_string())).collect()
+        entries
+            .iter()
+            .map(|(name, dir)| (name.to_string(), dir.to_string()))
+            .collect()
     }
 
     #[test]
@@ -635,7 +752,8 @@ mod tests {
 
     #[test]
     fn resolves_a_use_list_shape() {
-        let graph = resolves_single_rust_statement("use yunq_infra_fs::{FileAnalysisCache, YunqConfig};\n");
+        let graph =
+            resolves_single_rust_statement("use yunq_infra_fs::{FileAnalysisCache, YunqConfig};\n");
         assert_eq!(graph.edges().len(), 1);
         assert_eq!(graph.edges()[0].to, "infra/fs/Cargo.toml");
     }
@@ -706,7 +824,10 @@ mod tests {
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
         // Even an index that (implausibly) had entries named "crate"/"std"
         // must never be consulted for these — they're skipped up front.
-        let index = rust_crate_index(&[("crate", "should/never/resolve"), ("std", "should/never/resolve")]);
+        let index = rust_crate_index(&[
+            ("crate", "should/never/resolve"),
+            ("std", "should/never/resolve"),
+        ]);
         let graph = ImportGraph::build_with_rust_crates(&files, &index);
         assert!(graph.edges().is_empty());
     }
@@ -717,10 +838,17 @@ mod tests {
         // (an unusual but legal absolute self-reference) resolves to the
         // same component as the importer and must not count as crossing a
         // boundary.
-        let a = parse_rust("core/rules-engine/src/lib.rs", "use yunq_rules_engine::Other;\n");
+        let a = parse_rust(
+            "core/rules-engine/src/lib.rs",
+            "use yunq_rules_engine::Other;\n",
+        );
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
         let index = rust_crate_index(&[("yunq_rules_engine", "core/rules-engine")]);
-        assert!(ImportGraph::build_with_rust_crates(&files, &index).edges().is_empty());
+        assert!(
+            ImportGraph::build_with_rust_crates(&files, &index)
+                .edges()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -728,7 +856,11 @@ mod tests {
         let a = parse_rust("core/a/src/lib.rs", "use serde::Serialize;\n");
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
         let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
-        assert!(ImportGraph::build_with_rust_crates(&files, &index).edges().is_empty());
+        assert!(
+            ImportGraph::build_with_rust_crates(&files, &index)
+                .edges()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -737,7 +869,10 @@ mod tests {
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
         let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
         let graph = ImportGraph::build_with_rust_crates(&files, &index);
-        assert_eq!(graph.component_edges(), BTreeSet::from([("core/a".to_string(), "infra/fs".to_string())]));
+        assert_eq!(
+            graph.component_edges(),
+            BTreeSet::from([("core/a".to_string(), "infra/fs".to_string())])
+        );
     }
 
     #[test]
@@ -745,7 +880,11 @@ mod tests {
         let a = parse_rust("core/a/tests/it.rs", "use yunq_infra_fs::Thing;\n");
         let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1)];
         let index = rust_crate_index(&[("yunq_infra_fs", "infra/fs")]);
-        assert!(ImportGraph::build_with_rust_crates(&files, &index).edges().is_empty());
+        assert!(
+            ImportGraph::build_with_rust_crates(&files, &index)
+                .edges()
+                .is_empty()
+        );
     }
 
     #[test]

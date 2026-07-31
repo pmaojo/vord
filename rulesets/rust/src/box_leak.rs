@@ -18,7 +18,9 @@ pub struct BoxLeakRule {
 
 impl BoxLeakRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:box-leak").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:box-leak").expect("valid rule id"),
+        }
     }
 }
 

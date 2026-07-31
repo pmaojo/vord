@@ -12,7 +12,9 @@ use crate::common::is_other;
 fn is_console_call(call: &AstNode) -> bool {
     call.first_child().is_some_and(|callee| {
         *callee.kind() == NodeKind::MemberAccess
-            && callee.first_child().is_some_and(|base| base.text() == "console")
+            && callee
+                .first_child()
+                .is_some_and(|base| base.text() == "console")
     })
 }
 
@@ -28,7 +30,11 @@ fn has_throw(block: &AstNode) -> bool {
 }
 
 fn is_swallowed(catch_clause: &AstNode) -> bool {
-    let Some(block) = catch_clause.children().iter().find(|c| is_other(c, "statement_block")) else {
+    let Some(block) = catch_clause
+        .children()
+        .iter()
+        .find(|c| is_other(c, "statement_block"))
+    else {
         return false;
     };
     if has_throw(block) {
@@ -43,7 +49,9 @@ pub struct SwallowedExceptionRule {
 
 impl SwallowedExceptionRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:swallowed-exception").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:swallowed-exception").expect("valid rule id"),
+        }
     }
 }
 
@@ -105,7 +113,9 @@ mod tests {
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         SwallowedExceptionRule::new().check(&file, &ast)
     }
 
@@ -121,20 +131,26 @@ mod tests {
 
     #[test]
     fn flags_console_log_only_catch() {
-        assert_eq!(findings("try {\n  doWork();\n} catch (e) {\n  console.log(e);\n}\n").len(), 1);
+        assert_eq!(
+            findings("try {\n  doWork();\n} catch (e) {\n  console.log(e);\n}\n").len(),
+            1
+        );
     }
 
     #[test]
     fn flags_console_error_only_catch() {
-        assert_eq!(findings("try {\n  doWork();\n} catch (e) {\n  console.error(e);\n}\n").len(), 1);
+        assert_eq!(
+            findings("try {\n  doWork();\n} catch (e) {\n  console.error(e);\n}\n").len(),
+            1
+        );
     }
 
     #[test]
     fn allows_catch_that_rethrows_after_logging() {
-        assert!(findings(
-            "try {\n  doWork();\n} catch (e) {\n  console.log(e);\n  throw e;\n}\n"
-        )
-        .is_empty());
+        assert!(
+            findings("try {\n  doWork();\n} catch (e) {\n  console.log(e);\n  throw e;\n}\n")
+                .is_empty()
+        );
     }
 
     #[test]

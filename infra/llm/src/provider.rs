@@ -89,9 +89,10 @@ impl LlmProviderConfig {
     pub fn build(&self) -> AnyLlmProvider {
         match self.kind {
             LlmProviderKind::OpenAiCompatible => {
-                let base = self.base_url.clone().unwrap_or_else(|| {
-                    OpenAiCompatibleAdapter::from_env().api_base().to_string()
-                });
+                let base = self
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| OpenAiCompatibleAdapter::from_env().api_base().to_string());
                 AnyLlmProvider::OpenAiCompatible(OpenAiCompatibleAdapter::new(
                     base,
                     self.model.clone(),
@@ -99,9 +100,10 @@ impl LlmProviderConfig {
                 ))
             }
             LlmProviderKind::Anthropic => {
-                let base = self.base_url.clone().unwrap_or_else(|| {
-                    AnthropicAdapter::from_env().api_base().to_string()
-                });
+                let base = self
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| AnthropicAdapter::from_env().api_base().to_string());
                 AnyLlmProvider::Anthropic(AnthropicAdapter::new(
                     base,
                     self.model.clone(),
@@ -135,7 +137,10 @@ mod tests {
 
     #[test]
     fn provider_kind_round_trips_through_its_wire_string() {
-        for kind in [LlmProviderKind::OpenAiCompatible, LlmProviderKind::Anthropic] {
+        for kind in [
+            LlmProviderKind::OpenAiCompatible,
+            LlmProviderKind::Anthropic,
+        ] {
             assert_eq!(LlmProviderKind::parse(kind.as_str()), Some(kind));
         }
     }
@@ -153,7 +158,10 @@ mod tests {
             model: "codellama".to_string(),
             api_key: "key".to_string(),
         };
-        assert!(matches!(openai_config.build(), AnyLlmProvider::OpenAiCompatible(_)));
+        assert!(matches!(
+            openai_config.build(),
+            AnyLlmProvider::OpenAiCompatible(_)
+        ));
 
         let anthropic_config = LlmProviderConfig {
             kind: LlmProviderKind::Anthropic,
@@ -161,6 +169,9 @@ mod tests {
             model: "claude-sonnet-4-5-20250929".to_string(),
             api_key: "key".to_string(),
         };
-        assert!(matches!(anthropic_config.build(), AnyLlmProvider::Anthropic(_)));
+        assert!(matches!(
+            anthropic_config.build(),
+            AnyLlmProvider::Anthropic(_)
+        ));
     }
 }

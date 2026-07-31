@@ -11,12 +11,7 @@ pub struct XssRule {
 
 impl XssRule {
     pub fn new() -> Self {
-        let config = TaintConfig::new()
-            .with_source_marker("process.argv")
-            .with_source_marker("process.env")
-            .with_source_marker("req.query")
-            .with_source_marker("req.body")
-            .with_source_marker("req.params")
+        let config = TaintConfig::web_defaults()
             .with_source_marker("location.hash")
             .with_source_marker("location.search")
             .with_sink("write")

@@ -13,9 +13,12 @@
 //! heuristic shape.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{
+    Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
+};
 
-const SENSITIVE_NAME_MARKERS: &[&str] = &["token", "password", "passwd", "secret", "apikey", "session"];
+const SENSITIVE_NAME_MARKERS: &[&str] =
+    &["token", "password", "passwd", "secret", "apikey", "session"];
 
 const MATH_RAND_ONLY_METHODS: &[&str] = &[
     "Intn",
@@ -33,7 +36,9 @@ const MATH_RAND_ONLY_METHODS: &[&str] = &[
 
 fn looks_sensitive(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    SENSITIVE_NAME_MARKERS.iter().any(|marker| lower.contains(marker))
+    SENSITIVE_NAME_MARKERS
+        .iter()
+        .any(|marker| lower.contains(marker))
 }
 
 fn uses_weak_random(value: &AstNode) -> bool {
@@ -52,7 +57,9 @@ fn flagged_target(decl: &AstNode) -> Option<&AstNode> {
     if !matches!(decl.kind(), NodeKind::VariableDecl | NodeKind::Assignment) {
         return None;
     }
-    let [names, values] = decl.children() else { return None };
+    let [names, values] = decl.children() else {
+        return None;
+    };
     if names.children().len() != 1 {
         return None;
     }
@@ -126,7 +133,10 @@ mod tests {
 
     #[test]
     fn flags_token_from_math_rand_intn() {
-        assert_eq!(check("package main\nfunc f() {\n\ttoken := rand.Intn(1000000)\n}\n").len(), 1);
+        assert_eq!(
+            check("package main\nfunc f() {\n\ttoken := rand.Intn(1000000)\n}\n").len(),
+            1
+        );
     }
 
     #[test]

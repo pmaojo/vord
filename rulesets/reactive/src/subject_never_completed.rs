@@ -9,7 +9,12 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 
 use crate::common::{bindable_target, has_call_on_receiver};
 
-const SUBJECT_TYPES: &[&str] = &["Subject", "BehaviorSubject", "ReplaySubject", "AsyncSubject"];
+const SUBJECT_TYPES: &[&str] = &[
+    "Subject",
+    "BehaviorSubject",
+    "ReplaySubject",
+    "AsyncSubject",
+];
 
 /// The constructed type's simple name if `expr` is `new <Type>(...)` —
 /// tolerates a generic type argument (`new Subject<void>()`): the
@@ -20,7 +25,9 @@ fn new_expression_type(expr: &AstNode) -> Option<&str> {
     if *expr.kind() != NodeKind::Call || !expr.text().trim_start().starts_with("new ") {
         return None;
     }
-    expr.first_child().filter(|c| *c.kind() == NodeKind::Identifier).map(|c| c.text())
+    expr.first_child()
+        .filter(|c| *c.kind() == NodeKind::Identifier)
+        .map(|c| c.text())
 }
 
 pub struct SubjectNeverCompletedRule {
@@ -29,7 +36,9 @@ pub struct SubjectNeverCompletedRule {
 
 impl SubjectNeverCompletedRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("reactive:subject-never-completed").expect("valid rule id") }
+        Self {
+            id: RuleId::new("reactive:subject-never-completed").expect("valid rule id"),
+        }
     }
 }
 
@@ -70,8 +79,11 @@ impl Rule for SubjectNeverCompletedRule {
             .filter(|n| matches!(n.kind(), NodeKind::Assignment | NodeKind::VariableDecl))
             .filter_map(|decl| {
                 let target = bindable_target(decl)?;
-                let subject_type =
-                    decl.children().iter().skip(1).find_map(|value| new_expression_type(value))?;
+                let subject_type = decl
+                    .children()
+                    .iter()
+                    .skip(1)
+                    .find_map(|value| new_expression_type(value))?;
                 if !SUBJECT_TYPES.contains(&subject_type) {
                     return None;
                 }
@@ -79,7 +91,10 @@ impl Rule for SubjectNeverCompletedRule {
                     return None;
                 }
                 Some(Finding::new(
-                    format!("`{}` ({subject_type}) is created but never `.complete()`d", target.text()),
+                    format!(
+                        "`{}` ({subject_type}) is created but never `.complete()`d",
+                        target.text()
+                    ),
                     decl.span(),
                 ))
             })
@@ -94,13 +109,16 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         SubjectNeverCompletedRule::new().check(&file, &ast)
     }
 
     #[test]
     fn flags_subject_never_completed() {
-        let findings = check("class C {\n  ngOnInit() {\n    this.destroy$ = new Subject();\n  }\n}\n");
+        let findings =
+            check("class C {\n  ngOnInit() {\n    this.destroy$ = new Subject();\n  }\n}\n");
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("this.destroy$"));
     }
@@ -115,7 +133,8 @@ mod tests {
 
     #[test]
     fn flags_behavior_subject_with_generic_type_argument() {
-        let findings = check("function run() {\n  const state$ = new BehaviorSubject<number>(0);\n}\n");
+        let findings =
+            check("function run() {\n  const state$ = new BehaviorSubject<number>(0);\n}\n");
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("BehaviorSubject"));
     }

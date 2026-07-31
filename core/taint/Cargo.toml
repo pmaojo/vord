@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 yunq-ast = { workspace = true }
+yunq-cfg = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

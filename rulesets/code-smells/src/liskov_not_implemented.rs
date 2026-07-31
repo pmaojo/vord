@@ -29,13 +29,17 @@ fn body_statements(method: &AstNode) -> Vec<&AstNode> {
 /// statement invokes.
 fn thrown_exception_name(stmt: &AstNode) -> Option<&str> {
     let call = stmt.first_child().filter(|c| *c.kind() == NodeKind::Call)?;
-    let callee = call.first_child().filter(|c| *c.kind() == NodeKind::Identifier)?;
+    let callee = call
+        .first_child()
+        .filter(|c| *c.kind() == NodeKind::Identifier)?;
     Some(callee.text())
 }
 
 fn is_not_implemented_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    lower.contains("notimplemented") || lower.contains("notsupported") || lower.contains("unsupportedoperation")
+    lower.contains("notimplemented")
+        || lower.contains("notsupported")
+        || lower.contains("unsupportedoperation")
 }
 
 /// Whether `method`'s entire body is a single throw/raise of a
@@ -73,7 +77,9 @@ pub struct LiskovNotImplementedRule {
 
 impl LiskovNotImplementedRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:liskov-not-implemented").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:liskov-not-implemented").expect("valid rule id"),
+        }
     }
 }
 
@@ -106,13 +112,20 @@ impl CrossFileRule for LiskovNotImplementedRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let registry = ClassRegistry::build_cross_file(&views);
         let mut findings = Vec::new();
         for class in registry.iter() {
-            let Some(superclass_name) = &class.superclass else { continue };
-            let Some(superclass) = registry.get(superclass_name) else { continue };
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(superclass_name) = &class.superclass else {
+                continue;
+            };
+            let Some(superclass) = registry.get(superclass_name) else {
+                continue;
+            };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let mut plain = Vec::new();
             check_class(class, superclass, &mut plain);
             findings.extend(plain.into_iter().map(|f| (index, f)));
@@ -129,9 +142,15 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        LiskovNotImplementedRule::new().check(&files).into_iter().map(|(_, f)| f).collect()
+        LiskovNotImplementedRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
@@ -176,10 +195,15 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        let findings: Vec<Finding> =
-            LiskovNotImplementedRule::new().check(&files).into_iter().map(|(_, f)| f).collect();
+        let findings: Vec<Finding> = LiskovNotImplementedRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Penguin::fly"));
     }
@@ -194,9 +218,12 @@ mod tests {
 
     #[test]
     fn flags_subclass_whose_superclass_is_declared_in_another_file() {
-        let bird_file =
-            SourceFile::new("bird.ts", "class Bird {\n  fly() { return 1; }\n}\n", LanguageIdentifier::typescript())
-                .unwrap();
+        let bird_file = SourceFile::new(
+            "bird.ts",
+            "class Bird {\n  fly() { return 1; }\n}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
         let penguin_file = SourceFile::new(
             "penguin.ts",
             "class Penguin extends Bird {\n  fly() { throw new NotImplementedError(); }\n}\n",

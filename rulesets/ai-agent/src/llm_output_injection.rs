@@ -120,13 +120,17 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         LlmOutputInjectionRule::new().check(&file, &ast)
     }
 
     fn check_py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         LlmOutputInjectionRule::new().check(&file, &ast)
     }
 
@@ -197,6 +201,9 @@ mod tests {
         // `.content` on an object not named message/response/completion, and
         // not the indexed choices/content chains, should not be treated as
         // an LLM output source.
-        assert!(check_ts("const page = fetchPage();\nconst body = page.content;\neval(body);\n").is_empty());
+        assert!(
+            check_ts("const page = fetchPage();\nconst body = page.content;\neval(body);\n")
+                .is_empty()
+        );
     }
 }

@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_import_graph::{component_of, TypeCensus};
+use yunq_import_graph::{TypeCensus, component_of};
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -42,7 +42,11 @@ fn go_census(ast: &AstNode) -> TypeCensus {
     let mut census = TypeCensus::default();
     for node in ast.descendants().filter(|n| is_other(n, "type_spec")) {
         census.total += 1;
-        if node.children().iter().any(|c| is_other(c, "interface_type")) {
+        if node
+            .children()
+            .iter()
+            .any(|c| is_other(c, "interface_type"))
+        {
             census.abstractions += 1;
         }
     }
@@ -54,7 +58,9 @@ fn ts_census(ast: &AstNode) -> TypeCensus {
     for node in ast.descendants() {
         if is_other(node, "class_declaration") {
             census.total += 1;
-        } else if is_other(node, "interface_declaration") || is_other(node, "abstract_class_declaration") {
+        } else if is_other(node, "interface_declaration")
+            || is_other(node, "abstract_class_declaration")
+        {
             census.total += 1;
             census.abstractions += 1;
         }
@@ -67,13 +73,20 @@ fn ts_census(ast: &AstNode) -> TypeCensus {
 /// `@abstractmethod` in the body.
 fn python_census(ast: &AstNode) -> TypeCensus {
     let mut census = TypeCensus::default();
-    for node in ast.descendants().filter(|n| is_other(n, "class_definition")) {
+    for node in ast
+        .descendants()
+        .filter(|n| is_other(n, "class_definition"))
+    {
         census.total += 1;
         let abstract_base = node
             .children()
             .iter()
             .find(|c| is_other(c, "argument_list"))
-            .is_some_and(|bases| ["Protocol", "ABC", "ABCMeta"].iter().any(|b| bases.text().contains(b)));
+            .is_some_and(|bases| {
+                ["Protocol", "ABC", "ABCMeta"]
+                    .iter()
+                    .any(|b| bases.text().contains(b))
+            });
         let abstract_method = node
             .descendants()
             .any(|n| is_other(n, "decorator") && n.text().contains("abstractmethod"));
@@ -87,7 +100,10 @@ fn python_census(ast: &AstNode) -> TypeCensus {
 fn rust_census(ast: &AstNode) -> TypeCensus {
     let mut census = TypeCensus::default();
     for node in ast.descendants() {
-        if is_other(node, "struct_item") || is_other(node, "enum_item") || is_other(node, "union_item") {
+        if is_other(node, "struct_item")
+            || is_other(node, "enum_item")
+            || is_other(node, "union_item")
+        {
             census.total += 1;
         } else if is_other(node, "trait_item") {
             census.total += 1;
@@ -107,7 +123,10 @@ pub fn component_census(files: &[(SourceFile, AstNode)]) -> BTreeMap<String, Typ
         if yunq_rules_engine::is_test_only_path(file.path()) {
             continue;
         }
-        per_component.entry(component_of(file.path())).or_default().add(file_census(file, ast));
+        per_component
+            .entry(component_of(file.path()))
+            .or_default()
+            .add(file_census(file, ast));
     }
     per_component
 }
@@ -119,13 +138,17 @@ mod tests {
 
     fn ts(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         (file, ast)
     }
 
     fn py(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         (file, ast)
     }
 
@@ -155,7 +178,10 @@ mod tests {
 
     #[test]
     fn rust_traits_are_abstractions_and_structs_enums_are_not() {
-        let (file, ast) = rs("a.rs", "pub trait Repo {}\npub struct Impl;\npub enum Kind { A }\n");
+        let (file, ast) = rs(
+            "a.rs",
+            "pub trait Repo {}\npub struct Impl;\npub enum Kind { A }\n",
+        );
         assert_eq!(file_census(&file, &ast), TypeCensus::new(3, 1));
     }
 

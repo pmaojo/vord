@@ -33,7 +33,9 @@ pub struct MemUninitOrZeroedRule {
 
 impl MemUninitOrZeroedRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:mem-uninit-or-zeroed").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:mem-uninit-or-zeroed").expect("valid rule id"),
+        }
     }
 }
 

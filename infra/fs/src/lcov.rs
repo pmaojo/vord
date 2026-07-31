@@ -21,11 +21,19 @@ pub enum LcovError {
 }
 
 pub fn parse_lcov(content: &str) -> Result<CoverageSummary, LcovError> {
-    parse_lcov_report(content)?.summary().map_err(|e| LcovError::Inconsistent(e.to_string()))
+    parse_lcov_report(content)?
+        .summary()
+        .map_err(|e| LcovError::Inconsistent(e.to_string()))
 }
 
 fn parse_count(value: &str, line: usize, content: &str) -> Result<usize, LcovError> {
-    value.trim().parse::<usize>().map_err(|_| LcovError::Malformed { line, content: content.to_string() })
+    value
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| LcovError::Malformed {
+            line,
+            content: content.to_string(),
+        })
 }
 
 /// State accumulated between `SF:` and `end_of_record` for one file's
@@ -48,8 +56,14 @@ struct RecordAccumulator {
 impl RecordAccumulator {
     fn handle_da(&mut self, rest: &str, index: usize, raw: &str) -> Result<(), LcovError> {
         let mut parts = rest.splitn(2, ',');
-        let malformed = || LcovError::Malformed { line: index + 1, content: raw.to_string() };
-        let (line_no, hits) = (parts.next().ok_or_else(malformed)?, parts.next().ok_or_else(malformed)?);
+        let malformed = || LcovError::Malformed {
+            line: index + 1,
+            content: raw.to_string(),
+        };
+        let (line_no, hits) = (
+            parts.next().ok_or_else(malformed)?,
+            parts.next().ok_or_else(malformed)?,
+        );
         let line_no = parse_count(line_no, index + 1, raw)? as u32;
         // Hits may carry a checksum suffix (`,<checksum>`) — already split off.
         let hits = parse_count(hits.split(',').next().unwrap_or(hits), index + 1, raw)?;
@@ -63,9 +77,10 @@ impl RecordAccumulator {
 
     fn handle_brda(&mut self, rest: &str, index: usize, raw: &str) -> Result<(), LcovError> {
         let parts: Vec<&str> = rest.splitn(4, ',').collect();
-        let taken = parts
-            .get(3)
-            .ok_or_else(|| LcovError::Malformed { line: index + 1, content: raw.to_string() })?;
+        let taken = parts.get(3).ok_or_else(|| LcovError::Malformed {
+            line: index + 1,
+            content: raw.to_string(),
+        })?;
         self.brda_total += 1;
         if taken.trim().parse::<usize>().is_ok_and(|hits| hits > 0) {
             self.brda_covered += 1;
@@ -147,7 +162,8 @@ impl ReportAccumulator {
         self.total_covered_branches += branch_covered;
         self.total_coverable_branches += branch_total;
 
-        self.files.push(std::mem::take(&mut self.current).into_file());
+        self.files
+            .push(std::mem::take(&mut self.current).into_file());
         self.records += 1;
     }
 

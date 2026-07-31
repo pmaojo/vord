@@ -32,7 +32,11 @@ pub struct GitHubStatusReporter {
 }
 
 impl GitHubStatusReporter {
-    pub fn new(token: impl Into<String>, owner: impl Into<String>, repo: impl Into<String>) -> Self {
+    pub fn new(
+        token: impl Into<String>,
+        owner: impl Into<String>,
+        repo: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             token: token.into(),
@@ -78,7 +82,10 @@ impl GitHubStatusReporter {
                 "{}/repos/{}/{}/contents/{}?ref={}",
                 self.api_base, self.owner, self.repo, path, git_ref
             ),
-            None => format!("{}/repos/{}/{}/contents/{}", self.api_base, self.owner, self.repo, path),
+            None => format!(
+                "{}/repos/{}/{}/contents/{}",
+                self.api_base, self.owner, self.repo, path
+            ),
         };
         let response = self
             .client
@@ -250,7 +257,10 @@ impl GitHubStatusReporter {
     /// requires a commit that is actually part of the pull request, so the
     /// real head has to be looked up rather than trusted from the caller.
     async fn fetch_pr_head_sha(&self, pr: u32) -> Result<String, AlmError> {
-        let url = format!("{}/repos/{}/{}/pulls/{}", self.api_base, self.owner, self.repo, pr);
+        let url = format!(
+            "{}/repos/{}/{}/pulls/{}",
+            self.api_base, self.owner, self.repo, pr
+        );
         let response = self
             .client
             .get(&url)
@@ -337,8 +347,10 @@ impl GitHubStatusReporter {
     ) -> Result<reqwest::Response, AlmError> {
         let request = match existing {
             Some(existing) => {
-                let update_url =
-                    format!("{}/repos/{}/{}/issues/comments/{}", self.api_base, self.owner, self.repo, existing.id);
+                let update_url = format!(
+                    "{}/repos/{}/{}/issues/comments/{}",
+                    self.api_base, self.owner, self.repo, existing.id
+                );
                 self.client.patch(&update_url)
             }
             None => self.client.post(issue_comments_url),
@@ -364,16 +376,20 @@ impl GitHubStatusReporter {
     ) -> Result<(), AlmError> {
         let general_body = build_summary_body(gate_summary, fallback_issues);
 
-        let issue_comments_url =
-            format!("{}/repos/{}/{}/issues/{}/comments", self.api_base, self.owner, self.repo, pr);
+        let issue_comments_url = format!(
+            "{}/repos/{}/{}/issues/{}/comments",
+            self.api_base, self.owner, self.repo, pr
+        );
         let existing_issue_comments: Vec<IssueCommentResponse> =
             self.get_all_pages(&issue_comments_url).await?;
-        let existing_comment =
-            existing_issue_comments.iter().find(|c| c.body.contains("<!-- yunq-pr-comment -->"));
+        let existing_comment = existing_issue_comments
+            .iter()
+            .find(|c| c.body.contains("<!-- yunq-pr-comment -->"));
 
         let req_body = IssueCommentRequest { body: general_body };
-        let response =
-            self.send_summary_comment(existing_comment, &issue_comments_url, &req_body).await?;
+        let response = self
+            .send_summary_comment(existing_comment, &issue_comments_url, &req_body)
+            .await?;
 
         if !response.status().is_success() {
             let status_code = response.status();
@@ -396,20 +412,25 @@ impl AlmPullRequestReporter for GitHubStatusReporter {
         let commit_id = self.fetch_pr_head_sha(pr).await?;
 
         // 1. Fetch existing PR review comments to avoid duplicates.
-        let comments_url = format!("{}/repos/{}/{}/pulls/{}/comments", self.api_base, self.owner, self.repo, pr);
+        let comments_url = format!(
+            "{}/repos/{}/{}/pulls/{}/comments",
+            self.api_base, self.owner, self.repo, pr
+        );
         let existing_comments: Vec<PullRequestCommentResponse> =
             self.get_all_pages(&comments_url).await?;
 
         let mut fallback_issues = Vec::new();
         for issue in new_issues {
-            if let Some(fallback) =
-                self.post_issue_review_comment(&comments_url, &commit_id, &existing_comments, issue).await?
+            if let Some(fallback) = self
+                .post_issue_review_comment(&comments_url, &commit_id, &existing_comments, issue)
+                .await?
             {
                 fallback_issues.push(fallback);
             }
         }
 
-        self.upsert_summary_comment(pr, gate_summary, &fallback_issues).await
+        self.upsert_summary_comment(pr, gate_summary, &fallback_issues)
+            .await
     }
 }
 
@@ -430,8 +451,10 @@ impl AlmStatusReporter for GitHubStatusReporter {
             target_url: status.target_url.as_deref(),
         };
 
-        let url =
-            format!("{}/repos/{}/{}/statuses/{}", self.api_base, self.owner, self.repo, sha);
+        let url = format!(
+            "{}/repos/{}/{}/statuses/{}",
+            self.api_base, self.owner, self.repo, sha
+        );
         let response = self
             .client
             .post(&url)
@@ -475,7 +498,11 @@ mod tests {
         headers: HeaderMap,
         Json(body): Json<serde_json::Value>,
     ) -> StatusCode {
-        state.requests.lock().unwrap().push((format!("{owner}/{repo}/{sha}"), body, headers));
+        state
+            .requests
+            .lock()
+            .unwrap()
+            .push((format!("{owner}/{repo}/{sha}"), body, headers));
         StatusCode::CREATED
     }
 
@@ -523,7 +550,10 @@ mod tests {
         reporter.report_commit_status(&sha, &status).await.unwrap();
 
         let requests = captured.requests.lock().unwrap();
-        assert_eq!(requests[0].1["description"].as_str().unwrap().len(), MAX_DESCRIPTION_LEN);
+        assert_eq!(
+            requests[0].1["description"].as_str().unwrap().len(),
+            MAX_DESCRIPTION_LEN
+        );
     }
 
     #[test]
@@ -544,14 +574,13 @@ mod tests {
     }
 
     async fn serve_content(body: serde_json::Value) -> String {
-        let app = Router::new()
-            .route(
-                "/repos/{owner}/{repo}/contents/{*path}",
-                axum::routing::get(move || {
-                    let body = body.clone();
-                    async move { Json(body) }
-                }),
-            );
+        let app = Router::new().route(
+            "/repos/{owner}/{repo}/contents/{*path}",
+            axum::routing::get(move || {
+                let body = body.clone();
+                async move { Json(body) }
+            }),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -569,7 +598,10 @@ mod tests {
         .await;
 
         let reporter = GitHubStatusReporter::new("t", "acme", "widgets").with_api_base(base);
-        let content = reporter.fetch_file_content("src/main.rs", Some("abc123")).await.unwrap();
+        let content = reporter
+            .fetch_file_content("src/main.rs", Some("abc123"))
+            .await
+            .unwrap();
 
         assert_eq!(content, source);
     }
@@ -583,7 +615,10 @@ mod tests {
         .await;
 
         let reporter = GitHubStatusReporter::new("t", "acme", "widgets").with_api_base(base);
-        let err = reporter.fetch_file_content("src/main.rs", Some("abc123")).await.unwrap_err();
+        let err = reporter
+            .fetch_file_content("src/main.rs", Some("abc123"))
+            .await
+            .unwrap_err();
 
         assert!(err.0.contains("unsupported"), "unexpected error: {}", err.0);
     }
@@ -622,10 +657,16 @@ mod tests {
     async fn get_review_comments(
         State(state): State<PrServerState>,
         Path((_owner, _repo, _num)): Path<(String, String, u32)>,
-        axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+        axum::extract::Query(params): axum::extract::Query<
+            std::collections::HashMap<String, String>,
+        >,
     ) -> Json<serde_json::Value> {
         let page: usize = params.get("page").and_then(|p| p.parse().ok()).unwrap_or(1);
-        let items = state.review_pages.get(page - 1).cloned().unwrap_or_default();
+        let items = state
+            .review_pages
+            .get(page - 1)
+            .cloned()
+            .unwrap_or_default();
         Json(serde_json::Value::Array(items))
     }
 
@@ -667,7 +708,10 @@ mod tests {
         };
         let captured = state.captured.clone();
         let app = Router::new()
-            .route("/repos/{owner}/{repo}/pulls/{num}", axum::routing::get(get_pr))
+            .route(
+                "/repos/{owner}/{repo}/pulls/{num}",
+                axum::routing::get(get_pr),
+            )
             .route(
                 "/repos/{owner}/{repo}/pulls/{num}/comments",
                 axum::routing::get(get_review_comments).post(post_review_comment),
@@ -759,9 +803,12 @@ mod tests {
     #[tokio::test]
     async fn fails_instead_of_treating_a_broken_fetch_as_no_existing_comments() {
         let app = Router::new()
-            .route("/repos/{owner}/{repo}/pulls/{num}", axum::routing::get(|| async {
-                Json(serde_json::json!({"head": {"sha": "headsha"}}))
-            }))
+            .route(
+                "/repos/{owner}/{repo}/pulls/{num}",
+                axum::routing::get(|| async {
+                    Json(serde_json::json!({"head": {"sha": "headsha"}}))
+                }),
+            )
             .route(
                 "/repos/{owner}/{repo}/pulls/{num}/comments",
                 axum::routing::get(|| async { StatusCode::INTERNAL_SERVER_ERROR }),

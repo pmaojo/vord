@@ -11,7 +11,9 @@ pub struct DbgMacroRule {
 
 impl DbgMacroRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:dbg-macro").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:dbg-macro").expect("valid rule id"),
+        }
     }
 }
 
@@ -56,7 +58,10 @@ impl Rule for DbgMacroRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
-            .filter(|call| call.first_child().is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == "dbg"))
+            .filter(|call| {
+                call.first_child()
+                    .is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == "dbg")
+            })
             .map(|call| {
                 Finding::new(
                     "`dbg!` left in code; remove it or replace it with a real logging call"

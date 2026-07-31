@@ -38,10 +38,12 @@ impl AstParser for ElixirParser {
         parser
             .set_language(&tree_sitter_elixir::LANGUAGE.into())
             .map_err(|e| ParseError::Backend(e.to_string()))?;
-        let tree = parser.parse(file.content(), None).ok_or_else(|| ParseError::Syntax {
-            file: file.path().to_string(),
-            detail: "tree-sitter produced no tree".to_string(),
-        })?;
+        let tree = parser
+            .parse(file.content(), None)
+            .ok_or_else(|| ParseError::Syntax {
+                file: file.path().to_string(),
+                detail: "tree-sitter produced no tree".to_string(),
+            })?;
         Ok(convert(tree.root_node(), &file.content_shared()))
     }
 
@@ -51,7 +53,10 @@ impl AstParser for ElixirParser {
         normalization: yunq_cpd::TokenNormalization,
     ) -> yunq_cpd::TokenizedSource {
         let mut parser = tree_sitter::Parser::new();
-        if parser.set_language(&tree_sitter_elixir::LANGUAGE.into()).is_err() {
+        if parser
+            .set_language(&tree_sitter_elixir::LANGUAGE.into())
+            .is_err()
+        {
             return yunq_cpd::TokenizedSource {
                 lines: yunq_cpd::fallback_tokenize(file),
                 declaration_lines: Vec::new(),
@@ -69,7 +74,10 @@ impl AstParser for ElixirParser {
 
 fn convert(node: tree_sitter::Node<'_>, source: &std::sync::Arc<str>) -> AstNode {
     let mut cursor = node.walk();
-    let children = node.named_children(&mut cursor).map(|c| convert(c, source)).collect();
+    let children = node
+        .named_children(&mut cursor)
+        .map(|c| convert(c, source))
+        .collect();
     AstNode::from_source(
         map_kind(node, source),
         span_of(node),
@@ -81,12 +89,24 @@ fn convert(node: tree_sitter::Node<'_>, source: &std::sync::Arc<str>) -> AstNode
 
 fn span_of(node: tree_sitter::Node<'_>) -> Span {
     let (start, end) = (node.start_position(), node.end_position());
-    Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
+    Span::new(
+        start.row as u32 + 1,
+        start.column as u32 + 1,
+        end.row as u32 + 1,
+        end.column as u32 + 1,
+    )
 }
 
 /// Macro names that define a function-like construct: `def foo(...) do ... end`.
-const DEF_MACROS: &[&str] =
-    &["def", "defp", "defmacro", "defmacrop", "defguard", "defguardp", "defdelegate"];
+const DEF_MACROS: &[&str] = &[
+    "def",
+    "defp",
+    "defmacro",
+    "defmacrop",
+    "defguard",
+    "defguardp",
+    "defdelegate",
+];
 
 /// Macro names that define a module-like namespace.
 const MODULE_MACROS: &[&str] = &["defmodule", "defprotocol", "defimpl"];
@@ -114,8 +134,13 @@ fn is_match_operator(node: tree_sitter::Node<'_>, source: &str) -> bool {
     }
     let mut cursor = node.walk();
     let named: Vec<_> = node.named_children(&mut cursor).collect();
-    let [left, right] = named.as_slice() else { return false };
-    source.get(left.end_byte()..right.start_byte()).map(|gap| gap.trim() == "=").unwrap_or(false)
+    let [left, right] = named.as_slice() else {
+        return false;
+    };
+    source
+        .get(left.end_byte()..right.start_byte())
+        .map(|gap| gap.trim() == "=")
+        .unwrap_or(false)
 }
 
 /// The macro-detection cases that can't be table-driven: they depend on
@@ -148,7 +173,8 @@ const KIND_TABLE: &[(&str, NodeKind)] = &[
 ];
 
 fn map_kind(node: tree_sitter::Node<'_>, source: &str) -> NodeKind {
-    special_case_kind(node, source).unwrap_or_else(|| yunq_ast::lookup_kind(KIND_TABLE, node.kind()))
+    special_case_kind(node, source)
+        .unwrap_or_else(|| yunq_ast::lookup_kind(KIND_TABLE, node.kind()))
 }
 
 #[cfg(test)]

@@ -28,7 +28,7 @@
 //! carry `min_couplings` component-level dependencies before it is judged.
 
 use yunq_ast::{AstNode, SourceFile, Span};
-use yunq_import_graph::{component_metrics, component_of, ComponentMetrics, ImportGraph};
+use yunq_import_graph::{ComponentMetrics, ImportGraph, component_metrics, component_of};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 use crate::census::component_census;
@@ -63,7 +63,11 @@ impl Default for MainSequenceRule {
 /// The message body for one out-of-band component — which zone, and what to
 /// do about it.
 fn diagnosis(metrics: &ComponentMetrics) -> String {
-    let (a, i, d) = (metrics.abstractness(), metrics.instability(), metrics.distance_from_main_sequence());
+    let (a, i, d) = (
+        metrics.abstractness(),
+        metrics.instability(),
+        metrics.distance_from_main_sequence(),
+    );
     let numbers = format!(
         "abstractness {a:.2}, instability {i:.2}, distance from the main sequence {d:.2} (Ca={}, Ce={}, {} types, {} abstractions)",
         metrics.afferent, metrics.efferent, metrics.census.total, metrics.census.abstractions
@@ -114,7 +118,8 @@ impl CrossFileRule for MainSequenceRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let graph = ImportGraph::build_with_rust_modules(&views);
         let census = component_census(files);
         let metrics = component_metrics(&graph, &census);
@@ -164,17 +169,33 @@ mod tests {
                 "kernel/src/model.ts",
                 "export class A {}\nexport class B {}\nexport class C {}\nexport class D {}\nexport class E {}\n",
             ),
-            ("one/src/a.ts", "import { A } from '../../kernel/src/model';\nexport const a = A;\n"),
-            ("two/src/b.ts", "import { B } from '../../kernel/src/model';\nexport const b = B;\n"),
-            ("three/src/c.ts", "import { C } from '../../kernel/src/model';\nexport const c = C;\n"),
+            (
+                "one/src/a.ts",
+                "import { A } from '../../kernel/src/model';\nexport const a = A;\n",
+            ),
+            (
+                "two/src/b.ts",
+                "import { B } from '../../kernel/src/model';\nexport const b = B;\n",
+            ),
+            (
+                "three/src/c.ts",
+                "import { C } from '../../kernel/src/model';\nexport const c = C;\n",
+            ),
         ])
     }
 
     #[test]
     fn flags_a_concrete_heavily_depended_on_component_as_the_zone_of_pain() {
         let findings = MainSequenceRule::default().check(&painful_kernel());
-        let kernel: Vec<_> = findings.iter().filter(|(_, f)| f.message.contains("`kernel/src`")).collect();
-        assert_eq!(kernel.len(), 1, "expected exactly one kernel finding, got {findings:?}");
+        let kernel: Vec<_> = findings
+            .iter()
+            .filter(|(_, f)| f.message.contains("`kernel/src`"))
+            .collect();
+        assert_eq!(
+            kernel.len(),
+            1,
+            "expected exactly one kernel finding, got {findings:?}"
+        );
         assert!(kernel[0].1.message.contains("zone of pain"));
         assert!(kernel[0].1.message.contains("Ca=3"));
     }
@@ -186,13 +207,24 @@ mod tests {
                 "kernel/src/model.ts",
                 "export interface A {}\nexport interface B {}\nexport interface C {}\nexport interface D {}\nexport class E {}\n",
             ),
-            ("one/src/a.ts", "import { A } from '../../kernel/src/model';\nexport const a: A = {} as A;\n"),
-            ("two/src/b.ts", "import { B } from '../../kernel/src/model';\nexport const b: B = {} as B;\n"),
-            ("three/src/c.ts", "import { C } from '../../kernel/src/model';\nexport const c: C = {} as C;\n"),
+            (
+                "one/src/a.ts",
+                "import { A } from '../../kernel/src/model';\nexport const a: A = {} as A;\n",
+            ),
+            (
+                "two/src/b.ts",
+                "import { B } from '../../kernel/src/model';\nexport const b: B = {} as B;\n",
+            ),
+            (
+                "three/src/c.ts",
+                "import { C } from '../../kernel/src/model';\nexport const c: C = {} as C;\n",
+            ),
         ]);
         let findings = MainSequenceRule::default().check(&files);
         assert!(
-            !findings.iter().any(|(_, f)| f.message.contains("`kernel/src`")),
+            !findings
+                .iter()
+                .any(|(_, f)| f.message.contains("`kernel/src`")),
             "A = 0.8 with I = 0 is D = 0.2, well inside the band: {findings:?}"
         );
     }
@@ -201,9 +233,18 @@ mod tests {
     fn a_component_below_the_type_floor_is_never_judged() {
         let files = parsed_ts(&[
             ("kernel/src/model.ts", "export class A {}\n"),
-            ("one/src/a.ts", "import { A } from '../../kernel/src/model';\nexport const a = A;\n"),
-            ("two/src/b.ts", "import { A } from '../../kernel/src/model';\nexport const b = A;\n"),
-            ("three/src/c.ts", "import { A } from '../../kernel/src/model';\nexport const c = A;\n"),
+            (
+                "one/src/a.ts",
+                "import { A } from '../../kernel/src/model';\nexport const a = A;\n",
+            ),
+            (
+                "two/src/b.ts",
+                "import { A } from '../../kernel/src/model';\nexport const b = A;\n",
+            ),
+            (
+                "three/src/c.ts",
+                "import { A } from '../../kernel/src/model';\nexport const c = A;\n",
+            ),
         ]);
         assert!(MainSequenceRule::default().check(&files).is_empty());
     }
@@ -221,7 +262,10 @@ mod tests {
     fn the_finding_is_anchored_on_the_components_first_file() {
         let files = painful_kernel();
         let findings = MainSequenceRule::default().check(&files);
-        let (index, _) = findings.iter().find(|(_, f)| f.message.contains("`kernel/src`")).unwrap();
+        let (index, _) = findings
+            .iter()
+            .find(|(_, f)| f.message.contains("`kernel/src`"))
+            .unwrap();
         assert_eq!(files[*index].0.path(), "kernel/src/model.ts");
     }
 
@@ -233,11 +277,25 @@ mod tests {
                 "kernel/src/model.ts",
                 "export interface A {}\nexport interface B {}\nexport interface C {}\nexport interface D {}\nexport class E {}\n",
             ),
-            ("one/src/a.ts", "import { A } from '../../kernel/src/model';\nexport const a: A = {} as A;\n"),
-            ("two/src/b.ts", "import { B } from '../../kernel/src/model';\nexport const b: B = {} as B;\n"),
-            ("three/src/c.ts", "import { C } from '../../kernel/src/model';\nexport const c: C = {} as C;\n"),
+            (
+                "one/src/a.ts",
+                "import { A } from '../../kernel/src/model';\nexport const a: A = {} as A;\n",
+            ),
+            (
+                "two/src/b.ts",
+                "import { B } from '../../kernel/src/model';\nexport const b: B = {} as B;\n",
+            ),
+            (
+                "three/src/c.ts",
+                "import { C } from '../../kernel/src/model';\nexport const c: C = {} as C;\n",
+            ),
         ]);
         let strict = MainSequenceRule::new(0.1, 5, 3);
-        assert!(strict.check(&files).iter().any(|(_, f)| f.message.contains("`kernel/src`")));
+        assert!(
+            strict
+                .check(&files)
+                .iter()
+                .any(|(_, f)| f.message.contains("`kernel/src`"))
+        );
     }
 }

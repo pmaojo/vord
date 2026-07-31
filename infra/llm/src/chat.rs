@@ -16,7 +16,7 @@
 //! subtly wrong fails as a confusing model refusal three turns later; a
 //! failing assertion here is worth a great deal more than one there.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use yunq_agent::runtime::{ChatModel, ModelError};
 use yunq_agent::session::{AssistantTurn, Message, TokenUsage, ToolCall, ToolResult, Transcript};
 use yunq_agent::tools::ToolSpec;
@@ -44,7 +44,9 @@ fn anthropic_assistant_content(text: Option<&String>, calls: &[ToolCall]) -> Vec
         blocks.push(json!({ "type": "text", "text": text }));
     }
     for call in calls {
-        blocks.push(json!({ "type": "tool_use", "id": call.id, "name": call.name, "input": call.input }));
+        blocks.push(
+            json!({ "type": "tool_use", "id": call.id, "name": call.name, "input": call.input }),
+        );
     }
     blocks
 }
@@ -187,7 +189,11 @@ pub(crate) fn parse_openai_turn(body: &Value) -> Result<AssistantTurn, ModelErro
         ..AssistantTurn::default()
     };
     push_text(&mut turn, message.get("content").and_then(Value::as_str));
-    for call in message.get("tool_calls").and_then(Value::as_array).unwrap_or(&Vec::new()) {
+    for call in message
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .unwrap_or(&Vec::new())
+    {
         let function = call.get("function").unwrap_or(&Value::Null);
         turn.calls.push(ToolCall {
             id: string_field(call, "id"),
@@ -216,7 +222,11 @@ fn parse_arguments(raw: Option<&Value>) -> Value {
 // ---------------------------------------------------------------------------
 
 fn string_field(value: &Value, field: &str) -> String {
-    value.get(field).and_then(Value::as_str).unwrap_or_default().to_string()
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn number_field(value: &Value, path: &[&str]) -> u64 {
@@ -233,7 +243,9 @@ fn number_field(value: &Value, path: &[&str]) -> u64 {
 /// Appends a text block, joining rather than replacing — a provider may emit
 /// several, and keeping only the last silently drops the model's reasoning.
 fn push_text(turn: &mut AssistantTurn, text: Option<&str>) {
-    let Some(text) = text.filter(|t| !t.is_empty()) else { return };
+    let Some(text) = text.filter(|t| !t.is_empty()) else {
+        return;
+    };
     match &mut turn.text {
         Some(existing) => {
             existing.push('\n');
@@ -256,7 +268,11 @@ pub struct AnthropicChatModel {
 }
 
 impl AnthropicChatModel {
-    pub fn new(api_base: impl Into<String>, model: impl Into<String>, api_key: impl Into<String>) -> Self {
+    pub fn new(
+        api_base: impl Into<String>,
+        model: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_base: api_base.into().trim_end_matches('/').to_string(),
@@ -296,7 +312,11 @@ pub struct OpenAiChatModel {
 }
 
 impl OpenAiChatModel {
-    pub fn new(api_base: impl Into<String>, model: impl Into<String>, api_key: impl Into<String>) -> Self {
+    pub fn new(
+        api_base: impl Into<String>,
+        model: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_base: api_base.into().trim_end_matches('/').to_string(),
@@ -313,12 +333,17 @@ impl ChatModel for OpenAiChatModel {
         tools: &[ToolSpec],
     ) -> Result<AssistantTurn, ModelError> {
         let url = format!("{}/chat/completions", self.api_base);
-        let mut request = self.client.post(&url).json(&openai_body(&self.model, transcript, tools));
+        let mut request = self
+            .client
+            .post(&url)
+            .json(&openai_body(&self.model, transcript, tools));
         if !self.api_key.is_empty() {
             request = request.bearer_auth(&self.api_key);
         }
-        let response =
-            request.send().await.map_err(|e| ModelError(format!("request to {url} failed: {e}")))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ModelError(format!("request to {url} failed: {e}")))?;
         parse_openai_turn(&checked_json(response, "OpenAI-compatible provider").await?)
     }
 }
@@ -329,11 +354,15 @@ impl ChatModel for OpenAiChatModel {
 /// claiming completion.
 async fn checked_json(response: reqwest::Response, provider: &str) -> Result<Value, ModelError> {
     let status = response.status();
-    let body = response.text().await.map_err(|e| ModelError(format!("{provider} response unreadable: {e}")))?;
+    let body = response
+        .text()
+        .await
+        .map_err(|e| ModelError(format!("{provider} response unreadable: {e}")))?;
     if !status.is_success() {
         return Err(ModelError(format!("{provider} returned {status}: {body}")));
     }
-    serde_json::from_str(&body).map_err(|e| ModelError(format!("{provider} sent unparseable JSON: {e}")))
+    serde_json::from_str(&body)
+        .map_err(|e| ModelError(format!("{provider} sent unparseable JSON: {e}")))
 }
 
 /// Either concrete chat adapter. Same reason [`crate::AnyLlmProvider`]
@@ -363,15 +392,21 @@ impl crate::LlmProviderConfig {
     pub fn build_chat_model(&self) -> AnyChatModel {
         match self.kind {
             crate::LlmProviderKind::Anthropic => AnyChatModel::Anthropic(AnthropicChatModel::new(
-                self.base_url.clone().unwrap_or_else(|| "https://api.anthropic.com".to_string()),
+                self.base_url
+                    .clone()
+                    .unwrap_or_else(|| "https://api.anthropic.com".to_string()),
                 self.model.clone(),
                 self.api_key.clone(),
             )),
-            crate::LlmProviderKind::OpenAiCompatible => AnyChatModel::OpenAiCompatible(OpenAiChatModel::new(
-                self.base_url.clone().unwrap_or_else(|| "http://localhost:11434/v1".to_string()),
-                self.model.clone(),
-                self.api_key.clone(),
-            )),
+            crate::LlmProviderKind::OpenAiCompatible => {
+                AnyChatModel::OpenAiCompatible(OpenAiChatModel::new(
+                    self.base_url
+                        .clone()
+                        .unwrap_or_else(|| "http://localhost:11434/v1".to_string()),
+                    self.model.clone(),
+                    self.api_key.clone(),
+                ))
+            }
         }
     }
 }
@@ -400,15 +435,32 @@ mod tests {
 
     #[test]
     fn anthropic_puts_the_system_prompt_at_the_top_level_not_in_messages() {
-        let body = anthropic_body("claude", &transcript_with_a_tool_round_trip(), &tool_specs());
+        let body = anthropic_body(
+            "claude",
+            &transcript_with_a_tool_round_trip(),
+            &tool_specs(),
+        );
         assert_eq!(body["system"], "be careful");
-        let roles: Vec<&str> = body["messages"].as_array().unwrap().iter().map(|m| m["role"].as_str().unwrap()).collect();
-        assert_eq!(roles, ["user", "assistant", "user"], "tool results are a user message on this API");
+        let roles: Vec<&str> = body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["role"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            roles,
+            ["user", "assistant", "user"],
+            "tool results are a user message on this API"
+        );
     }
 
     #[test]
     fn anthropic_serialises_tool_use_and_tool_result_as_content_blocks() {
-        let body = anthropic_body("claude", &transcript_with_a_tool_round_trip(), &tool_specs());
+        let body = anthropic_body(
+            "claude",
+            &transcript_with_a_tool_round_trip(),
+            &tool_specs(),
+        );
         let assistant = &body["messages"][1]["content"];
         assert_eq!(assistant[0]["type"], "text");
         assert_eq!(assistant[1]["type"], "tool_use");
@@ -416,7 +468,10 @@ mod tests {
         let result = &body["messages"][2]["content"][0];
         assert_eq!(result["type"], "tool_result");
         assert_eq!(result["tool_use_id"], "call_1");
-        assert_eq!(result["is_error"], true, "a denial the model reads as success is worse than no denial");
+        assert_eq!(
+            result["is_error"], true,
+            "a denial the model reads as success is worse than no denial"
+        );
     }
 
     #[test]
@@ -425,7 +480,10 @@ mod tests {
         let tools = body["tools"].as_array().unwrap();
         assert_eq!(tools.len(), tool_specs().len());
         assert_eq!(tools[0]["name"], "read");
-        assert_eq!(tools[0]["input_schema"]["properties"]["path"]["type"], "string");
+        assert_eq!(
+            tools[0]["input_schema"]["properties"]["path"]["type"],
+            "string"
+        );
     }
 
     #[test]
@@ -443,7 +501,13 @@ mod tests {
         assert_eq!(turn.calls.len(), 1);
         assert_eq!(turn.calls[0].name, "write");
         assert_eq!(turn.calls[0].input["path"], "a");
-        assert_eq!(turn.usage, TokenUsage { input: 120, output: 34 });
+        assert_eq!(
+            turn.usage,
+            TokenUsage {
+                input: 120,
+                output: 34
+            }
+        );
     }
 
     #[test]
@@ -469,7 +533,10 @@ mod tests {
     fn openai_serialises_tool_arguments_as_a_json_string() {
         let body = openai_body("gpt", &transcript_with_a_tool_round_trip(), &tool_specs());
         let arguments = &body["messages"][2]["tool_calls"][0]["function"]["arguments"];
-        assert!(arguments.is_string(), "OpenAI takes arguments as a serialised string, got {arguments}");
+        assert!(
+            arguments.is_string(),
+            "OpenAI takes arguments as a serialised string, got {arguments}"
+        );
         let parsed: Value = serde_json::from_str(arguments.as_str().unwrap()).unwrap();
         assert_eq!(parsed["path"], "src/a.rs");
     }
@@ -499,7 +566,13 @@ mod tests {
         assert_eq!(turn.text.as_deref(), Some("working"));
         assert_eq!(turn.calls[0].name, "scan");
         assert_eq!(turn.calls[0].input["path"], ".");
-        assert_eq!(turn.usage, TokenUsage { input: 7, output: 3 });
+        assert_eq!(
+            turn.usage,
+            TokenUsage {
+                input: 7,
+                output: 3
+            }
+        );
     }
 
     #[test]
@@ -537,7 +610,10 @@ mod tests {
             { "type": "text", "text": "first" },
             { "type": "text", "text": "second" }
         ]});
-        assert_eq!(parse_anthropic_turn(&body).unwrap().text.as_deref(), Some("first\nsecond"));
+        assert_eq!(
+            parse_anthropic_turn(&body).unwrap().text.as_deref(),
+            Some("first\nsecond")
+        );
     }
 
     #[test]
@@ -548,7 +624,10 @@ mod tests {
             model: "claude-sonnet-4-5-20250929".to_string(),
             api_key: "k".to_string(),
         };
-        assert!(matches!(anthropic.build_chat_model(), AnyChatModel::Anthropic(_)));
+        assert!(matches!(
+            anthropic.build_chat_model(),
+            AnyChatModel::Anthropic(_)
+        ));
 
         let openai = crate::LlmProviderConfig {
             kind: crate::LlmProviderKind::OpenAiCompatible,
@@ -556,6 +635,9 @@ mod tests {
             model: "codellama".to_string(),
             api_key: String::new(),
         };
-        assert!(matches!(openai.build_chat_model(), AnyChatModel::OpenAiCompatible(_)));
+        assert!(matches!(
+            openai.build_chat_model(),
+            AnyChatModel::OpenAiCompatible(_)
+        ));
     }
 }

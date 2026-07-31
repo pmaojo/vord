@@ -27,7 +27,9 @@ pub struct HookMissingDepsArrayRule {
 
 impl HookMissingDepsArrayRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:hook-missing-deps-array").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:hook-missing-deps-array").expect("valid rule id"),
+        }
     }
 }
 
@@ -68,10 +70,14 @@ impl Rule for HookMissingDepsArrayRule {
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter_map(|call| {
                 let name = callee_name(call)?;
-                if !matches!(name, "useEffect" | "useLayoutEffect" | "useMemo" | "useCallback") {
+                if !matches!(
+                    name,
+                    "useEffect" | "useLayoutEffect" | "useMemo" | "useCallback"
+                ) {
                     return None;
                 }
-                (call_arguments(call).len() < 2).then(|| Finding::new(message_for(name), call.span()))
+                (call_arguments(call).len() < 2)
+                    .then(|| Finding::new(message_for(name), call.span()))
             })
             .collect()
     }
@@ -84,7 +90,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         HookMissingDepsArrayRule::new().check(&file, &ast)
     }
 
@@ -97,7 +105,8 @@ mod tests {
 
     #[test]
     fn flags_use_memo_and_use_callback_without_deps() {
-        let findings = check("const v = useMemo(() => compute());\nconst f = useCallback(() => {});\n");
+        let findings =
+            check("const v = useMemo(() => compute());\nconst f = useCallback(() => {});\n");
         assert_eq!(findings.len(), 2);
         assert!(findings[0].message.contains("useMemo"));
         assert!(findings[1].message.contains("useCallback"));
@@ -126,7 +135,10 @@ mod tests {
         // The `<Bucket[]>` type argument must not confuse the argument-count
         // detection: the dependency array is still the second argument.
         let findings = check("const v = useMemo<Bucket[]>(() => compute(logs), [logs]);\n");
-        assert!(findings.is_empty(), "useMemo with generic should not be flagged: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "useMemo with generic should not be flagged: {findings:?}"
+        );
     }
 
     #[test]

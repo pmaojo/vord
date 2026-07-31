@@ -16,7 +16,9 @@ pub struct MemForgetRule {
 
 impl MemForgetRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:mem-forget").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:mem-forget").expect("valid rule id"),
+        }
     }
 }
 

@@ -86,7 +86,10 @@ impl FileAnalysisCache {
             .ok()
             .and_then(|raw| serde_json::from_str(&raw).ok())
             .unwrap_or_default();
-        Self { path, entries: Mutex::new(entries) }
+        Self {
+            path,
+            entries: Mutex::new(entries),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -115,7 +118,12 @@ fn to_domain(dto: &CachedFileDto) -> Option<CachedAnalysis> {
                 Severity::parse(&issue.severity)?,
                 issue.message.clone(),
                 issue.file.clone(),
-                Span::new(issue.start_line, issue.start_col, issue.end_line, issue.end_col),
+                Span::new(
+                    issue.start_line,
+                    issue.start_col,
+                    issue.end_line,
+                    issue.end_col,
+                ),
             ))
         })
         .collect::<Option<Vec<_>>>()?;
@@ -231,7 +239,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cache.json");
 
-        let key = CacheKey { content_hash: 0xabc, config_hash: 0xdef };
+        let key = CacheKey {
+            content_hash: 0xabc,
+            config_hash: 0xdef,
+        };
         let value = CachedAnalysis {
             lines: 7,
             debt_minutes: 10,
@@ -285,11 +296,14 @@ mod tests {
     fn missing_structural_fields_fail_open_to_zero() {
         // Simulates a cache file written by a yunq version that predates
         // structural counters: the JSON simply omits those keys.
-        let dir = std::env::temp_dir()
-            .join(format!("yunq-cache-legacy-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-cache-legacy-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cache.json");
-        let key = CacheKey { content_hash: 0x1, config_hash: 0x2 };
+        let key = CacheKey {
+            content_hash: 0x1,
+            config_hash: 0x2,
+        };
         std::fs::write(
             &path,
             format!(

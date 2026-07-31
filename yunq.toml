@@ -5,7 +5,7 @@ version = "0.2.1"
 
 [analysis]
 sources = ["bin", "core", "infra", "parsers", "rulesets"]
-exclusions = ["**/fixtures/**", "**/target/**"]
+exclusions = ["**/fixtures/**", "**/target/**", "benches/**"]
 profile = "yunq way"
 
 [[architecture.forbidden_dependencies]]

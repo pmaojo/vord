@@ -18,7 +18,9 @@ pub struct MemTransmuteRule {
 
 impl MemTransmuteRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:mem-transmute").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:mem-transmute").expect("valid rule id"),
+        }
     }
 }
 

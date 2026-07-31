@@ -32,7 +32,12 @@ pub type KindMapper = fn(&str) -> NodeKind;
 /// tree-sitter's 0-based row/column as a 1-based [`Span`].
 pub fn span_of(node: tree_sitter::Node<'_>) -> Span {
     let (start, end) = (node.start_position(), node.end_position());
-    Span::new(start.row as u32 + 1, start.column as u32 + 1, end.row as u32 + 1, end.column as u32 + 1)
+    Span::new(
+        start.row as u32 + 1,
+        start.column as u32 + 1,
+        end.row as u32 + 1,
+        end.column as u32 + 1,
+    )
 }
 
 /// Converts a tree-sitter tree into the neutral AST, keeping only *named*
@@ -40,7 +45,10 @@ pub fn span_of(node: tree_sitter::Node<'_>) -> Span {
 /// depend on. Zero-copy: every node slices the one shared file buffer.
 pub fn convert(node: tree_sitter::Node<'_>, source: &Arc<str>, map_kind: KindMapper) -> AstNode {
     let mut cursor = node.walk();
-    let children = node.named_children(&mut cursor).map(|c| convert(c, source, map_kind)).collect();
+    let children = node
+        .named_children(&mut cursor)
+        .map(|c| convert(c, source, map_kind))
+        .collect();
     AstNode::from_source(
         map_kind(node.kind()),
         span_of(node),
@@ -59,11 +67,15 @@ pub fn parse_with(
     map_kind: KindMapper,
 ) -> Result<AstNode, ParseError> {
     let mut parser = tree_sitter::Parser::new();
-    parser.set_language(language).map_err(|e| ParseError::Backend(e.to_string()))?;
-    let tree = parser.parse(file.content(), None).ok_or_else(|| ParseError::Syntax {
-        file: file.path().to_string(),
-        detail: "tree-sitter produced no tree".to_string(),
-    })?;
+    parser
+        .set_language(language)
+        .map_err(|e| ParseError::Backend(e.to_string()))?;
+    let tree = parser
+        .parse(file.content(), None)
+        .ok_or_else(|| ParseError::Syntax {
+            file: file.path().to_string(),
+            detail: "tree-sitter produced no tree".to_string(),
+        })?;
     Ok(convert(tree.root_node(), &file.content_shared(), map_kind))
 }
 
@@ -125,10 +137,8 @@ macro_rules! declare_parser {
             fn parse(
                 &self,
                 file: &$crate::__reexport::SourceFile,
-            ) -> ::core::result::Result<
-                $crate::__reexport::AstNode,
-                $crate::__reexport::ParseError,
-            > {
+            ) -> ::core::result::Result<$crate::__reexport::AstNode, $crate::__reexport::ParseError>
+            {
                 $crate::parse_with(&$grammar.into(), file, $map_kind)
             }
 

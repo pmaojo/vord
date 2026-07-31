@@ -37,7 +37,9 @@ mod tests {
 
     #[test]
     fn maps_c_concepts() {
-        let ast = parse("// TODO: refactor\nint main() {\n    printf(\"hello world\\n\");\n    return 0;\n}");
+        let ast = parse(
+            "// TODO: refactor\nint main() {\n    printf(\"hello world\\n\");\n    return 0;\n}",
+        );
         assert_eq!(ast.kind(), &NodeKind::SourceUnit);
         assert_eq!(ast.find_all(&NodeKind::FunctionDef).len(), 1);
         assert_eq!(ast.find_all(&NodeKind::Comment).len(), 1);

@@ -9,16 +9,28 @@
 //! close for their languages.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{
+    Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
+};
 
 use crate::common::{arguments, callee, callee_name, is_other, operator_between};
 
-const METHOD_SINKS: &[&str] =
-    &["Query", "QueryContext", "QueryRow", "QueryRowContext", "Exec", "ExecContext", "Prepare", "PrepareContext"];
+const METHOD_SINKS: &[&str] = &[
+    "Query",
+    "QueryContext",
+    "QueryRow",
+    "QueryRowContext",
+    "Exec",
+    "ExecContext",
+    "Prepare",
+    "PrepareContext",
+];
 
 fn is_sink_call(call: &AstNode) -> bool {
-    callee(call)
-        .is_some_and(|c| *c.kind() == NodeKind::MemberAccess && callee_name(c).is_some_and(|n| METHOD_SINKS.contains(&n)))
+    callee(call).is_some_and(|c| {
+        *c.kind() == NodeKind::MemberAccess
+            && callee_name(c).is_some_and(|n| METHOD_SINKS.contains(&n))
+    })
 }
 
 fn is_plus_concat(node: &AstNode, source: &str) -> bool {
@@ -34,7 +46,8 @@ fn is_sprintf_call(node: &AstNode) -> bool {
 }
 
 fn built_unsafely(arg: &AstNode, source: &str) -> bool {
-    arg.descendants().any(|n| is_plus_concat(n, source) || is_sprintf_call(n))
+    arg.descendants()
+        .any(|n| is_plus_concat(n, source) || is_sprintf_call(n))
 }
 
 declare_rule_id!(SqlInjectionConcatRule, "go:sql-injection-concat");
@@ -78,7 +91,8 @@ impl Rule for SqlInjectionConcatRule {
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter(|call| is_sink_call(call))
             .filter(|call| {
-                arguments(call).is_some_and(|args| args.iter().any(|arg| built_unsafely(arg, file.content())))
+                arguments(call)
+                    .is_some_and(|args| args.iter().any(|arg| built_unsafely(arg, file.content())))
             })
             .map(|call| {
                 Finding::new(
@@ -148,9 +162,9 @@ mod tests {
 
     #[test]
     fn ignores_unrelated_calls() {
-        assert!(check(
-            "package main\nfunc f(id string) {\n\tstrings.ToLower(\"a\" + id)\n}\n"
-        )
-        .is_empty());
+        assert!(
+            check("package main\nfunc f(id string) {\n\tstrings.ToLower(\"a\" + id)\n}\n")
+                .is_empty()
+        );
     }
 }

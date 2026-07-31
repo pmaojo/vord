@@ -23,7 +23,7 @@ use std::collections::BTreeSet;
 
 use yunq_ast::{AstNode, SourceFile};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{type_identifiers, ClassRegistry};
+use yunq_symbols::{ClassRegistry, type_identifiers};
 
 use crate::common::{field_declared_type, is_domain_path, repository_backed_names};
 
@@ -33,7 +33,9 @@ pub struct AggregateReferenceByIdRule {
 
 impl AggregateReferenceByIdRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("ddd:aggregate-reference-by-id").expect("valid rule id") }
+        Self {
+            id: RuleId::new("ddd:aggregate-reference-by-id").expect("valid rule id"),
+        }
     }
 }
 
@@ -85,13 +87,20 @@ impl CrossFileRule for AggregateReferenceByIdRule {
         if repository_backed.is_empty() {
             return Vec::new();
         }
-        let views: Vec<(&str, &AstNode)> = domain.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> = domain
+            .iter()
+            .map(|(file, ast)| (file.path(), ast))
+            .collect();
         let registry = ClassRegistry::build_cross_file(&views);
         let mut findings = Vec::new();
         for class in registry.iter() {
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             for field in &class.fields {
-                let Some(declared) = field_declared_type(class, field) else { continue };
+                let Some(declared) = field_declared_type(class, field) else {
+                    continue;
+                };
                 let referenced: BTreeSet<&str> = type_identifiers(declared)
                     .into_iter()
                     .filter(|name| *name != class.name)
@@ -124,9 +133,13 @@ mod tests {
     fn parse(path: &str, code: &str, language: LanguageIdentifier) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::go() {
             yunq_parser_go::GoParser::new().parse(&file).unwrap()
         } else {
@@ -136,7 +149,11 @@ mod tests {
     }
 
     fn check(files: Vec<(SourceFile, AstNode)>) -> Vec<Finding> {
-        AggregateReferenceByIdRule::new().check(&files).into_iter().map(|(_, f)| f).collect()
+        AggregateReferenceByIdRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
@@ -155,7 +172,11 @@ mod tests {
         ];
         let findings = check(files);
         assert_eq!(findings.len(), 1, "{findings:?}");
-        assert!(findings[0].message.contains("`Order::customer`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`Order::customer`"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("`Customer`"));
         assert!(findings[0].message.contains("`CustomerId`"));
     }

@@ -43,7 +43,10 @@ pub struct HookWriteJudge {
 
 impl HookWriteJudge {
     pub fn new(root: impl Into<PathBuf>, policy: AgentPolicy) -> Self {
-        Self { root: root.into(), policy }
+        Self {
+            root: root.into(),
+            policy,
+        }
     }
 }
 
@@ -80,7 +83,9 @@ impl RepoAnalyzer {
         Self {
             root: root.into(),
             sources: analysis.and_then(|a| a.sources.clone()).unwrap_or_default(),
-            exclusions: analysis.and_then(|a| a.exclusions.clone()).unwrap_or_default(),
+            exclusions: analysis
+                .and_then(|a| a.exclusions.clone())
+                .unwrap_or_default(),
         }
     }
 }
@@ -122,7 +127,9 @@ fn report_findings(report: &yunq_rules_engine::AnalysisReport) -> Vec<LocatedFin
     let hotspots = report.hotspots().iter().map(|hotspot| LocatedFinding {
         file: hotspot.file().to_string(),
         rule: hotspot.rule().clone(),
-        severity: profile.severity_of(hotspot.rule()).unwrap_or(yunq_rules_engine::Severity::Major),
+        severity: profile
+            .severity_of(hotspot.rule())
+            .unwrap_or(yunq_rules_engine::Severity::Major),
         message: hotspot.message().to_string(),
         line: hotspot.span().start_line,
     });
@@ -143,10 +150,15 @@ pub struct AgentArgs {
 /// `yunq.toml`'s `[agent]` table, which is layered over the built-in
 /// defaults. A flag always wins; an absent flag never resets a configured
 /// value to the default.
-fn run_config(args: &AgentArgs, settings: &yunq_infra_fs::AgentSettings) -> anyhow::Result<RunConfig> {
+fn run_config(
+    args: &AgentArgs,
+    settings: &yunq_infra_fs::AgentSettings,
+) -> anyhow::Result<RunConfig> {
     let defaults = Budget::default();
     let target_rule = match &args.rule {
-        Some(raw) => Some(RuleId::new(raw).map_err(|_| anyhow::anyhow!("invalid rule id {raw:?}"))?),
+        Some(raw) => {
+            Some(RuleId::new(raw).map_err(|_| anyhow::anyhow!("invalid rule id {raw:?}"))?)
+        }
         None => None,
     };
     let allowlist = match &settings.allowed_commands {
@@ -158,11 +170,19 @@ fn run_config(args: &AgentArgs, settings: &yunq_infra_fs::AgentSettings) -> anyh
         scope: args.scope.clone(),
         target_rule,
         budget: Budget {
-            max_turns: args.max_turns.or(settings.max_turns).unwrap_or(defaults.max_turns),
-            max_tokens: args.max_tokens.or(settings.max_tokens).unwrap_or(defaults.max_tokens),
+            max_turns: args
+                .max_turns
+                .or(settings.max_turns)
+                .unwrap_or(defaults.max_turns),
+            max_tokens: args
+                .max_tokens
+                .or(settings.max_tokens)
+                .unwrap_or(defaults.max_tokens),
         },
         allowlist,
-        max_rejections: settings.max_rejections.unwrap_or(RunConfig::new("").max_rejections),
+        max_rejections: settings
+            .max_rejections
+            .unwrap_or(RunConfig::new("").max_rejections),
     })
 }
 
@@ -177,7 +197,11 @@ pub async fn run(root: &Path, args: AgentArgs) -> anyhow::Result<RunOutcome> {
 /// Same as [`run`], under a caller-supplied policy rather than `root`'s own
 /// `yunq-policy.toml` — see [`run_with_policy_and_observer`] for why this
 /// exists.
-pub async fn run_with_policy(root: &Path, args: AgentArgs, policy: AgentPolicy) -> anyhow::Result<RunOutcome> {
+pub async fn run_with_policy(
+    root: &Path,
+    args: AgentArgs,
+    policy: AgentPolicy,
+) -> anyhow::Result<RunOutcome> {
     run_with_policy_and_observer(root, args, policy, yunq_agent::NoopObserver).await
 }
 
@@ -208,7 +232,10 @@ pub async fn run_with_policy_and_observer(
     observer: impl yunq_agent::Observer + 'static,
 ) -> anyhow::Result<RunOutcome> {
     let config_file = YunqConfig::load_from_dir(root);
-    let settings = config_file.as_ref().map(|c| c.agent.clone()).unwrap_or_default();
+    let settings = config_file
+        .as_ref()
+        .map(|c| c.agent.clone())
+        .unwrap_or_default();
     let config = run_config(&args, &settings)?;
 
     let mut provider = LlmProviderConfig::from_env();
@@ -220,7 +247,9 @@ pub async fn run_with_policy_and_observer(
     }
 
     let workspace = match settings.command_timeout_secs {
-        Some(seconds) => RepoWorkspace::new(root).with_timeout(std::time::Duration::from_secs(seconds)),
+        Some(seconds) => {
+            RepoWorkspace::new(root).with_timeout(std::time::Duration::from_secs(seconds))
+        }
         None => RepoWorkspace::new(root),
     };
     let runtime = AgentRuntime::new(
@@ -248,7 +277,9 @@ pub const TRIAGE_FILE: &str = ".yunq-triage.json";
 type TriageStore = std::collections::BTreeMap<String, Vec<String>>;
 
 fn load_triage(root: &Path, key: &str) -> TriageLedger {
-    let Ok(raw) = std::fs::read_to_string(root.join(TRIAGE_FILE)) else { return TriageLedger::default() };
+    let Ok(raw) = std::fs::read_to_string(root.join(TRIAGE_FILE)) else {
+        return TriageLedger::default();
+    };
     let store: TriageStore = serde_json::from_str(&raw).unwrap_or_default();
     TriageLedger::from_ids(store.get(key).cloned().unwrap_or_default())
 }
@@ -263,7 +294,10 @@ fn save_triage(root: &Path, key: &str, ledger: &TriageLedger) {
     match serde_json::to_string_pretty(&store) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
-                eprintln!("yunq agent: could not persist the triage ledger at {}: {e}", path.display());
+                eprintln!(
+                    "yunq agent: could not persist the triage ledger at {}: {e}",
+                    path.display()
+                );
             }
         }
         Err(e) => eprintln!("yunq agent: could not serialize the triage ledger: {e}"),
@@ -274,8 +308,9 @@ fn save_triage(root: &Path, key: &str, ledger: &TriageLedger) {
 fn resolve_repository(repo: Option<String>) -> anyhow::Result<(String, String)> {
     let raw = match repo {
         Some(raw) => raw,
-        None => std::env::var("GITHUB_REPOSITORY")
-            .map_err(|_| anyhow::anyhow!("no repository: pass --repo owner/name or set GITHUB_REPOSITORY"))?,
+        None => std::env::var("GITHUB_REPOSITORY").map_err(|_| {
+            anyhow::anyhow!("no repository: pass --repo owner/name or set GITHUB_REPOSITORY")
+        })?,
     };
     let (owner, name) = raw
         .split_once('/')
@@ -295,15 +330,20 @@ pub async fn watch_pull_request(
 ) -> anyhow::Result<FeedbackOutcome> {
     let root = std::env::current_dir()?;
     let (owner, name) = resolve_repository(repo)?;
-    let token = std::env::var("GITHUB_TOKEN")
-        .map_err(|_| anyhow::anyhow!("no GITHUB_TOKEN — `watch-pr` needs one to read the pull request"))?;
+    let token = std::env::var("GITHUB_TOKEN").map_err(|_| {
+        anyhow::anyhow!("no GITHUB_TOKEN — `watch-pr` needs one to read the pull request")
+    })?;
     let reader = PullRequestFeedbackReader::new(token, &owner, &name).with_api_base(
-        std::env::var("YUNQ_GITHUB_API_BASE").unwrap_or_else(|_| "https://api.github.com".to_string()),
+        std::env::var("YUNQ_GITHUB_API_BASE")
+            .unwrap_or_else(|_| "https://api.github.com".to_string()),
     );
 
     let key = format!("{owner}/{name}#{number}");
     let policy = match window_secs {
-        Some(seconds) => WatchPolicy { window: std::time::Duration::from_secs(seconds), ..Default::default() },
+        Some(seconds) => WatchPolicy {
+            window: std::time::Duration::from_secs(seconds),
+            ..Default::default()
+        },
         None => WatchPolicy::default(),
     };
     let mut watch = FeedbackWatch::new(policy, load_triage(&root, &key));
@@ -329,7 +369,11 @@ pub fn report_feedback(outcome: &FeedbackOutcome) {
 /// One line per outcome, on stdout for a success and stderr otherwise —
 /// so a CI step's log shows the failure without `2>&1`.
 pub fn report(outcome: &RunOutcome) {
-    let line = format!("yunq agent: {} (after {} turns)", outcome.describe(), outcome.turns());
+    let line = format!(
+        "yunq agent: {} (after {} turns)",
+        outcome.describe(),
+        outcome.turns()
+    );
     match outcome {
         RunOutcome::Completed { .. } => println!("{line}"),
         _ => eprintln!("{line}"),
@@ -363,40 +407,89 @@ mod tests {
 
     #[test]
     fn yunq_toml_overrides_the_built_in_budget() {
-        let settings = AgentSettings { max_turns: Some(5), max_tokens: Some(99), ..AgentSettings::default() };
+        let settings = AgentSettings {
+            max_turns: Some(5),
+            max_tokens: Some(99),
+            ..AgentSettings::default()
+        };
         let config = run_config(&args(), &settings).unwrap();
-        assert_eq!(config.budget, Budget { max_turns: 5, max_tokens: 99 });
+        assert_eq!(
+            config.budget,
+            Budget {
+                max_turns: 5,
+                max_tokens: 99
+            }
+        );
     }
 
     #[test]
     fn a_flag_outranks_yunq_toml() {
-        let settings = AgentSettings { max_turns: Some(5), ..AgentSettings::default() };
-        let config = run_config(&AgentArgs { max_turns: Some(11), ..args() }, &settings).unwrap();
+        let settings = AgentSettings {
+            max_turns: Some(5),
+            ..AgentSettings::default()
+        };
+        let config = run_config(
+            &AgentArgs {
+                max_turns: Some(11),
+                ..args()
+            },
+            &settings,
+        )
+        .unwrap();
         assert_eq!(config.budget.max_turns, 11);
     }
 
     #[test]
     fn an_absent_flag_does_not_reset_a_configured_value() {
-        let settings = AgentSettings { max_tokens: Some(77), ..AgentSettings::default() };
-        let config = run_config(&AgentArgs { max_turns: Some(3), ..args() }, &settings).unwrap();
+        let settings = AgentSettings {
+            max_tokens: Some(77),
+            ..AgentSettings::default()
+        };
+        let config = run_config(
+            &AgentArgs {
+                max_turns: Some(3),
+                ..args()
+            },
+            &settings,
+        )
+        .unwrap();
         assert_eq!(config.budget.max_tokens, 77);
     }
 
     #[test]
     fn a_configured_allowlist_replaces_the_default_one() {
-        let settings =
-            AgentSettings { allowed_commands: Some(vec!["just".to_string()]), ..AgentSettings::default() };
+        let settings = AgentSettings {
+            allowed_commands: Some(vec!["just".to_string()]),
+            ..AgentSettings::default()
+        };
         let config = run_config(&args(), &settings).unwrap();
         assert_eq!(config.allowlist.programs(), ["just"]);
     }
 
     #[test]
     fn a_target_rule_is_parsed_and_a_malformed_one_is_rejected() {
-        let config = run_config(&AgentArgs { rule: Some("owasp:xss".into()), ..args() }, &Default::default())
-            .unwrap();
-        assert_eq!(config.target_rule.map(|r| r.to_string()).as_deref(), Some("owasp:xss"));
-        assert!(run_config(&AgentArgs { rule: Some("not a rule id".into()), ..args() }, &Default::default())
-            .is_err());
+        let config = run_config(
+            &AgentArgs {
+                rule: Some("owasp:xss".into()),
+                ..args()
+            },
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            config.target_rule.map(|r| r.to_string()).as_deref(),
+            Some("owasp:xss")
+        );
+        assert!(
+            run_config(
+                &AgentArgs {
+                    rule: Some("not a rule id".into()),
+                    ..args()
+                },
+                &Default::default()
+            )
+            .is_err()
+        );
     }
 
     #[tokio::test]
@@ -404,7 +497,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("yunq-agent-analyzer-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::write(root.join("src/a.py"), "import subprocess\nsubprocess.run(cmd, shell=True)\n").unwrap();
+        std::fs::write(
+            root.join("src/a.py"),
+            "import subprocess\nsubprocess.run(cmd, shell=True)\n",
+        )
+        .unwrap();
 
         let findings = RepoAnalyzer::new(&root, None).scan(".").await.unwrap();
 
@@ -422,9 +519,18 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
 
         let judge = HookWriteJudge::new(&root, AgentPolicy::default());
-        let evaluation = judge.judge("src/a.py", "import subprocess\nsubprocess.run(cmd, shell=True)\n").await.unwrap();
+        let evaluation = judge
+            .judge(
+                "src/a.py",
+                "import subprocess\nsubprocess.run(cmd, shell=True)\n",
+            )
+            .await
+            .unwrap();
 
-        assert!(evaluation.is_denied(), "a default blocking rule must deny: {evaluation:?}");
+        assert!(
+            evaluation.is_denied(),
+            "a default blocking rule must deny: {evaluation:?}"
+        );
         let audit = std::fs::read_to_string(root.join(hook::AUDIT_LOG_FILE)).unwrap();
         assert!(audit.contains("\"event\":\"AgentWrite\""), "{audit}");
         assert!(audit.contains("\"outcome\":\"deny\""), "{audit}");
@@ -433,12 +539,16 @@ mod tests {
 
     #[tokio::test]
     async fn the_write_judge_allows_a_clean_write() {
-        let root = std::env::temp_dir().join(format!("yunq-agent-judge-clean-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("yunq-agent-judge-clean-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 
         let judge = HookWriteJudge::new(&root, AgentPolicy::default());
-        let evaluation = judge.judge("src/a.py", "def add(a, b):\n    return a + b\n").await.unwrap();
+        let evaluation = judge
+            .judge("src/a.py", "def add(a, b):\n    return a + b\n")
+            .await
+            .unwrap();
 
         assert!(!evaluation.is_denied(), "{evaluation:?}");
         std::fs::remove_dir_all(&root).ok();

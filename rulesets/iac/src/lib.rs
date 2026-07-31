@@ -13,5 +13,8 @@ use yunq_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
-    vec![Box::new(IamWildcardPermissionRule::new()), Box::new(OpenIngressCidrRule::new())]
+    vec![
+        Box::new(IamWildcardPermissionRule::new()),
+        Box::new(OpenIngressCidrRule::new()),
+    ]
 }

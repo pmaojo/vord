@@ -26,7 +26,10 @@ pub(crate) fn opening_tag(el: &AstNode) -> Option<&AstNode> {
         return Some(el);
     }
     if is_other(el, "jsx_element") {
-        return el.children().first().filter(|c| is_other(c, "jsx_opening_element"));
+        return el
+            .children()
+            .first()
+            .filter(|c| is_other(c, "jsx_opening_element"));
     }
     None
 }
@@ -41,8 +44,13 @@ pub(crate) fn tag_name(el: &AstNode) -> Option<&str> {
 }
 
 pub(crate) fn attributes(el: &AstNode) -> Vec<&AstNode> {
-    let Some(tag) = opening_tag(el) else { return Vec::new() };
-    tag.children().iter().filter(|c| is_other(c, "jsx_attribute")).collect()
+    let Some(tag) = opening_tag(el) else {
+        return Vec::new();
+    };
+    tag.children()
+        .iter()
+        .filter(|c| is_other(c, "jsx_attribute"))
+        .collect()
 }
 
 pub(crate) fn attribute_name(attr: &AstNode) -> Option<&str> {
@@ -51,7 +59,9 @@ pub(crate) fn attribute_name(attr: &AstNode) -> Option<&str> {
 }
 
 pub(crate) fn find_attribute<'a>(el: &'a AstNode, name: &str) -> Option<&'a AstNode> {
-    attributes(el).into_iter().find(|a| attribute_name(a) == Some(name))
+    attributes(el)
+        .into_iter()
+        .find(|a| attribute_name(a) == Some(name))
 }
 
 /// The attribute's value node: `None` for a bare boolean attribute
@@ -63,7 +73,9 @@ pub(crate) fn attribute_value(attr: &AstNode) -> Option<&AstNode> {
 /// The single expression a `jsx_expression` (`{...}`) wraps, if it has
 /// exactly one — the common case for prop values.
 pub(crate) fn jsx_expression_inner(node: &AstNode) -> Option<&AstNode> {
-    is_other(node, "jsx_expression").then(|| node.children().first()).flatten()
+    is_other(node, "jsx_expression")
+        .then(|| node.children().first())
+        .flatten()
 }
 
 /// Every non-`function_declaration`/`function_expression`/`arrow_function`
@@ -117,7 +129,11 @@ pub(crate) fn map_callback_functions(ast: &AstNode) -> Vec<&AstNode> {
                         .is_some_and(|p| *p.kind() == NodeKind::Identifier && p.text() == "map")
             })
         })
-        .filter_map(|call| call_arguments(call).first().filter(|a| *a.kind() == NodeKind::FunctionDef))
+        .filter_map(|call| {
+            call_arguments(call)
+                .first()
+                .filter(|a| *a.kind() == NodeKind::FunctionDef)
+        })
         .collect()
 }
 
@@ -143,7 +159,9 @@ pub(crate) fn is_hook_name(name: &str) -> bool {
         Some(rest) => rest,
         None => return false,
     };
-    rest.chars().next().is_some_and(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    rest.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
 }
 
 /// If `node` is a call to something named like a hook, its name.
@@ -162,7 +180,9 @@ mod tests {
 
     pub(crate) fn parse_tsx(code: &str) -> AstNode {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     #[test]
@@ -188,7 +208,10 @@ mod tests {
     #[test]
     fn call_arguments_unwraps_the_arguments_node() {
         let ast = parse_tsx("useEffect(() => {}, [a, b]);\n");
-        let call = ast.descendants().find(|n| *n.kind() == NodeKind::Call).unwrap();
+        let call = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::Call)
+            .unwrap();
         assert_eq!(callee_name(call), Some("useEffect"));
         assert_eq!(call_arguments(call).len(), 2);
     }
@@ -200,7 +223,10 @@ mod tests {
         // fixed-index `children().get(1)` would return type_arguments,
         // not arguments.
         let ast = parse_tsx("const v = useMemo<Bucket[]>(() => compute(), [logs]);\n");
-        let call = ast.descendants().find(|n| *n.kind() == NodeKind::Call).unwrap();
+        let call = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::Call)
+            .unwrap();
         assert_eq!(callee_name(call), Some("useMemo"));
         assert_eq!(call_arguments(call).len(), 2);
     }
