@@ -61,8 +61,10 @@ pub fn changed_lines_from_unified_diff(diff: &str) -> BTreeMap<String, BTreeSet<
             } else {
                 in_hunk = false;
             }
-        } else if in_hunk && let Some(path) = &current_file {
-            in_hunk = apply_hunk_line(line, path, &mut result, &mut new_line);
+        } else if in_hunk {
+            if let Some(path) = &current_file {
+                in_hunk = apply_hunk_line(line, path, &mut result, &mut new_line);
+            }
         }
     }
 

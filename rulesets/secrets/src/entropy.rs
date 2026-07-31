@@ -124,19 +124,19 @@ fn looks_like_format_template(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'{'
-            && let Some(rel_close) = s[i + 1..].find('}')
-        {
-            let inner = &s[i + 1..i + 1 + rel_close];
+        if bytes[i] == b'{' {
+            if let Some(rel_close) = s[i + 1..].find('}') {
+                let inner = &s[i + 1..i + 1 + rel_close];
             let is_placeholder = inner.chars().all(|c| {
                 c.is_alphanumeric()
                     || matches!(c, '_' | ':' | '.' | '?' | '#' | '<' | '>' | '^' | '+' | '-')
             });
-            if is_placeholder {
-                return true;
+                if is_placeholder {
+                    return true;
+                }
+                i += 1 + rel_close + 1;
+                continue;
             }
-            i += 1 + rel_close + 1;
-            continue;
         }
         i += 1;
     }

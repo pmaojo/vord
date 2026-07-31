@@ -428,18 +428,18 @@ where
             content_hash: Self::content_fingerprint(file),
             config_hash,
         };
-        if let Some(cache) = &self.cache
-            && let Some(hit) = cache.get(&key)
-        {
-            return FileOutcome::Analyzed {
-                lines: hit.lines,
-                debt_minutes: hit.debt_minutes,
-                issues: hit.issues,
-                hotspots: hit.hotspots,
-                structural: hit.structural,
-                function_complexities: hit.function_complexities,
-                from_cache: true,
-            };
+        if let Some(cache) = &self.cache {
+            if let Some(hit) = cache.get(&key) {
+                return FileOutcome::Analyzed {
+                    lines: hit.lines,
+                    debt_minutes: hit.debt_minutes,
+                    issues: hit.issues,
+                    hotspots: hit.hotspots,
+                    structural: hit.structural,
+                    function_complexities: hit.function_complexities,
+                    from_cache: true,
+                };
+            }
         }
 
         let Some(parser) = self.parsers.get(file.language()) else {
