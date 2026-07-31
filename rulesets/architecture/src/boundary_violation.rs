@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use yunq_ast::{AstNode, SourceFile};
-use yunq_import_graph::{component_of, ArchitectureConfig, ImportGraph, ViolationKind};
+use yunq_import_graph::{ArchitectureConfig, ImportGraph, ViolationKind, component_of};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct BoundaryViolationRule {
@@ -26,7 +26,11 @@ impl BoundaryViolationRule {
     /// (or none discovered), in which case Rust files simply contribute no
     /// edges, same as any other unresolved specifier.
     pub fn new(config: ArchitectureConfig, rust_crates: HashMap<String, String>) -> Self {
-        Self { id: RuleId::new("architecture:boundary-violation").expect("valid rule id"), config, rust_crates }
+        Self {
+            id: RuleId::new("architecture:boundary-violation").expect("valid rule id"),
+            config,
+            rust_crates,
+        }
     }
 }
 
@@ -60,23 +64,31 @@ impl CrossFileRule for BoundaryViolationRule {
         if self.config.is_empty() {
             return Vec::new();
         }
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let graph = ImportGraph::build_with_rust_crates(&views, &self.rust_crates);
         let mut findings = Vec::new();
         for violation in self.config.violations(&graph) {
             let reason = match violation.kind {
                 ViolationKind::Forbidden => "forbidden by `[architecture] forbidden_dependencies`",
-                ViolationKind::Undeclared => "not declared in `[architecture] allowed_dependencies`",
+                ViolationKind::Undeclared => {
+                    "not declared in `[architecture] allowed_dependencies`"
+                }
             };
             // Attach the finding to every file that is itself the source of
             // an edge landing in this violation's component pair, so a
             // developer sees the actual import line(s) responsible, not
             // just the component-level verdict.
             for edge in graph.edges() {
-                if component_of(&edge.from) != violation.from || component_of(&edge.to) != violation.to {
+                if component_of(&edge.from) != violation.from
+                    || component_of(&edge.to) != violation.to
+                {
                     continue;
                 }
-                let Some(index) = files.iter().position(|(file, _)| file.path() == edge.from) else { continue };
+                let Some(index) = files.iter().position(|(file, _)| file.path() == edge.from)
+                else {
+                    continue;
+                };
                 findings.push((
                     index,
                     Finding::new(
@@ -126,14 +138,20 @@ mod tests {
 
     #[test]
     fn silent_with_no_architecture_config() {
-        let files = parsed(&[("core/a.ts", "import { b } from '../infra/b';\n"), ("infra/b.ts", "export const b = 1;\n")]);
+        let files = parsed(&[
+            ("core/a.ts", "import { b } from '../infra/b';\n"),
+            ("infra/b.ts", "export const b = 1;\n"),
+        ]);
         let rule = BoundaryViolationRule::new(ArchitectureConfig::default(), HashMap::new());
         assert!(rule.check(&files).is_empty());
     }
 
     #[test]
     fn flags_a_forbidden_tier_import_at_the_importing_file() {
-        let files = parsed(&[("core/a.ts", "import { b } from '../infra/b';\n"), ("infra/b.ts", "export const b = 1;\n")]);
+        let files = parsed(&[
+            ("core/a.ts", "import { b } from '../infra/b';\n"),
+            ("infra/b.ts", "export const b = 1;\n"),
+        ]);
         let config = ArchitectureConfig {
             forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
             ..Default::default()
@@ -147,18 +165,28 @@ mod tests {
 
     #[test]
     fn silent_when_the_import_stays_within_declared_boundaries() {
-        let files = parsed(&[("bin/a.ts", "import { b } from '../core/b';\n"), ("core/b.ts", "export const b = 1;\n")]);
+        let files = parsed(&[
+            ("bin/a.ts", "import { b } from '../core/b';\n"),
+            ("core/b.ts", "export const b = 1;\n"),
+        ]);
         let config = ArchitectureConfig {
             allowed_dependencies: vec![DependencyEdge::new("bin", "core")],
             ..Default::default()
         };
-        assert!(BoundaryViolationRule::new(config, HashMap::new()).check(&files).is_empty());
+        assert!(
+            BoundaryViolationRule::new(config, HashMap::new())
+                .check(&files)
+                .is_empty()
+        );
     }
 
     #[test]
     fn flags_a_forbidden_rust_crate_dependency_via_the_crate_index() {
         let files = parsed_rust(&[
-            ("core/rules-engine/src/lib.rs", "use yunq_infra_fs::Thing;\n"),
+            (
+                "core/rules-engine/src/lib.rs",
+                "use yunq_infra_fs::Thing;\n",
+            ),
             ("infra/fs/src/lib.rs", "pub struct Thing;\n"),
         ]);
         let config = ArchitectureConfig {
@@ -169,17 +197,29 @@ mod tests {
             HashMap::from([("yunq_infra_fs".to_string(), "infra/fs".to_string())]);
         let findings = BoundaryViolationRule::new(config, rust_crates).check(&files);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].1.message.contains("`core/rules-engine` depends on `infra/fs`"));
+        assert!(
+            findings[0]
+                .1
+                .message
+                .contains("`core/rules-engine` depends on `infra/fs`")
+        );
     }
 
     #[test]
     fn silent_on_rust_use_with_no_matching_crate_index_entry() {
-        let files = parsed_rust(&[("core/rules-engine/src/lib.rs", "use yunq_infra_fs::Thing;\n")]);
+        let files = parsed_rust(&[(
+            "core/rules-engine/src/lib.rs",
+            "use yunq_infra_fs::Thing;\n",
+        )]);
         let config = ArchitectureConfig {
             forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
             ..Default::default()
         };
-        assert!(BoundaryViolationRule::new(config, HashMap::new()).check(&files).is_empty());
+        assert!(
+            BoundaryViolationRule::new(config, HashMap::new())
+                .check(&files)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -198,6 +238,11 @@ mod tests {
             HashMap::from([("yunq_infra_fs".to_string(), "infra/fs".to_string())]);
         let findings = BoundaryViolationRule::new(config, rust_crates).check(&files);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].1.message.contains("`core/rules-engine` depends on `infra/fs`"));
+        assert!(
+            findings[0]
+                .1
+                .message
+                .contains("`core/rules-engine` depends on `infra/fs`")
+        );
     }
 }

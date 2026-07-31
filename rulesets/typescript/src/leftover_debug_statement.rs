@@ -11,13 +11,19 @@ use crate::common::is_other;
 
 fn finding_for(node: &AstNode) -> Option<Finding> {
     if is_other(node, "debugger_statement") {
-        return Some(Finding::new("`debugger` statement left in code pauses execution whenever devtools are attached", node.span()));
+        return Some(Finding::new(
+            "`debugger` statement left in code pauses execution whenever devtools are attached",
+            node.span(),
+        ));
     }
     if *node.kind() == NodeKind::Call {
         let callee = node.first_child()?;
         let name = callee.text();
         if name == "console.log" || name == "console.debug" {
-            return Some(Finding::new(format!("`{name}` left in code; remove it or use a real logger"), node.span()));
+            return Some(Finding::new(
+                format!("`{name}` left in code; remove it or use a real logger"),
+                node.span(),
+            ));
         }
     }
     None
@@ -29,7 +35,9 @@ pub struct LeftoverDebugStatementRule {
 
 impl LeftoverDebugStatementRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:leftover-debug-statement").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:leftover-debug-statement").expect("valid rule id"),
+        }
     }
 }
 
@@ -86,7 +94,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         LeftoverDebugStatementRule::new().check(&file, &ast)
     }
 
@@ -112,8 +122,19 @@ mod tests {
 
     #[test]
     fn ignores_test_only_paths() {
-        let file = SourceFile::new("tests/app.ts", "console.log('x');\n", LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
-        assert!(LeftoverDebugStatementRule::new().check(&file, &ast).is_empty());
+        let file = SourceFile::new(
+            "tests/app.ts",
+            "console.log('x');\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(
+            LeftoverDebugStatementRule::new()
+                .check(&file, &ast)
+                .is_empty()
+        );
     }
 }

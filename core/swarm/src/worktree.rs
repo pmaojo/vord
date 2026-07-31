@@ -39,12 +39,23 @@ pub struct WorktreePlan {
 /// `repo_root` anchors the returned path — every caller wants an absolute
 /// (or at least root-anchored) path to pass straight to `git`, not one it
 /// has to join itself and risk getting wrong.
-pub fn plan_worktree(repo_root: &Path, worktree_root: Option<&str>, role: &RoleWorktreeConfig) -> WorktreePlan {
+pub fn plan_worktree(
+    repo_root: &Path,
+    worktree_root: Option<&str>,
+    role: &RoleWorktreeConfig,
+) -> WorktreePlan {
     let root = worktree_root.unwrap_or(DEFAULT_WORKTREE_ROOT);
     let dir = role.worktree.as_deref().unwrap_or(role.name.as_str());
     let path = repo_root.join(root).join(dir);
-    let branch = role.branch.clone().unwrap_or_else(|| format!("yunq/swarm/{}", role.name));
-    WorktreePlan { role: role.name.clone(), path, branch }
+    let branch = role
+        .branch
+        .clone()
+        .unwrap_or_else(|| format!("yunq/swarm/{}", role.name));
+    WorktreePlan {
+        role: role.name.clone(),
+        path,
+        branch,
+    }
 }
 
 #[cfg(test)]
@@ -52,7 +63,11 @@ mod tests {
     use super::*;
 
     fn role(name: &str) -> RoleWorktreeConfig {
-        RoleWorktreeConfig { name: name.to_string(), worktree: None, branch: None }
+        RoleWorktreeConfig {
+            name: name.to_string(),
+            worktree: None,
+            branch: None,
+        }
     }
 
     #[test]

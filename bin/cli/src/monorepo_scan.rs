@@ -23,7 +23,11 @@ impl ProjectScanResult {
     /// The path to show the user, relative to the monorepo root when
     /// possible (absolute paths in multi-project output are noisy).
     pub fn display_path(&self, root: &Path) -> String {
-        self.project_path.strip_prefix(root).unwrap_or(&self.project_path).display().to_string()
+        self.project_path
+            .strip_prefix(root)
+            .unwrap_or(&self.project_path)
+            .display()
+            .to_string()
     }
 }
 
@@ -56,7 +60,9 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
         let exclusions = config.analysis.exclusions.clone().unwrap_or_default();
 
         let cache = (!args.no_cache).then(|| {
-            std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(project_dir.join(".yunq-cache.json")))
+            std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(
+                project_dir.join(".yunq-cache.json"),
+            ))
         });
         // Each project's own `[duplication]` settings, so a monorepo can
         // hold packages with different tolerances rather than one blanket
@@ -73,12 +79,19 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
         if let Some(cache) = &cache
             && let Err(e) = cache.persist()
         {
-            eprintln!("warning: could not persist analysis cache for {}: {e}", project_dir.display());
+            eprintln!(
+                "warning: could not persist analysis cache for {}: {e}",
+                project_dir.display()
+            );
         }
 
         let new_code = crate::classify_new_code(project_dir, args.no_baseline, &report);
-        let gate = yunq_cli::default_quality_gate()
-            .evaluate(|key| new_code.as_ref().and_then(|nc| nc.measure(key)).or_else(|| report.measure(key)));
+        let gate = yunq_cli::default_quality_gate().evaluate(|key| {
+            new_code
+                .as_ref()
+                .and_then(|nc| nc.measure(key))
+                .or_else(|| report.measure(key))
+        });
 
         results.push(ProjectScanResult {
             project_path: project_dir.clone(),
@@ -95,11 +108,16 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
     match args.output.format {
         crate::Format::Text => print!("{}", render_text(root, &results, &shared_context)),
         crate::Format::Json => println!("{}", render_json(root, &results, &shared_context)?),
+        crate::Format::Sarif => println!("{}", render_json(root, &results, &shared_context)?),
     }
 
     let threshold = crate::parse_fail_on_threshold(args.fail_on.clone())?;
     let failed = any_project_failed(&results, threshold, args.enforce_gate);
-    Ok(if failed { std::process::ExitCode::from(3) } else { std::process::ExitCode::SUCCESS })
+    Ok(if failed {
+        std::process::ExitCode::from(3)
+    } else {
+        std::process::ExitCode::SUCCESS
+    })
 }
 
 /// Posts one aggregate commit status for the whole monorepo scan — a commit
@@ -112,13 +130,26 @@ async fn report_monorepo_status(
 ) {
     use yunq_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
 
-    let Some(sha_str) = &context.commit_sha else { return };
-    let Ok(sha) = yunq_rules_engine::CommitSha::new(sha_str) else { return };
-    let Some(reporter) = crate::github_reporter(args, context) else { return };
+    let Some(sha_str) = &context.commit_sha else {
+        return;
+    };
+    let Ok(sha) = yunq_rules_engine::CommitSha::new(sha_str) else {
+        return;
+    };
+    let Some(reporter) = crate::github_reporter(args, context) else {
+        return;
+    };
 
     let total_issues: usize = results.iter().map(|r| r.report.issues().len()).sum();
-    let failed_projects = results.iter().filter(|r| r.gate.status() == GateStatus::Failed).count();
-    let state = if failed_projects == 0 { CommitStatusState::Success } else { CommitStatusState::Failure };
+    let failed_projects = results
+        .iter()
+        .filter(|r| r.gate.status() == GateStatus::Failed)
+        .count();
+    let state = if failed_projects == 0 {
+        CommitStatusState::Success
+    } else {
+        CommitStatusState::Failure
+    };
     let desc = format!(
         "{}/{} projects passed gate — {total_issues} issues found",
         results.len() - failed_projects,
@@ -139,8 +170,9 @@ pub fn any_project_failed(
     enforce_gate: bool,
 ) -> bool {
     results.iter().any(|result| {
-        let breached =
-            threshold.zip(result.report.max_severity()).is_some_and(|(t, max)| max >= t);
+        let breached = threshold
+            .zip(result.report.max_severity())
+            .is_some_and(|(t, max)| max >= t);
         let gate_failed = enforce_gate && result.gate.status() == GateStatus::Failed;
         breached || gate_failed
     })
@@ -168,7 +200,10 @@ pub fn render_json(
         .iter()
         .map(|result| {
             let context = output::ScanContextDto {
-                project: result.project_key.clone().or_else(|| shared_context.project.clone()),
+                project: result
+                    .project_key
+                    .clone()
+                    .or_else(|| shared_context.project.clone()),
                 branch: shared_context.branch.clone(),
                 pull_request: shared_context.pull_request,
             };
@@ -204,11 +239,21 @@ pub fn render_text(
             result.display_path(root),
         ));
         let context = output::ScanContextDto {
-            project: result.project_key.clone().or_else(|| shared_context.project.clone()),
+            project: result
+                .project_key
+                .clone()
+                .or_else(|| shared_context.project.clone()),
             branch: shared_context.branch.clone(),
             pull_request: shared_context.pull_request,
         };
-        out.push_str(&output::render_text(&result.report, &result.gate, result.new_code.as_ref(), None, None, &context));
+        out.push_str(&output::render_text(
+            &result.report,
+            &result.gate,
+            result.new_code.as_ref(),
+            None,
+            None,
+            &context,
+        ));
     }
     out
 }
@@ -216,8 +261,10 @@ pub fn render_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::{AnalyzerService, Condition, ComparisonOperator, MetricKey, QualityGate};
     use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
+    use yunq_rules_engine::{
+        AnalyzerService, ComparisonOperator, Condition, MetricKey, QualityGate,
+    };
 
     fn empty_report() -> yunq_rules_engine::AnalysisReport {
         futures::executor::block_on(async {
@@ -232,7 +279,9 @@ mod tests {
 
     fn passing_gate() -> yunq_rules_engine::GateEvaluation {
         let metric = MetricKey::new("blocker_issues").unwrap();
-        QualityGate::new("test").with_condition(Condition::new(metric, ComparisonOperator::GreaterThan, 0.0)).evaluate(|_| Some(0.0))
+        QualityGate::new("test")
+            .with_condition(Condition::new(metric, ComparisonOperator::GreaterThan, 0.0))
+            .evaluate(|_| Some(0.0))
     }
 
     #[test]

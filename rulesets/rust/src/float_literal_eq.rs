@@ -17,7 +17,9 @@ pub struct FloatLiteralEqRule {
 
 impl FloatLiteralEqRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:float-literal-eq").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:float-literal-eq").expect("valid rule id"),
+        }
     }
 }
 

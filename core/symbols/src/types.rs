@@ -26,7 +26,11 @@ fn is_other(node: &AstNode, kind: &str) -> bool {
 /// one is written. `None` for an untyped binding (e.g. plain JS `let x = 1`,
 /// or a Rust/Python name with no annotation).
 pub fn declared_type(node: &AstNode) -> Option<String> {
-    if let Some(annotation) = node.children().iter().find(|c| is_other(c, "type_annotation")) {
+    if let Some(annotation) = node
+        .children()
+        .iter()
+        .find(|c| is_other(c, "type_annotation"))
+    {
         return annotation
             .first_child()
             .map(|inner| inner.text().to_string())
@@ -60,7 +64,9 @@ pub fn constructor_type(expr: &AstNode) -> Option<String> {
     if *expr.kind() != NodeKind::Call || !expr.text().trim_start().starts_with("new ") {
         return None;
     }
-    expr.first_child().filter(|c| *c.kind() == NodeKind::Identifier).map(|c| c.text().to_string())
+    expr.first_child()
+        .filter(|c| *c.kind() == NodeKind::Identifier)
+        .map(|c| c.text().to_string())
 }
 
 /// Language primitives and near-primitives: types that carry a value, not a
@@ -69,14 +75,58 @@ pub fn constructor_type(expr: &AstNode) -> Option<String> {
 /// `string`, `str` and `String`.
 const PRIMITIVE_NAMES: &[&str] = &[
     // TypeScript / JavaScript
-    "string", "number", "boolean", "bigint", "symbol", "any", "unknown", "void", "never", "null",
-    "undefined", "object", "Object", "Date", "RegExp", "Error",
+    "string",
+    "number",
+    "boolean",
+    "bigint",
+    "symbol",
+    "any",
+    "unknown",
+    "void",
+    "never",
+    "null",
+    "undefined",
+    "object",
+    "Object",
+    "Date",
+    "RegExp",
+    "Error",
     // Python
-    "int", "float", "complex", "bool", "bytes", "bytearray", "None", "Any", "date", "datetime",
-    "Decimal", "UUID", "Path",
+    "int",
+    "float",
+    "complex",
+    "bool",
+    "bytes",
+    "bytearray",
+    "None",
+    "Any",
+    "date",
+    "datetime",
+    "Decimal",
+    "UUID",
+    "Path",
     // Rust
-    "str", "String", "char", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64",
-    "u128", "usize", "f32", "f64", "bool_", "OsStr", "OsString", "PathBuf",
+    "str",
+    "String",
+    "char",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "i128",
+    "isize",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "u128",
+    "usize",
+    "f32",
+    "f64",
+    "bool_",
+    "OsStr",
+    "OsString",
+    "PathBuf",
 ];
 
 /// Types that are transparent wrappers/containers: what matters is what is
@@ -85,20 +135,80 @@ const PRIMITIVE_NAMES: &[&str] = &[
 /// because of `OrderRepository`; `Vec<String>` is data because of `String`.
 const TRANSPARENT_NAMES: &[&str] = &[
     // Containers
-    "Array", "ReadonlyArray", "Map", "Set", "WeakMap", "WeakSet", "Record", "Partial", "Readonly",
-    "List", "Sequence", "Iterable", "Iterator", "Tuple", "tuple", "list", "dict", "set",
-    "frozenset", "Dict", "Vec", "VecDeque", "HashMap", "BTreeMap", "HashSet", "BTreeSet",
-    "IndexMap", "slice",
+    "Array",
+    "ReadonlyArray",
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "Record",
+    "Partial",
+    "Readonly",
+    "List",
+    "Sequence",
+    "Iterable",
+    "Iterator",
+    "Tuple",
+    "tuple",
+    "list",
+    "dict",
+    "set",
+    "frozenset",
+    "Dict",
+    "Vec",
+    "VecDeque",
+    "HashMap",
+    "BTreeMap",
+    "HashSet",
+    "BTreeSet",
+    "IndexMap",
+    "slice",
     // Wrappers / effects
-    "Optional", "Option", "Result", "Promise", "Awaitable", "Coroutine", "Future", "Box", "Arc",
-    "Rc", "RefCell", "Cell", "Mutex", "RwLock", "Cow", "Union", "Literal", "Annotated", "Final",
+    "Optional",
+    "Option",
+    "Result",
+    "Promise",
+    "Awaitable",
+    "Coroutine",
+    "Future",
+    "Box",
+    "Arc",
+    "Rc",
+    "RefCell",
+    "Cell",
+    "Mutex",
+    "RwLock",
+    "Cow",
+    "Union",
+    "Literal",
+    "Annotated",
+    "Final",
     // Rust type-expression keywords the text carries along
-    "dyn", "impl", "mut", "static", "const", "where", "Send", "Sync", "Sized", "Self", "self",
+    "dyn",
+    "impl",
+    "mut",
+    "static",
+    "const",
+    "where",
+    "Send",
+    "Sync",
+    "Sized",
+    "Self",
+    "self",
     // Conversion bounds: `impl Into<String>` is a string with a convenience
     // bound on it, not a collaborator. Counting the bound as a dependency is
     // how a five-value constructor reads as five injected services.
-    "Into", "From", "TryInto", "TryFrom", "AsRef", "AsMut", "Borrow", "BorrowMut", "ToString",
-    "ToOwned", "Deref",
+    "Into",
+    "From",
+    "TryInto",
+    "TryFrom",
+    "AsRef",
+    "AsMut",
+    "Borrow",
+    "BorrowMut",
+    "ToString",
+    "ToOwned",
+    "Deref",
 ];
 
 /// The type names written inside a declared-type text, with the tokens that
@@ -112,7 +222,9 @@ pub fn type_identifiers(declared: &str) -> Vec<&str> {
         let byte = bytes[index];
         if byte.is_ascii_alphabetic() || byte == b'_' {
             let start = index;
-            while index < bytes.len() && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_') {
+            while index < bytes.len()
+                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+            {
                 index += 1;
             }
             let lifetime = start > 0 && bytes[start - 1] == b'\'';
@@ -161,7 +273,9 @@ mod tests {
 
     fn parse_ts(code: &str) -> AstNode {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     fn parse_rust(code: &str) -> AstNode {
@@ -171,7 +285,9 @@ mod tests {
 
     fn parse_py(code: &str) -> AstNode {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+        yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap()
     }
 
     #[test]
@@ -226,8 +342,13 @@ mod tests {
 
     #[test]
     fn primitives_of_all_three_languages_are_data() {
-        for primitive in ["string", "number", "boolean", "int", "float", "str", "String", "i32", "f64"] {
-            assert!(is_primitive_type(primitive), "{primitive} should read as data");
+        for primitive in [
+            "string", "number", "boolean", "int", "float", "str", "String", "i32", "f64",
+        ] {
+            assert!(
+                is_primitive_type(primitive),
+                "{primitive} should read as data"
+            );
         }
     }
 

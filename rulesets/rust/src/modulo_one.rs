@@ -12,7 +12,9 @@ pub struct ModuloOneRule {
 
 impl ModuloOneRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:modulo-one").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:modulo-one").expect("valid rule id"),
+        }
     }
 }
 
@@ -63,7 +65,12 @@ impl Rule for ModuloOneRule {
                     && right.text() == "1"
                     && operator_between(file.content(), &n.children()[0], right) == "%"
             })
-            .map(|n| Finding::new("`% 1` always evaluates to 0; this looks like a typo".to_string(), n.span()))
+            .map(|n| {
+                Finding::new(
+                    "`% 1` always evaluates to 0; this looks like a typo".to_string(),
+                    n.span(),
+                )
+            })
             .collect()
     }
 }

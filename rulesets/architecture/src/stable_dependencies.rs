@@ -17,7 +17,7 @@
 //! integers where one import can move it 0.1.
 
 use yunq_ast::{AstNode, SourceFile};
-use yunq_import_graph::{component_metrics, component_of, stability_violations, ImportGraph};
+use yunq_import_graph::{ImportGraph, component_metrics, component_of, stability_violations};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 use crate::census::component_census;
@@ -80,12 +80,15 @@ impl CrossFileRule for StableDependencyRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let graph = ImportGraph::build_with_rust_modules(&views);
         let metrics = component_metrics(&graph, &component_census(files));
         let mut findings = Vec::new();
         for violation in stability_violations(&graph, &metrics, self.margin) {
-            let Some(from_metrics) = metrics.get(&violation.from) else { continue };
+            let Some(from_metrics) = metrics.get(&violation.from) else {
+                continue;
+            };
             if from_metrics.afferent < self.min_afferent {
                 continue;
             }
@@ -93,10 +96,15 @@ impl CrossFileRule for StableDependencyRule {
             // edge, so the finding points at code that can be changed —
             // the same choice `architecture:boundary-violation` makes.
             for edge in graph.edges() {
-                if component_of(&edge.from) != violation.from || component_of(&edge.to) != violation.to {
+                if component_of(&edge.from) != violation.from
+                    || component_of(&edge.to) != violation.to
+                {
                     continue;
                 }
-                let Some(index) = files.iter().position(|(file, _)| file.path() == edge.from) else { continue };
+                let Some(index) = files.iter().position(|(file, _)| file.path() == edge.from)
+                else {
+                    continue;
+                };
                 findings.push((
                     index,
                     Finding::new(
@@ -145,8 +153,14 @@ mod tests {
                 "kernel/src/model.ts",
                 "import { v } from '../../volatile/src/v';\nexport const k = v;\n",
             ),
-            ("one/src/a.ts", "import { k } from '../../kernel/src/model';\nexport const a = k;\n"),
-            ("two/src/b.ts", "import { k } from '../../kernel/src/model';\nexport const b = k;\n"),
+            (
+                "one/src/a.ts",
+                "import { k } from '../../kernel/src/model';\nexport const a = k;\n",
+            ),
+            (
+                "two/src/b.ts",
+                "import { k } from '../../kernel/src/model';\nexport const b = k;\n",
+            ),
             (
                 "volatile/src/v.ts",
                 "import { a } from '../../one/src/a';\nimport { b } from '../../two/src/b';\nexport const v = [a, b];\n",
@@ -161,9 +175,21 @@ mod tests {
         assert_eq!(findings.len(), 1, "{findings:?}");
         let (index, finding) = &findings[0];
         assert_eq!(files[*index].0.path(), "kernel/src/model.ts");
-        assert!(finding.message.contains("`kernel/src`"), "{}", finding.message);
-        assert!(finding.message.contains("`volatile/src`"), "{}", finding.message);
-        assert!(finding.message.contains("2 dependents"), "{}", finding.message);
+        assert!(
+            finding.message.contains("`kernel/src`"),
+            "{}",
+            finding.message
+        );
+        assert!(
+            finding.message.contains("`volatile/src`"),
+            "{}",
+            finding.message
+        );
+        assert!(
+            finding.message.contains("2 dependents"),
+            "{}",
+            finding.message
+        );
     }
 
     #[test]
@@ -177,8 +203,14 @@ mod tests {
     fn silent_when_dependencies_point_toward_stability() {
         let files = parsed_ts(&[
             ("kernel/src/model.ts", "export class K {}\n"),
-            ("one/src/a.ts", "import { K } from '../../kernel/src/model';\nexport const a = K;\n"),
-            ("two/src/b.ts", "import { K } from '../../kernel/src/model';\nexport const b = K;\n"),
+            (
+                "one/src/a.ts",
+                "import { K } from '../../kernel/src/model';\nexport const a = K;\n",
+            ),
+            (
+                "two/src/b.ts",
+                "import { K } from '../../kernel/src/model';\nexport const b = K;\n",
+            ),
         ]);
         assert!(StableDependencyRule::default().check(&files).is_empty());
     }
@@ -186,8 +218,14 @@ mod tests {
     #[test]
     fn silent_when_the_stable_side_has_too_few_dependents_to_judge() {
         let files = parsed_ts(&[
-            ("kernel/src/model.ts", "import { v } from '../../volatile/src/v';\nexport const k = v;\n"),
-            ("one/src/a.ts", "import { k } from '../../kernel/src/model';\nexport const a = k;\n"),
+            (
+                "kernel/src/model.ts",
+                "import { v } from '../../volatile/src/v';\nexport const k = v;\n",
+            ),
+            (
+                "one/src/a.ts",
+                "import { k } from '../../kernel/src/model';\nexport const a = k;\n",
+            ),
             (
                 "volatile/src/v.ts",
                 "import { a } from '../../one/src/a';\nexport const v = a;\n",

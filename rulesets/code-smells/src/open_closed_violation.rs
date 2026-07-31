@@ -17,7 +17,8 @@ use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata,
 use yunq_symbols::{ClassInfo, ClassRegistry};
 
 fn references_name(body: &AstNode, name: &str) -> bool {
-    body.descendants().any(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
+    body.descendants()
+        .any(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
 }
 
 fn check_class(base: &ClassInfo<'_>, subclasses: &[&ClassInfo<'_>], findings: &mut Vec<Finding>) {
@@ -42,7 +43,9 @@ pub struct OpenClosedViolationRule {
 
 impl OpenClosedViolationRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:open-closed-violation").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:open-closed-violation").expect("valid rule id"),
+        }
     }
 }
 
@@ -75,18 +78,26 @@ impl CrossFileRule for OpenClosedViolationRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let registry = ClassRegistry::build_cross_file(&views);
         let mut subclasses_by_super: HashMap<&str, Vec<&ClassInfo<'_>>> = HashMap::new();
         for class in registry.iter() {
             if let Some(superclass_name) = &class.superclass {
-                subclasses_by_super.entry(superclass_name.as_str()).or_default().push(class);
+                subclasses_by_super
+                    .entry(superclass_name.as_str())
+                    .or_default()
+                    .push(class);
             }
         }
         let mut findings = Vec::new();
         for class in registry.iter() {
-            let Some(subclasses) = subclasses_by_super.get(class.name.as_str()) else { continue };
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(subclasses) = subclasses_by_super.get(class.name.as_str()) else {
+                continue;
+            };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let mut plain = Vec::new();
             check_class(class, subclasses, &mut plain);
             findings.extend(plain.into_iter().map(|f| (index, f)));
@@ -103,9 +114,15 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        OpenClosedViolationRule::new().check(&files).into_iter().map(|(_, f)| f).collect()
+        OpenClosedViolationRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
@@ -129,7 +146,9 @@ mod tests {
 
     #[test]
     fn allows_base_class_with_no_subclass_references() {
-        let findings = check_ts("class Shape {\n  area(): number {\n    return 0;\n  }\n}\nclass Circle extends Shape {}\n");
+        let findings = check_ts(
+            "class Shape {\n  area(): number {\n    return 0;\n  }\n}\nclass Circle extends Shape {}\n",
+        );
         assert!(findings.is_empty());
     }
 
@@ -147,9 +166,12 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let square_file =
-            SourceFile::new("square.ts", "class Square extends Shape {}\n", LanguageIdentifier::typescript())
-                .unwrap();
+        let square_file = SourceFile::new(
+            "square.ts",
+            "class Square extends Shape {}\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
         let parser = yunq_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (shape_file.clone(), parser.parse(&shape_file).unwrap()),
@@ -170,10 +192,15 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        let findings: Vec<Finding> =
-            OpenClosedViolationRule::new().check(&files).into_iter().map(|(_, f)| f).collect();
+        let findings: Vec<Finding> = OpenClosedViolationRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Circle"));
     }

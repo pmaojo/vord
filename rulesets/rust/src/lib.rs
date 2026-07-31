@@ -31,6 +31,7 @@ mod mem_transmute;
 mod mem_uninit_or_zeroed;
 mod modulo_one;
 mod mutex_atomic_candidate;
+mod nll_borrow_check;
 mod panic_in_drop;
 mod process_exit;
 mod self_comparison;
@@ -54,6 +55,7 @@ pub use mem_transmute::MemTransmuteRule;
 pub use mem_uninit_or_zeroed::MemUninitOrZeroedRule;
 pub use modulo_one::ModuloOneRule;
 pub use mutex_atomic_candidate::MutexAtomicCandidateRule;
+pub use nll_borrow_check::NllBorrowCheckRule;
 pub use panic_in_drop::PanicInDropRule;
 pub use process_exit::ProcessExitRule;
 pub use self_comparison::SelfComparisonRule;
@@ -89,5 +91,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(MutexAtomicCandidateRule::new()),
         Box::new(SuspiciousArithmeticImplRule::new()),
         Box::new(LockHeldAcrossAwaitRule::new()),
+        Box::new(NllBorrowCheckRule::new()),
     ]
 }

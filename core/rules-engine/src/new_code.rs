@@ -84,7 +84,11 @@ impl Baseline {
         Self(
             fingerprints
                 .into_iter()
-                .map(|fingerprint| BaselineEntry { rule_file: 0, fingerprint, line_hash: None })
+                .map(|fingerprint| BaselineEntry {
+                    rule_file: 0,
+                    fingerprint,
+                    line_hash: None,
+                })
                 .collect(),
         )
     }
@@ -116,8 +120,10 @@ impl Baseline {
     fn matches(&self, issue: &Issue, line_hash: Option<u64>) -> bool {
         if let Some(hash) = line_hash {
             let rule_file = rule_file_key(issue);
-            let hash_match =
-                self.0.iter().any(|e| e.rule_file == rule_file && e.line_hash == Some(hash));
+            let hash_match = self
+                .0
+                .iter()
+                .any(|e| e.rule_file == rule_file && e.line_hash == Some(hash));
             if hash_match {
                 return true;
             }
@@ -139,7 +145,9 @@ impl Baseline {
     /// Keeps this crate free of a serialization dependency: a storage
     /// adapter owns the on-disk schema and rebuilds via `from_entries`.
     pub fn entries(&self) -> impl Iterator<Item = (u64, u64, Option<u64>)> + '_ {
-        self.0.iter().map(|e| (e.rule_file, e.fingerprint, e.line_hash))
+        self.0
+            .iter()
+            .map(|e| (e.rule_file, e.fingerprint, e.line_hash))
     }
 
     pub fn from_entries(entries: impl IntoIterator<Item = (u64, u64, Option<u64>)>) -> Self {
@@ -202,7 +210,10 @@ impl NewCodeAnalysis {
     /// so this composes with the overall report measures.
     pub fn measure(&self, key: &MetricKey) -> Option<f64> {
         let count_at = |severity: Severity| {
-            self.new_issues.iter().filter(|i| i.severity() == severity).count() as f64
+            self.new_issues
+                .iter()
+                .filter(|i| i.severity() == severity)
+                .count() as f64
         };
         match key.as_str() {
             "new_issue_total" => Some(self.new_issues.len() as f64),
@@ -230,8 +241,13 @@ impl NewCodeAnalysis {
         ];
         KEYS.iter()
             .map(|raw| {
-                let key = MetricKey::new(raw).expect("all_measures keys are valid MetricKeys by construction");
-                (raw.to_string(), self.measure(&key).expect("all_measures keys are all handled by measure()"))
+                let key = MetricKey::new(raw)
+                    .expect("all_measures keys are valid MetricKeys by construction");
+                (
+                    raw.to_string(),
+                    self.measure(&key)
+                        .expect("all_measures keys are all handled by measure()"),
+                )
             })
             .collect()
     }
@@ -271,8 +287,7 @@ mod tests {
             Span::new(50, 1, 50, 2),
         );
         let fresh = issue("brand new problem", Severity::Blocker);
-        let second =
-            AnalysisReport::new(vec![moved, fresh.clone()], vec![], Metrics::new());
+        let second = AnalysisReport::new(vec![moved, fresh.clone()], vec![], Metrics::new());
 
         let new_code = NewCodeAnalysis::classify(&second, &baseline);
         assert_eq!(new_code.new_issues(), &[fresh]);
@@ -287,12 +302,14 @@ mod tests {
     #[test]
     fn all_measures_covers_every_new_severity_bucket() {
         let old = issue("old problem", Severity::Major);
-        let baseline = Baseline::from_report(&AnalysisReport::new(vec![old], vec![], Metrics::new()));
+        let baseline =
+            Baseline::from_report(&AnalysisReport::new(vec![old], vec![], Metrics::new()));
         let fresh = issue("brand new problem", Severity::Blocker);
         let report = AnalysisReport::new(vec![fresh], vec![], Metrics::new());
 
         let new_code = NewCodeAnalysis::classify(&report, &baseline);
-        let measures: std::collections::BTreeMap<String, f64> = new_code.all_measures().into_iter().collect();
+        let measures: std::collections::BTreeMap<String, f64> =
+            new_code.all_measures().into_iter().collect();
         assert_eq!(measures.get("new_issue_total"), Some(&1.0));
         assert_eq!(measures.get("new_blocker_issues"), Some(&1.0));
         assert_eq!(measures.get("new_critical_issues"), Some(&0.0));
@@ -355,10 +372,14 @@ mod tests {
 
         // With source access: the content-hash pass recognizes it as the
         // same, pre-existing issue.
-        let tracked = NewCodeAnalysis::classify_with_source(&current_report, &baseline, |file, line| {
-            (file == "a.rs" && line == 10).then(|| line_hash(source_line))
-        });
-        assert!(tracked.new_issues().is_empty(), "content hash should track through message drift");
+        let tracked =
+            NewCodeAnalysis::classify_with_source(&current_report, &baseline, |file, line| {
+                (file == "a.rs" && line == 10).then(|| line_hash(source_line))
+            });
+        assert!(
+            tracked.new_issues().is_empty(),
+            "content hash should track through message drift"
+        );
 
         // Without source access: falls back to the message fingerprint,
         // which legitimately can't tell these apart — matches prior behavior.

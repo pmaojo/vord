@@ -36,7 +36,10 @@ pub struct RepoWorkspace {
 
 impl RepoWorkspace {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into(), timeout: DEFAULT_COMMAND_TIMEOUT }
+        Self {
+            root: root.into(),
+            timeout: DEFAULT_COMMAND_TIMEOUT,
+        }
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -79,27 +82,35 @@ impl RepoWorkspace {
 }
 
 fn escape(path: &str) -> WorkspaceError {
-    WorkspaceError(format!("`{path}` resolves outside the repository root — refused"))
+    WorkspaceError(format!(
+        "`{path}` resolves outside the repository root — refused"
+    ))
 }
 
 impl Workspace for RepoWorkspace {
     fn read(&self, path: &str) -> Result<String, WorkspaceError> {
         let target = self.resolve(path)?;
-        std::fs::read_to_string(&target).map_err(|e| WorkspaceError(format!("cannot read `{path}`: {e}")))
+        std::fs::read_to_string(&target)
+            .map_err(|e| WorkspaceError(format!("cannot read `{path}`: {e}")))
     }
 
     fn write(&self, path: &str, content: &str) -> Result<(), WorkspaceError> {
         let target = self.resolve(path)?;
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| WorkspaceError(format!("cannot create `{}`: {e}", parent.display())))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                WorkspaceError(format!("cannot create `{}`: {e}", parent.display()))
+            })?;
         }
-        std::fs::write(&target, content).map_err(|e| WorkspaceError(format!("cannot write `{path}`: {e}")))
+        std::fs::write(&target, content)
+            .map_err(|e| WorkspaceError(format!("cannot write `{path}`: {e}")))
     }
 
     fn search(&self, pattern: &str, path: Option<&str>) -> Result<String, WorkspaceError> {
-        let regex = regex::Regex::new(pattern)
-            .map_err(|e| WorkspaceError(format!("`{pattern}` is not a valid regular expression: {e}")))?;
+        let regex = regex::Regex::new(pattern).map_err(|e| {
+            WorkspaceError(format!(
+                "`{pattern}` is not a valid regular expression: {e}"
+            ))
+        })?;
         let scope = match path {
             Some(path) => self.resolve(path)?,
             None => self.root.clone(),
@@ -167,8 +178,15 @@ fn search_tree(regex: &regex::Regex, scope: &Path, root: &Path) -> Vec<String> {
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(entry.path()) else { continue };
-        let relative = entry.path().strip_prefix(root).unwrap_or(entry.path()).display().to_string();
+        let Ok(content) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let relative = entry
+            .path()
+            .strip_prefix(root)
+            .unwrap_or(entry.path())
+            .display()
+            .to_string();
         for (index, line) in content.lines().enumerate() {
             if hits.len() >= MAX_SEARCH_HITS {
                 hits.push(format!("… truncated at {MAX_SEARCH_HITS} matches"));
@@ -187,7 +205,10 @@ mod tests {
     use super::*;
 
     fn temp_root(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("yunq-agent-workspace-{name}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "yunq-agent-workspace-{name}-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("temp root");
         root
@@ -199,7 +220,10 @@ mod tests {
         let workspace = RepoWorkspace::new(&root);
         workspace.write("src/a.rs", "fn a() {}").unwrap();
         assert_eq!(workspace.read("src/a.rs").unwrap(), "fn a() {}");
-        assert!(root.join("src/a.rs").exists(), "parent directories are created");
+        assert!(
+            root.join("src/a.rs").exists(),
+            "parent directories are created"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -208,7 +232,10 @@ mod tests {
         let root = temp_root("traversal");
         let workspace = RepoWorkspace::new(&root);
         let error = workspace.write("../escaped.rs", "x").unwrap_err();
-        assert!(error.to_string().contains("outside the repository root"), "{error}");
+        assert!(
+            error.to_string().contains("outside the repository root"),
+            "{error}"
+        );
         assert!(!root.parent().unwrap().join("escaped.rs").exists());
         std::fs::remove_dir_all(&root).ok();
     }
@@ -234,7 +261,9 @@ mod tests {
     fn search_reports_the_file_and_line_of_each_match() {
         let root = temp_root("search");
         let workspace = RepoWorkspace::new(&root);
-        workspace.write("src/a.rs", "fn a() {}\nfn target() {}\n").unwrap();
+        workspace
+            .write("src/a.rs", "fn a() {}\nfn target() {}\n")
+            .unwrap();
         let hits = workspace.search("fn target", None).unwrap();
         assert!(hits.contains("src/a.rs:2"), "{hits}");
         std::fs::remove_dir_all(&root).ok();
@@ -245,7 +274,12 @@ mod tests {
         let root = temp_root("search-empty");
         let workspace = RepoWorkspace::new(&root);
         workspace.write("src/a.rs", "fn a() {}").unwrap();
-        assert!(workspace.search("nowhere", None).unwrap().contains("no matches"));
+        assert!(
+            workspace
+                .search("nowhere", None)
+                .unwrap()
+                .contains("no matches")
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -253,7 +287,10 @@ mod tests {
     fn an_invalid_regex_is_an_error_the_agent_can_read() {
         let workspace = RepoWorkspace::new(temp_root("bad-regex"));
         let error = workspace.search("[unclosed", None).unwrap_err();
-        assert!(error.to_string().contains("not a valid regular expression"), "{error}");
+        assert!(
+            error.to_string().contains("not a valid regular expression"),
+            "{error}"
+        );
         std::fs::remove_dir_all(workspace.root()).ok();
     }
 

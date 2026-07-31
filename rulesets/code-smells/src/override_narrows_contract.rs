@@ -29,8 +29,14 @@ const CONSTRUCTOR_NAMES: &[&str] = &["constructor", "__init__"];
 /// Exceptions that mean "you passed me something I refuse to handle". Matched
 /// case-insensitively on a contains basis so project-specific wrappers
 /// (`InvalidArgumentError`, `ArgumentOutOfRangeException`) are covered too.
-const PRECONDITION_EXCEPTIONS: &[&str] =
-    &["typeerror", "valueerror", "argument", "invalid", "illegalstate", "assertionerror"];
+const PRECONDITION_EXCEPTIONS: &[&str] = &[
+    "typeerror",
+    "valueerror",
+    "argument",
+    "invalid",
+    "illegalstate",
+    "assertionerror",
+];
 
 fn is_throw(node: &AstNode) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "throw_statement" || k.as_ref() == "raise_statement")
@@ -51,7 +57,9 @@ fn thrown_names(method: &AstNode) -> Vec<&str> {
 
 fn is_not_implemented(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    lower.contains("notimplemented") || lower.contains("notsupported") || lower.contains("unsupportedoperation")
+    lower.contains("notimplemented")
+        || lower.contains("notsupported")
+        || lower.contains("unsupportedoperation")
 }
 
 /// The precondition exception an override introduces, if any.
@@ -60,7 +68,10 @@ fn precondition_exception(method: &AstNode) -> Option<String> {
         .into_iter()
         .find(|name| {
             let lower = name.to_ascii_lowercase();
-            !is_not_implemented(name) && PRECONDITION_EXCEPTIONS.iter().any(|kind| lower.contains(kind))
+            !is_not_implemented(name)
+                && PRECONDITION_EXCEPTIONS
+                    .iter()
+                    .any(|kind| lower.contains(kind))
         })
         .map(str::to_string)
 }
@@ -94,7 +105,9 @@ pub struct OverrideNarrowsContractRule {
 
 impl OverrideNarrowsContractRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:override-narrows-contract").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:override-narrows-contract").expect("valid rule id"),
+        }
     }
 }
 
@@ -146,14 +159,21 @@ impl CrossFileRule for OverrideNarrowsContractRule {
                 if CONSTRUCTOR_NAMES.contains(&method.name.as_str()) {
                     continue;
                 }
-                let Some(exception) = precondition_exception(method.node) else { continue };
-                let Some((ancestor, base_method)) = inherited_method(class, &method.name, &registry) else {
+                let Some(exception) = precondition_exception(method.node) else {
+                    continue;
+                };
+                let Some((ancestor, base_method)) =
+                    inherited_method(class, &method.name, &registry)
+                else {
                     continue;
                 };
                 if !thrown_names(base_method.node).is_empty() {
                     continue; // the base rejects input too: same contract, not a narrower one
                 }
-                let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+                let Some(index) = files.iter().position(|(file, _)| file.path() == class.file)
+                else {
+                    continue;
+                };
                 findings.push((
                     index,
                     Finding::new(
@@ -178,16 +198,28 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        OverrideNarrowsContractRule::new().check(&files).into_iter().map(|(_, f)| f).collect()
+        OverrideNarrowsContractRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     fn check_py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        OverrideNarrowsContractRule::new().check(&files).into_iter().map(|(_, f)| f).collect()
+        OverrideNarrowsContractRule::new()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
@@ -196,7 +228,11 @@ mod tests {
             "class Account {\n  deposit(amount: number): void {\n    this.total += amount;\n  }\n}\nclass FixedAccount extends Account {\n  deposit(amount: number): void {\n    if (amount > 100) {\n      throw new ValueError('too large');\n    }\n    super.deposit(amount);\n  }\n}\n",
         );
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("`FixedAccount::deposit`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`FixedAccount::deposit`"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("ValueError"));
         assert!(findings[0].message.contains("Liskov"));
     }
@@ -258,8 +294,10 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let files =
-            vec![(base.clone(), parser.parse(&base).unwrap()), (leaf.clone(), parser.parse(&leaf).unwrap())];
+        let files = vec![
+            (base.clone(), parser.parse(&base).unwrap()),
+            (leaf.clone(), parser.parse(&leaf).unwrap()),
+        ];
         let findings = OverrideNarrowsContractRule::new().check(&files);
         assert_eq!(findings.len(), 1);
         assert_eq!(files[findings[0].0].0.path(), "leaf.ts");

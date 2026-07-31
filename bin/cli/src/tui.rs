@@ -19,7 +19,9 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -28,8 +30,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use tokio::sync::mpsc;
 
-use yunq_agent::observer::{AgentEvent, Observer};
 use yunq_agent::RunOutcome;
+use yunq_agent::observer::{AgentEvent, Observer};
 
 /// Forwards every event across a channel — the only thing standing between
 /// the async runtime loop and the render loop, both of which need to keep
@@ -60,7 +62,14 @@ struct UiState {
 
 impl UiState {
     fn new(task: &str, scope: &str) -> Self {
-        Self { task: task.to_string(), scope: scope.to_string(), turn: 0, log: Vec::new(), status: "starting…".to_string(), outcome: None }
+        Self {
+            task: task.to_string(),
+            scope: scope.to_string(),
+            turn: 0,
+            log: Vec::new(),
+            status: "starting…".to_string(),
+            outcome: None,
+        }
     }
 
     fn push(&mut self, style: Style, text: impl Into<String>) {
@@ -72,11 +81,17 @@ impl UiState {
             AgentEvent::TurnStarted { turn } => {
                 self.turn = turn;
                 self.status = format!("turn {turn} — waiting on the model");
-                self.push(Style::default().add_modifier(Modifier::BOLD), format!("── turn {turn} ──"));
+                self.push(
+                    Style::default().add_modifier(Modifier::BOLD),
+                    format!("── turn {turn} ──"),
+                );
             }
             AgentEvent::ModelResponded { turn } => {
                 if let Some(text) = turn.text.filter(|t| !t.is_empty()) {
-                    self.push(Style::default().fg(Color::Cyan), format!("model: {}", truncate(&text, 300)));
+                    self.push(
+                        Style::default().fg(Color::Cyan),
+                        format!("model: {}", truncate(&text, 300)),
+                    );
                 }
                 if turn.calls.is_empty() {
                     self.status = "model claims completion — adjudicating".to_string();
@@ -84,28 +99,58 @@ impl UiState {
             }
             AgentEvent::ToolCallStarted { call } => {
                 self.status = format!("running `{}`", call.name);
-                self.push(Style::default().fg(Color::Yellow), format!("  → {} {}", call.name, truncate(&call.input.to_string(), 120)));
+                self.push(
+                    Style::default().fg(Color::Yellow),
+                    format!(
+                        "  → {} {}",
+                        call.name,
+                        truncate(&call.input.to_string(), 120)
+                    ),
+                );
             }
             AgentEvent::ToolCallFinished { result } => {
-                let style = if result.is_error { Style::default().fg(Color::Red) } else { Style::default().fg(Color::Green) };
+                let style = if result.is_error {
+                    Style::default().fg(Color::Red)
+                } else {
+                    Style::default().fg(Color::Green)
+                };
                 let marker = if result.is_error { "✗" } else { "✓" };
-                self.push(style, format!("  {marker} {}", truncate(&result.content, 200)));
+                self.push(
+                    style,
+                    format!("  {marker} {}", truncate(&result.content, 200)),
+                );
             }
             AgentEvent::WriteJudged { path, evaluation } => {
                 if evaluation.is_denied() {
-                    self.push(Style::default().fg(Color::Red), format!("  ⛔ write denied: {path}"));
+                    self.push(
+                        Style::default().fg(Color::Red),
+                        format!("  ⛔ write denied: {path}"),
+                    );
                 } else {
-                    self.push(Style::default().fg(Color::Green), format!("  ✅ write allowed: {path}"));
+                    self.push(
+                        Style::default().fg(Color::Green),
+                        format!("  ✅ write allowed: {path}"),
+                    );
                 }
             }
             AgentEvent::Adjudicated { completion } => {
                 let done = completion.is_done();
-                let style = if done { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Yellow) };
-                self.push(style, format!("⚖ {}", truncate(&completion.describe(), 300)));
+                let style = if done {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::Yellow)
+                };
+                self.push(
+                    style,
+                    format!("⚖ {}", truncate(&completion.describe(), 300)),
+                );
             }
             AgentEvent::Finished { outcome } => {
                 self.status = outcome.describe();
-                self.push(Style::default().add_modifier(Modifier::BOLD), format!("== {} ==", outcome.describe()));
+                self.push(
+                    Style::default().add_modifier(Modifier::BOLD),
+                    format!("== {} ==", outcome.describe()),
+                );
                 self.outcome = Some(outcome);
             }
         }
@@ -147,7 +192,10 @@ impl Drop for TerminalGuard {
 /// Returns the final [`RunOutcome`] whether the user watched it happen or
 /// quit early — quitting detaches the view, not the run (see this module's
 /// docs).
-pub async fn run(root: &std::path::Path, args: yunq_cli::agent::AgentArgs) -> anyhow::Result<RunOutcome> {
+pub async fn run(
+    root: &std::path::Path,
+    args: yunq_cli::agent::AgentArgs,
+) -> anyhow::Result<RunOutcome> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let task = args.task.clone();
     let scope = args.scope.clone();
@@ -198,7 +246,8 @@ pub async fn run(root: &std::path::Path, args: yunq_cli::agent::AgentArgs) -> an
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     let quits = matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
-                        || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL));
+                        || (key.code == KeyCode::Char('c')
+                            && key.modifiers.contains(KeyModifiers::CONTROL));
                     if quits {
                         detached = true;
                         break;
@@ -214,14 +263,20 @@ pub async fn run(root: &std::path::Path, args: yunq_cli::agent::AgentArgs) -> an
     if detached {
         println!("yunq agent tui: detached — the run continues headless.");
     }
-    handle.await.map_err(|e| anyhow::anyhow!("agent task panicked: {e}"))?
+    handle
+        .await
+        .map_err(|e| anyhow::anyhow!("agent task panicked: {e}"))?
 }
 
 fn draw(frame: &mut ratatui::Frame, state: &UiState) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(3), Constraint::Length(3)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(3),
+            Constraint::Length(3),
+        ])
         .split(area);
 
     draw_header(frame, chunks[0], state);
@@ -240,14 +295,24 @@ fn draw_header(frame: &mut ratatui::Frame, area: Rect, state: &UiState) {
         Span::styled("turn: ", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(state.turn.to_string()),
     ])];
-    frame.render_widget(Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("yunq agent")), area);
+    frame.render_widget(
+        Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("yunq agent")),
+        area,
+    );
 }
 
 fn draw_log(frame: &mut ratatui::Frame, area: Rect, state: &UiState) {
     let height = area.height.saturating_sub(2) as usize;
     let start = state.log.len().saturating_sub(height);
-    let items: Vec<ListItem> = state.log[start..].iter().cloned().map(ListItem::new).collect();
-    frame.render_widget(List::new(items).block(Block::default().borders(Borders::ALL).title("activity")), area);
+    let items: Vec<ListItem> = state.log[start..]
+        .iter()
+        .cloned()
+        .map(ListItem::new)
+        .collect();
+    frame.render_widget(
+        List::new(items).block(Block::default().borders(Borders::ALL).title("activity")),
+        area,
+    );
 }
 
 fn draw_footer(frame: &mut ratatui::Frame, area: Rect, state: &UiState) {
@@ -256,9 +321,22 @@ fn draw_footer(frame: &mut ratatui::Frame, area: Rect, state: &UiState) {
         Some(_) => Style::default().fg(Color::Red),
         None => Style::default(),
     };
-    let hint = if state.outcome.is_some() { "press any key to exit" } else { "q / Esc / Ctrl-C to detach (the run keeps going)" };
-    let text = Line::from(vec![Span::styled(state.status.clone(), style), Span::raw("   "), Span::styled(hint, Style::default().fg(Color::DarkGray))]);
-    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }).block(Block::default().borders(Borders::ALL)), area);
+    let hint = if state.outcome.is_some() {
+        "press any key to exit"
+    } else {
+        "q / Esc / Ctrl-C to detach (the run keeps going)"
+    };
+    let text = Line::from(vec![
+        Span::styled(state.status.clone(), style),
+        Span::raw("   "),
+        Span::styled(hint, Style::default().fg(Color::DarkGray)),
+    ]);
+    frame.render_widget(
+        Paragraph::new(text)
+            .wrap(Wrap { trim: true })
+            .block(Block::default().borders(Borders::ALL)),
+        area,
+    );
 }
 
 #[cfg(test)]
@@ -277,7 +355,11 @@ mod tests {
     fn truncate_cuts_long_text_and_marks_it() {
         let long = "x".repeat(50);
         let truncated = truncate(&long, 10);
-        assert_eq!(truncated.chars().count(), 11, "10 chars plus the ellipsis marker");
+        assert_eq!(
+            truncated.chars().count(),
+            11,
+            "10 chars plus the ellipsis marker"
+        );
         assert!(truncated.ends_with('…'));
     }
 
@@ -293,12 +375,20 @@ mod tests {
     fn model_text_is_logged_but_an_empty_response_adds_nothing() {
         let mut state = UiState::new("fix it", ".");
         state.apply(AgentEvent::ModelResponded {
-            turn: AssistantTurn { text: None, calls: vec![], usage: TokenUsage::default() },
+            turn: AssistantTurn {
+                text: None,
+                calls: vec![],
+                usage: TokenUsage::default(),
+            },
         });
         assert!(state.log.is_empty());
 
         state.apply(AgentEvent::ModelResponded {
-            turn: AssistantTurn { text: Some("done".into()), calls: vec![], usage: TokenUsage::default() },
+            turn: AssistantTurn {
+                text: Some("done".into()),
+                calls: vec![],
+                usage: TokenUsage::default(),
+            },
         });
         assert_eq!(state.log.len(), 1);
     }
@@ -307,9 +397,15 @@ mod tests {
     fn a_tool_call_and_its_result_are_both_logged() {
         let mut state = UiState::new("fix it", ".");
         state.apply(AgentEvent::ToolCallStarted {
-            call: ToolCall { id: "1".into(), name: "read".into(), input: serde_json::json!({"path": "a.rs"}) },
+            call: ToolCall {
+                id: "1".into(),
+                name: "read".into(),
+                input: serde_json::json!({"path": "a.rs"}),
+            },
         });
-        state.apply(AgentEvent::ToolCallFinished { result: ToolResult::ok("1", "contents") });
+        state.apply(AgentEvent::ToolCallFinished {
+            result: ToolResult::ok("1", "contents"),
+        });
         assert_eq!(state.log.len(), 2);
     }
 
@@ -318,15 +414,23 @@ mod tests {
         let mut state = UiState::new("fix it", ".");
         assert!(state.outcome.is_none());
         state.apply(AgentEvent::Finished {
-            outcome: RunOutcome::BudgetExhausted { turns: 2, exhaustion: Exhaustion::Turns { limit: 2 } },
+            outcome: RunOutcome::BudgetExhausted {
+                turns: 2,
+                exhaustion: Exhaustion::Turns { limit: 2 },
+            },
         });
-        assert!(matches!(state.outcome, Some(RunOutcome::BudgetExhausted { .. })));
+        assert!(matches!(
+            state.outcome,
+            Some(RunOutcome::BudgetExhausted { .. })
+        ));
     }
 
     #[test]
     fn adjudication_is_logged_regardless_of_verdict() {
         let mut state = UiState::new("fix it", ".");
-        state.apply(AgentEvent::Adjudicated { completion: Completion::Done });
+        state.apply(AgentEvent::Adjudicated {
+            completion: Completion::Done,
+        });
         assert_eq!(state.log.len(), 1);
     }
 }

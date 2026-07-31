@@ -10,18 +10,18 @@ use std::sync::Arc;
 
 use yunq_infra_fs::FileAnalysisCache;
 use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
+use yunq_parser_bash::BashParser;
 use yunq_parser_c::CParser;
 use yunq_parser_cpp::CppParser;
 use yunq_parser_csharp::CSharpParser;
+use yunq_parser_css::CssParser;
 use yunq_parser_dockerfile::DockerfileParser;
 use yunq_parser_elixir::ElixirParser;
 use yunq_parser_go::GoParser;
 use yunq_parser_groovy::GroovyParser;
-use yunq_parser_java::JavaParser;
-use yunq_parser_bash::BashParser;
-use yunq_parser_css::CssParser;
 use yunq_parser_hcl::HclParser;
 use yunq_parser_html::HtmlParser;
+use yunq_parser_java::JavaParser;
 use yunq_parser_json::JsonParser;
 use yunq_parser_kotlin::KotlinParser;
 use yunq_parser_lua::LuaParser;
@@ -107,12 +107,13 @@ where
         .chain(yunq_rules_architecture::all_rules())
         .chain(yunq_rules_ddd::all_rules())
         .collect();
-    let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> = yunq_rules_owasp::all_cross_rules()
-        .into_iter()
-        .chain(yunq_rules_architecture::all_cross_rules())
-        .chain(yunq_rules_smells::all_cross_rules())
-        .chain(yunq_rules_ddd::all_cross_rules())
-        .collect();
+    let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> =
+        yunq_rules_owasp::all_cross_rules()
+            .into_iter()
+            .chain(yunq_rules_architecture::all_cross_rules())
+            .chain(yunq_rules_smells::all_cross_rules())
+            .chain(yunq_rules_ddd::all_cross_rules())
+            .collect();
     let profile = yunq_rules_engine::default_profile();
 
     let mut service = AnalyzerService::new(profile, storage, metrics);
@@ -134,21 +135,45 @@ where
 pub fn default_quality_gate() -> QualityGate {
     let metric = |raw: &str| MetricKey::new(raw).expect("valid metric key");
     QualityGate::new("yunq-default")
-        .with_condition(Condition::new(metric("blocker_issues"), ComparisonOperator::GreaterThan, 0.0))
-        .with_condition(Condition::new(metric("critical_issues"), ComparisonOperator::GreaterThan, 0.0))
-        .with_condition(Condition::new(metric("parse_failures"), ComparisonOperator::GreaterThan, 0.0))
+        .with_condition(Condition::new(
+            metric("blocker_issues"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
+        .with_condition(Condition::new(
+            metric("critical_issues"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
+        .with_condition(Condition::new(
+            metric("parse_failures"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
         // NoValue (ignored) unless a coverage report was ingested.
-        .with_condition(Condition::new(metric("coverage"), ComparisonOperator::LessThan, 80.0))
+        .with_condition(Condition::new(
+            metric("coverage"),
+            ComparisonOperator::LessThan,
+            80.0,
+        ))
         // NoValue (ignored) unless a mutation-testing report was ingested
         // (`--mutation-report`). 60 mirrors Stryker's own conventional "low" threshold.
-        .with_condition(Condition::new(metric("mutation_score"), ComparisonOperator::LessThan, 60.0))
+        .with_condition(Condition::new(
+            metric("mutation_score"),
+            ComparisonOperator::LessThan,
+            60.0,
+        ))
         // NoValue (ignored) unless a coverage report was ingested. Counts
         // only functions already past crap4clj's "complex *and* untested"
         // band (CRAP score > 30) — the same zero-tolerance treatment
         // blocker/critical issues get, since the threshold has already done
         // the filtering a raw coverage percentage can't: it says *where*
         // the untested code is, not just how much of it there is.
-        .with_condition(Condition::new(metric("crap_high_risk_functions"), ComparisonOperator::GreaterThan, 0.0))
+        .with_condition(Condition::new(
+            metric("crap_high_risk_functions"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
 }
 
 /// Resolves an issue's `(file, line)` to that source line's content hash for
@@ -163,7 +188,10 @@ pub struct FileLineHashes {
 
 impl FileLineHashes {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into(), cache: RefCell::new(HashMap::new()) }
+        Self {
+            root: root.into(),
+            cache: RefCell::new(HashMap::new()),
+        }
     }
 
     /// `None` when the file can't be read (deleted/moved/binary) or `line`
@@ -207,7 +235,15 @@ pub async fn scan_with_exclusions(
     cache: Option<Arc<FileAnalysisCache>>,
     exclusions: &[String],
 ) -> anyhow::Result<AnalysisReport> {
-    scan_with_project_config(path, cache, &[], exclusions, &Default::default(), &Default::default()).await
+    scan_with_project_config(
+        path,
+        cache,
+        &[],
+        exclusions,
+        &Default::default(),
+        &Default::default(),
+    )
+    .await
 }
 
 /// Scans with an optional incremental cache, `yunq.toml`'s
@@ -231,10 +267,9 @@ pub async fn scan_with_project_config(
         // walks every Cargo.toml under `path`, wasted work for a project
         // with no `[architecture]` table declared.
         let rust_crates = yunq_infra_fs::discover_rust_crates(path);
-        service = service.register_cross_rule(Box::new(yunq_rules_architecture::BoundaryViolationRule::new(
-            boundaries,
-            rust_crates,
-        )));
+        service = service.register_cross_rule(Box::new(
+            yunq_rules_architecture::BoundaryViolationRule::new(boundaries, rust_crates),
+        ));
     }
     if let Some(cache) = cache {
         service = service.with_cache(cache);
@@ -256,11 +291,15 @@ pub fn duplication_config(
                 .normalize_identifiers
                 .unwrap_or(defaults.normalization.identifiers),
         },
-        include_test_code: settings.include_test_code.unwrap_or(defaults.include_test_code),
+        include_test_code: settings
+            .include_test_code
+            .unwrap_or(defaults.include_test_code),
         max_declarations_spanned: settings
             .max_declarations_spanned
             .unwrap_or(defaults.max_declarations_spanned),
-        max_literal_density: settings.max_literal_density.or(defaults.max_literal_density),
+        max_literal_density: settings
+            .max_literal_density
+            .or(defaults.max_literal_density),
     }
 }
 
@@ -272,7 +311,9 @@ pub fn duplication_config(
 pub fn architecture_config(
     settings: &yunq_infra_fs::ArchitectureSettings,
 ) -> yunq_import_graph::ArchitectureConfig {
-    let edge = |e: &yunq_infra_fs::DependencyEdgeConfig| yunq_import_graph::DependencyEdge::new(&e.from, &e.to);
+    let edge = |e: &yunq_infra_fs::DependencyEdgeConfig| {
+        yunq_import_graph::DependencyEdge::new(&e.from, &e.to)
+    };
     yunq_import_graph::ArchitectureConfig {
         allowed_dependencies: settings.allowed_dependencies.iter().map(edge).collect(),
         forbidden_dependencies: settings.forbidden_dependencies.iter().map(edge).collect(),
@@ -284,7 +325,11 @@ pub fn architecture_config(
 /// sandbox its verification in the real worktree the file lives in rather
 /// than mutating the caller's file directly with no rollback.
 pub fn find_git_root(start: &Path) -> Option<PathBuf> {
-    let mut dir = if start.is_dir() { start.to_path_buf() } else { start.parent()?.to_path_buf() };
+    let mut dir = if start.is_dir() {
+        start.to_path_buf()
+    } else {
+        start.parent()?.to_path_buf()
+    };
     loop {
         if dir.join(".git").exists() {
             return Some(dir);
@@ -320,27 +365,81 @@ pub async fn remediate_issue(
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let language = yunq_ast::LanguageIdentifier::from_extension(ext)
         .ok_or_else(|| anyhow::anyhow!("unrecognized file extension for {}", path.display()))?;
-    let rel_path = path.strip_prefix(&git_root).unwrap_or(&path).to_string_lossy().to_string();
+    let rel_path = path
+        .strip_prefix(&git_root)
+        .unwrap_or(&path)
+        .to_string_lossy()
+        .to_string();
     let source_file = yunq_ast::SourceFile::new(rel_path, source_code.clone(), language)
         .map_err(|e| anyhow::anyhow!("invalid file path: {e}"))?;
 
     let service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
-    let report = service.analyze_files(std::slice::from_ref(&source_file)).await?;
+    let report = service
+        .analyze_files(std::slice::from_ref(&source_file))
+        .await?;
     let target_issue = report
         .issues()
         .iter()
         .find(|found| found.rule().as_str() == issue_rule)
         .cloned()
-        .ok_or_else(|| anyhow::anyhow!("no issue for rule '{issue_rule}' found in {}", path.display()))?;
-    let base_url =
-        std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no issue for rule '{issue_rule}' found in {}",
+                path.display()
+            )
+        })?;
+    let base_url = std::env::var("YUNQ_LLM_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
     let api_key = std::env::var("YUNQ_LLM_API_KEY").ok();
-    let model_name =
-        model.unwrap_or_else(|| std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string()));
-    let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(base_url, model_name, api_key.unwrap_or_default());
+    let model_name = model.unwrap_or_else(|| {
+        std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string())
+    });
+    let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(
+        base_url,
+        model_name,
+        api_key.unwrap_or_default(),
+    );
     let sandbox = yunq_infra_fs::WorktreeSandbox::new(&git_root)?;
     let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
 
-    let verdict = engine.attempt_remediation(&target_issue, &path, &source_code, &service).await?;
+    let verdict = engine
+        .attempt_remediation(&target_issue, &path, &source_code, &service)
+        .await?;
     Ok((path, verdict))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn all_rules_have_unique_ids() {
+        let rules: Vec<Box<dyn Rule>> = yunq_rules_owasp::all_rules()
+            .into_iter()
+            .chain(yunq_rules_smells::all_rules())
+            .chain(yunq_rules_iac::all_rules())
+            .chain(yunq_rules_a11y::all_rules())
+            .chain(yunq_rules_react::all_rules())
+            .chain(yunq_rules_secrets::all_rules())
+            .chain(yunq_rules_rust::all_rules())
+            .chain(yunq_rules_reactive::all_rules())
+            .chain(yunq_rules_python::all_rules())
+            .chain(yunq_rules_typescript::all_rules())
+            .chain(yunq_rules_php::all_rules())
+            .chain(yunq_rules_go::all_rules())
+            .chain(yunq_rules_ai_agent::all_rules())
+            .chain(yunq_rules_architecture::all_rules())
+            .chain(yunq_rules_ddd::all_rules())
+            .collect();
+
+        let mut seen = HashSet::new();
+        for r in &rules {
+            assert!(
+                seen.insert(r.id().to_string()),
+                "Duplicate rule ID found: {}",
+                r.id()
+            );
+        }
+    }
 }

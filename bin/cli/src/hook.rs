@@ -55,7 +55,10 @@ use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use yunq_agent_policy::{AgentPolicy, Cause, CircuitBreakerState, Enforcement, Evaluation, Finding, Provenance, Violation};
+use yunq_agent_policy::{
+    AgentPolicy, Cause, CircuitBreakerState, Enforcement, Evaluation, Finding, Provenance,
+    Violation,
+};
 use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
 use yunq_rules_engine::RuleId;
 
@@ -93,8 +96,12 @@ pub const PROVENANCE_FILE: &str = ".yunq-provenance.json";
 /// makes the *next* write on that path more permissive, not less safe.
 pub fn load_provenance(root: &Path) -> HashSet<String> {
     let path = root.join(PROVENANCE_FILE);
-    let Ok(raw) = std::fs::read_to_string(&path) else { return HashSet::new() };
-    serde_json::from_str::<Vec<String>>(&raw).map(|paths| paths.into_iter().collect()).unwrap_or_default()
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return HashSet::new();
+    };
+    serde_json::from_str::<Vec<String>>(&raw)
+        .map(|paths| paths.into_iter().collect())
+        .unwrap_or_default()
 }
 
 /// Persists the AI-touch ledger. Best-effort: a write failure is reported on
@@ -107,7 +114,10 @@ pub fn save_provenance(root: &Path, touched: &HashSet<String>) {
     match serde_json::to_string_pretty(&entries) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
-                eprintln!("yunq hook: could not persist provenance ledger at {}: {e}", path.display());
+                eprintln!(
+                    "yunq hook: could not persist provenance ledger at {}: {e}",
+                    path.display()
+                );
             }
         }
         Err(e) => eprintln!("yunq hook: could not serialize provenance ledger: {e}"),
@@ -157,9 +167,15 @@ pub enum Verdict {
     /// Nothing to say — stay out of the agent's way entirely.
     Silent,
     /// Policy denied the write.
-    Deny { path: String, evaluation: Evaluation },
+    Deny {
+        path: String,
+        evaluation: Evaluation,
+    },
     /// Findings worth reporting that do not deny.
-    Advise { path: String, evaluation: Evaluation },
+    Advise {
+        path: String,
+        evaluation: Evaluation,
+    },
 }
 
 impl Verdict {
@@ -216,26 +232,38 @@ pub enum HookOutputFormat {
 /// bypassed policy, so it is not worth refusing the write over.
 pub fn load_circuit_breaker(root: &Path) -> CircuitBreakerState {
     let path = root.join(CIRCUIT_BREAKER_FILE);
-    let Ok(raw) = std::fs::read_to_string(&path) else { return CircuitBreakerState::default() };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return CircuitBreakerState::default();
+    };
     let Ok(counts) = serde_json::from_str::<Vec<CircuitBreakerEntry>>(&raw) else {
         return CircuitBreakerState::default();
     };
-    CircuitBreakerState::from_counts(
-        counts.into_iter().filter_map(|entry| RuleId::new(&entry.rule).ok().map(|rule| (rule, entry.count))),
-    )
+    CircuitBreakerState::from_counts(counts.into_iter().filter_map(|entry| {
+        RuleId::new(&entry.rule)
+            .ok()
+            .map(|rule| (rule, entry.count))
+    }))
 }
 
 /// Persists the circuit breaker's state. Best-effort: a write failure is reported on stderr rather
 /// than surfaced as a denial — losing this state merely forgets a streak on the next write, an
 /// availability concern for a soft feature, not a security one.
 pub fn save_circuit_breaker(root: &Path, state: &CircuitBreakerState) {
-    let entries: Vec<CircuitBreakerEntry> =
-        state.counts().map(|(rule, count)| CircuitBreakerEntry { rule: rule.to_string(), count }).collect();
+    let entries: Vec<CircuitBreakerEntry> = state
+        .counts()
+        .map(|(rule, count)| CircuitBreakerEntry {
+            rule: rule.to_string(),
+            count,
+        })
+        .collect();
     let path = root.join(CIRCUIT_BREAKER_FILE);
     match serde_json::to_string_pretty(&entries) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
-                eprintln!("yunq hook: could not persist circuit breaker state at {}: {e}", path.display());
+                eprintln!(
+                    "yunq hook: could not persist circuit breaker state at {}: {e}",
+                    path.display()
+                );
             }
         }
         Err(e) => eprintln!("yunq hook: could not serialize circuit breaker state: {e}"),
@@ -328,7 +356,9 @@ pub fn escalation_token(path: &str, evaluation: &Evaluation) -> Option<String> {
 /// lost approval only means a human has to re-approve, never a bypassed policy.
 fn load_approvals(root: &Path) -> HashSet<String> {
     let path = root.join(APPROVALS_FILE);
-    let Ok(raw) = std::fs::read_to_string(&path) else { return HashSet::new() };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return HashSet::new();
+    };
     serde_json::from_str(&raw).unwrap_or_default()
 }
 
@@ -337,7 +367,10 @@ fn save_approvals(root: &Path, approvals: &HashSet<String>) {
     match serde_json::to_string_pretty(approvals) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
-                eprintln!("yunq hook: could not persist approvals at {}: {e}", path.display());
+                eprintln!(
+                    "yunq hook: could not persist approvals at {}: {e}",
+                    path.display()
+                );
             }
         }
         Err(e) => eprintln!("yunq hook: could not serialize approvals: {e}"),
@@ -395,7 +428,9 @@ fn write_signature(path: &str, content: Option<&str>) -> String {
 
 fn load_loop_guard(root: &Path) -> LoopGuardState {
     let path = root.join(LOOP_GUARD_FILE);
-    let Ok(raw) = std::fs::read_to_string(&path) else { return LoopGuardState::default() };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return LoopGuardState::default();
+    };
     serde_json::from_str(&raw).unwrap_or_default()
 }
 
@@ -404,7 +439,10 @@ fn save_loop_guard(root: &Path, state: &LoopGuardState) {
     match serde_json::to_string_pretty(state) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
-                eprintln!("yunq hook: could not persist loop guard state at {}: {e}", path.display());
+                eprintln!(
+                    "yunq hook: could not persist loop guard state at {}: {e}",
+                    path.display()
+                );
             }
         }
         Err(e) => eprintln!("yunq hook: could not serialize loop guard state: {e}"),
@@ -417,7 +455,11 @@ fn save_loop_guard(root: &Path, state: &LoopGuardState) {
 pub fn track_loop_guard(root: &Path, path: &str, content: Option<&str>) -> LoopGuardReport {
     let signature = write_signature(path, content);
     let mut state = load_loop_guard(root);
-    state.count = if state.signature.as_deref() == Some(signature.as_str()) { state.count + 1 } else { 1 };
+    state.count = if state.signature.as_deref() == Some(signature.as_str()) {
+        state.count + 1
+    } else {
+        1
+    };
     state.signature = Some(signature);
     let report = LoopGuardReport { count: state.count };
     save_loop_guard(root, &state);
@@ -443,25 +485,45 @@ pub fn reset_loop_guard(root: &Path) -> std::io::Result<()> {
 /// this module persists: an audit entry that fails to write is reported on stderr, never turned
 /// into a denial — this is a record of decisions, not a decision itself.
 fn append_audit_entry(root: &Path, entry: serde_json::Value) {
-    let Ok(line) = serde_json::to_string(&entry) else { return };
+    let Ok(line) = serde_json::to_string(&entry) else {
+        return;
+    };
     let path = root.join(AUDIT_LOG_FILE);
-    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         Ok(mut file) => {
             if let Err(e) = writeln!(file, "{line}") {
-                eprintln!("yunq hook: could not append audit log at {}: {e}", path.display());
+                eprintln!(
+                    "yunq hook: could not append audit log at {}: {e}",
+                    path.display()
+                );
             }
         }
-        Err(e) => eprintln!("yunq hook: could not open audit log at {}: {e}", path.display()),
+        Err(e) => eprintln!(
+            "yunq hook: could not open audit log at {}: {e}",
+            path.display()
+        ),
     }
 }
 
 /// Records one judged write's outcome. A [`Verdict::Silent`] leaves no trace — the same
 /// signal-to-noise judgement [`denial_text`]/[`advisory_text`] already make: a guardrail that
 /// logs every clean write turns the one log worth auditing into one nobody reads.
-pub fn append_audit_log(root: &Path, event: &str, verdict: &Verdict, breaker: &CircuitBreakerReport, loop_report: &LoopGuardReport) {
+pub fn append_audit_log(
+    root: &Path,
+    event: &str,
+    verdict: &Verdict,
+    breaker: &CircuitBreakerReport,
+    loop_report: &LoopGuardReport,
+) {
     let (path, evaluation, outcome) = match verdict {
         Verdict::Silent => return,
-        Verdict::Deny { path, evaluation } if evaluation.escalations().count() == evaluation.violations.len() => {
+        Verdict::Deny { path, evaluation }
+            if evaluation.escalations().count() == evaluation.violations.len() =>
+        {
             (path, evaluation, "escalation_pending")
         }
         Verdict::Deny { path, evaluation } => (path, evaluation, "deny"),
@@ -504,8 +566,13 @@ fn append_escalation_approved_audit(root: &Path, path: &str, token: &str) {
 /// hide every entry around it.
 pub fn read_audit_log(root: &Path, limit: Option<usize>) -> Vec<serde_json::Value> {
     let path = root.join(AUDIT_LOG_FILE);
-    let Ok(raw) = std::fs::read_to_string(&path) else { return Vec::new() };
-    let mut entries: Vec<serde_json::Value> = raw.lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<serde_json::Value> = raw
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
     if let Some(limit) = limit {
         let start = entries.len().saturating_sub(limit);
         entries = entries.split_off(start);
@@ -522,7 +589,13 @@ pub fn render_audit_text(entries: &[serde_json::Value]) -> String {
     let mut out = String::new();
     for entry in entries {
         let get = |key: &str| entry.get(key).and_then(|v| v.as_str()).unwrap_or("?");
-        out.push_str(&format!("{}  {:<10}  {:<18}  {}\n", get("timestamp"), get("event"), get("outcome"), get("path")));
+        out.push_str(&format!(
+            "{}  {:<10}  {:<18}  {}\n",
+            get("timestamp"),
+            get("event"),
+            get("outcome"),
+            get("path")
+        ));
     }
     out
 }
@@ -551,13 +624,19 @@ pub fn structured_report(
 
 fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serde_json::Value {
     let (rule, severity, line, message) = match &violation.finding {
-        Some(f) => (Some(f.rule.to_string()), Some(f.severity.to_string()), Some(f.line), Some(f.message.clone())),
+        Some(f) => (
+            Some(f.rule.to_string()),
+            Some(f.severity.to_string()),
+            Some(f.line),
+            Some(f.message.clone()),
+        ),
         None => (None, None, None, None),
     };
     let (cause, expected_state) = match &violation.cause {
-        Cause::ProtectedPath { pattern, reason } => {
-            ("protected_path", format!("path must not match `{pattern}` ({reason})"))
-        }
+        Cause::ProtectedPath { pattern, reason } => (
+            "protected_path",
+            format!("path must not match `{pattern}` ({reason})"),
+        ),
         Cause::BlockingRule => (
             "blocking_rule",
             match &rule {
@@ -565,22 +644,29 @@ fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serd
                 None => "no blocking finding in this write".to_string(),
             },
         ),
-        Cause::SeverityThreshold { threshold } => {
-            ("severity_threshold", format!("no finding at or above severity `{threshold}` in this write"))
-        }
+        Cause::SeverityThreshold { threshold } => (
+            "severity_threshold",
+            format!("no finding at or above severity `{threshold}` in this write"),
+        ),
         Cause::Escalation => (
             "escalation",
             match &rule {
-                Some(r) => format!("write requires human approval for rule `{r}` — see `yunq hook approve <token>`"),
+                Some(r) => format!(
+                    "write requires human approval for rule `{r}` — see `yunq hook approve <token>`"
+                ),
                 None => "requires human approval".to_string(),
             },
         ),
         Cause::MissingGherkinEvidence { pattern, reason } => (
             "missing_gherkin_evidence",
-            format!("path matches `{pattern}` and needs a `@covers(...)`-tagged scenario ({reason})"),
+            format!(
+                "path matches `{pattern}` and needs a `@covers(...)`-tagged scenario ({reason})"
+            ),
         ),
     };
-    let circuit_breaker_tripped = rule.as_deref().is_some_and(|r| breaker.tripped.iter().any(|t| t.as_str() == r));
+    let circuit_breaker_tripped = rule
+        .as_deref()
+        .is_some_and(|r| breaker.tripped.iter().any(|t| t.as_str() == r));
     serde_json::json!({
         "rule": rule,
         "severity": severity,
@@ -609,7 +695,11 @@ fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serd
 /// - Anything else (notebook edits, patches, MCP tools with their own
 ///   shapes) returns `None`: the path-based half of the policy still
 ///   applies, but no content analysis is attempted on a guess.
-pub fn proposed_content(tool_name: &str, tool_input: &serde_json::Value, file: &Path) -> Option<String> {
+pub fn proposed_content(
+    tool_name: &str,
+    tool_input: &serde_json::Value,
+    file: &Path,
+) -> Option<String> {
     let field = |key: &str| tool_input.get(key).and_then(|v| v.as_str());
     match tool_name {
         "Write" => field("content").map(|s| s.to_string()),
@@ -617,8 +707,15 @@ pub fn proposed_content(tool_name: &str, tool_input: &serde_json::Value, file: &
             let old = field("old_string")?;
             let new = field("new_string")?;
             let current = std::fs::read_to_string(file).ok()?;
-            let replace_all = tool_input.get("replace_all").and_then(|v| v.as_bool()).unwrap_or(false);
-            Some(if replace_all { current.replace(old, new) } else { current.replacen(old, new, 1) })
+            let replace_all = tool_input
+                .get("replace_all")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Some(if replace_all {
+                current.replace(old, new)
+            } else {
+                current.replacen(old, new, 1)
+            })
         }
         _ => None,
     }
@@ -648,14 +745,18 @@ pub fn proposed_content(tool_name: &str, tool_input: &serde_json::Value, file: &
 /// `blocking_rules`/`escalate_rules` match by rule id regardless of
 /// severity, so this only matters for `block_at_or_above`.
 pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Vec<Finding>> {
-    let extension = Path::new(relative).extension().and_then(|e| e.to_str()).unwrap_or("");
+    let extension = Path::new(relative)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     let Some(language) = yunq_ast::LanguageIdentifier::from_extension(extension) else {
         return Ok(Vec::new());
     };
     let source = yunq_ast::SourceFile::new(relative.to_string(), content.to_string(), language)
         .map_err(|e| anyhow::anyhow!("invalid source path {relative:?}: {e}"))?;
 
-    let service = crate::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
+    let service =
+        crate::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
     let report = service.analyze_files(std::slice::from_ref(&source)).await?;
     let profile = yunq_rules_engine::default_profile();
 
@@ -667,7 +768,9 @@ pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Ve
     });
     let hotspot_findings = report.hotspots().iter().map(|hotspot| Finding {
         rule: hotspot.rule().clone(),
-        severity: profile.severity_of(hotspot.rule()).unwrap_or(yunq_rules_engine::Severity::Major),
+        severity: profile
+            .severity_of(hotspot.rule())
+            .unwrap_or(yunq_rules_engine::Severity::Major),
         message: hotspot.message().to_string(),
         line: hotspot.span().start_line,
     });
@@ -679,12 +782,20 @@ pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Ve
 /// format. Only the two highest-risk, highest-volume ecosystems for
 /// typosquatting are covered; extending this to Cargo.toml/go.mod/Gemfile
 /// is a matter of adding another `match` arm and parser, not a new concept.
-fn manifest_dependency_names(file_name: &str, raw: &str) -> Option<std::collections::HashSet<String>> {
+fn manifest_dependency_names(
+    file_name: &str,
+    raw: &str,
+) -> Option<std::collections::HashSet<String>> {
     match file_name {
         "package.json" => {
             let value: serde_json::Value = serde_json::from_str(raw).ok()?;
             let mut names = std::collections::HashSet::new();
-            for section in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] {
+            for section in [
+                "dependencies",
+                "devDependencies",
+                "peerDependencies",
+                "optionalDependencies",
+            ] {
                 if let Some(obj) = value.get(section).and_then(|v| v.as_object()) {
                     names.extend(obj.keys().cloned());
                 }
@@ -696,7 +807,10 @@ fn manifest_dependency_names(file_name: &str, raw: &str) -> Option<std::collecti
                 .map(str::trim)
                 .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with('-'))
                 .filter_map(|line| {
-                    let name = line.split(['=', '>', '<', '~', '!', ';', '[', ' ']).next()?.trim();
+                    let name = line
+                        .split(['=', '>', '<', '~', '!', ';', '[', ' '])
+                        .next()?
+                        .trim();
                     (!name.is_empty()).then(|| name.to_ascii_lowercase())
                 })
                 .collect(),
@@ -716,11 +830,24 @@ fn manifest_dependency_names(file_name: &str, raw: &str) -> Option<std::collecti
 /// normal, not drift in an established one. Not in the default policy's
 /// `blocking_rules`/`advisory_rules` — see `yunq-policy.toml`'s template for
 /// how to opt in.
-fn new_dependency_findings(relative: &str, old_content: Option<&str>, new_content: &str) -> Vec<Finding> {
-    let Some(old_content) = old_content else { return Vec::new() };
-    let file_name = Path::new(relative).file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let Some(old_names) = manifest_dependency_names(file_name, old_content) else { return Vec::new() };
-    let Some(new_names) = manifest_dependency_names(file_name, new_content) else { return Vec::new() };
+fn new_dependency_findings(
+    relative: &str,
+    old_content: Option<&str>,
+    new_content: &str,
+) -> Vec<Finding> {
+    let Some(old_content) = old_content else {
+        return Vec::new();
+    };
+    let file_name = Path::new(relative)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let Some(old_names) = manifest_dependency_names(file_name, old_content) else {
+        return Vec::new();
+    };
+    let Some(new_names) = manifest_dependency_names(file_name, new_content) else {
+        return Vec::new();
+    };
 
     let mut added: Vec<&String> = new_names.difference(&old_names).collect();
     added.sort();
@@ -762,8 +889,14 @@ const SUPPRESSION_MARKERS: &[&str] = &[
 /// separately from [`SUPPRESSION_MARKERS`] because it earns its own rule id —
 /// "a test was silenced" is a distinct signal from "a lint was silenced",
 /// even though both are gate-gaming's same underlying move.
-const TEST_SKIP_MARKERS: &[&str] =
-    &["#[ignore]", "@pytest.mark.skip", "@unittest.skip", ".skip(", "xit(", "xdescribe("];
+const TEST_SKIP_MARKERS: &[&str] = &[
+    "#[ignore]",
+    "@pytest.mark.skip",
+    "@unittest.skip",
+    ".skip(",
+    "xit(",
+    "xdescribe(",
+];
 
 /// Lines matching one of `markers` that appear in `new_content` but not in
 /// `old_content` — the mechanical form of "this suppression was added by this
@@ -773,7 +906,12 @@ const TEST_SKIP_MARKERS: &[&str] =
 fn new_marker_lines(old_content: &str, new_content: &str, markers: &[&str]) -> Vec<String> {
     let matches = |line: &&str| markers.iter().any(|m| line.contains(m));
     let old_lines: HashSet<&str> = old_content.lines().filter(matches).collect();
-    new_content.lines().filter(matches).filter(|l| !old_lines.contains(l)).map(|l| l.trim().to_string()).collect()
+    new_content
+        .lines()
+        .filter(matches)
+        .filter(|l| !old_lines.contains(l))
+        .map(|l| l.trim().to_string())
+        .collect()
 }
 
 /// Findings for a suppression or coverage-exclusion directive a proposed
@@ -790,7 +928,11 @@ fn new_marker_lines(old_content: &str, new_content: &str, markers: &[&str]) -> V
 /// agent just created was, in fact, added by this write. Not in the default
 /// policy's `blocking_rules` — see `yunq-policy.toml`'s template for how to
 /// opt into `advisory_rules`/`escalate_rules`.
-fn suppression_added_findings(relative: &str, old_content: Option<&str>, new_content: &str) -> Vec<Finding> {
+fn suppression_added_findings(
+    relative: &str,
+    old_content: Option<&str>,
+    new_content: &str,
+) -> Vec<Finding> {
     let old_content = old_content.unwrap_or("");
     let rule = RuleId::new("ai:suppression-added").expect("valid rule id");
     new_marker_lines(old_content, new_content, SUPPRESSION_MARKERS)
@@ -814,7 +956,11 @@ fn suppression_added_findings(relative: &str, old_content: Option<&str>, new_con
 /// skip that was already there is not a finding, the same annotation added by
 /// this write is. Not in the default policy's `blocking_rules` — see
 /// `yunq-policy.toml`'s template for how to opt in.
-fn test_skip_added_findings(relative: &str, old_content: Option<&str>, new_content: &str) -> Vec<Finding> {
+fn test_skip_added_findings(
+    relative: &str,
+    old_content: Option<&str>,
+    new_content: &str,
+) -> Vec<Finding> {
     let old_content = old_content.unwrap_or("");
     let rule = RuleId::new("ai:test-skipped").expect("valid rule id");
     new_marker_lines(old_content, new_content, TEST_SKIP_MARKERS)
@@ -898,9 +1044,21 @@ pub async fn judge(
     // `hook check`), disk already matches `content` and the diff is empty.
     if let Some(content) = content {
         let old_content = std::fs::read_to_string(file).ok();
-        findings.extend(new_dependency_findings(&relative, old_content.as_deref(), content));
-        findings.extend(suppression_added_findings(&relative, old_content.as_deref(), content));
-        findings.extend(test_skip_added_findings(&relative, old_content.as_deref(), content));
+        findings.extend(new_dependency_findings(
+            &relative,
+            old_content.as_deref(),
+            content,
+        ));
+        findings.extend(suppression_added_findings(
+            &relative,
+            old_content.as_deref(),
+            content,
+        ));
+        findings.extend(test_skip_added_findings(
+            &relative,
+            old_content.as_deref(),
+            content,
+        ));
     }
     let provenance = provenance_for(&load_provenance(root), &relative);
     let has_scenario = has_covering_gherkin_scenario(policy, root, &relative);
@@ -908,12 +1066,19 @@ pub async fn judge(
     record_provenance_touch(root, &relative);
     let verdict = Verdict::from_evaluation(relative, evaluation);
 
-    let Verdict::Deny { path, evaluation } = &verdict else { return Ok(verdict) };
-    let no_hard_deny = !evaluation.violations.iter().any(|v| v.enforcement == Enforcement::Deny);
+    let Verdict::Deny { path, evaluation } = &verdict else {
+        return Ok(verdict);
+    };
+    let no_hard_deny = !evaluation
+        .violations
+        .iter()
+        .any(|v| v.enforcement == Enforcement::Deny);
     if !no_hard_deny {
         return Ok(verdict);
     }
-    let Some(token) = escalation_token(path, evaluation) else { return Ok(verdict) };
+    let Some(token) = escalation_token(path, evaluation) else {
+        return Ok(verdict);
+    };
     let mut approvals = load_approvals(root);
     if !approvals.remove(&token) {
         return Ok(verdict);
@@ -921,8 +1086,18 @@ pub async fn judge(
     save_approvals(root, &approvals);
     append_escalation_approved_audit(root, path, &token);
 
-    let residual: Vec<Violation> = evaluation.violations.iter().filter(|v| v.enforcement != Enforcement::Escalate).cloned().collect();
-    Ok(Verdict::from_evaluation(path.clone(), Evaluation { violations: residual }))
+    let residual: Vec<Violation> = evaluation
+        .violations
+        .iter()
+        .filter(|v| v.enforcement != Enforcement::Escalate)
+        .cloned()
+        .collect();
+    Ok(Verdict::from_evaluation(
+        path.clone(),
+        Evaluation {
+            violations: residual,
+        },
+    ))
 }
 
 /// Re-bases an absolute tool path onto the repository root the policy globs
@@ -964,7 +1139,9 @@ pub fn denial_text(
     let mut out = match timing {
         Timing::Prevented => format!("yunq blocked this write to `{path}`.\n\n"),
         Timing::AlreadyWritten => {
-            format!("yunq policy violation in `{path}` — this file has ALREADY been written to disk.\n\n")
+            format!(
+                "yunq policy violation in `{path}` — this file has ALREADY been written to disk.\n\n"
+            )
         }
     };
     for (index, violation) in evaluation.denials().enumerate() {
@@ -1017,7 +1194,8 @@ pub fn denial_text(
     }
     out.push_str(&format!(
         "\nMachine-readable form:\n{}\n",
-        serde_json::to_string(&structured_report(path, evaluation, breaker, loop_report)).unwrap_or_default(),
+        serde_json::to_string(&structured_report(path, evaluation, breaker, loop_report))
+            .unwrap_or_default(),
     ));
     out
 }
@@ -1109,11 +1287,23 @@ pub async fn run_claude_code() -> anyhow::Result<std::process::ExitCode> {
         tool_input: serde_json::Value::Null,
         cwd: None,
     });
-    let root =
-        payload.cwd.as_ref().map(PathBuf::from).or_else(|| std::env::current_dir().ok()).unwrap_or_else(|| PathBuf::from("."));
+    let root = payload
+        .cwd
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
     let breaker = track_circuit_breaker(&root, &verdict);
-    append_audit_log(&root, &payload.hook_event_name, &verdict, &breaker, &loop_report);
-    if let Some(output) = claude_code_output(&payload.hook_event_name, &verdict, &breaker, &loop_report) {
+    append_audit_log(
+        &root,
+        &payload.hook_event_name,
+        &verdict,
+        &breaker,
+        &loop_report,
+    );
+    if let Some(output) =
+        claude_code_output(&payload.hook_event_name, &verdict, &breaker, &loop_report)
+    {
         println!("{}", serde_json::to_string(&output)?);
     }
     Ok(std::process::ExitCode::SUCCESS)
@@ -1125,7 +1315,8 @@ pub async fn run_claude_code() -> anyhow::Result<std::process::ExitCode> {
 /// content)` this function already assembles for `judge`, so it is folded in
 /// here rather than re-derived by the caller.
 async fn claude_code_verdict(raw: &str) -> anyhow::Result<(Verdict, LoopGuardReport)> {
-    let payload: HookPayload = serde_json::from_str(raw).map_err(|e| anyhow::anyhow!("bad hook payload: {e}"))?;
+    let payload: HookPayload =
+        serde_json::from_str(raw).map_err(|e| anyhow::anyhow!("bad hook payload: {e}"))?;
 
     let Some(file_path) = payload.tool_input.get("file_path").and_then(|v| v.as_str()) else {
         return Ok((Verdict::Silent, LoopGuardReport::default()));
@@ -1167,7 +1358,10 @@ async fn claude_code_verdict(raw: &str) -> anyhow::Result<(Verdict, LoopGuardRep
 /// must not be blocked by a yunq bug can treat 1 as success; callers that
 /// want strictness can treat it as failure. Both are possible only because
 /// the two are distinguishable.
-pub async fn run_check(file: PathBuf, format: HookOutputFormat) -> anyhow::Result<std::process::ExitCode> {
+pub async fn run_check(
+    file: PathBuf,
+    format: HookOutputFormat,
+) -> anyhow::Result<std::process::ExitCode> {
     let root = std::env::current_dir()?;
     let policy = load_policy(&root)?;
     if !policy.enabled() {
@@ -1187,9 +1381,16 @@ pub async fn run_check(file: PathBuf, format: HookOutputFormat) -> anyhow::Resul
             match format {
                 HookOutputFormat::Json => println!(
                     "{}",
-                    serde_json::to_string_pretty(&structured_report(&path, &evaluation, &breaker, &loop_report))?
+                    serde_json::to_string_pretty(&structured_report(
+                        &path,
+                        &evaluation,
+                        &breaker,
+                        &loop_report
+                    ))?
                 ),
-                HookOutputFormat::Text => eprintln!("{}", advisory_text(&path, &evaluation, &loop_report)),
+                HookOutputFormat::Text => {
+                    eprintln!("{}", advisory_text(&path, &evaluation, &loop_report))
+                }
             }
             Ok(std::process::ExitCode::SUCCESS)
         }
@@ -1200,10 +1401,24 @@ pub async fn run_check(file: PathBuf, format: HookOutputFormat) -> anyhow::Resul
             match format {
                 HookOutputFormat::Json => println!(
                     "{}",
-                    serde_json::to_string_pretty(&structured_report(&path, &evaluation, &breaker, &loop_report))?
+                    serde_json::to_string_pretty(&structured_report(
+                        &path,
+                        &evaluation,
+                        &breaker,
+                        &loop_report
+                    ))?
                 ),
                 HookOutputFormat::Text => {
-                    eprintln!("{}", denial_text(&path, &evaluation, Timing::AlreadyWritten, &breaker, &loop_report))
+                    eprintln!(
+                        "{}",
+                        denial_text(
+                            &path,
+                            &evaluation,
+                            Timing::AlreadyWritten,
+                            &breaker,
+                            &loop_report
+                        )
+                    )
                 }
             }
             Ok(std::process::ExitCode::from(2))
@@ -1218,7 +1433,10 @@ mod tests {
     #[test]
     fn a_write_tool_call_yields_its_own_content() {
         let input = serde_json::json!({ "file_path": "/tmp/a.ts", "content": "const a = 1;" });
-        assert_eq!(proposed_content("Write", &input, Path::new("/nonexistent")).as_deref(), Some("const a = 1;"));
+        assert_eq!(
+            proposed_content("Write", &input, Path::new("/nonexistent")).as_deref(),
+            Some("const a = 1;")
+        );
     }
 
     #[test]
@@ -1236,7 +1454,10 @@ mod tests {
         );
 
         let all = serde_json::json!({ "old_string": "1", "new_string": "2", "replace_all": true });
-        assert_eq!(proposed_content("Edit", &all, &file).as_deref(), Some("const a = 2;\nconst b = 2;\n"));
+        assert_eq!(
+            proposed_content("Edit", &all, &file).as_deref(),
+            Some("const a = 2;\nconst b = 2;\n")
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1249,7 +1470,10 @@ mod tests {
 
     #[test]
     fn an_absolute_tool_path_is_rebased_onto_the_repository_root() {
-        assert_eq!(relative_to(Path::new("/repo"), Path::new("/repo/src/a.ts")), "src/a.ts");
+        assert_eq!(
+            relative_to(Path::new("/repo"), Path::new("/repo/src/a.ts")),
+            "src/a.ts"
+        );
     }
 
     #[test]
@@ -1257,21 +1481,34 @@ mod tests {
         // `SourceFile` rejects absolute paths outright, so leaking one here
         // would turn an out-of-tree edit into a hard error instead of a
         // judgement.
-        assert_eq!(relative_to(Path::new("/repo"), Path::new("/etc/passwd")), "etc/passwd");
+        assert_eq!(
+            relative_to(Path::new("/repo"), Path::new("/etc/passwd")),
+            "etc/passwd"
+        );
     }
 
     #[tokio::test]
     async fn a_file_with_no_known_extension_analyses_to_no_findings() {
-        assert!(analyze_content("notes.unknownext", "whatever").await.expect("ok").is_empty());
+        assert!(
+            analyze_content("notes.unknownext", "whatever")
+                .await
+                .expect("ok")
+                .is_empty()
+        );
     }
 
     #[tokio::test]
     async fn a_real_vulnerability_in_proposed_content_is_found() {
-        let findings = analyze_content("app.py", "import subprocess\nsubprocess.run(cmd, shell=True)\n")
-            .await
-            .expect("analysis runs");
+        let findings = analyze_content(
+            "app.py",
+            "import subprocess\nsubprocess.run(cmd, shell=True)\n",
+        )
+        .await
+        .expect("analysis runs");
         assert!(
-            findings.iter().any(|f| f.rule.as_str() == "python:subprocess-shell-true"),
+            findings
+                .iter()
+                .any(|f| f.rule.as_str() == "python:subprocess-shell-true"),
             "expected shell=True to be found, got {findings:?}"
         );
     }
@@ -1281,10 +1518,13 @@ mod tests {
         // `owasp:command-execution` is `FindingKind::Hotspot`, not `Issue` —
         // it must still reach the agent policy, or the shipped default
         // `blocking_rules` entry naming it can never actually deny anything.
-        let findings =
-            analyze_content("app.py", "import os\nos.system(user_input)\n").await.expect("analysis runs");
+        let findings = analyze_content("app.py", "import os\nos.system(user_input)\n")
+            .await
+            .expect("analysis runs");
         assert!(
-            findings.iter().any(|f| f.rule.as_str() == "owasp:command-execution"),
+            findings
+                .iter()
+                .any(|f| f.rule.as_str() == "owasp:command-execution"),
             "hotspot-classified rules must still reach the agent policy, got {findings:?}"
         );
     }
@@ -1299,10 +1539,14 @@ mod tests {
         // not actually true out of the box.
         let policy = AgentPolicy::default();
         let root = Path::new("/repo");
-        let verdict =
-            judge(&policy, root, Path::new("/repo/app.py"), Some("import os\nos.system(user_input)\n"))
-                .await
-                .expect("judged");
+        let verdict = judge(
+            &policy,
+            root,
+            Path::new("/repo/app.py"),
+            Some("import os\nos.system(user_input)\n"),
+        )
+        .await
+        .expect("judged");
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
     }
 
@@ -1326,9 +1570,14 @@ mod tests {
     #[tokio::test]
     async fn clean_content_stays_silent() {
         let policy = AgentPolicy::default();
-        let verdict = judge(&policy, Path::new("/repo"), Path::new("/repo/a.py"), Some("x = 1\n"))
-            .await
-            .expect("judged");
+        let verdict = judge(
+            &policy,
+            Path::new("/repo"),
+            Path::new("/repo/a.py"),
+            Some("x = 1\n"),
+        )
+        .await
+        .expect("judged");
         assert!(matches!(verdict, Verdict::Silent), "got {verdict:?}");
     }
 
@@ -1344,10 +1593,17 @@ mod tests {
             }],
         );
         let verdict = Verdict::from_evaluation("a.py".to_string(), evaluation);
-        let output = claude_code_output("PreToolUse", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default())
-            .expect("emits");
+        let output = claude_code_output(
+            "PreToolUse",
+            &verdict,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport::default(),
+        )
+        .expect("emits");
         assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "deny");
-        let reason = output["hookSpecificOutput"]["permissionDecisionReason"].as_str().expect("reason");
+        let reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .expect("reason");
         assert!(reason.contains("owasp:eval-usage"), "{reason}");
         assert!(reason.contains("line 3"), "{reason}");
     }
@@ -1364,10 +1620,20 @@ mod tests {
             }],
         );
         let verdict = Verdict::from_evaluation("a.py".to_string(), evaluation);
-        let output = claude_code_output("PostToolUse", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default())
-            .expect("emits");
+        let output = claude_code_output(
+            "PostToolUse",
+            &verdict,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport::default(),
+        )
+        .expect("emits");
         assert_eq!(output["decision"], "block");
-        assert!(output["reason"].as_str().expect("reason").contains("owasp:eval-usage"));
+        assert!(
+            output["reason"]
+                .as_str()
+                .expect("reason")
+                .contains("owasp:eval-usage")
+        );
     }
 
     #[test]
@@ -1387,10 +1653,22 @@ mod tests {
 
         let breaker = CircuitBreakerReport::default();
         let loop_report = LoopGuardReport::default();
-        let prevented = denial_text("a.py", &evaluation, Timing::Prevented, &breaker, &loop_report);
+        let prevented = denial_text(
+            "a.py",
+            &evaluation,
+            Timing::Prevented,
+            &breaker,
+            &loop_report,
+        );
         assert!(prevented.contains("was NOT written"), "{prevented}");
 
-        let landed = denial_text("a.py", &evaluation, Timing::AlreadyWritten, &breaker, &loop_report);
+        let landed = denial_text(
+            "a.py",
+            &evaluation,
+            Timing::AlreadyWritten,
+            &breaker,
+            &loop_report,
+        );
         assert!(landed.contains("ALREADY been written"), "{landed}");
         assert!(!landed.contains("was NOT written"), "{landed}");
     }
@@ -1399,8 +1677,12 @@ mod tests {
     fn a_silent_verdict_emits_nothing_on_either_event() {
         let breaker = CircuitBreakerReport::default();
         let loop_report = LoopGuardReport::default();
-        assert!(claude_code_output("PreToolUse", &Verdict::Silent, &breaker, &loop_report).is_none());
-        assert!(claude_code_output("PostToolUse", &Verdict::Silent, &breaker, &loop_report).is_none());
+        assert!(
+            claude_code_output("PreToolUse", &Verdict::Silent, &breaker, &loop_report).is_none()
+        );
+        assert!(
+            claude_code_output("PostToolUse", &Verdict::Silent, &breaker, &loop_report).is_none()
+        );
     }
 
     #[test]
@@ -1421,8 +1703,13 @@ mod tests {
         let verdict = Verdict::from_evaluation("a.py".to_string(), evaluation);
         assert!(matches!(verdict, Verdict::Advise { .. }));
         assert!(
-            claude_code_output("PreToolUse", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default())
-                .is_none()
+            claude_code_output(
+                "PreToolUse",
+                &verdict,
+                &CircuitBreakerReport::default(),
+                &LoopGuardReport::default()
+            )
+            .is_none()
         );
     }
 
@@ -1433,7 +1720,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_payload_with_no_file_path_is_silent() {
-        let raw = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+        let raw =
+            r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}"#;
         let (verdict, _loop_report) = claude_code_verdict(raw).await.expect("ok");
         assert!(matches!(verdict, Verdict::Silent));
     }
@@ -1453,7 +1741,12 @@ mod tests {
     #[test]
     fn structured_report_names_the_rule_line_and_expected_state() {
         let evaluation = eval_usage_evaluation();
-        let report = structured_report("a.py", &evaluation, &CircuitBreakerReport::default(), &LoopGuardReport::default());
+        let report = structured_report(
+            "a.py",
+            &evaluation,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport::default(),
+        );
         assert_eq!(report["path"], "a.py");
         assert_eq!(report["denied"], true);
         assert_eq!(report["circuit_breaker_tripped"], false);
@@ -1462,14 +1755,20 @@ mod tests {
         assert_eq!(violation["line"], 3);
         assert_eq!(violation["enforcement"], "deny");
         assert_eq!(violation["cause"], "blocking_rule");
-        assert!(violation["expected_state"].as_str().expect("state").contains("owasp:eval-usage"));
+        assert!(
+            violation["expected_state"]
+                .as_str()
+                .expect("state")
+                .contains("owasp:eval-usage")
+        );
     }
 
     #[test]
     fn a_protected_path_violation_has_no_rule_in_the_structured_report() {
-        let policy =
-            AgentPolicy::parse("[[protected_path]]\npattern = \".github/workflows/**\"\nreason = \"CI.\"\n")
-                .expect("parses");
+        let policy = AgentPolicy::parse(
+            "[[protected_path]]\npattern = \".github/workflows/**\"\nreason = \"CI.\"\n",
+        )
+        .expect("parses");
         let evaluation = policy.evaluate(".github/workflows/ci.yml", &[]);
         let report = structured_report(
             ".github/workflows/ci.yml",
@@ -1485,8 +1784,13 @@ mod tests {
     #[test]
     fn denial_text_embeds_a_parseable_machine_readable_block() {
         let evaluation = eval_usage_evaluation();
-        let text =
-            denial_text("a.py", &evaluation, Timing::Prevented, &CircuitBreakerReport::default(), &LoopGuardReport::default());
+        let text = denial_text(
+            "a.py",
+            &evaluation,
+            Timing::Prevented,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport::default(),
+        );
         let json_line = text.lines().last().expect("a line");
         let parsed: serde_json::Value = serde_json::from_str(json_line).expect("valid json");
         assert_eq!(parsed["violations"][0]["rule"], "owasp:eval-usage");
@@ -1495,8 +1799,16 @@ mod tests {
     #[test]
     fn a_tripped_breaker_adds_a_stop_and_rollback_instruction() {
         let evaluation = eval_usage_evaluation();
-        let breaker = CircuitBreakerReport { tripped: vec![RuleId::new("owasp:eval-usage").expect("rule")] };
-        let text = denial_text("a.py", &evaluation, Timing::Prevented, &breaker, &LoopGuardReport::default());
+        let breaker = CircuitBreakerReport {
+            tripped: vec![RuleId::new("owasp:eval-usage").expect("rule")],
+        };
+        let text = denial_text(
+            "a.py",
+            &evaluation,
+            Timing::Prevented,
+            &breaker,
+            &LoopGuardReport::default(),
+        );
         assert!(text.contains("CIRCUIT BREAKER TRIPPED"), "{text}");
         assert!(text.contains("Revert"), "{text}");
         assert!(text.to_lowercase().contains("human"), "{text}");
@@ -1505,8 +1817,13 @@ mod tests {
     #[test]
     fn a_verdict_without_a_tripped_rule_adds_no_stop_instruction() {
         let evaluation = eval_usage_evaluation();
-        let text =
-            denial_text("a.py", &evaluation, Timing::Prevented, &CircuitBreakerReport::default(), &LoopGuardReport::default());
+        let text = denial_text(
+            "a.py",
+            &evaluation,
+            Timing::Prevented,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport::default(),
+        );
         assert!(!text.contains("CIRCUIT BREAKER"), "{text}");
     }
 
@@ -1545,7 +1862,10 @@ mod tests {
         assert!(!track_loop_guard(&dir, "a.py", Some("x = 1")).is_tripped());
         assert!(!track_loop_guard(&dir, "a.py", Some("x = 1")).is_tripped());
         let third = track_loop_guard(&dir, "a.py", Some("x = 1"));
-        assert!(third.is_tripped(), "the third identical write in a row must trip the alarm");
+        assert!(
+            third.is_tripped(),
+            "the third identical write in a row must trip the alarm"
+        );
         assert_eq!(third.count, 3);
 
         std::fs::remove_dir_all(&dir).ok();
@@ -1589,18 +1909,28 @@ mod tests {
         assert!(!track_circuit_breaker(&dir, &verdict).is_tripped());
         assert!(!track_circuit_breaker(&dir, &verdict).is_tripped());
         let third = track_circuit_breaker(&dir, &verdict);
-        assert!(third.is_tripped(), "the third consecutive denial of the same rule must trip");
-        assert_eq!(third.tripped, vec![RuleId::new("owasp:eval-usage").expect("rule")]);
+        assert!(
+            third.is_tripped(),
+            "the third consecutive denial of the same rule must trip"
+        );
+        assert_eq!(
+            third.tripped,
+            vec![RuleId::new("owasp:eval-usage").expect("rule")]
+        );
 
         reset_circuit_breaker(&dir).expect("reset");
-        assert!(!track_circuit_breaker(&dir, &verdict).is_tripped(), "reset clears the persisted streak");
+        assert!(
+            !track_circuit_breaker(&dir, &verdict).is_tripped(),
+            "reset clears the persisted streak"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn a_clean_write_resets_the_persisted_streak() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-breaker-reset-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-hook-breaker-reset-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let denied = Verdict::from_evaluation("a.py".to_string(), eval_usage_evaluation());
@@ -1609,7 +1939,10 @@ mod tests {
 
         track_circuit_breaker(&dir, &Verdict::Silent);
         let third = track_circuit_breaker(&dir, &denied);
-        assert!(!third.is_tripped(), "the silent write in between broke the streak");
+        assert!(
+            !third.is_tripped(),
+            "the silent write in between broke the streak"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1621,7 +1954,11 @@ mod tests {
         let findings = new_dependency_findings("package.json", Some(old), new);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule.as_str(), "supply-chain:new-dependency");
-        assert!(findings[0].message.contains("left-pad-plus"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("left-pad-plus"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -1646,7 +1983,11 @@ mod tests {
         let new = "flask==2.0.0\nrequests>=2.31.0\n";
         let findings = new_dependency_findings("requirements.txt", Some(old), new);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("requests"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("requests"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -1661,7 +2002,13 @@ mod tests {
         let findings = suppression_added_findings("src/lib.rs", Some(old), new);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule.as_str(), "ai:suppression-added");
-        assert!(findings[0].message.contains("#[allow(clippy::unwrap_used)]"), "{}", findings[0].message);
+        assert!(
+            findings[0]
+                .message
+                .contains("#[allow(clippy::unwrap_used)]"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -1678,7 +2025,11 @@ mod tests {
         let new = "# noqa: E501\nprint('x' * 1000)\n";
         let findings = suppression_added_findings("scratch.py", None, new);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("# noqa"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("# noqa"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -1697,7 +2048,11 @@ mod tests {
         let findings = test_skip_added_findings("src/lib.rs", Some(old), new);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule.as_str(), "ai:test-skipped");
-        assert!(findings[0].message.contains("#[ignore]"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("#[ignore]"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -1706,7 +2061,11 @@ mod tests {
         let new = "it.skip('adds', () => { expect(1 + 1).toBe(2); });\n";
         let findings = test_skip_added_findings("app.test.ts", Some(old), new);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains(".skip("), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains(".skip("),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -1717,15 +2076,18 @@ mod tests {
 
     #[tokio::test]
     async fn a_new_suppression_is_wired_into_the_full_judge_pipeline() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-suppression-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-hook-suppression-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let file = dir.join("lib.rs");
         std::fs::write(&file, "fn f() {}\n").expect("write");
 
-        let policy =
-            AgentPolicy::parse("[agent]\nblocking_rules = [\"ai:suppression-added\"]\n").expect("parses");
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"ai:suppression-added\"]\n")
+            .expect("parses");
         let new_content = "#[allow(dead_code)]\nfn f() {}\n";
-        let verdict = judge(&policy, &dir, &file, Some(new_content)).await.expect("judged");
+        let verdict = judge(&policy, &dir, &file, Some(new_content))
+            .await
+            .expect("judged");
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
 
         std::fs::remove_dir_all(&dir).ok();
@@ -1741,10 +2103,13 @@ mod tests {
         // Not blocked by the *default* policy (Major is below the default
         // `critical` threshold) — an install opts in explicitly, exactly as
         // it would for any other rule id.
-        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"supply-chain:new-dependency\"]\n")
-            .expect("parses");
+        let policy =
+            AgentPolicy::parse("[agent]\nblocking_rules = [\"supply-chain:new-dependency\"]\n")
+                .expect("parses");
         let new_content = r#"{"dependencies": {"left-pad": "1.0.0", "left-pad-plus": "0.0.1"}}"#;
-        let verdict = judge(&policy, &dir, &manifest, Some(new_content)).await.expect("judged");
+        let verdict = judge(&policy, &dir, &manifest, Some(new_content))
+            .await
+            .expect("judged");
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
 
         std::fs::remove_dir_all(&dir).ok();
@@ -1752,7 +2117,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_required_path_with_no_covering_feature_file_denies_end_to_end() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-gherkin-missing-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-hook-gherkin-missing-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
         let file = dir.join("core/domain/order.rs");
 
@@ -1760,10 +2126,17 @@ mod tests {
             "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
         )
         .expect("parses");
-        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n")).await.expect("judged");
-        let Verdict::Deny { evaluation, .. } = &verdict else { panic!("expected a denial, got {verdict:?}") };
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n"))
+            .await
+            .expect("judged");
+        let Verdict::Deny { evaluation, .. } = &verdict else {
+            panic!("expected a denial, got {verdict:?}")
+        };
         assert!(
-            evaluation.violations.iter().any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
+            evaluation
+                .violations
+                .iter()
+                .any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
             "{evaluation:?}"
         );
 
@@ -1772,7 +2145,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_required_path_with_a_covering_feature_file_is_not_denied_on_that_ground() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-gherkin-covered-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-hook-gherkin-covered-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
         std::fs::create_dir_all(dir.join("features")).expect("features dir");
         std::fs::write(
@@ -1786,10 +2160,15 @@ mod tests {
             "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
         )
         .expect("parses");
-        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n")).await.expect("judged");
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n"))
+            .await
+            .expect("judged");
         if let Verdict::Deny { evaluation, .. } = &verdict {
             assert!(
-                !evaluation.violations.iter().any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
+                !evaluation
+                    .violations
+                    .iter()
+                    .any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
                 "{evaluation:?}"
             );
         }
@@ -1804,15 +2183,22 @@ mod tests {
 
     #[test]
     fn escalation_token_is_stable_for_the_same_write_and_differs_for_a_different_one() {
-        let policy = AgentPolicy::parse("[agent]\nescalate_rules = [\"smells:long-method\"]\n").expect("parses");
+        let policy = AgentPolicy::parse("[agent]\nescalate_rules = [\"smells:long-method\"]\n")
+            .expect("parses");
         let evaluation = policy.evaluate("a.py", &[finding_of("smells:long-method", 7)]);
         let token_a = escalation_token("a.py", &evaluation).expect("token");
         let token_b = escalation_token("a.py", &evaluation).expect("token");
-        assert_eq!(token_a, token_b, "the same evaluation must always yield the same token");
+        assert_eq!(
+            token_a, token_b,
+            "the same evaluation must always yield the same token"
+        );
 
         let other_line = policy.evaluate("a.py", &[finding_of("smells:long-method", 9)]);
         let token_c = escalation_token("a.py", &other_line).expect("token");
-        assert_ne!(token_a, token_c, "a materially different finding must yield a different token");
+        assert_ne!(
+            token_a, token_c,
+            "a materially different finding must yield a different token"
+        );
     }
 
     fn finding_of(rule_id: &str, line: u32) -> Finding {
@@ -1829,11 +2215,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("yunq-hook-escalate-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
-        let policy = AgentPolicy::parse("[agent]\nblocking_rules = []\nescalate_rules = [\"python:subprocess-shell-true\"]\n")
-            .expect("parses");
+        let policy = AgentPolicy::parse(
+            "[agent]\nblocking_rules = []\nescalate_rules = [\"python:subprocess-shell-true\"]\n",
+        )
+        .expect("parses");
         let file = dir.join("a.py");
         let content = "import subprocess\nsubprocess.run(cmd, shell=True)\n";
-        let verdict = judge(&policy, &dir, &file, Some(content)).await.expect("judged");
+        let verdict = judge(&policy, &dir, &file, Some(content))
+            .await
+            .expect("judged");
         match &verdict {
             Verdict::Deny { evaluation, .. } => {
                 assert_eq!(evaluation.escalations().count(), 1);
@@ -1852,37 +2242,60 @@ mod tests {
         approve_escalation(&dir, "deadbeef").expect("approve");
         let mut approvals = load_approvals(&dir);
         assert!(approvals.contains("deadbeef"));
-        assert!(approvals.remove("deadbeef"), "consuming the token must find it exactly once");
+        assert!(
+            approvals.remove("deadbeef"),
+            "consuming the token must find it exactly once"
+        );
         save_approvals(&dir, &approvals);
-        assert!(!load_approvals(&dir).contains("deadbeef"), "a consumed token must not remain approved");
+        assert!(
+            !load_approvals(&dir).contains("deadbeef"),
+            "a consumed token must not remain approved"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]
     async fn an_approved_escalation_lets_the_identical_write_through_end_to_end() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-approve-flow-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-hook-approve-flow-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
-        let policy = AgentPolicy::parse("[agent]\nblocking_rules = []\nescalate_rules = [\"python:subprocess-shell-true\"]\n")
-            .expect("parses");
+        let policy = AgentPolicy::parse(
+            "[agent]\nblocking_rules = []\nescalate_rules = [\"python:subprocess-shell-true\"]\n",
+        )
+        .expect("parses");
         let file = dir.join("a.py");
         let content = "import subprocess\nsubprocess.run(cmd, shell=True)\n";
 
-        let first = judge(&policy, &dir, &file, Some(content)).await.expect("judged");
-        let Verdict::Deny { path, evaluation } = &first else { panic!("expected a first-attempt denial") };
+        let first = judge(&policy, &dir, &file, Some(content))
+            .await
+            .expect("judged");
+        let Verdict::Deny { path, evaluation } = &first else {
+            panic!("expected a first-attempt denial")
+        };
         let token = escalation_token(path, evaluation).expect("token");
         approve_escalation(&dir, &token).expect("approve");
 
         // A byte-identical retry now reproduces the identical finding, so
         // `judge` re-derives the identical token, finds it approved, and
         // consumes it — letting the write through as if it were clean.
-        let second = judge(&policy, &dir, &file, Some(content)).await.expect("judged");
-        assert!(matches!(second, Verdict::Silent), "an approved escalation must let the retry through, got {second:?}");
+        let second = judge(&policy, &dir, &file, Some(content))
+            .await
+            .expect("judged");
+        assert!(
+            matches!(second, Verdict::Silent),
+            "an approved escalation must let the retry through, got {second:?}"
+        );
 
         // Approval is single-use: a third identical attempt must escalate again.
-        let third = judge(&policy, &dir, &file, Some(content)).await.expect("judged");
-        assert!(matches!(third, Verdict::Deny { .. }), "a consumed token must not approve a later retry, got {third:?}");
+        let third = judge(&policy, &dir, &file, Some(content))
+            .await
+            .expect("judged");
+        assert!(
+            matches!(third, Verdict::Deny { .. }),
+            "a consumed token must not approve a later retry, got {third:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1893,7 +2306,13 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let verdict = Verdict::from_evaluation("a.py".to_string(), eval_usage_evaluation());
-        append_audit_log(&dir, "PreToolUse", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default());
+        append_audit_log(
+            &dir,
+            "PreToolUse",
+            &verdict,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport::default(),
+        );
 
         let entries = read_audit_log(&dir, None);
         assert_eq!(entries.len(), 1);
@@ -1907,18 +2326,29 @@ mod tests {
 
     #[test]
     fn a_silent_verdict_is_never_written_to_the_audit_log() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-audit-silent-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-hook-audit-silent-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
-        append_audit_log(&dir, "PreToolUse", &Verdict::Silent, &CircuitBreakerReport::default(), &LoopGuardReport::default());
-        assert!(read_audit_log(&dir, None).is_empty(), "a clean write must leave no audit trail");
+        append_audit_log(
+            &dir,
+            "PreToolUse",
+            &Verdict::Silent,
+            &CircuitBreakerReport::default(),
+            &LoopGuardReport::default(),
+        );
+        assert!(
+            read_audit_log(&dir, None).is_empty(),
+            "a clean write must leave no audit trail"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn read_audit_log_limit_keeps_only_the_most_recent_entries() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-audit-limit-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-hook-audit-limit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         for line in 1..=5 {
@@ -1932,7 +2362,13 @@ mod tests {
                 }],
             );
             let verdict = Verdict::from_evaluation("a.py".to_string(), evaluation);
-            append_audit_log(&dir, "check", &verdict, &CircuitBreakerReport::default(), &LoopGuardReport::default());
+            append_audit_log(
+                &dir,
+                "check",
+                &verdict,
+                &CircuitBreakerReport::default(),
+                &LoopGuardReport::default(),
+            );
         }
 
         let entries = read_audit_log(&dir, Some(2));

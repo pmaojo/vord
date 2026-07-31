@@ -24,7 +24,10 @@ pub struct LongFunctionRule {
 
 impl LongFunctionRule {
     pub fn new(max_lines: u32) -> Self {
-        Self { id: RuleId::new("smells:long-function").expect("valid rule id"), max_lines }
+        Self {
+            id: RuleId::new("smells:long-function").expect("valid rule id"),
+            max_lines,
+        }
     }
 }
 
@@ -86,7 +89,9 @@ impl Rule for LongFunctionRule {
 /// Such functions are naturally verbose because JSX is verbose, not because
 /// the logic is complex.
 fn function_body_is_primarily_jsx(func: &AstNode) -> bool {
-    let Some(body) = func.children().last() else { return false };
+    let Some(body) = func.children().last() else {
+        return false;
+    };
     let statements: Vec<&AstNode> = body.children().iter().filter(|c| is_statement(c)).collect();
     // A JSX component typically has a single return statement.
     if statements.len() != 1 {
@@ -167,14 +172,21 @@ mod tests {
     #[test]
     fn allows_jsx_component_below_jsx_threshold() {
         // A 60-line component returning JSX should pass under the 80-line JSX threshold.
-        let body_lines: Vec<String> = (0..58).map(|i| format!("  <div key={i}>content</div>")).collect();
+        let body_lines: Vec<String> = (0..58)
+            .map(|i| format!("  <div key={i}>content</div>"))
+            .collect();
         let body = body_lines.join("\n");
         let code = format!("function Comp() {{\n  return (\n{body}\n  );\n}}\n");
         let file = SourceFile::new("Comp.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
 
         let findings = LongFunctionRule::new(DEFAULT_MAX_LINES).check(&file, &ast);
-        assert!(findings.is_empty(), "JSX component at ~60 lines should not flag: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "JSX component at ~60 lines should not flag: {findings:?}"
+        );
     }
 
     #[test]
@@ -183,7 +195,9 @@ mod tests {
         let body: String = (0..53).map(|i| format!("  const x{i} = {i};\n")).collect();
         let code = format!("function compute() {{\n{body}}}\n");
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
 
         let findings = LongFunctionRule::new(DEFAULT_MAX_LINES).check(&file, &ast);
         assert_eq!(findings.len(), 1);
@@ -193,8 +207,13 @@ mod tests {
     fn jsx_return_detection_finds_jsx_element() {
         let code = "function Comp() {\n  return <div>hello</div>;\n}\n";
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
-        let func = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        let func = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::FunctionDef)
+            .unwrap();
         assert!(function_body_is_primarily_jsx(func));
     }
 
@@ -202,8 +221,13 @@ mod tests {
     fn non_jsx_return_not_detected() {
         let code = "function compute() {\n  return 42;\n}\n";
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
-        let func = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        let func = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::FunctionDef)
+            .unwrap();
         assert!(!function_body_is_primarily_jsx(func));
     }
 }

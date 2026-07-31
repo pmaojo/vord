@@ -22,11 +22,21 @@ pub struct Branch {
 
 impl Branch {
     pub fn main(project_key: impl Into<String>) -> Self {
-        Self { project_key: project_key.into(), name: "main".to_string(), is_main: true, is_protected: true }
+        Self {
+            project_key: project_key.into(),
+            name: "main".to_string(),
+            is_main: true,
+            is_protected: true,
+        }
     }
 
     pub fn feature(project_key: impl Into<String>, name: impl Into<String>) -> Self {
-        Self { project_key: project_key.into(), name: name.into(), is_main: false, is_protected: false }
+        Self {
+            project_key: project_key.into(),
+            name: name.into(),
+            is_main: false,
+            is_protected: false,
+        }
     }
 }
 
@@ -75,12 +85,17 @@ mod tests {
 
     #[test]
     fn branch_ref_serializes_with_kind_tag() {
-        let r = BranchRef::Branch { name: "feat/foo".to_string() };
+        let r = BranchRef::Branch {
+            name: "feat/foo".to_string(),
+        };
         let json = serde_json::to_string(&r).expect("serializable");
         assert!(json.contains("branch"));
         assert!(json.contains("feat/foo"));
 
-        let pr = BranchRef::PullRequest { provider: "github".to_string(), id: "42".to_string() };
+        let pr = BranchRef::PullRequest {
+            provider: "github".to_string(),
+            id: "42".to_string(),
+        };
         let json = serde_json::to_string(&pr).expect("serializable");
         assert!(json.contains("pull_request"));
         assert!(json.contains("github"));

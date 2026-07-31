@@ -79,7 +79,8 @@ pub enum HandoffError {
 /// route them anywhere — malformed input must never silently vanish, and
 /// must never reach a peer's inbox looking well-formed.
 pub fn parse_handoff(raw: &str) -> Result<Handoff, HandoffError> {
-    let handoff: Handoff = serde_json::from_str(raw).map_err(|e| HandoffError::Json(e.to_string()))?;
+    let handoff: Handoff =
+        serde_json::from_str(raw).map_err(|e| HandoffError::Json(e.to_string()))?;
     if handoff.id.trim().is_empty() {
         return Err(HandoffError::MissingField("id"));
     }
@@ -106,7 +107,8 @@ mod tests {
     #[test]
     fn a_denial_payload_round_trips_as_opaque_json() {
         let denial = serde_json::json!({ "rule": "owasp:eval-usage", "outcome": "deny" });
-        let original = Handoff::new("h2", "coder", "architect", "blocked", 1).with_denial(denial.clone());
+        let original =
+            Handoff::new("h2", "coder", "architect", "blocked", 1).with_denial(denial.clone());
         let parsed = parse_handoff(&original.to_json()).expect("valid handoff parses");
         assert_eq!(parsed.denial, Some(denial));
     }
@@ -114,12 +116,18 @@ mod tests {
     #[test]
     fn a_handoff_with_no_denial_serializes_without_the_field() {
         let handoff = Handoff::new("h3", "coder", "qa", "done", 1);
-        assert!(!handoff.to_json().contains("denial"), "an absent denial should not appear at all");
+        assert!(
+            !handoff.to_json().contains("denial"),
+            "an absent denial should not appear at all"
+        );
     }
 
     #[test]
     fn malformed_json_is_rejected_rather_than_partially_accepted() {
-        assert!(matches!(parse_handoff("not json"), Err(HandoffError::Json(_))));
+        assert!(matches!(
+            parse_handoff("not json"),
+            Err(HandoffError::Json(_))
+        ));
     }
 
     #[test]
@@ -128,9 +136,15 @@ mod tests {
         assert_eq!(parse_handoff(raw), Err(HandoffError::MissingField("id")));
 
         let raw = r#"{"id":"h1","from_role":"","to_role":"qa","summary":"x","created_at":1}"#;
-        assert_eq!(parse_handoff(raw), Err(HandoffError::MissingField("from_role")));
+        assert_eq!(
+            parse_handoff(raw),
+            Err(HandoffError::MissingField("from_role"))
+        );
 
         let raw = r#"{"id":"h1","from_role":"coder","to_role":"","summary":"x","created_at":1}"#;
-        assert_eq!(parse_handoff(raw), Err(HandoffError::MissingField("to_role")));
+        assert_eq!(
+            parse_handoff(raw),
+            Err(HandoffError::MissingField("to_role"))
+        );
     }
 }

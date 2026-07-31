@@ -40,7 +40,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 use yunq_ast::Span;
-use yunq_rules_engine::{ExternalIssue, IssueType, Issue, RuleId, Severity};
+use yunq_rules_engine::{ExternalIssue, Issue, IssueType, RuleId, Severity};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SarifError {
@@ -94,7 +94,8 @@ pub fn parse_sarif_relative_to(content: &str, root: &Path) -> Result<SarifImport
 }
 
 fn parse_sarif_impl(content: &str, root: Option<&Path>) -> Result<SarifImport, SarifError> {
-    let log: SarifLog = serde_json::from_str(content).map_err(|e| SarifError::Malformed(e.to_string()))?;
+    let log: SarifLog =
+        serde_json::from_str(content).map_err(|e| SarifError::Malformed(e.to_string()))?;
 
     // SARIF 1.0 is a structurally different schema; refuse it rather than
     // silently importing nothing. A missing version is assumed 2.x — some
@@ -113,10 +114,18 @@ fn parse_sarif_impl(content: &str, root: Option<&Path>) -> Result<SarifImport, S
 }
 
 fn import_run(run: &Run, root: Option<&Path>) -> SarifImport {
-    let tool = run.tool.driver.name.clone().unwrap_or_else(|| "external".to_string());
+    let tool = run
+        .tool
+        .driver
+        .name
+        .clone()
+        .unwrap_or_else(|| "external".to_string());
     let catalog = RuleCatalog::build(&run.tool);
 
-    let mut import = SarifImport { tools: vec![tool.clone()], ..Default::default() };
+    let mut import = SarifImport {
+        tools: vec![tool.clone()],
+        ..Default::default()
+    };
     for result in &run.results {
         match import_result(result, &tool, &catalog, root) {
             Some(issue) => import.issues.push(issue),
@@ -145,16 +154,24 @@ impl<'a> RuleCatalog<'a> {
                 }
             }
         }
-        Self { by_id, driver_by_index: &tool.driver.rules }
+        Self {
+            by_id,
+            driver_by_index: &tool.driver.rules,
+        }
     }
 
     fn lookup(&self, result: &SarifResult) -> Option<&'a ReportingDescriptor> {
-        if let Some(id) = result.rule_id.as_deref().or(result.rule.as_ref().and_then(|r| r.id.as_deref()))
+        if let Some(id) = result
+            .rule_id
+            .as_deref()
+            .or(result.rule.as_ref().and_then(|r| r.id.as_deref()))
             && let Some(rule) = self.by_id.get(id)
         {
             return Some(rule);
         }
-        let index = result.rule_index.or(result.rule.as_ref().and_then(|r| r.index))?;
+        let index = result
+            .rule_index
+            .or(result.rule.as_ref().and_then(|r| r.index))?;
         self.driver_by_index.get(index)
     }
 }
@@ -205,7 +222,10 @@ fn is_suppressed(result: &SarifResult) -> bool {
 /// result (and `relatedLocations` on top); yunq issues are single-span, so
 /// the primary location is the one that becomes the issue.
 fn physical_location(result: &SarifResult, root: Option<&Path>) -> Option<(String, Span)> {
-    let physical = result.locations.iter().find_map(|l| l.physical_location.as_ref())?;
+    let physical = result
+        .locations
+        .iter()
+        .find_map(|l| l.physical_location.as_ref())?;
     let uri = physical.artifact_location.as_ref()?.uri.as_deref()?;
     Some((normalize_uri(uri, root), span_of(physical.region.as_ref())))
 }
@@ -214,7 +234,9 @@ fn physical_location(result: &SarifResult, root: Option<&Path>) -> Option<(Strin
 /// as [`Span`] — so no offset is applied. A result with no region (a
 /// file-level finding, common for e.g. secret scanners) lands on line 1.
 fn span_of(region: Option<&Region>) -> Span {
-    let Some(region) = region else { return Span::new(1, 1, 1, 1) };
+    let Some(region) = region else {
+        return Span::new(1, 1, 1, 1);
+    };
     let start_line = region.start_line.unwrap_or(1).max(1);
     let start_col = region.start_column.unwrap_or(1).max(1);
     let end_line = region.end_line.unwrap_or(start_line).max(start_line);
@@ -241,7 +263,9 @@ fn normalize_uri(uri: &str, root: Option<&Path>) -> String {
 /// `file:///C:/x` denotes `C:/x`, so the extra leading slash is dropped
 /// ahead of a drive letter.
 fn strip_file_scheme(uri: &str) -> String {
-    let Some(rest) = uri.strip_prefix("file://") else { return uri.to_string() };
+    let Some(rest) = uri.strip_prefix("file://") else {
+        return uri.to_string();
+    };
     // Skip an authority component (`file://host/path`), keeping the path.
     let path = match rest.find('/') {
         Some(slash) => &rest[slash..],
@@ -250,7 +274,11 @@ fn strip_file_scheme(uri: &str) -> String {
     let bytes = path.as_bytes();
     let is_windows_drive =
         bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':';
-    if is_windows_drive { path[1..].to_string() } else { path.to_string() }
+    if is_windows_drive {
+        path[1..].to_string()
+    } else {
+        path.to_string()
+    }
 }
 
 fn percent_decode(raw: &str) -> String {
@@ -297,10 +325,10 @@ fn severity_of(result: &SarifResult, rule: Option<&ReportingDescriptor>) -> Seve
         return severity_from_cvss(score);
     }
 
-    let level = result
-        .level
-        .as_deref()
-        .or_else(|| rule.and_then(|r| r.default_configuration.as_ref()).and_then(|c| c.level.as_deref()));
+    let level = result.level.as_deref().or_else(|| {
+        rule.and_then(|r| r.default_configuration.as_ref())
+            .and_then(|c| c.level.as_deref())
+    });
     match level {
         Some(level) => severity_from_level(level),
         // GitHub's `problem.severity` is the pre-SARIF-level fallback some
@@ -347,17 +375,32 @@ fn severity_from_level(level: &str) -> Severity {
 }
 
 fn issue_type_of(result: &SarifResult, rule: Option<&ReportingDescriptor>) -> IssueType {
-    let security = result.properties.is_security() || rule.is_some_and(|r| r.properties.is_security());
-    if security { IssueType::Vulnerability } else { IssueType::CodeSmell }
+    let security =
+        result.properties.is_security() || rule.is_some_and(|r| r.properties.is_security());
+    if security {
+        IssueType::Vulnerability
+    } else {
+        IssueType::CodeSmell
+    }
 }
 
-fn message_of(result: &SarifResult, rule: Option<&ReportingDescriptor>, raw_rule_id: &str) -> String {
+fn message_of(
+    result: &SarifResult,
+    rule: Option<&ReportingDescriptor>,
+    raw_rule_id: &str,
+) -> String {
     result
         .message
         .as_ref()
         .and_then(|m| m.resolve(rule))
-        .or_else(|| rule.and_then(|r| r.short_description.as_ref()).and_then(|d| d.best()))
-        .or_else(|| rule.and_then(|r| r.full_description.as_ref()).and_then(|d| d.best()))
+        .or_else(|| {
+            rule.and_then(|r| r.short_description.as_ref())
+                .and_then(|d| d.best())
+        })
+        .or_else(|| {
+            rule.and_then(|r| r.full_description.as_ref())
+                .and_then(|d| d.best())
+        })
         .unwrap_or_else(|| raw_rule_id.to_string())
 }
 
@@ -389,7 +432,11 @@ fn slug(raw: &str, fallback: &str) -> String {
             pending_dash = true;
         }
     }
-    if out.is_empty() { fallback.to_string() } else { out }
+    if out.is_empty() {
+        fallback.to_string()
+    } else {
+        out
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -534,7 +581,14 @@ impl Message {
         }
         let id = self.id.as_deref()?;
         let template = rule?.message_strings.get(id)?.best()?;
-        Some(self.arguments.iter().enumerate().fold(template, |acc, (i, arg)| acc.replace(&format!("{{{i}}}"), arg)))
+        Some(
+            self.arguments
+                .iter()
+                .enumerate()
+                .fold(template, |acc, (i, arg)| {
+                    acc.replace(&format!("{{{i}}}"), arg)
+                }),
+        )
     }
 }
 
@@ -793,7 +847,10 @@ mod tests {
       "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "a" } } }] }]
   }]
 }"#;
-        assert_eq!(parse_sarif(log).unwrap().issues[0].issue.message(), "some-rule");
+        assert_eq!(
+            parse_sarif(log).unwrap().issues[0].issue.message(),
+            "some-rule"
+        );
     }
 
     #[test]
@@ -809,8 +866,15 @@ mod tests {
   ]
 }"#;
         let import = parse_sarif(log).unwrap();
-        assert_eq!(import.tools, vec!["eslint".to_string(), "clippy".to_string()]);
-        let ids: Vec<&str> = import.issues.iter().map(|i| i.issue.rule().as_str()).collect();
+        assert_eq!(
+            import.tools,
+            vec!["eslint".to_string(), "clippy".to_string()]
+        );
+        let ids: Vec<&str> = import
+            .issues
+            .iter()
+            .map(|i| i.issue.rule().as_str())
+            .collect();
         assert_eq!(ids, vec!["eslint:no-eval", "clippy:clippy-needless-borrow"]);
     }
 
@@ -831,7 +895,10 @@ mod tests {
     #[test]
     fn malformed_input_is_an_error() {
         assert!(matches!(parse_sarif(""), Err(SarifError::Malformed(_))));
-        assert!(matches!(parse_sarif("{ not json"), Err(SarifError::Malformed(_))));
+        assert!(matches!(
+            parse_sarif("{ not json"),
+            Err(SarifError::Malformed(_))
+        ));
     }
 
     #[test]
@@ -860,17 +927,29 @@ mod tests {
 
     #[test]
     fn windows_style_uris_and_relative_prefixes_normalize_to_forward_slashes() {
-        assert_eq!(normalize_uri("file:///C:/proj/src/main.rs", None), "C:/proj/src/main.rs");
+        assert_eq!(
+            normalize_uri("file:///C:/proj/src/main.rs", None),
+            "C:/proj/src/main.rs"
+        );
         assert_eq!(normalize_uri("./src/app.ts", None), "src/app.ts");
         assert_eq!(normalize_uri("src\\app.ts", None), "src/app.ts");
-        assert_eq!(normalize_uri("file://localhost/var/tmp/a.py", None), "/var/tmp/a.py");
+        assert_eq!(
+            normalize_uri("file://localhost/var/tmp/a.py", None),
+            "/var/tmp/a.py"
+        );
     }
 
     #[test]
     fn slugging_produces_valid_rule_ids_from_every_tools_id_convention() {
         assert_eq!(rule_id("Ruff", "E501").as_str(), "ruff:e501");
-        assert_eq!(rule_id("ESLint", "@typescript-eslint/no-explicit-any").as_str(), "eslint:typescript-eslint-no-explicit-any");
-        assert_eq!(rule_id("Bandit", "B602:subprocess_popen_with_shell_equals_true").as_str(), "bandit:b602-subprocess-popen-with-shell-equals-true");
+        assert_eq!(
+            rule_id("ESLint", "@typescript-eslint/no-explicit-any").as_str(),
+            "eslint:typescript-eslint-no-explicit-any"
+        );
+        assert_eq!(
+            rule_id("Bandit", "B602:subprocess_popen_with_shell_equals_true").as_str(),
+            "bandit:b602-subprocess-popen-with-shell-equals-true"
+        );
         // Non-ASCII and empty inputs still yield a well-formed id.
         assert_eq!(rule_id("", "").as_str(), "external:unknown");
         assert_eq!(rule_id("tool", "règle").as_str(), "tool:r-gle");

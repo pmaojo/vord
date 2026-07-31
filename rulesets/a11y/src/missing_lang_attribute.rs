@@ -11,7 +11,9 @@ pub struct MissingLangAttributeRule {
 
 impl MissingLangAttributeRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("a11y:missing-lang-attribute").expect("valid rule id") } // yunq-ignore: secrets:high-entropy-string (rule id, not a secret)
+        Self {
+            id: RuleId::new("a11y:missing-lang-attribute").expect("valid rule id"),
+        } // yunq-ignore: secrets:high-entropy-string (rule id, not a secret)
     }
 }
 
@@ -62,7 +64,10 @@ impl Rule for MissingLangAttributeRule {
             return Vec::new();
         }
 
-        let end = lower[start..].find('>').map(|i| start + i + 1).unwrap_or(content.len());
+        let end = lower[start..]
+            .find('>')
+            .map(|i| start + i + 1)
+            .unwrap_or(content.len());
         let tag_text = &lower[start..end];
         if tag_text.contains("lang=") {
             return Vec::new();
@@ -81,7 +86,12 @@ mod tests {
     use super::*;
 
     fn source_unit(code: &str) -> AstNode {
-        AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![])
+        AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        )
     }
 
     #[test]

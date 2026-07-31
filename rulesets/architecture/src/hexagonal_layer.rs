@@ -17,7 +17,7 @@
 //! index, alongside TypeScript and Python relative/absolute imports.
 
 use yunq_ast::{AstNode, SourceFile};
-use yunq_import_graph::{inward_dependency_violations, ImportGraph};
+use yunq_import_graph::{ImportGraph, inward_dependency_violations};
 use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct HexagonalLayerRule {
@@ -26,7 +26,9 @@ pub struct HexagonalLayerRule {
 
 impl HexagonalLayerRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("architecture:hexagonal-layer-violation").expect("valid rule id") }
+        Self {
+            id: RuleId::new("architecture:hexagonal-layer-violation").expect("valid rule id"),
+        }
     }
 }
 
@@ -68,7 +70,8 @@ impl CrossFileRule for HexagonalLayerRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let graph = ImportGraph::build_with_rust_modules(&views);
         inward_dependency_violations(&graph)
             .into_iter()
@@ -149,9 +152,21 @@ mod tests {
         assert_eq!(findings.len(), 1);
         let (index, finding) = &findings[0];
         assert_eq!(files[*index].0.path(), "src/domain/order.ts");
-        assert!(finding.message.contains("domain code"), "{}", finding.message);
-        assert!(finding.message.contains("infrastructure code"), "{}", finding.message);
-        assert!(finding.message.contains("declare a port"), "{}", finding.message);
+        assert!(
+            finding.message.contains("domain code"),
+            "{}",
+            finding.message
+        );
+        assert!(
+            finding.message.contains("infrastructure code"),
+            "{}",
+            finding.message
+        );
+        assert!(
+            finding.message.contains("declare a port"),
+            "{}",
+            finding.message
+        );
     }
 
     #[test]
@@ -191,13 +206,23 @@ mod tests {
         ]);
         let findings = HexagonalLayerRule::new().check(&files);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].1.message.contains("svc/src/infrastructure/db.rs"), "{}", findings[0].1.message);
+        assert!(
+            findings[0]
+                .1
+                .message
+                .contains("svc/src/infrastructure/db.rs"),
+            "{}",
+            findings[0].1.message
+        );
     }
 
     #[test]
     fn silent_on_a_rust_adapter_using_the_domain() {
         let files = parsed_rust(&[
-            ("svc/src/adapters/http.rs", "use crate::domain::order::Order;\n\npub fn handle(_o: Order) {}\n"),
+            (
+                "svc/src/adapters/http.rs",
+                "use crate::domain::order::Order;\n\npub fn handle(_o: Order) {}\n",
+            ),
             ("svc/src/domain/order.rs", "pub struct Order;\n"),
         ]);
         assert!(HexagonalLayerRule::new().check(&files).is_empty());
@@ -206,7 +231,10 @@ mod tests {
     #[test]
     fn flags_a_python_domain_package_importing_a_gateway() {
         let files = parsed_python(&[
-            ("src/domain/order.py", "from src.gateway.stripe import charge\n"),
+            (
+                "src/domain/order.py",
+                "from src.gateway.stripe import charge\n",
+            ),
             ("src/gateway/stripe.py", "def charge():\n    pass\n"),
         ]);
         let findings = HexagonalLayerRule::new().check(&files);
@@ -217,7 +245,10 @@ mod tests {
     #[test]
     fn silent_on_unclassified_paths() {
         let files = parsed_ts(&[
-            ("src/lib/a.ts", "import { b } from './b';\nexport const a = b;\n"),
+            (
+                "src/lib/a.ts",
+                "import { b } from './b';\nexport const a = b;\n",
+            ),
             ("src/lib/b.ts", "export const b = 1;\n"),
         ]);
         assert!(HexagonalLayerRule::new().check(&files).is_empty());

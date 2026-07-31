@@ -20,7 +20,10 @@ impl Default for Budget {
     /// loop is caught in minutes rather than hours. The token ceiling is the
     /// backstop for the opposite failure: few turns, each enormous.
     fn default() -> Self {
-        Self { max_turns: 40, max_tokens: 500_000 }
+        Self {
+            max_turns: 40,
+            max_tokens: 500_000,
+        }
     }
 }
 
@@ -37,7 +40,9 @@ impl std::fmt::Display for Exhaustion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Turns { limit } => write!(f, "turn budget exhausted ({limit} turns)"),
-            Self::Tokens { limit, spent } => write!(f, "token budget exhausted ({spent}/{limit} tokens)"),
+            Self::Tokens { limit, spent } => {
+                write!(f, "token budget exhausted ({spent}/{limit} tokens)")
+            }
         }
     }
 }
@@ -69,10 +74,15 @@ impl Ledger {
     /// without re-reading the transcript.
     pub fn exhausted(&self, budget: &Budget) -> Option<Exhaustion> {
         if self.turns >= budget.max_turns {
-            return Some(Exhaustion::Turns { limit: budget.max_turns });
+            return Some(Exhaustion::Turns {
+                limit: budget.max_turns,
+            });
         }
         if self.tokens >= budget.max_tokens {
-            return Some(Exhaustion::Tokens { limit: budget.max_tokens, spent: self.tokens });
+            return Some(Exhaustion::Tokens {
+                limit: budget.max_tokens,
+                spent: self.tokens,
+            });
         }
         None
     }
@@ -123,7 +133,10 @@ mod tests {
     use super::*;
 
     fn usage(total: u64) -> TokenUsage {
-        TokenUsage { input: total, output: 0 }
+        TokenUsage {
+            input: total,
+            output: 0,
+        }
     }
 
     #[test]
@@ -133,37 +146,72 @@ mod tests {
 
     #[test]
     fn the_turn_ceiling_is_reached_exactly_at_the_limit() {
-        let budget = Budget { max_turns: 2, max_tokens: u64::MAX };
+        let budget = Budget {
+            max_turns: 2,
+            max_tokens: u64::MAX,
+        };
         let mut ledger = Ledger::default();
         ledger.record_turn(usage(1));
-        assert_eq!(ledger.exhausted(&budget), None, "one turn of a two-turn budget is not exhaustion");
+        assert_eq!(
+            ledger.exhausted(&budget),
+            None,
+            "one turn of a two-turn budget is not exhaustion"
+        );
         ledger.record_turn(usage(1));
-        assert_eq!(ledger.exhausted(&budget), Some(Exhaustion::Turns { limit: 2 }));
+        assert_eq!(
+            ledger.exhausted(&budget),
+            Some(Exhaustion::Turns { limit: 2 })
+        );
     }
 
     #[test]
     fn the_token_ceiling_reports_what_was_actually_spent() {
-        let budget = Budget { max_turns: u32::MAX, max_tokens: 100 };
+        let budget = Budget {
+            max_turns: u32::MAX,
+            max_tokens: 100,
+        };
         let mut ledger = Ledger::default();
-        ledger.record_turn(TokenUsage { input: 90, output: 30 });
-        assert_eq!(ledger.exhausted(&budget), Some(Exhaustion::Tokens { limit: 100, spent: 120 }));
+        ledger.record_turn(TokenUsage {
+            input: 90,
+            output: 30,
+        });
+        assert_eq!(
+            ledger.exhausted(&budget),
+            Some(Exhaustion::Tokens {
+                limit: 100,
+                spent: 120
+            })
+        );
         assert_eq!(ledger.tokens(), 120);
         assert_eq!(ledger.turns(), 1);
     }
 
     #[test]
     fn turns_are_reported_first_when_both_ceilings_are_reached() {
-        let budget = Budget { max_turns: 1, max_tokens: 1 };
+        let budget = Budget {
+            max_turns: 1,
+            max_tokens: 1,
+        };
         let mut ledger = Ledger::default();
         ledger.record_turn(usage(50));
-        assert_eq!(ledger.exhausted(&budget), Some(Exhaustion::Turns { limit: 1 }));
+        assert_eq!(
+            ledger.exhausted(&budget),
+            Some(Exhaustion::Turns { limit: 1 })
+        );
     }
 
     #[test]
     fn exhaustion_renders_the_numbers_an_operator_needs() {
-        assert_eq!(Exhaustion::Turns { limit: 7 }.to_string(), "turn budget exhausted (7 turns)");
         assert_eq!(
-            Exhaustion::Tokens { limit: 10, spent: 12 }.to_string(),
+            Exhaustion::Turns { limit: 7 }.to_string(),
+            "turn budget exhausted (7 turns)"
+        );
+        assert_eq!(
+            Exhaustion::Tokens {
+                limit: 10,
+                spent: 12
+            }
+            .to_string(),
             "token budget exhausted (12/10 tokens)"
         );
     }
@@ -182,7 +230,10 @@ mod tests {
         let mut guard = RepeatGuard::default();
         guard.record("a.rs", "x");
         guard.record("a.rs", "x");
-        assert!(!guard.record("a.rs", "y"), "changed content is progress, not a loop");
+        assert!(
+            !guard.record("a.rs", "y"),
+            "changed content is progress, not a loop"
+        );
         assert_eq!(guard.streak(), 1);
     }
 

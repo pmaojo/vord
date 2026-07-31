@@ -15,9 +15,17 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Applies one hunk-body line for `path` to `result`/`new_line`. Returns
 /// whether the hunk is still trustworthy afterward — `false` if this line
 /// doesn't match any recognized hunk-body shape, ending the hunk early.
-fn apply_hunk_line(line: &str, path: &str, result: &mut BTreeMap<String, BTreeSet<u32>>, new_line: &mut u32) -> bool {
+fn apply_hunk_line(
+    line: &str,
+    path: &str,
+    result: &mut BTreeMap<String, BTreeSet<u32>>,
+    new_line: &mut u32,
+) -> bool {
     if line.strip_prefix('+').is_some() {
-        result.entry(path.to_string()).or_default().insert(*new_line);
+        result
+            .entry(path.to_string())
+            .or_default()
+            .insert(*new_line);
         *new_line += 1;
     } else if line.starts_with('-') {
         // Removed from the old file; does not exist on the new side.
@@ -53,9 +61,7 @@ pub fn changed_lines_from_unified_diff(diff: &str) -> BTreeMap<String, BTreeSet<
             } else {
                 in_hunk = false;
             }
-        } else if in_hunk
-            && let Some(path) = &current_file
-        {
+        } else if in_hunk && let Some(path) = &current_file {
             in_hunk = apply_hunk_line(line, path, &mut result, &mut new_line);
         }
     }
@@ -69,7 +75,10 @@ fn parse_diff_path(rest: &str) -> Option<String> {
     if path == "/dev/null" {
         return None;
     }
-    let stripped = path.strip_prefix("b/").or_else(|| path.strip_prefix("a/")).unwrap_or(path);
+    let stripped = path
+        .strip_prefix("b/")
+        .or_else(|| path.strip_prefix("a/"))
+        .unwrap_or(path);
     Some(stripped.to_string())
 }
 
@@ -147,8 +156,14 @@ index abc..def 100644
 +new in b
 ";
         let changed = changed_lines_from_unified_diff(diff);
-        assert_eq!(changed.get("src/a.rs").unwrap(), &[2u32].into_iter().collect());
-        assert_eq!(changed.get("src/b.rs").unwrap(), &[5u32].into_iter().collect());
+        assert_eq!(
+            changed.get("src/a.rs").unwrap(),
+            &[2u32].into_iter().collect()
+        );
+        assert_eq!(
+            changed.get("src/b.rs").unwrap(),
+            &[5u32].into_iter().collect()
+        );
     }
 
     #[test]

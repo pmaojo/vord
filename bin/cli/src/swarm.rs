@@ -22,7 +22,9 @@ use crate::hook;
 /// has no `yunq.toml` / no `[swarm]` table — the same fail-open convention
 /// every other optional `yunq.toml` table follows.
 pub fn configured_roles(root: &Path) -> Vec<RoleSettings> {
-    YunqConfig::load_from_dir(root).map(|c| c.swarm.roles).unwrap_or_default()
+    YunqConfig::load_from_dir(root)
+        .map(|c| c.swarm.roles)
+        .unwrap_or_default()
 }
 
 fn find_role(roles: &[RoleSettings], name: &str) -> anyhow::Result<RoleSettings> {
@@ -30,11 +32,17 @@ fn find_role(roles: &[RoleSettings], name: &str) -> anyhow::Result<RoleSettings>
         .iter()
         .find(|role| role.name == name)
         .cloned()
-        .ok_or_else(|| anyhow::anyhow!("no role named {name:?} — add a [[swarm.role]] entry to yunq.toml"))
+        .ok_or_else(|| {
+            anyhow::anyhow!("no role named {name:?} — add a [[swarm.role]] entry to yunq.toml")
+        })
 }
 
 fn worktree_config(role: &RoleSettings) -> RoleWorktreeConfig {
-    RoleWorktreeConfig { name: role.name.clone(), worktree: role.worktree.clone(), branch: role.branch.clone() }
+    RoleWorktreeConfig {
+        name: role.name.clone(),
+        worktree: role.worktree.clone(),
+        branch: role.branch.clone(),
+    }
 }
 
 /// A role's [`RoleScope`] — every rule id validated up front, the same way
@@ -44,11 +52,18 @@ fn worktree_config(role: &RoleSettings) -> RoleWorktreeConfig {
 fn role_scope(role: &RoleSettings) -> anyhow::Result<RoleScope> {
     let parse_rules = |raw: &[String]| -> anyhow::Result<Vec<RuleId>> {
         raw.iter()
-            .map(|r| RuleId::new(r).map_err(|_| anyhow::anyhow!("role {:?}: invalid rule id {r:?}", role.name)))
+            .map(|r| {
+                RuleId::new(r)
+                    .map_err(|_| anyhow::anyhow!("role {:?}: invalid rule id {r:?}", role.name))
+            })
             .collect()
     };
     Ok(RoleScope {
-        protected_paths: role.protected_paths.iter().map(|p| (p.pattern.clone(), p.reason.clone())).collect(),
+        protected_paths: role
+            .protected_paths
+            .iter()
+            .map(|p| (p.pattern.clone(), p.reason.clone()))
+            .collect(),
         blocking_rules: parse_rules(&role.blocking_rules)?,
         escalate_rules: parse_rules(&role.escalate_rules)?,
     })
@@ -56,7 +71,11 @@ fn role_scope(role: &RoleSettings) -> anyhow::Result<RoleScope> {
 
 /// Where a role's worktree and branch belong, resolved against
 /// `[swarm] worktree_root` (or the built-in default when unset).
-pub fn worktree_plan(root: &Path, config: Option<&YunqConfig>, role: &RoleSettings) -> WorktreePlan {
+pub fn worktree_plan(
+    root: &Path,
+    config: Option<&YunqConfig>,
+    role: &RoleSettings,
+) -> WorktreePlan {
     let worktree_root = config.and_then(|c| c.swarm.worktree_root.as_deref());
     yunq_swarm::plan_worktree(root, worktree_root, &worktree_config(role))
 }
@@ -67,7 +86,8 @@ pub fn worktree_plan(root: &Path, config: Option<&YunqConfig>, role: &RoleSettin
 pub fn scoped_policy(root: &Path, role: &RoleSettings) -> anyhow::Result<AgentPolicy> {
     let base = hook::load_policy(root)?;
     let scope = role_scope(role)?;
-    base.with_role_scope(&scope).map_err(|e| anyhow::anyhow!("role {:?}: {e}", role.name))
+    base.with_role_scope(&scope)
+        .map_err(|e| anyhow::anyhow!("role {:?}: {e}", role.name))
 }
 
 /// One line of `yunq swarm roles` output: the resolved worktree plan plus a
@@ -83,7 +103,10 @@ pub struct RoleReport {
 
 pub fn list_roles(root: &Path) -> anyhow::Result<Vec<RoleReport>> {
     let config = YunqConfig::load_from_dir(root);
-    let roles = config.as_ref().map(|c| c.swarm.roles.clone()).unwrap_or_default();
+    let roles = config
+        .as_ref()
+        .map(|c| c.swarm.roles.clone())
+        .unwrap_or_default();
     roles
         .iter()
         .map(|role| {
@@ -108,7 +131,10 @@ pub fn list_roles(root: &Path) -> anyhow::Result<Vec<RoleReport>> {
 /// rather than silently running nothing.
 pub fn topology_order(root: &Path) -> anyhow::Result<Vec<String>> {
     let config = YunqConfig::load_from_dir(root);
-    let roles = config.as_ref().map(|c| c.swarm.roles.clone()).unwrap_or_default();
+    let roles = config
+        .as_ref()
+        .map(|c| c.swarm.roles.clone())
+        .unwrap_or_default();
     let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
     let preset = config.as_ref().and_then(|c| c.swarm.topology.clone());
     let pipeline = config.as_ref().and_then(|c| c.swarm.pipeline.clone());
@@ -146,7 +172,10 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
 
         let mut role_task = format!("{task} (role: {role_name})");
         for handoff in take_inbox(root, role_name)? {
-            role_task.push_str(&format!("\n\nHandoff from {}: {}", handoff.from_role, handoff.summary));
+            role_task.push_str(&format!(
+                "\n\nHandoff from {}: {}",
+                handoff.from_role, handoff.summary
+            ));
         }
 
         let policy = scoped_policy(&plan.path, &role)?;
@@ -165,7 +194,10 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
             let summary = format!("{} — {}", role_name, outcome.describe());
             handoff_send(root, role_name, next, &summary)?;
         }
-        results.push(RoleRunOutcome { role: role_name.clone(), outcome });
+        results.push(RoleRunOutcome {
+            role: role_name.clone(),
+            outcome,
+        });
         if !completed {
             break;
         }
@@ -200,7 +232,11 @@ fn take_inbox(root: &Path, role_name: &str) -> anyhow::Result<Vec<Handoff>> {
     Ok(waiting)
 }
 
-pub fn worktree_create(root: &Path, role_name: &str, base_ref: &str) -> anyhow::Result<WorktreePlan> {
+pub fn worktree_create(
+    root: &Path,
+    role_name: &str,
+    base_ref: &str,
+) -> anyhow::Result<WorktreePlan> {
     let roles = configured_roles(root);
     let role = find_role(&roles, role_name)?;
     let config = YunqConfig::load_from_dir(root);
@@ -227,14 +263,27 @@ pub fn worktree_list(root: &Path) -> anyhow::Result<Vec<WorktreeStatus>> {
 /// has (see `yunq_infra_fs::send`'s overwrite-not-duplicate contract) rather
 /// than call this again.
 fn generate_handoff_id(from_role: &str, to_role: &str) -> String {
-    let nanos =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     format!("{from_role}-{to_role}-{nanos}")
 }
 
-pub fn handoff_send(root: &Path, from_role: &str, to_role: &str, summary: &str) -> anyhow::Result<Handoff> {
+pub fn handoff_send(
+    root: &Path,
+    from_role: &str,
+    to_role: &str,
+    summary: &str,
+) -> anyhow::Result<Handoff> {
     let id = generate_handoff_id(from_role, to_role);
-    let handoff = Handoff::new(id, from_role, to_role, summary, chrono::Utc::now().timestamp());
+    let handoff = Handoff::new(
+        id,
+        from_role,
+        to_role,
+        summary,
+        chrono::Utc::now().timestamp(),
+    );
     yunq_infra_fs::send_handoff(root, &handoff)?;
     Ok(handoff)
 }
@@ -259,10 +308,13 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "yunq-cli-swarm-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        root
+        root.canonicalize().unwrap_or(root)
     }
 
     #[test]

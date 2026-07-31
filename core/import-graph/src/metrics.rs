@@ -44,7 +44,10 @@ pub struct TypeCensus {
 
 impl TypeCensus {
     pub fn new(total: usize, abstractions: usize) -> Self {
-        Self { total, abstractions }
+        Self {
+            total,
+            abstractions,
+        }
     }
 
     /// Accumulates another file's counts into this component's census.
@@ -198,8 +201,14 @@ mod tests {
     /// `pkg-a` and `pkg-b` both import `pkg-core`; nothing imports them.
     fn fan_in_graph() -> ImportGraph {
         graph_of(&[
-            ("pkg-a/src/a.ts", "import { c } from '../../pkg-core/src/c';\n"),
-            ("pkg-b/src/b.ts", "import { c } from '../../pkg-core/src/c';\n"),
+            (
+                "pkg-a/src/a.ts",
+                "import { c } from '../../pkg-core/src/c';\n",
+            ),
+            (
+                "pkg-b/src/b.ts",
+                "import { c } from '../../pkg-core/src/c';\n",
+            ),
             ("pkg-core/src/c.ts", "export const c = 1;\n"),
         ])
     }
@@ -265,8 +274,14 @@ mod tests {
         // `pkg-volatile`, which depends on everything and is depended on by
         // nothing.
         let graph = graph_of(&[
-            ("pkg-a/src/a.ts", "import { c } from '../../pkg-core/src/c';\n"),
-            ("pkg-b/src/b.ts", "import { c } from '../../pkg-core/src/c';\n"),
+            (
+                "pkg-a/src/a.ts",
+                "import { c } from '../../pkg-core/src/c';\n",
+            ),
+            (
+                "pkg-b/src/b.ts",
+                "import { c } from '../../pkg-core/src/c';\n",
+            ),
             (
                 "pkg-core/src/c.ts",
                 "import { v } from '../../pkg-volatile/src/v';\nexport const c = v;\n",
@@ -279,7 +294,9 @@ mod tests {
         let metrics = component_metrics(&graph, &BTreeMap::new());
         let violations = stability_violations(&graph, &metrics, 0.2);
         assert!(
-            violations.iter().any(|v| v.from == "pkg-core/src" && v.to == "pkg-volatile/src"),
+            violations
+                .iter()
+                .any(|v| v.from == "pkg-core/src" && v.to == "pkg-volatile/src"),
             "expected pkg-core -> pkg-volatile, got {violations:?}"
         );
     }

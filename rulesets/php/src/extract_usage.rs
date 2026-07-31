@@ -17,7 +17,9 @@ pub struct ExtractUsageRule {
 
 impl ExtractUsageRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:extract-usage").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:extract-usage").expect("valid rule id"),
+        }
     }
 }
 
@@ -65,7 +67,8 @@ impl Rule for ExtractUsageRule {
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter(|call| {
-                callee_node(call).is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == "extract")
+                callee_node(call)
+                    .is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == "extract")
             })
             .map(|call| {
                 Finding::hotspot(

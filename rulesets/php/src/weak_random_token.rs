@@ -1,16 +1,21 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-const SENSITIVE_NAME_MARKERS: &[&str] = &["token", "password", "passwd", "secret", "apikey", "session"];
+const SENSITIVE_NAME_MARKERS: &[&str] =
+    &["token", "password", "passwd", "secret", "apikey", "session"];
 const WEAK_RANDOM_MARKERS: &[&str] = &["rand(", "mt_rand(", "uniqid("];
 
 fn looks_sensitive(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    SENSITIVE_NAME_MARKERS.iter().any(|marker| lower.contains(marker))
+    SENSITIVE_NAME_MARKERS
+        .iter()
+        .any(|marker| lower.contains(marker))
 }
 
 fn uses_weak_random(value: &AstNode) -> bool {
-    WEAK_RANDOM_MARKERS.iter().any(|marker| value.subtree_contains_text(marker))
+    WEAK_RANDOM_MARKERS
+        .iter()
+        .any(|marker| value.subtree_contains_text(marker))
 }
 
 fn flagged_target(assignment: &AstNode) -> Option<&AstNode> {
@@ -21,7 +26,12 @@ fn flagged_target(assignment: &AstNode) -> Option<&AstNode> {
     if *target.kind() != NodeKind::Identifier || !looks_sensitive(target.text()) {
         return None;
     }
-    assignment.children().iter().skip(1).any(uses_weak_random).then_some(target)
+    assignment
+        .children()
+        .iter()
+        .skip(1)
+        .any(uses_weak_random)
+        .then_some(target)
 }
 
 /// `rand()`/`mt_rand()`/`uniqid()` are not cryptographically secure — their
@@ -36,7 +46,9 @@ pub struct WeakRandomTokenRule {
 
 impl WeakRandomTokenRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:weak-random-token").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:weak-random-token").expect("valid rule id"),
+        }
     }
 }
 

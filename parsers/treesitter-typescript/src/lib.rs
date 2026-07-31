@@ -38,7 +38,6 @@ impl AstParser for TypeScriptParser {
 
 // Zero-copy: every produced node slices the shared file buffer.
 
-
 const KIND_TABLE: &[(&str, NodeKind)] = &[
     ("program", NodeKind::SourceUnit),
     ("function_declaration", NodeKind::FunctionDef),
@@ -55,7 +54,10 @@ const KIND_TABLE: &[(&str, NodeKind)] = &[
     ("identifier", NodeKind::Identifier),
     ("property_identifier", NodeKind::Identifier),
     ("shorthand_property_identifier", NodeKind::Identifier),
-    ("shorthand_property_identifier_pattern", NodeKind::Identifier),
+    (
+        "shorthand_property_identifier_pattern",
+        NodeKind::Identifier,
+    ),
     ("assignment_expression", NodeKind::Assignment),
     ("augmented_assignment_expression", NodeKind::Assignment),
     ("variable_declarator", NodeKind::VariableDecl),
@@ -89,7 +91,9 @@ mod tests {
 
     #[test]
     fn maps_core_concepts() {
-        let ast = parse("const secret = \"hunter2\";\nfunction run(x: string) { eval(x); }\n// TODO later\n");
+        let ast = parse(
+            "const secret = \"hunter2\";\nfunction run(x: string) { eval(x); }\n// TODO later\n",
+        );
         assert_eq!(ast.kind(), &NodeKind::SourceUnit);
         assert_eq!(ast.find_all(&NodeKind::VariableDecl).len(), 1);
         assert_eq!(ast.find_all(&NodeKind::FunctionDef).len(), 1);

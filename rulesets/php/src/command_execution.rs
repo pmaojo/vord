@@ -3,8 +3,15 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::callee_node;
 
-const SHELL_SINKS: &[&str] =
-    &["system", "exec", "shell_exec", "passthru", "popen", "proc_open", "pcntl_exec"];
+const SHELL_SINKS: &[&str] = &[
+    "system",
+    "exec",
+    "shell_exec",
+    "passthru",
+    "popen",
+    "proc_open",
+    "pcntl_exec",
+];
 
 /// Security hotspot: these PHP builtins run a string as an OS shell
 /// command. None of the generic `owasp:command-execution` rule's sinks
@@ -18,7 +25,9 @@ pub struct CommandExecutionRule {
 
 impl CommandExecutionRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:command-execution").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:command-execution").expect("valid rule id"),
+        }
     }
 }
 
@@ -65,11 +74,15 @@ impl Rule for CommandExecutionRule {
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter(|call| {
-                callee_node(call)
-                    .is_some_and(|c| *c.kind() == NodeKind::Identifier && SHELL_SINKS.contains(&c.text()))
+                callee_node(call).is_some_and(|c| {
+                    *c.kind() == NodeKind::Identifier && SHELL_SINKS.contains(&c.text())
+                })
             })
             .map(|call| {
-                Finding::hotspot("make sure this OS command and its arguments are safe here", call.span())
+                Finding::hotspot(
+                    "make sure this OS command and its arguments are safe here",
+                    call.span(),
+                )
             })
             .collect()
     }

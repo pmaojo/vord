@@ -28,7 +28,9 @@ pub struct InnerHtmlAssignmentRule {
 
 impl InnerHtmlAssignmentRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:innerhtml-assignment").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:innerhtml-assignment").expect("valid rule id"),
+        }
     }
 }
 
@@ -81,7 +83,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         InnerHtmlAssignmentRule::new().check(&file, &ast)
     }
 
@@ -92,7 +96,10 @@ mod tests {
 
     #[test]
     fn flags_chained_inner_html_assignment() {
-        assert_eq!(check("document.getElementById('x').innerHTML = data;\n").len(), 1);
+        assert_eq!(
+            check("document.getElementById('x').innerHTML = data;\n").len(),
+            1
+        );
     }
 
     #[test]

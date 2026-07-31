@@ -16,16 +16,41 @@ pub struct ComplianceReportGenerator;
 /// would run off the bottom margin).
 fn build_report_text_stream(report: &AnalysisReport) -> String {
     let mut text_stream = String::new();
-    text_stream.push_str("BT /F1 16 Tf 50 750 Td (yunq OWASP Top 10 Security & Compliance Report) Tj ET\n");
-    text_stream.push_str("BT /F1 12 Tf 50 720 Td (------------------------------------------------) Tj ET\n");
-    let gate_status = if report.issues().is_empty() { "PASSED" } else { "ACTION REQUIRED" };
-    let _ = writeln!(text_stream, "BT /F1 10 Tf 50 690 Td (Quality Gate Status: {gate_status}) Tj ET");
-    let _ = writeln!(text_stream, "BT /F1 10 Tf 50 670 Td (Total Vulnerabilities: {}) Tj ET", report.issues().len());
-    let _ = writeln!(text_stream, "BT /F1 10 Tf 50 650 Td (Total Security Hotspots: {}) Tj ET", report.hotspots().len());
+    text_stream.push_str(
+        "BT /F1 16 Tf 50 750 Td (yunq OWASP Top 10 Security & Compliance Report) Tj ET\n",
+    );
+    text_stream.push_str(
+        "BT /F1 12 Tf 50 720 Td (------------------------------------------------) Tj ET\n",
+    );
+    let gate_status = if report.issues().is_empty() {
+        "PASSED"
+    } else {
+        "ACTION REQUIRED"
+    };
+    let _ = writeln!(
+        text_stream,
+        "BT /F1 10 Tf 50 690 Td (Quality Gate Status: {gate_status}) Tj ET"
+    );
+    let _ = writeln!(
+        text_stream,
+        "BT /F1 10 Tf 50 670 Td (Total Vulnerabilities: {}) Tj ET",
+        report.issues().len()
+    );
+    let _ = writeln!(
+        text_stream,
+        "BT /F1 10 Tf 50 650 Td (Total Security Hotspots: {}) Tj ET",
+        report.hotspots().len()
+    );
 
     let mut y: i32 = 620;
     for issue in report.issues().iter().take(20) {
-        let line = format!("[{:?}] {} in {}:{}", issue.severity(), issue.rule().as_str(), issue.file(), issue.span().start_line);
+        let line = format!(
+            "[{:?}] {} in {}:{}",
+            issue.severity(),
+            issue.rule().as_str(),
+            issue.file(),
+            issue.span().start_line
+        );
         let escaped_line = line.replace('(', "\\(").replace(')', "\\)");
         let _ = writeln!(text_stream, "BT /F1 9 Tf 50 {y} Td ({escaped_line}) Tj ET");
         y = y.saturating_sub(15);
@@ -52,12 +77,16 @@ fn write_pdf_objects(pdf: &mut Vec<u8>, text_stream: &str) -> Vec<usize> {
 
     offsets.push(pdf.len());
     let stream_bytes = text_stream.as_bytes();
-    pdf.extend_from_slice(format!("4 0 obj\n<< /Length {} >>\nstream\n", stream_bytes.len()).as_bytes());
+    pdf.extend_from_slice(
+        format!("4 0 obj\n<< /Length {} >>\nstream\n", stream_bytes.len()).as_bytes(),
+    );
     pdf.extend_from_slice(stream_bytes);
     pdf.extend_from_slice(b"\nendstream\nendobj\n");
 
     offsets.push(pdf.len());
-    pdf.extend_from_slice(b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
+    pdf.extend_from_slice(
+        b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+    );
 
     offsets
 }
@@ -80,7 +109,9 @@ impl ComplianceReportGenerator {
     }
 
     /// Generates a valid PDF 1.4 binary document byte stream conforming to ISO 32000-1.
-    pub fn generate_owasp_compliance_pdf_binary(report: &AnalysisReport) -> Result<Vec<u8>, ReportError> {
+    pub fn generate_owasp_compliance_pdf_binary(
+        report: &AnalysisReport,
+    ) -> Result<Vec<u8>, ReportError> {
         let mut pdf = Vec::with_capacity(4096);
         pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"); // yunq-ignore: secrets:high-entropy-string (PDF spec magic bytes, not a secret)
 
@@ -89,13 +120,22 @@ impl ComplianceReportGenerator {
 
         // Xref table
         let xref_offset = pdf.len();
-        pdf.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes());
+        pdf.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes(),
+        );
         for offset in &offsets {
             pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
         }
 
         // Trailer
-        pdf.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n", offsets.len() + 1, xref_offset).as_bytes());
+        pdf.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                offsets.len() + 1,
+                xref_offset
+            )
+            .as_bytes(),
+        );
 
         Ok(pdf)
     }

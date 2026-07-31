@@ -74,7 +74,9 @@ impl std::fmt::Display for AlmGatewayError {
         match self {
             Self::NotFound => f.write_str("not found"),
             Self::Unauthorized => f.write_str("unauthorized"),
-            Self::RateLimited { retry_after_ms } => write!(f, "rate-limited (retry after {retry_after_ms} ms)"),
+            Self::RateLimited { retry_after_ms } => {
+                write!(f, "rate-limited (retry after {retry_after_ms} ms)")
+            }
             Self::Conflict => f.write_str("conflict"),
             Self::ServerError { provider } => write!(f, "{provider} server error"),
             Self::Other { message } => write!(f, "{message}"),
@@ -127,10 +129,14 @@ mod tests {
 
     #[test]
     fn alm_gateway_error_display_does_not_leak_provider_secrets() {
-        let e = AlmGatewayError::RateLimited { retry_after_ms: 60_000 };
+        let e = AlmGatewayError::RateLimited {
+            retry_after_ms: 60_000,
+        };
         assert_eq!(e.to_string(), "rate-limited (retry after 60000 ms)");
 
-        let e = AlmGatewayError::ServerError { provider: "github".to_string() };
+        let e = AlmGatewayError::ServerError {
+            provider: "github".to_string(),
+        };
         assert_eq!(e.to_string(), "github server error");
     }
 
@@ -148,9 +154,18 @@ mod tests {
 
     #[test]
     fn check_conclusion_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&CheckConclusion::Success).unwrap(), "\"success\"");
-        assert_eq!(serde_json::to_string(&CheckConclusion::Failure).unwrap(), "\"failure\"");
-        assert_eq!(serde_json::to_string(&CheckConclusion::Neutral).unwrap(), "\"neutral\"");
+        assert_eq!(
+            serde_json::to_string(&CheckConclusion::Success).unwrap(),
+            "\"success\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckConclusion::Failure).unwrap(),
+            "\"failure\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckConclusion::Neutral).unwrap(),
+            "\"neutral\""
+        );
     }
 
     #[test]
@@ -172,7 +187,11 @@ mod tests {
             provider: "github".to_string(),
             repo: "pmaojo/yunq".to_string(),
             pr_id: "42".to_string(),
-            comments: vec![InlineComment { path: "src/main.rs".to_string(), line: 12, body: "Bug".to_string() }],
+            comments: vec![InlineComment {
+                path: "src/main.rs".to_string(),
+                line: 12,
+                body: "Bug".to_string(),
+            }],
             check: Some(CheckRunReport {
                 name: "yunq-quality-gate".to_string(),
                 conclusion: CheckConclusion::Failure,

@@ -23,7 +23,8 @@ fn is_other(node: &AstNode, kind: &str) -> bool {
 }
 
 fn strip_quotes(text: &str) -> String {
-    text.trim_matches(|c| c == '\'' || c == '"' || c == '`').to_string()
+    text.trim_matches(|c| c == '\'' || c == '"' || c == '`')
+        .to_string()
 }
 
 /// One imported module specifier as the source writes it, with the span of
@@ -63,7 +64,10 @@ fn go_imports(ast: &AstNode) -> Vec<ImportedModule> {
         .flat_map(|node| {
             node.descendants()
                 .filter(|n| *n.kind() == NodeKind::StringLiteral)
-                .map(|spec| ImportedModule { specifier: strip_quotes(spec.text()), span: node.span() })
+                .map(|spec| ImportedModule {
+                    specifier: strip_quotes(spec.text()),
+                    span: node.span(),
+                })
                 .collect::<Vec<_>>()
         })
         .collect()
@@ -73,17 +77,31 @@ fn ts_imports(ast: &AstNode) -> Vec<ImportedModule> {
     let mut modules = Vec::new();
     for node in ast.descendants() {
         if is_other(node, "import_statement") || is_other(node, "export_statement") {
-            if let Some(spec) = node.descendants().find(|n| *n.kind() == NodeKind::StringLiteral) {
-                modules.push(ImportedModule { specifier: strip_quotes(spec.text()), span: node.span() });
+            if let Some(spec) = node
+                .descendants()
+                .find(|n| *n.kind() == NodeKind::StringLiteral)
+            {
+                modules.push(ImportedModule {
+                    specifier: strip_quotes(spec.text()),
+                    span: node.span(),
+                });
             }
         } else if *node.kind() == NodeKind::Call {
             // `require('x')` — the CommonJS half of the same dependency.
-            let Some(callee) = node.first_child() else { continue };
+            let Some(callee) = node.first_child() else {
+                continue;
+            };
             if *callee.kind() != NodeKind::Identifier || callee.text() != "require" {
                 continue;
             }
-            if let Some(arg) = node.descendants().find(|n| *n.kind() == NodeKind::StringLiteral) {
-                modules.push(ImportedModule { specifier: strip_quotes(arg.text()), span: node.span() });
+            if let Some(arg) = node
+                .descendants()
+                .find(|n| *n.kind() == NodeKind::StringLiteral)
+            {
+                modules.push(ImportedModule {
+                    specifier: strip_quotes(arg.text()),
+                    span: node.span(),
+                });
             }
         }
     }
@@ -98,17 +116,26 @@ fn python_imports(ast: &AstNode) -> Vec<ImportedModule> {
                 let dotted = if is_other(child, "dotted_name") {
                     Some(child.text().to_string())
                 } else if is_other(child, "aliased_import") {
-                    child.first_child().filter(|c| is_other(c, "dotted_name")).map(|c| c.text().to_string())
+                    child
+                        .first_child()
+                        .filter(|c| is_other(c, "dotted_name"))
+                        .map(|c| c.text().to_string())
                 } else {
                     None
                 };
                 if let Some(dotted) = dotted {
-                    modules.push(ImportedModule { specifier: dotted, span: node.span() });
+                    modules.push(ImportedModule {
+                        specifier: dotted,
+                        span: node.span(),
+                    });
                 }
             }
         } else if is_other(node, "import_from_statement") {
             if let Some(target) = node.first_child().filter(|c| is_other(c, "dotted_name")) {
-                modules.push(ImportedModule { specifier: target.text().to_string(), span: node.span() });
+                modules.push(ImportedModule {
+                    specifier: target.text().to_string(),
+                    span: node.span(),
+                });
             }
         }
     }
@@ -119,13 +146,24 @@ fn rust_imports(ast: &AstNode) -> Vec<ImportedModule> {
     ast.descendants()
         .filter(|n| is_other(n, "use_declaration"))
         .filter_map(|node| {
-            let path_node = node.children().iter().find(|c| !is_other(c, "visibility_modifier"))?;
+            let path_node = node
+                .children()
+                .iter()
+                .find(|c| !is_other(c, "visibility_modifier"))?;
             let text = path_node.text();
             let head = text.split('{').next().unwrap_or(text);
             let head = head.split(" as ").next().unwrap_or(head);
-            let specifier =
-                head.trim().trim_end_matches(':').trim_end_matches('*').trim_end_matches(':').trim().to_string();
-            (!specifier.is_empty()).then_some(ImportedModule { specifier, span: node.span() })
+            let specifier = head
+                .trim()
+                .trim_end_matches(':')
+                .trim_end_matches('*')
+                .trim_end_matches(':')
+                .trim()
+                .to_string();
+            (!specifier.is_empty()).then_some(ImportedModule {
+                specifier,
+                span: node.span(),
+            })
         })
         .collect()
 }
@@ -139,7 +177,9 @@ pub fn matches_module(specifier: &str, module: &str) -> bool {
     if specifier == module {
         return true;
     }
-    ["/", ".", "::"].iter().any(|sep| specifier.starts_with(&format!("{module}{sep}")))
+    ["/", ".", "::"]
+        .iter()
+        .any(|sep| specifier.starts_with(&format!("{module}{sep}")))
 }
 
 /// One outside-the-hexagon module, and what it drags in.
@@ -339,13 +379,17 @@ mod tests {
 
     fn ts(code: &str) -> Vec<ImportedModule> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         imported_modules(&file, &ast)
     }
 
     fn py(code: &str) -> Vec<ImportedModule> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         imported_modules(&file, &ast)
     }
 
@@ -369,7 +413,8 @@ mod tests {
 
     #[test]
     fn extracts_python_absolute_imports_only() {
-        let modules = py("import sqlalchemy.orm\nfrom flask import Flask\nfrom .sibling import thing\n");
+        let modules =
+            py("import sqlalchemy.orm\nfrom flask import Flask\nfrom .sibling import thing\n");
         assert_eq!(specifiers(&modules), vec!["sqlalchemy.orm", "flask"]);
     }
 
@@ -384,7 +429,10 @@ mod tests {
         let modules = rs(
             "use std::fs::File;\nuse sqlx::{PgPool, Row};\nuse reqwest::Client as Http;\nuse tokio::net::*;\n",
         );
-        assert_eq!(specifiers(&modules), vec!["std::fs::File", "sqlx", "reqwest::Client", "tokio::net"]);
+        assert_eq!(
+            specifiers(&modules),
+            vec!["std::fs::File", "sqlx", "reqwest::Client", "tokio::net"]
+        );
     }
 
     #[test]

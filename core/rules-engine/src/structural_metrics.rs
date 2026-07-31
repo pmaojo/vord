@@ -88,8 +88,8 @@ const STATEMENT_KINDS: &[&str] = &[
     "break_expression",
     "continue_expression",
     "enhanced_for_statement", // Groovy/Java-family for-each
-    "switch_expression", // Groovy's unified switch statement/expression form
-    "repeat_statement", // Lua's `repeat ... until`
+    "switch_expression",      // Groovy's unified switch statement/expression form
+    "repeat_statement",       // Lua's `repeat ... until`
 ];
 
 /// Grammar node kinds that introduce one level of control-flow nesting.
@@ -111,8 +111,8 @@ const NESTING_KINDS: &[&str] = &[
     "try_statement",
     "catch_clause",
     "enhanced_for_statement", // Groovy/Java-family for-each
-    "switch_expression", // Groovy's unified switch statement/expression form
-    "repeat_statement", // Lua's `repeat ... until`
+    "switch_expression",      // Groovy's unified switch statement/expression form
+    "repeat_statement",       // Lua's `repeat ... until`
 ];
 
 /// Aggregated structural counters for one parsed file.

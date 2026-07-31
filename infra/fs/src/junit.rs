@@ -209,7 +209,9 @@ pub fn parse_junit(content: &str) -> Result<TestReportSummary, JunitError> {
     let mut state = ParseState::default();
     let mut buf = Vec::new();
     loop {
-        let event = reader.read_event_into(&mut buf).map_err(|e| JunitError::Malformed(e.to_string()))?;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| JunitError::Malformed(e.to_string()))?;
         match event {
             Event::Eof => break,
             Event::Start(tag) => state.handle_start(&tag)?,
@@ -220,14 +222,20 @@ pub fn parse_junit(content: &str) -> Result<TestReportSummary, JunitError> {
         buf.clear();
     }
 
-    if state.summary.suites.is_empty() { Err(JunitError::Empty) } else { Ok(state.summary) }
+    if state.summary.suites.is_empty() {
+        Err(JunitError::Empty)
+    } else {
+        Ok(state.summary)
+    }
 }
 
 fn attr_value(tag: &BytesStart, key: &str) -> Result<Option<String>, JunitError> {
     for attr in tag.attributes() {
         let attr = attr.map_err(|e| JunitError::Malformed(e.to_string()))?;
         if attr.key.local_name().as_ref() == key.as_bytes() {
-            let value = attr.unescape_value().map_err(|e| JunitError::Malformed(e.to_string()))?;
+            let value = attr
+                .unescape_value()
+                .map_err(|e| JunitError::Malformed(e.to_string()))?;
             return Ok(Some(value.into_owned()));
         }
     }
@@ -340,7 +348,10 @@ mod tests {
 
     #[test]
     fn xml_with_no_testsuite_elements_is_an_error() {
-        assert!(matches!(parse_junit(r#"<?xml version="1.0"?><report/>"#), Err(JunitError::Empty)));
+        assert!(matches!(
+            parse_junit(r#"<?xml version="1.0"?><report/>"#),
+            Err(JunitError::Empty)
+        ));
     }
 
     #[test]

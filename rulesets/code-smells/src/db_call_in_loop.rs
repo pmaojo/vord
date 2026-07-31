@@ -14,13 +14,19 @@ fn other_kind_name(node: &AstNode) -> Option<&str> {
     }
 }
 
-const LOOP_KINDS: &[&str] =
-    &["for_statement", "for_in_statement", "foreach_statement", "while_statement", "do_statement"];
+const LOOP_KINDS: &[&str] = &[
+    "for_statement",
+    "for_in_statement",
+    "foreach_statement",
+    "while_statement",
+    "do_statement",
+];
 
 const BODY_KINDS: &[&str] = &["statement_block", "block", "compound_statement"];
 
 const QUERY_METHOD_NAMES: &[&str] = &[
-    "query", "execute", "find", "findOne", "findMany", "findAll", "fetchAll", "fetchone", "fetchall", "select",
+    "query", "execute", "find", "findOne", "findMany", "findAll", "fetchAll", "fetchone",
+    "fetchall", "select",
 ];
 
 fn is_loop(node: &AstNode) -> bool {
@@ -38,7 +44,9 @@ fn is_arguments_wrapper(node: &AstNode) -> bool {
 /// `for`/`foreach`/`while`).
 fn loop_body(loop_node: &AstNode) -> Option<&AstNode> {
     let body = loop_node.children().last()?;
-    other_kind_name(body).is_some_and(|k| BODY_KINDS.contains(&k)).then_some(body)
+    other_kind_name(body)
+        .is_some_and(|k| BODY_KINDS.contains(&k))
+        .then_some(body)
 }
 
 /// A `Call`'s callee and argument nodes, regardless of whether the callee is
@@ -55,9 +63,12 @@ fn call_parts(call: &AstNode) -> Option<(&AstNode, &[AstNode])> {
 fn method_name(callee: &AstNode) -> Option<String> {
     match callee.kind() {
         NodeKind::Identifier => Some(callee.text().to_string()),
-        NodeKind::MemberAccess => {
-            callee.children().iter().rev().find(|c| *c.kind() == NodeKind::Identifier).map(|c| c.text().to_string())
-        }
+        NodeKind::MemberAccess => callee
+            .children()
+            .iter()
+            .rev()
+            .find(|c| *c.kind() == NodeKind::Identifier)
+            .map(|c| c.text().to_string()),
         _ => None,
     }
 }
@@ -75,8 +86,12 @@ fn has_closure_argument(args: &[AstNode]) -> bool {
 }
 
 fn is_query_like_call(call: &AstNode) -> bool {
-    let Some((callee, args)) = call_parts(call) else { return false };
-    let Some(name) = method_name(callee) else { return false };
+    let Some((callee, args)) = call_parts(call) else {
+        return false;
+    };
+    let Some(name) = method_name(callee) else {
+        return false;
+    };
     QUERY_METHOD_NAMES.contains(&name.as_str()) && !has_closure_argument(args)
 }
 
@@ -101,7 +116,9 @@ pub struct DbCallInLoopRule {
 
 impl DbCallInLoopRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:db-call-in-loop").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:db-call-in-loop").expect("valid rule id"),
+        }
     }
 }
 
@@ -167,13 +184,17 @@ mod tests {
 
     fn findings_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         DbCallInLoopRule::new().check(&file, &ast)
     }
 
     fn findings_py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         DbCallInLoopRule::new().check(&file, &ast)
     }
 
@@ -199,8 +220,9 @@ mod tests {
 
     #[test]
     fn allows_array_find_with_callback_in_loop_ts() {
-        let findings =
-            findings_ts("for (const id of ids) {\n  const item = items.find(x => x.id === id);\n}\n");
+        let findings = findings_ts(
+            "for (const id of ids) {\n  const item = items.find(x => x.id === id);\n}\n",
+        );
         assert!(findings.is_empty());
     }
 
@@ -218,7 +240,8 @@ mod tests {
 
     #[test]
     fn does_not_flag_while_test_condition_as_in_body_ts() {
-        let findings = findings_ts("while (cursor.hasNext()) {\n  console.log(cursor.next());\n}\n");
+        let findings =
+            findings_ts("while (cursor.hasNext()) {\n  console.log(cursor.next());\n}\n");
         assert!(findings.is_empty());
     }
 
@@ -232,7 +255,9 @@ mod tests {
 
     #[test]
     fn flags_query_call_in_for_loop_python() {
-        let findings = findings_py("for id in ids:\n    row = db.query(\"SELECT * FROM t WHERE id = ?\", [id])\n");
+        let findings = findings_py(
+            "for id in ids:\n    row = db.query(\"SELECT * FROM t WHERE id = ?\", [id])\n",
+        );
         assert_eq!(findings.len(), 1);
     }
 

@@ -10,76 +10,20 @@ use regex::Regex;
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-/// One provider credential format: id, human description, and the regex
-/// that recognizes it. Patterns are deliberately anchored with `\b`/length
-/// bounds to avoid matching short prose that merely mentions a prefix.
-struct ProviderSpec {
-    id: &'static str,
-    description: &'static str,
-    pattern: &'static str,
-}
-
-const PROVIDER_SPECS: &[ProviderSpec] = &[
-    ProviderSpec {
-        id: "secrets:aws-access-key-id",
-        description: "AWS access key id",
-        pattern: r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:aws-secret-access-key",
-        description: "AWS secret access key assigned to an `aws_secret_access_key`-named field",
-        pattern: r#"(?i)aws_secret_access_key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}['"]?"#, // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:gcp-api-key",
-        description: "Google Cloud API key",
-        pattern: r"\bAIza[0-9A-Za-z_\-]{35}\b", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:gcp-service-account-key",
-        description: "Google Cloud service account private key (JSON key file)",
-        pattern: r#""private_key"\s*:\s*"-----BEGIN (RSA )?PRIVATE KEY"#, // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:azure-storage-connection-string",
-        description: "Azure Storage account connection string account key",
-        pattern: r"AccountKey=[A-Za-z0-9+/]{40,}={0,2}", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:azure-sas-token",
-        description: "Azure shared access signature (SAS) token",
-        pattern: r"[?&]sv=\d{4}-\d{2}-\d{2}[^\s\x22\x27]*[?&]sig=[A-Za-z0-9%]{20,}", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:stripe-live-key",
-        description: "Stripe live secret/publishable/restricted key",
-        pattern: r"\b(?:sk|pk|rk)_live_[0-9a-zA-Z]{24,}\b", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:private-key-block",
-        description: "PEM-encoded private key material",
-        pattern: r"-----BEGIN ((RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY-----", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:github-token",
-        description: "GitHub personal access / OAuth / app / refresh token",
-        pattern: r"\bgh[oprsu]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:slack-token",
-        description: "Slack API token",
-        pattern: r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:npm-token",
-        description: "npm registry access token",
-        pattern: r"\bnpm_[A-Za-z0-9]{36,}\b", // yunq-ignore (detection regex itself, not a secret)
-    },
-    ProviderSpec {
-        id: "secrets:jwt-like-token",
-        description: "JWT-shaped token (base64url header.payload.signature)",
-        pattern: r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b", // yunq-ignore (detection regex itself, not a secret)
-    },
+#[rustfmt::skip]
+const PROVIDER_SPECS: &[(&str, &str, &str)] = &[
+    ("secrets:aws-access-key-id", "AWS access key id", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), // yunq-ignore
+    ("secrets:aws-secret-access-key", "AWS secret access key assigned to an `aws_secret_access_key`-named field", r#"(?i)aws_secret_access_key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}['"]?"#), // yunq-ignore
+    ("secrets:gcp-api-key", "Google Cloud API key", r"\bAIza[0-9A-Za-z_\-]{35}\b"), // yunq-ignore
+    ("secrets:gcp-service-account-key", "Google Cloud service account private key (JSON key file)", r#""private_key"\s*:\s*"-----BEGIN (RSA )?PRIVATE KEY"#), // yunq-ignore
+    ("secrets:azure-storage-connection-string", "Azure Storage account connection string account key", r"AccountKey=[A-Za-z0-9+/]{40,}={0,2}"), // yunq-ignore
+    ("secrets:azure-sas-token", "Azure shared access signature (SAS) token", r"[?&]sv=\d{4}-\d{2}-\d{2}[^\s\x22\x27]*[?&]sig=[A-Za-z0-9%]{20,}"), // yunq-ignore
+    ("secrets:stripe-live-key", "Stripe live secret/publishable/restricted key", r"\b(?:sk|pk|rk)_live_[0-9a-zA-Z]{24,}\b"), // yunq-ignore
+    ("secrets:private-key-block", "PEM-encoded private key material", r"-----BEGIN ((RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY-----"), // yunq-ignore
+    ("secrets:github-token", "GitHub personal access / OAuth / app / refresh token", r"\bgh[oprsu]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b"), // yunq-ignore
+    ("secrets:slack-token", "Slack API token", r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"), // yunq-ignore
+    ("secrets:npm-token", "npm registry access token", r"\bnpm_[A-Za-z0-9]{36,}\b"), // yunq-ignore
+    ("secrets:jwt-like-token", "JWT-shaped token (base64url header.payload.signature)", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), // yunq-ignore
 ];
 
 /// A single provider-signature rule: a compiled regex checked against every
@@ -94,11 +38,11 @@ impl RegexSecretRule {
     /// Builds a rule from an already-known-valid `(id, description, pattern)`
     /// triple. Used internally for the shipped provider specs, where the
     /// pattern is a compile-time constant.
-    fn from_spec(spec: &ProviderSpec) -> Self {
+    fn from_spec(&(id, description, pattern): &(&'static str, &'static str, &'static str)) -> Self {
         Self {
-            id: RuleId::new(spec.id).expect("valid rule id"),
-            description: spec.description.to_string(),
-            pattern: Regex::new(spec.pattern).expect("valid built-in regex"),
+            id: RuleId::new(id).expect("valid rule id"),
+            description: description.to_string(),
+            pattern: Regex::new(pattern).expect("valid built-in regex"),
         }
     }
 }
@@ -173,7 +117,7 @@ mod tests {
     fn check_rule(id: &str, code: &str) -> Vec<Finding> {
         let spec = PROVIDER_SPECS
             .iter()
-            .find(|s| s.id == id)
+            .find(|s| s.0 == id)
             .unwrap_or_else(|| panic!("no such spec: {id}"));
         let rule = RegexSecretRule::from_spec(spec);
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
@@ -186,8 +130,8 @@ mod tests {
     #[test]
     fn every_provider_spec_id_and_pattern_are_valid() {
         for spec in PROVIDER_SPECS {
-            RuleId::new(spec.id).unwrap_or_else(|_| panic!("invalid rule id: {}", spec.id));
-            Regex::new(spec.pattern).unwrap_or_else(|_| panic!("invalid regex for {}", spec.id));
+            RuleId::new(spec.0).unwrap_or_else(|_| panic!("invalid rule id: {}", spec.0));
+            Regex::new(spec.2).unwrap_or_else(|_| panic!("invalid regex for {}", spec.0));
         }
     }
 
@@ -204,19 +148,36 @@ mod tests {
     #[test]
     fn ignores_aws_looking_but_short_string() {
         let key = ["AK", "IA", "123"].concat();
-        assert!(check_rule("secrets:aws-access-key-id", &format!("const k = \"{key}\";\n")).is_empty());
+        assert!(
+            check_rule(
+                "secrets:aws-access-key-id",
+                &format!("const k = \"{key}\";\n")
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn detects_aws_secret_access_key() {
-        let secret = ["wJa", "lrXUtnFE", "MI/K7MD", "ENG/b", "PxRfiC", "YEXAMPLEKEY"].concat();
+        let secret = [
+            "wJa",
+            "lrXUtnFE",
+            "MI/K7MD",
+            "ENG/b",
+            "PxRfiC",
+            "YEXAMPLEKEY",
+        ]
+        .concat();
         let code = format!("aws_secret_access_key = \"{secret}\"\n");
         assert_eq!(check_rule("secrets:aws-secret-access-key", &code).len(), 1);
     }
 
     #[test]
     fn detects_gcp_api_key() {
-        let key = ["AIz", "aSyD-9t", "Srke72Po", "uQMnMX", "-a7eZSW", "0jkFMBWQ"].concat();
+        let key = [
+            "AIz", "aSyD-9t", "Srke72Po", "uQMnMX", "-a7eZSW", "0jkFMBWQ",
+        ]
+        .concat();
         let findings = check_rule("secrets:gcp-api-key", &format!("const k = \"{key}\";\n"));
         assert_eq!(findings.len(), 1);
     }
@@ -264,7 +225,17 @@ mod tests {
 
     #[test]
     fn detects_azure_sas_token() {
-        let sig = ["A9x8z", "P3Qy7v", "LtR2wYb", "NcAeFgH", "jKl", "MnPqR", "sTuVwX", "yZ012345%3D"].concat();
+        let sig = [
+            "A9x8z",
+            "P3Qy7v",
+            "LtR2wYb",
+            "NcAeFgH",
+            "jKl",
+            "MnPqR",
+            "sTuVwX",
+            "yZ012345%3D",
+        ]
+        .concat();
         let code = format!(
             "const url = \"https://acct.blob.core.windows.net/c/f?sv=2020-08-04&ss=b&sig={sig}\";\n"
         );
@@ -307,7 +278,10 @@ mod tests {
 
     #[test]
     fn detects_github_tokens() {
-        let ghp = ["gh", "p_16", "C7e42F2", "92c6912", "E77", "10c83", "8347A", "e178B4a"].concat();
+        let ghp = [
+            "gh", "p_16", "C7e42F2", "92c6912", "E77", "10c83", "8347A", "e178B4a",
+        ]
+        .concat();
         assert_eq!(
             check_rule("secrets:github-token", &format!("const t = \"{ghp}\";\n")).len(),
             1
@@ -323,7 +297,10 @@ mod tests {
 
     #[test]
     fn detects_slack_token() {
-        let xoxb = ["xo", "xb-2", "4443", "3322", "2111-s", "im", "ulated-t", "oken-v", "alue"].concat();
+        let xoxb = [
+            "xo", "xb-2", "4443", "3322", "2111-s", "im", "ulated-t", "oken-v", "alue",
+        ]
+        .concat();
         assert_eq!(
             check_rule("secrets:slack-token", &format!("const t = \"{xoxb}\";\n")).len(),
             1
@@ -332,7 +309,10 @@ mod tests {
 
     #[test]
     fn detects_npm_token() {
-        let token = ["np", "m_1", "23456", "7890a", "bcdef", "ghij", "klmno", "pqrst", "uvwxy", "z1234"].concat();
+        let token = [
+            "np", "m_1", "23456", "7890a", "bcdef", "ghij", "klmno", "pqrst", "uvwxy", "z1234",
+        ]
+        .concat();
         assert_eq!(
             check_rule(
                 "secrets:npm-token",
@@ -367,9 +347,9 @@ mod tests {
         let code = "function add(a: number, b: number): number {\n  return a + b;\n}\n";
         for spec in PROVIDER_SPECS {
             assert!(
-                check_rule(spec.id, code).is_empty(),
+                check_rule(spec.0, code).is_empty(),
                 "false positive on {}",
-                spec.id
+                spec.0
             );
         }
     }

@@ -80,7 +80,8 @@ mod tests {
     #[test]
     fn a_denial_states_plainly_that_nothing_was_written() {
         let policy = AgentPolicy::default();
-        let evaluation = policy.evaluate("src/a.rs", &[finding("owasp:eval-usage", Severity::Info)]);
+        let evaluation =
+            policy.evaluate("src/a.rs", &[finding("owasp:eval-usage", Severity::Info)]);
         let text = denial_feedback("src/a.rs", &evaluation);
         assert!(text.contains("DENIED"));
         assert!(text.contains("the file on disk is unchanged"));
@@ -91,8 +92,11 @@ mod tests {
     #[test]
     fn a_denial_tells_the_agent_not_to_retry_the_same_bytes() {
         let policy = AgentPolicy::default();
-        let evaluation = policy.evaluate("src/a.rs", &[finding("owasp:eval-usage", Severity::Info)]);
-        assert!(denial_feedback("src/a.rs", &evaluation).contains("Do not retry the identical content"));
+        let evaluation =
+            policy.evaluate("src/a.rs", &[finding("owasp:eval-usage", Severity::Info)]);
+        assert!(
+            denial_feedback("src/a.rs", &evaluation).contains("Do not retry the identical content")
+        );
     }
 
     #[test]
@@ -100,7 +104,10 @@ mod tests {
         let policy = AgentPolicy::default();
         let evaluation = policy.evaluate(
             "src/a.rs",
-            &[finding("owasp:eval-usage", Severity::Info), finding("owasp:command-execution", Severity::Info)],
+            &[
+                finding("owasp:eval-usage", Severity::Info),
+                finding("owasp:command-execution", Severity::Info),
+            ],
         );
         let text = denial_feedback("src/a.rs", &evaluation);
         assert!(text.contains("  1. "));
@@ -114,8 +121,12 @@ mod tests {
 
     #[test]
     fn an_advisory_violation_is_reported_without_denying() {
-        let policy = AgentPolicy::parse("[agent]\nadvisory_rules = [\"owasp:eval-usage\"]\n").expect("parses");
-        let evaluation = policy.evaluate("src/a.rs", &[finding("owasp:eval-usage", Severity::Blocker)]);
+        let policy = AgentPolicy::parse("[agent]\nadvisory_rules = [\"owasp:eval-usage\"]\n")
+            .expect("parses");
+        let evaluation = policy.evaluate(
+            "src/a.rs",
+            &[finding("owasp:eval-usage", Severity::Blocker)],
+        );
         assert!(!evaluation.is_denied());
         let note = advisory_note(&evaluation);
         assert!(note.contains("advisories"));
@@ -127,6 +138,9 @@ mod tests {
         let rules = vec![RuleId::new("owasp:xss").unwrap()];
         let text = circuit_breaker_stop(&rules);
         assert!(text.contains("owasp:xss"));
-        assert!(text.contains('3'), "the operator needs the attempt count: {text}");
+        assert!(
+            text.contains('3'),
+            "the operator needs the attempt count: {text}"
+        );
     }
 }

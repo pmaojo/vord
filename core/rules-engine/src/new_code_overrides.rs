@@ -29,8 +29,13 @@ use crate::project::NewCodeDefinition;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OverrideScope {
     Global,
-    Project { project_key: String },
-    Branch { project_key: String, branch_name: String },
+    Project {
+        project_key: String,
+    },
+    Branch {
+        project_key: String,
+        branch_name: String,
+    },
 }
 
 /// One concrete New Code definition: either a number of days, a reference
@@ -88,15 +93,19 @@ pub fn resolve_new_code_definition(
         return Some((src.override_value.clone(), src.clone()));
     }
     // Project override is the next.
-    let project_match = sources.iter().find(|s| matches!(
-        &s.scope,
-        OverrideScope::Project { project_key: pk } if pk == project_key
-    ));
+    let project_match = sources.iter().find(|s| {
+        matches!(
+            &s.scope,
+            OverrideScope::Project { project_key: pk } if pk == project_key
+        )
+    });
     if let Some(src) = project_match {
         return Some((src.override_value.clone(), src.clone()));
     }
     // Global last.
-    let global = sources.iter().find(|s| matches!(s.scope, OverrideScope::Global));
+    let global = sources
+        .iter()
+        .find(|s| matches!(s.scope, OverrideScope::Global));
     global.map(|src| (src.override_value.clone(), src.clone()))
 }
 
@@ -123,10 +132,14 @@ pub async fn resolve_baseline<R: AnalysisHistoryReader>(
 ) -> Result<Baseline, StorageError> {
     let analysis_id = match override_value {
         NewCodeOverride::ReferenceBranch(branch) => {
-            reader.latest_analysis_id_on_branch(project_key, branch).await?
+            reader
+                .latest_analysis_id_on_branch(project_key, branch)
+                .await?
         }
         NewCodeOverride::Days(days) => {
-            reader.analysis_id_days_ago(project_key, branch_name, *days).await?
+            reader
+                .analysis_id_days_ago(project_key, branch_name, *days)
+                .await?
         }
         NewCodeOverride::SpecificAnalysis(id) => id.parse::<i64>().ok(),
     };
@@ -152,13 +165,22 @@ pub async fn resolve_baseline_for_new_code_definition<R: AnalysisHistoryReader>(
 ) -> Result<Baseline, StorageError> {
     match definition {
         NewCodeDefinition::PreviousAnalysis => {
-            match reader.previous_analysis_id(project_key, branch_name, current_analysis_id).await? {
+            match reader
+                .previous_analysis_id(project_key, branch_name, current_analysis_id)
+                .await?
+            {
                 Some(id) => reader.baseline_for_analysis(id).await,
                 None => Ok(Baseline::default()),
             }
         }
         NewCodeDefinition::NumberOfDays(days) => {
-            resolve_baseline(reader, project_key, branch_name, &NewCodeOverride::Days(*days)).await
+            resolve_baseline(
+                reader,
+                project_key,
+                branch_name,
+                &NewCodeOverride::Days(*days),
+            )
+            .await
         }
         NewCodeDefinition::ReferenceBranch(branch) => {
             resolve_baseline(
@@ -186,13 +208,27 @@ mod tests {
     use super::*;
 
     fn branch(project: &str, branch: &str, days: u32) -> OverrideSource {
-        OverrideSource { scope: OverrideScope::Branch { project_key: project.to_string(), branch_name: branch.to_string() }, override_value: NewCodeOverride::Days(days) }
+        OverrideSource {
+            scope: OverrideScope::Branch {
+                project_key: project.to_string(),
+                branch_name: branch.to_string(),
+            },
+            override_value: NewCodeOverride::Days(days),
+        }
     }
     fn project(project: &str, ref_branch: &str) -> OverrideSource {
-        OverrideSource { scope: OverrideScope::Project { project_key: project.to_string() }, override_value: NewCodeOverride::ReferenceBranch(ref_branch.to_string()) }
+        OverrideSource {
+            scope: OverrideScope::Project {
+                project_key: project.to_string(),
+            },
+            override_value: NewCodeOverride::ReferenceBranch(ref_branch.to_string()),
+        }
     }
     fn global(days: u32) -> OverrideSource {
-        OverrideSource { scope: OverrideScope::Global, override_value: NewCodeOverride::Days(days) }
+        OverrideSource {
+            scope: OverrideScope::Global,
+            override_value: NewCodeOverride::Days(days),
+        }
     }
 
     #[test]
@@ -203,7 +239,8 @@ mod tests {
     #[test]
     fn only_global_picks_global() {
         let src = global(7);
-        let (val, src_back) = resolve_new_code_definition(std::slice::from_ref(&src), "yunq", "main").unwrap();
+        let (val, src_back) =
+            resolve_new_code_definition(std::slice::from_ref(&src), "yunq", "main").unwrap();
         assert_eq!(val, NewCodeOverride::Days(7));
         assert_eq!(src_back.scope, OverrideScope::Global);
     }
@@ -248,8 +285,14 @@ mod tests {
     #[test]
     fn override_label_is_human_readable() {
         assert_eq!(NewCodeOverride::Days(7).label(), "7 days");
-        assert_eq!(NewCodeOverride::ReferenceBranch("develop".to_string()).label(), "branch:develop");
-        assert_eq!(NewCodeOverride::SpecificAnalysis("abc".to_string()).label(), "analysis:abc");
+        assert_eq!(
+            NewCodeOverride::ReferenceBranch("develop".to_string()).label(),
+            "branch:develop"
+        );
+        assert_eq!(
+            NewCodeOverride::SpecificAnalysis("abc".to_string()).label(),
+            "analysis:abc"
+        );
     }
 
     /// In-memory stand-in for the Postgres-backed `AnalysisHistoryReader` —
@@ -272,7 +315,10 @@ mod tests {
             project_key: &str,
             branch: &str,
         ) -> Result<Option<i64>, StorageError> {
-            Ok(self.latest.get(&(project_key.to_string(), branch.to_string())).copied())
+            Ok(self
+                .latest
+                .get(&(project_key.to_string(), branch.to_string()))
+                .copied())
         }
 
         async fn analysis_id_days_ago(
@@ -302,7 +348,11 @@ mod tests {
         ) -> Result<Option<i64>, StorageError> {
             Ok(self
                 .previous
-                .get(&(project_key.to_string(), branch.to_string(), before_analysis_id))
+                .get(&(
+                    project_key.to_string(),
+                    branch.to_string(),
+                    before_analysis_id,
+                ))
                 .copied())
         }
     }
@@ -314,7 +364,9 @@ mod tests {
     #[test]
     fn resolve_baseline_follows_reference_branch_to_its_latest_analysis() {
         let mut history = FakeAnalysisHistory::default();
-        history.latest.insert(("yunq".to_string(), "develop".to_string()), 42);
+        history
+            .latest
+            .insert(("yunq".to_string(), "develop".to_string()), 42);
         history.baselines.insert(42, baseline_with_fingerprint(7));
 
         let resolved = futures::executor::block_on(resolve_baseline(
@@ -330,7 +382,9 @@ mod tests {
     #[test]
     fn resolve_baseline_looks_up_days_ago_on_the_requested_branch() {
         let mut history = FakeAnalysisHistory::default();
-        history.days_ago.insert(("yunq".to_string(), "main".to_string(), 7), 9);
+        history
+            .days_ago
+            .insert(("yunq".to_string(), "main".to_string(), 7), 9);
         history.baselines.insert(9, baseline_with_fingerprint(99));
 
         let resolved = futures::executor::block_on(resolve_baseline(
@@ -386,7 +440,9 @@ mod tests {
 
     #[test]
     fn override_scope_serializes_with_kind_tag() {
-        let s = OverrideScope::Project { project_key: "yunq".to_string() };
+        let s = OverrideScope::Project {
+            project_key: "yunq".to_string(),
+        };
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"project\""));
         assert!(json.contains("yunq"));
@@ -397,7 +453,9 @@ mod tests {
         let mut history = FakeAnalysisHistory::default();
         // The current scan's own pending row (id 50) must not come back as
         // its own "previous" analysis.
-        history.previous.insert(("yunq".to_string(), "main".to_string(), 50), 41);
+        history
+            .previous
+            .insert(("yunq".to_string(), "main".to_string(), 50), 41);
         history.baselines.insert(41, baseline_with_fingerprint(11));
 
         let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
@@ -428,7 +486,9 @@ mod tests {
     #[test]
     fn definition_number_of_days_delegates_to_resolve_baseline() {
         let mut history = FakeAnalysisHistory::default();
-        history.days_ago.insert(("yunq".to_string(), "main".to_string(), 30), 7);
+        history
+            .days_ago
+            .insert(("yunq".to_string(), "main".to_string(), 30), 7);
         history.baselines.insert(7, baseline_with_fingerprint(3));
 
         let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
@@ -445,7 +505,9 @@ mod tests {
     #[test]
     fn definition_reference_branch_delegates_to_resolve_baseline() {
         let mut history = FakeAnalysisHistory::default();
-        history.latest.insert(("yunq".to_string(), "develop".to_string()), 8);
+        history
+            .latest
+            .insert(("yunq".to_string(), "develop".to_string()), 8);
         history.baselines.insert(8, baseline_with_fingerprint(4));
 
         let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
@@ -453,7 +515,9 @@ mod tests {
             "yunq",
             "main",
             999,
-            &NewCodeDefinition::ReferenceBranch(crate::project::BranchName::new("develop").unwrap()),
+            &NewCodeDefinition::ReferenceBranch(
+                crate::project::BranchName::new("develop").unwrap(),
+            ),
         ))
         .unwrap();
         assert_eq!(resolved.fingerprints().collect::<Vec<_>>(), vec![4]);

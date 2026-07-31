@@ -51,7 +51,10 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("secrets:aws-secret-access-key"), Severity::Blocker),
         (rule("secrets:gcp-api-key"), Severity::Blocker),
         (rule("secrets:gcp-service-account-key"), Severity::Blocker),
-        (rule("secrets:azure-storage-connection-string"), Severity::Blocker),
+        (
+            rule("secrets:azure-storage-connection-string"),
+            Severity::Blocker,
+        ),
         (rule("secrets:azure-sas-token"), Severity::Blocker),
         (rule("secrets:stripe-live-key"), Severity::Blocker),
         (rule("secrets:private-key-block"), Severity::Blocker),
@@ -76,9 +79,18 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         // cross-file, run once per scan. They read the layering vocabulary
         // off path topology (`yunq_import_graph::layer_of`) and stay silent
         // on a project whose paths name no layer at all.
-        (rule("architecture:hexagonal-layer-violation"), Severity::Major),
-        (rule("architecture:main-sequence-deviation"), Severity::Major),
-        (rule("architecture:stable-dependency-violation"), Severity::Major),
+        (
+            rule("architecture:hexagonal-layer-violation"),
+            Severity::Major,
+        ),
+        (
+            rule("architecture:main-sequence-deviation"),
+            Severity::Major,
+        ),
+        (
+            rule("architecture:stable-dependency-violation"),
+            Severity::Major,
+        ),
         // rulesets/code-smells — applies_to true for every language.
         (rule("smells:todo-comment"), Severity::Info),
         (rule("smells:long-function"), Severity::Minor),
@@ -143,7 +155,10 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("ddd:anemic-domain-model"), Severity::Major),
         (rule("ddd:public-entity-setter"), Severity::Major),
         (rule("ddd:primitive-obsession"), Severity::Minor),
-        (rule("ddd:aggregate-exposes-internal-collection"), Severity::Major),
+        (
+            rule("ddd:aggregate-exposes-internal-collection"),
+            Severity::Major,
+        ),
     ]);
     activations
 }
@@ -170,7 +185,10 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("react:dangerously-set-inner-html"), Severity::Critical),
         (rule("react:unsafe-target-blank"), Severity::Major),
         (rule("react:jsx-img-missing-alt"), Severity::Major),
-        (rule("react:inline-prop-function-in-component"), Severity::Minor),
+        (
+            rule("react:inline-prop-function-in-component"),
+            Severity::Minor,
+        ),
         (rule("react:exhaustive-deps"), Severity::Major),
         (rule("react:unused-state"), Severity::Minor),
         // rulesets/code-smells — applies_to typescript/python/rust or
@@ -191,14 +209,26 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("typescript:loose-equality"), Severity::Minor),
         (rule("typescript:var-declaration"), Severity::Minor),
         (rule("typescript:leftover-debug-statement"), Severity::Minor),
-        (rule("typescript:promise-then-without-catch"), Severity::Major),
+        (
+            rule("typescript:promise-then-without-catch"),
+            Severity::Major,
+        ),
         (rule("typescript:math-random-for-token"), Severity::Critical),
         (rule("typescript:dynamic-regexp-source"), Severity::Major),
         (rule("typescript:redos-nested-quantifier"), Severity::Major),
         (rule("typescript:json-parse-unguarded"), Severity::Major),
-        (rule("typescript:open-redirect-location-assignment"), Severity::Critical),
-        (rule("typescript:sensitive-data-in-web-storage"), Severity::Critical),
-        (rule("typescript:mass-assignment-from-request-body"), Severity::Critical),
+        (
+            rule("typescript:open-redirect-location-assignment"),
+            Severity::Critical,
+        ),
+        (
+            rule("typescript:sensitive-data-in-web-storage"),
+            Severity::Critical,
+        ),
+        (
+            rule("typescript:mass-assignment-from-request-body"),
+            Severity::Critical,
+        ),
         (rule("typescript:innerhtml-assignment"), Severity::Critical),
         (rule("typescript:swallowed-exception"), Severity::Major),
         // rulesets/ai-agent — applies_to typescript/python.
@@ -215,7 +245,10 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         (rule("ddd:anemic-domain-model"), Severity::Major),
         (rule("ddd:public-entity-setter"), Severity::Major),
         (rule("ddd:primitive-obsession"), Severity::Minor),
-        (rule("ddd:aggregate-exposes-internal-collection"), Severity::Major),
+        (
+            rule("ddd:aggregate-exposes-internal-collection"),
+            Severity::Major,
+        ),
         // rulesets/code-smells — inheritance rules; no Rust equivalent
         // (structs have no inheritance, so `ClassRegistry` records no
         // superclass for one).
@@ -255,19 +288,31 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("python:type-comparison"), Severity::Minor),
         (rule("python:global-statement-usage"), Severity::Minor),
         (rule("python:eager-logging-interpolation"), Severity::Minor),
-        (rule("python:none-comparison-with-equality"), Severity::Minor),
-        (rule("python:bool-comparison-with-equality"), Severity::Minor),
+        (
+            rule("python:none-comparison-with-equality"),
+            Severity::Minor,
+        ),
+        (
+            rule("python:bool-comparison-with-equality"),
+            Severity::Minor,
+        ),
         (rule("python:literal-identity-comparison"), Severity::Major),
         (rule("python:len-as-condition"), Severity::Minor),
         (rule("python:requests-missing-timeout"), Severity::Major),
         (rule("python:flask-debug-true"), Severity::Blocker),
         (rule("python:bind-all-interfaces"), Severity::Minor),
-        (rule("python:sql-injection-string-building"), Severity::Blocker),
+        (
+            rule("python:sql-injection-string-building"),
+            Severity::Blocker,
+        ),
         (rule("python:debugger-left-in-code"), Severity::Major),
         (rule("python:open-without-encoding"), Severity::Minor),
         (rule("python:datetime-utcnow-naive"), Severity::Minor),
         (rule("python:mutable-class-attribute"), Severity::Major),
-        (rule("python:nested-comprehension-too-deep"), Severity::Minor),
+        (
+            rule("python:nested-comprehension-too-deep"),
+            Severity::Minor,
+        ),
         (rule("python:raise-generic-exception"), Severity::Minor),
         (rule("python:raise-without-from-in-except"), Severity::Minor),
         (rule("python:unused-loop-variable"), Severity::Minor),
@@ -285,7 +330,10 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("ddd:anemic-domain-model"), Severity::Major),
         (rule("ddd:public-entity-setter"), Severity::Major),
         (rule("ddd:primitive-obsession"), Severity::Minor),
-        (rule("ddd:aggregate-exposes-internal-collection"), Severity::Major),
+        (
+            rule("ddd:aggregate-exposes-internal-collection"),
+            Severity::Major,
+        ),
         // rulesets/code-smells — inheritance rules; no Rust equivalent
         // (structs have no inheritance, so `ClassRegistry` records no
         // superclass for one).
@@ -308,7 +356,10 @@ fn php_activations() -> Vec<(RuleId, Severity)> {
         (rule("php:loose-hash-comparison"), Severity::Critical),
         (rule("php:command-execution"), Severity::Major),
         (rule("php:sql-injection-concat"), Severity::Blocker),
-        (rule("php:dynamic-function-call-from-superglobal"), Severity::Blocker),
+        (
+            rule("php:dynamic-function-call-from-superglobal"),
+            Severity::Blocker,
+        ),
         (rule("php:variable-variable"), Severity::Major),
         (rule("php:weak-random-token"), Severity::Critical),
         (rule("php:swallowed-exception"), Severity::Major),
@@ -345,7 +396,10 @@ fn go_activations() -> Vec<(RuleId, Severity)> {
         (rule("ddd:anemic-domain-model"), Severity::Major),
         (rule("ddd:public-entity-setter"), Severity::Major),
         (rule("ddd:primitive-obsession"), Severity::Minor),
-        (rule("ddd:aggregate-exposes-internal-collection"), Severity::Major),
+        (
+            rule("ddd:aggregate-exposes-internal-collection"),
+            Severity::Major,
+        ),
     ]);
     activations
 }
@@ -430,9 +484,30 @@ fn activations_for(language: &str) -> Vec<(RuleId, Severity)> {
 /// `yunq_ast::LanguageIdentifier::new`'s match arms by hand (this crate
 /// can't depend on `yunq-ast` — see module docs).
 const ALL_LANGUAGES: &[&str] = &[
-    "rust", "typescript", "python", "go", "java", "c", "cpp", "php", "dockerfile", "yaml", "json",
-    "csharp", "ruby", "kotlin", "swift", "scala", "html", "css", "xml", "hcl", "bash", "groovy",
-    "lua", "elixir",
+    "rust",
+    "typescript",
+    "python",
+    "go",
+    "java",
+    "c",
+    "cpp",
+    "php",
+    "dockerfile",
+    "yaml",
+    "json",
+    "csharp",
+    "ruby",
+    "kotlin",
+    "swift",
+    "scala",
+    "html",
+    "css",
+    "xml",
+    "hcl",
+    "bash",
+    "groovy",
+    "lua",
+    "elixir",
 ];
 
 /// The yunq way profile curated for a single language — e.g. what a
@@ -496,7 +571,10 @@ mod tests {
     #[test]
     fn typescript_profile_activates_xss_and_react_rules() {
         let profile = default_profile_for_language("typescript");
-        assert_eq!(profile.severity_of(&RuleId::new("owasp:xss").unwrap()), Some(Severity::Blocker));
+        assert_eq!(
+            profile.severity_of(&RuleId::new("owasp:xss").unwrap()),
+            Some(Severity::Blocker)
+        );
         assert_eq!(
             profile.severity_of(&RuleId::new("react:direct-state-mutation").unwrap()),
             Some(Severity::Critical)

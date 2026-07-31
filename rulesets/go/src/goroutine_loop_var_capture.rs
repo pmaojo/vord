@@ -18,7 +18,9 @@
 //! (`range_clause`) not handled here, a known gap for a follow-up rule.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{
+    Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
+};
 
 use crate::common::{collect_bounded, is_other, loop_body};
 
@@ -39,7 +41,9 @@ fn for_clause_loop_var(loop_node: &AstNode) -> Option<&str> {
         return None;
     }
     let names = decl.children().first()?;
-    let [name] = names.children() else { return None };
+    let [name] = names.children() else {
+        return None;
+    };
     (*name.kind() == NodeKind::Identifier).then(|| name.text())
 }
 
@@ -57,12 +61,15 @@ fn parameterless_closure_body(go_stmt: &AstNode) -> Option<&AstNode> {
     if *func_literal.kind() != NodeKind::FunctionDef {
         return None;
     }
-    let [params, block] = func_literal.children() else { return None };
+    let [params, block] = func_literal.children() else {
+        return None;
+    };
     params.children().is_empty().then_some(block)
 }
 
 fn references_identifier(node: &AstNode, name: &str) -> bool {
-    node.descendants().any(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
+    node.descendants()
+        .any(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
 }
 
 declare_rule_id!(GoroutineLoopVarCaptureRule, "go:goroutine-loop-var-capture");
@@ -165,6 +172,9 @@ mod tests {
 
     #[test]
     fn ignores_goroutine_outside_any_loop() {
-        assert!(check("package main\nfunc f() {\n\ti := 1\n\tgo func() { println(i) }()\n}\n").is_empty());
+        assert!(
+            check("package main\nfunc f() {\n\ti := 1\n\tgo func() { println(i) }()\n}\n")
+                .is_empty()
+        );
     }
 }

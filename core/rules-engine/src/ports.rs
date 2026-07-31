@@ -101,7 +101,11 @@ impl IssueQuery {
     }
 
     pub fn normalized_page_size(&self) -> usize {
-        if self.page_size == 0 { 50 } else { self.page_size.clamp(1, 500) }
+        if self.page_size == 0 {
+            50
+        } else {
+            self.page_size.clamp(1, 500)
+        }
     }
 
     pub fn offset(&self) -> usize {

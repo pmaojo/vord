@@ -4,9 +4,11 @@
 
 use yunq_ast::{AstNode, NodeKind};
 
-use super::{first_identifier, function_params, is_other, ClassInfo, MemberInfo, MethodInfo};
+use super::{ClassInfo, MemberInfo, MethodInfo, first_identifier, function_params, is_other};
 pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> {
-    let name = first_identifier(node).map(|n| n.text().to_string()).unwrap_or_default();
+    let name = first_identifier(node)
+        .map(|n| n.text().to_string())
+        .unwrap_or_default();
     let superclass = node
         .children()
         .iter()
@@ -25,7 +27,11 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
             // a method (a `@property` getter is exactly the kind of member the
             // OOP-smell rules exist to reason about).
             let member = if is_other(member, "decorated_definition") {
-                member.children().iter().find(|c| *c.kind() == NodeKind::FunctionDef).unwrap_or(member)
+                member
+                    .children()
+                    .iter()
+                    .find(|c| *c.kind() == NodeKind::FunctionDef)
+                    .unwrap_or(member)
             } else {
                 member
             };
@@ -52,10 +58,14 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
                     let assignment = if *member.kind() == NodeKind::Assignment {
                         Some(member)
                     } else {
-                        member.first_child().filter(|c| *c.kind() == NodeKind::Assignment)
+                        member
+                            .first_child()
+                            .filter(|c| *c.kind() == NodeKind::Assignment)
                     };
                     if let Some(assignment) = assignment {
-                        if let Some(target) = assignment.first_child().filter(|n| *n.kind() == NodeKind::Identifier)
+                        if let Some(target) = assignment
+                            .first_child()
+                            .filter(|n| *n.kind() == NodeKind::Identifier)
                         {
                             if field_names.insert(target.text().to_string()) {
                                 fields.push(MemberInfo {
@@ -70,7 +80,14 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
             }
         }
     }
-    Some(ClassInfo { name, file: file.to_string(), superclass, fields, methods, span: Some(node.span()) })
+    Some(ClassInfo {
+        name,
+        file: file.to_string(),
+        superclass,
+        fields,
+        methods,
+        span: Some(node.span()),
+    })
 }
 
 /// Scans a method body for `self.attr = ...` assignments — Python's
@@ -81,8 +98,13 @@ fn collect_self_attrs(
     fields: &mut Vec<MemberInfo>,
     seen: &mut std::collections::BTreeSet<String>,
 ) {
-    for assignment in method.descendants().filter(|n| *n.kind() == NodeKind::Assignment) {
-        let Some(target) = assignment.first_child() else { continue };
+    for assignment in method
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::Assignment)
+    {
+        let Some(target) = assignment.first_child() else {
+            continue;
+        };
         if *target.kind() != NodeKind::MemberAccess {
             continue;
         }
@@ -93,7 +115,11 @@ fn collect_self_attrs(
         }
         let Some(prop) = parts.next() else { continue };
         if *prop.kind() == NodeKind::Identifier && seen.insert(prop.text().to_string()) {
-            fields.push(MemberInfo { name: prop.text().to_string(), declared_type: None, span: prop.span() });
+            fields.push(MemberInfo {
+                name: prop.text().to_string(),
+                declared_type: None,
+                span: prop.span(),
+            });
         }
     }
 }

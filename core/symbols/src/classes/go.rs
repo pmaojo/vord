@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use yunq_ast::{AstNode, NodeKind};
 
-use super::{first_identifier, function_params, is_other, ClassInfo, MemberInfo, MethodInfo};
+use super::{ClassInfo, MemberInfo, MethodInfo, first_identifier, function_params, is_other};
 use crate::types::declared_type;
 
 /// A Go `type_spec` (`type Order struct { .. }`, `type Repo interface { .. }`).
@@ -17,8 +17,16 @@ use crate::types::declared_type;
 /// Interfaces are included deliberately — Go's interfaces are the ports of a Go
 /// hexagon, and `smells:fat-interface` has to be able to see one.
 pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> {
-    let name = node.children().iter().find(|c| is_other(c, "type_identifier"))?.text().to_string();
-    let body = node.children().iter().find(|c| is_other(c, "struct_type") || is_other(c, "interface_type"))?;
+    let name = node
+        .children()
+        .iter()
+        .find(|c| is_other(c, "type_identifier"))?
+        .text()
+        .to_string();
+    let body = node
+        .children()
+        .iter()
+        .find(|c| is_other(c, "struct_type") || is_other(c, "interface_type"))?;
     let fields = body
         .children()
         .iter()
@@ -55,7 +63,14 @@ pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> 
             })
         })
         .collect();
-    Some(ClassInfo { name, file: file.to_string(), superclass: None, fields, methods, span: Some(node.span()) })
+    Some(ClassInfo {
+        name,
+        file: file.to_string(),
+        superclass: None,
+        fields,
+        methods,
+        span: Some(node.span()),
+    })
 }
 
 /// The base type name a Go receiver or return type refers to, unwrapping the
@@ -82,9 +97,14 @@ fn receiver_of(function: &AstNode) -> Option<(String, String)> {
     if !is_other(first, "parameter_list") {
         return None;
     }
-    let declaration = first.children().iter().find(|c| is_other(c, "parameter_declaration"))?;
+    let declaration = first
+        .children()
+        .iter()
+        .find(|c| is_other(c, "parameter_declaration"))?;
     let type_name = declaration.children().iter().find_map(base_type_name)?;
-    let binding = first_identifier(declaration).map(|n| n.text().to_string()).unwrap_or_default();
+    let binding = first_identifier(declaration)
+        .map(|n| n.text().to_string())
+        .unwrap_or_default();
     Some((binding, type_name))
 }
 
@@ -95,7 +115,11 @@ fn receiver_of(function: &AstNode) -> Option<(String, String)> {
 fn constructor_target(function: &AstNode) -> Option<String> {
     let name = first_identifier(function)?.text();
     let suffix = name.strip_prefix("New")?;
-    let returned = function.children().iter().skip(1).find_map(base_type_name)?;
+    let returned = function
+        .children()
+        .iter()
+        .skip(1)
+        .find_map(base_type_name)?;
     (suffix.is_empty() || suffix == returned).then_some(returned)
 }
 
@@ -104,7 +128,10 @@ fn constructor_target(function: &AstNode) -> Option<String> {
 /// boundaries — a Go type's methods are routinely spread over several files in
 /// the same package.
 pub(super) fn attach_methods<'a>(ast: &'a AstNode, classes: &mut BTreeMap<String, ClassInfo<'a>>) {
-    for function in ast.descendants().filter(|n| *n.kind() == NodeKind::FunctionDef) {
+    for function in ast
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::FunctionDef)
+    {
         let (receiver, target, name) = match receiver_of(function) {
             Some((binding, target)) => {
                 let Some(name) = function.children().iter().find_map(|c| {
@@ -116,13 +143,18 @@ pub(super) fn attach_methods<'a>(ast: &'a AstNode, classes: &mut BTreeMap<String
             }
             None => match constructor_target(function) {
                 Some(target) => {
-                    let Some(name) = first_identifier(function).map(|n| n.text().to_string()) else { continue };
+                    let Some(name) = first_identifier(function).map(|n| n.text().to_string())
+                    else {
+                        continue;
+                    };
                     (None, target, name)
                 }
                 None => continue,
             },
         };
-        let Some(class) = classes.get_mut(&target) else { continue };
+        let Some(class) = classes.get_mut(&target) else {
+            continue;
+        };
         if class.methods.iter().any(|m| m.name == name) {
             continue;
         }

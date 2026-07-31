@@ -16,11 +16,15 @@ fn is_unguarded_json_parse(node: &AstNode) -> bool {
     if *node.kind() != NodeKind::Call {
         return false;
     }
-    let Some(callee) = node.first_child() else { return false };
+    let Some(callee) = node.first_child() else {
+        return false;
+    };
     if callee.text() != "JSON.parse" {
         return false;
     }
-    call_arguments(node).first().is_some_and(|arg| *arg.kind() != NodeKind::StringLiteral)
+    call_arguments(node)
+        .first()
+        .is_some_and(|arg| *arg.kind() != NodeKind::StringLiteral)
 }
 
 /// Recursive descent tracking whether the current node lies inside a
@@ -49,7 +53,9 @@ pub struct JsonParseUnguardedRule {
 
 impl JsonParseUnguardedRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:json-parse-unguarded").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:json-parse-unguarded").expect("valid rule id"),
+        }
     }
 }
 
@@ -103,7 +109,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         JsonParseUnguardedRule::new().check(&file, &ast)
     }
 

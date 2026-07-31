@@ -12,7 +12,9 @@ pub struct OpenIngressCidrRule {
 
 impl OpenIngressCidrRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("iac:open-ingress-cidr").expect("valid rule id") }
+        Self {
+            id: RuleId::new("iac:open-ingress-cidr").expect("valid rule id"),
+        }
     }
 }
 
@@ -28,7 +30,9 @@ impl Rule for OpenIngressCidrRule {
     }
 
     fn applies_to(&self, lang: &LanguageIdentifier) -> bool {
-        *lang == LanguageIdentifier::hcl() || *lang == LanguageIdentifier::yaml() || *lang == LanguageIdentifier::json()
+        *lang == LanguageIdentifier::hcl()
+            || *lang == LanguageIdentifier::yaml()
+            || *lang == LanguageIdentifier::json()
     }
 
     fn default_severity(&self) -> Severity {
@@ -80,7 +84,12 @@ mod tests {
     use super::*;
 
     fn source_unit(code: &str) -> AstNode {
-        AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![])
+        AstNode::new(
+            NodeKind::SourceUnit,
+            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            code,
+            vec![],
+        )
     }
 
     #[test]

@@ -6,13 +6,18 @@
 //! `crypto.getRandomValues` instead.
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{
+    Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
+};
 
-const SENSITIVE_NAME_MARKERS: &[&str] = &["token", "password", "passwd", "secret", "apikey", "session"];
+const SENSITIVE_NAME_MARKERS: &[&str] =
+    &["token", "password", "passwd", "secret", "apikey", "session"];
 
 fn looks_sensitive(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    SENSITIVE_NAME_MARKERS.iter().any(|marker| lower.contains(marker))
+    SENSITIVE_NAME_MARKERS
+        .iter()
+        .any(|marker| lower.contains(marker))
 }
 
 fn flagged_target(decl: &AstNode) -> Option<&AstNode> {
@@ -83,7 +88,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         MathRandomForTokenRule::new().check(&file, &ast)
     }
 

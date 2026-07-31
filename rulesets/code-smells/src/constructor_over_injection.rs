@@ -20,14 +20,21 @@
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{mentions_collaborator, ClassRegistry, MethodInfo};
+use yunq_symbols::{ClassRegistry, MethodInfo, mentions_collaborator};
 
 /// Suffixes of types that are *settings*, not services: a record of values the
 /// caller assembles and hands over. A class taking four collaborators and a
 /// config struct has four dependencies, not five — counting the config is how
 /// this rule would punish the very refactoring ("group these knobs into one
 /// type") that keeps a signature honest.
-const CONFIG_SUFFIXES: &[&str] = &["Config", "Configuration", "Settings", "Options", "Params", "Args"];
+const CONFIG_SUFFIXES: &[&str] = &[
+    "Config",
+    "Configuration",
+    "Settings",
+    "Options",
+    "Params",
+    "Args",
+];
 
 fn is_config_record(declared: &str) -> bool {
     declared
@@ -55,7 +62,10 @@ pub struct ConstructorOverInjectionRule {
 
 impl ConstructorOverInjectionRule {
     pub fn new(max_collaborators: usize) -> Self {
-        Self { id: RuleId::new("smells:constructor-over-injection").expect("valid rule id"), max_collaborators }
+        Self {
+            id: RuleId::new("smells:constructor-over-injection").expect("valid rule id"),
+            max_collaborators,
+        }
     }
 }
 
@@ -113,7 +123,9 @@ impl Rule for ConstructorOverInjectionRule {
         for class in registry.iter() {
             // `ClassInfo::constructor` knows what each language calls one —
             // `constructor`/`__init__`, Rust's `new`, Go's `New<Type>` function.
-            let Some(constructor) = class.constructor() else { continue };
+            let Some(constructor) = class.constructor() else {
+                continue;
+            };
             if constructor.params.iter().all(|p| p.declared_type.is_none()) {
                 continue; // nothing declared: no evidence either way
             }
@@ -142,13 +154,17 @@ mod tests {
 
     fn ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         ConstructorOverInjectionRule::default().check(&file, &ast)
     }
 
     fn py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         ConstructorOverInjectionRule::default().check(&file, &ast)
     }
 
@@ -164,7 +180,11 @@ mod tests {
             "class OrderService {\n  constructor(\n    orders: OrderRepository,\n    payments: PaymentGateway,\n    mail: Mailer,\n    audit: AuditLog,\n    clock: Clock,\n  ) {}\n}\n",
         );
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("5 injected collaborators"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("5 injected collaborators"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("OrderService"));
     }
 
@@ -181,7 +201,10 @@ mod tests {
         let findings = ts(
             "class Money {\n  constructor(\n    amount: number,\n    currency: string,\n    scale: number,\n    rounding: string,\n    label: string,\n    note: string,\n  ) {}\n}\n",
         );
-        assert!(findings.is_empty(), "a value object built from data is not over-injected: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "a value object built from data is not over-injected: {findings:?}"
+        );
     }
 
     #[test]
@@ -231,7 +254,10 @@ mod tests {
         let findings = ts(
             "class Runtime {\n  constructor(\n    model: Model,\n    workspace: Workspace,\n    judge: Judge,\n    analyzer: Analyzer,\n    config: RunConfig,\n  ) {}\n}\n",
         );
-        assert!(findings.is_empty(), "four services and one settings record: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "four services and one settings record: {findings:?}"
+        );
     }
 
     #[test]
@@ -239,7 +265,10 @@ mod tests {
         let findings = rs(
             "pub struct Issue;\n\nimpl Issue {\n    pub fn new(rule: RuleId, severity: Severity, message: impl Into<String>, file: impl Into<String>, span: Span) -> Self {\n        Self\n    }\n}\n",
         );
-        assert!(findings.is_empty(), "two of these five parameters are strings: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "two of these five parameters are strings: {findings:?}"
+        );
     }
 
     #[test]
@@ -264,8 +293,14 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
-        assert!(ConstructorOverInjectionRule::default().check(&file, &ast).is_empty());
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(
+            ConstructorOverInjectionRule::default()
+                .check(&file, &ast)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -276,8 +311,19 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
-        assert_eq!(ConstructorOverInjectionRule::new(2).check(&file, &ast).len(), 1);
-        assert!(ConstructorOverInjectionRule::new(3).check(&file, &ast).is_empty());
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert_eq!(
+            ConstructorOverInjectionRule::new(2)
+                .check(&file, &ast)
+                .len(),
+            1
+        );
+        assert!(
+            ConstructorOverInjectionRule::new(3)
+                .check(&file, &ast)
+                .is_empty()
+        );
     }
 }

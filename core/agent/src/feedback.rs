@@ -110,7 +110,10 @@ pub enum Poll {
 impl Poll {
     /// A complete observation: everything that was going to report has.
     pub fn observed(items: Vec<FeedbackItem>) -> Self {
-        Self::Observed { items, outstanding: 0 }
+        Self::Observed {
+            items,
+            outstanding: 0,
+        }
     }
 }
 
@@ -144,10 +147,16 @@ impl FeedbackOutcome {
     pub fn describe(&self) -> String {
         match self {
             Self::Quiet => "quiet: the window elapsed with no feedback".to_string(),
-            Self::BotAllClear { items } => format!("bot all-clear: {} report(s), none objecting", items.len()),
+            Self::BotAllClear { items } => {
+                format!("bot all-clear: {} report(s), none objecting", items.len())
+            }
             Self::NewFeedback { items } => {
                 let lines: Vec<String> = items.iter().map(FeedbackItem::describe).collect();
-                format!("{} new item(s) to triage:\n{}", items.len(), lines.join("\n"))
+                format!(
+                    "{} new item(s) to triage:\n{}",
+                    items.len(),
+                    lines.join("\n")
+                )
             }
             Self::Inconclusive { reason } => format!("inconclusive: {reason}"),
         }
@@ -172,7 +181,9 @@ pub struct TriageLedger {
 
 impl TriageLedger {
     pub fn from_ids(ids: impl IntoIterator<Item = String>) -> Self {
-        Self { seen: ids.into_iter().collect() }
+        Self {
+            seen: ids.into_iter().collect(),
+        }
     }
 
     pub fn contains(&self, id: &str) -> bool {
@@ -291,7 +302,10 @@ impl FeedbackWatch {
     fn on_observation(&mut self, items: Vec<FeedbackItem>, outstanding: usize) -> Watch {
         self.consecutive_failures = 0;
         self.outstanding = outstanding;
-        let new: Vec<FeedbackItem> = items.into_iter().filter(|item| !self.ledger.contains(&item.id)).collect();
+        let new: Vec<FeedbackItem> = items
+            .into_iter()
+            .filter(|item| !self.ledger.contains(&item.id))
+            .collect();
         if !new.is_empty() {
             for item in &new {
                 self.ledger.record(&item.id);
@@ -360,7 +374,11 @@ mod tests {
         FeedbackItem {
             id: id.to_string(),
             source: FeedbackSource::CheckRun,
-            author: if bot { "ci[bot]".to_string() } else { "a-human".to_string() },
+            author: if bot {
+                "ci[bot]".to_string()
+            } else {
+                "a-human".to_string()
+            },
             body: "something".to_string(),
             bot,
             verdict,
@@ -387,15 +405,28 @@ mod tests {
         assert_eq!(policy.delay_for(0), Duration::from_secs(1));
         assert_eq!(policy.delay_for(1), Duration::from_secs(2));
         assert_eq!(policy.delay_for(2), Duration::from_secs(4));
-        assert_eq!(policy.delay_for(9), Duration::from_secs(4), "capped at max_delay");
+        assert_eq!(
+            policy.delay_for(9),
+            Duration::from_secs(4),
+            "capped at max_delay"
+        );
     }
 
     #[test]
     fn an_observed_silence_that_outlasts_the_window_is_quiet() {
         let mut watch = watch();
-        assert_eq!(watch.observe(Poll::observed(vec![])), Watch::WaitFor(Duration::from_secs(1)));
-        assert_eq!(watch.observe(Poll::observed(vec![])), Watch::WaitFor(Duration::from_secs(2)));
-        assert_eq!(watch.observe(Poll::observed(vec![])), Watch::Settled(FeedbackOutcome::Quiet));
+        assert_eq!(
+            watch.observe(Poll::observed(vec![])),
+            Watch::WaitFor(Duration::from_secs(1))
+        );
+        assert_eq!(
+            watch.observe(Poll::observed(vec![])),
+            Watch::WaitFor(Duration::from_secs(2))
+        );
+        assert_eq!(
+            watch.observe(Poll::observed(vec![])),
+            Watch::Settled(FeedbackOutcome::Quiet)
+        );
     }
 
     #[test]
@@ -410,16 +441,29 @@ mod tests {
             panic!("unverified silence must not report as quiet, got {outcome:?}");
         };
         assert!(reason.contains("502"));
-        assert_eq!(outcome.exit_code(), 1, "inconclusive must not exit like a clean run");
+        assert_eq!(
+            outcome.exit_code(),
+            1,
+            "inconclusive must not exit like a clean run"
+        );
     }
 
     #[test]
     fn silence_with_a_check_still_running_is_inconclusive_not_quiet() {
         let mut watch = watch();
-        watch.observe(Poll::Observed { items: vec![], outstanding: 1 });
-        watch.observe(Poll::Observed { items: vec![], outstanding: 1 });
+        watch.observe(Poll::Observed {
+            items: vec![],
+            outstanding: 1,
+        });
+        watch.observe(Poll::Observed {
+            items: vec![],
+            outstanding: 1,
+        });
         let Watch::Settled(FeedbackOutcome::Inconclusive { reason }) =
-            watch.observe(Poll::Observed { items: vec![], outstanding: 1 })
+            watch.observe(Poll::Observed {
+                items: vec![],
+                outstanding: 1,
+            })
         else {
             panic!("a window that ends mid-CI has not observed silence");
         };
@@ -429,9 +473,15 @@ mod tests {
     #[test]
     fn a_check_that_finishes_before_the_window_ends_restores_a_quiet_verdict() {
         let mut watch = watch();
-        watch.observe(Poll::Observed { items: vec![], outstanding: 1 });
+        watch.observe(Poll::Observed {
+            items: vec![],
+            outstanding: 1,
+        });
         watch.observe(Poll::observed(vec![]));
-        assert_eq!(watch.observe(Poll::observed(vec![])), Watch::Settled(FeedbackOutcome::Quiet));
+        assert_eq!(
+            watch.observe(Poll::observed(vec![])),
+            Watch::Settled(FeedbackOutcome::Quiet)
+        );
     }
 
     #[test]
@@ -445,7 +495,10 @@ mod tests {
     #[test]
     fn consecutive_failures_give_up_as_inconclusive() {
         let mut watch = watch();
-        assert!(matches!(watch.observe(Poll::Unavailable("timeout".into())), Watch::WaitFor(_)));
+        assert!(matches!(
+            watch.observe(Poll::Unavailable("timeout".into())),
+            Watch::WaitFor(_)
+        ));
         let Watch::Settled(FeedbackOutcome::Inconclusive { reason }) =
             watch.observe(Poll::Unavailable("timeout".into()))
         else {
@@ -461,7 +514,10 @@ mod tests {
         watch.observe(Poll::observed(vec![]));
         // Would be the second consecutive failure if the streak had not been
         // reset — and must not end the watch.
-        assert!(matches!(watch.observe(Poll::Unavailable("timeout".into())), Watch::WaitFor(_)));
+        assert!(matches!(
+            watch.observe(Poll::Unavailable("timeout".into())),
+            Watch::WaitFor(_)
+        ));
     }
 
     #[test]
@@ -476,11 +532,16 @@ mod tests {
             item("1", false, ItemVerdict::Neutral),
             item("2", false, ItemVerdict::Neutral),
         ]));
-        assert!(matches!(second, Watch::WaitFor(_)), "a second item extends the settle window");
-        let Watch::Settled(FeedbackOutcome::NewFeedback { items }) = watch.observe(Poll::observed(vec![
-            item("1", false, ItemVerdict::Neutral),
-            item("2", false, ItemVerdict::Neutral),
-        ])) else {
+        assert!(
+            matches!(second, Watch::WaitFor(_)),
+            "a second item extends the settle window"
+        );
+        let Watch::Settled(FeedbackOutcome::NewFeedback { items }) =
+            watch.observe(Poll::observed(vec![
+                item("1", false, ItemVerdict::Neutral),
+                item("2", false, ItemVerdict::Neutral),
+            ]))
+        else {
             panic!("a settled batch must report");
         };
         assert_eq!(items.len(), 2, "one batch, one report");
@@ -500,7 +561,11 @@ mod tests {
     #[test]
     fn the_ledger_records_what_the_watch_reported() {
         let mut watch = watch();
-        watch.observe(Poll::observed(vec![item("42", false, ItemVerdict::Neutral)]));
+        watch.observe(Poll::observed(vec![item(
+            "42",
+            false,
+            ItemVerdict::Neutral,
+        )]));
         assert!(watch.ledger().contains("42"));
         assert_eq!(watch.ledger().ids().collect::<Vec<_>>(), vec!["42"]);
     }
@@ -516,23 +581,37 @@ mod tests {
     fn only_clean_bot_reports_settle_as_an_all_clear() {
         let mut watch = watch();
         watch.observe(Poll::observed(vec![item("ci-1", true, ItemVerdict::Clean)]));
-        let Watch::Settled(outcome) = watch.observe(Poll::observed(vec![item("ci-1", true, ItemVerdict::Clean)]))
+        let Watch::Settled(outcome) =
+            watch.observe(Poll::observed(vec![item("ci-1", true, ItemVerdict::Clean)]))
         else {
             panic!("the settle window should have closed");
         };
-        assert!(matches!(outcome, FeedbackOutcome::BotAllClear { .. }), "got {outcome:?}");
+        assert!(
+            matches!(outcome, FeedbackOutcome::BotAllClear { .. }),
+            "got {outcome:?}"
+        );
         assert_eq!(outcome.exit_code(), 0);
     }
 
     #[test]
     fn a_failing_bot_check_is_new_feedback_not_an_all_clear() {
         let mut watch = watch();
-        watch.observe(Poll::observed(vec![item("ci-1", true, ItemVerdict::NeedsWork)]));
-        let Watch::Settled(outcome) = watch.observe(Poll::observed(vec![item("ci-1", true, ItemVerdict::NeedsWork)]))
-        else {
+        watch.observe(Poll::observed(vec![item(
+            "ci-1",
+            true,
+            ItemVerdict::NeedsWork,
+        )]));
+        let Watch::Settled(outcome) = watch.observe(Poll::observed(vec![item(
+            "ci-1",
+            true,
+            ItemVerdict::NeedsWork,
+        )])) else {
             panic!("the settle window should have closed");
         };
-        assert!(matches!(outcome, FeedbackOutcome::NewFeedback { .. }), "got {outcome:?}");
+        assert!(
+            matches!(outcome, FeedbackOutcome::NewFeedback { .. }),
+            "got {outcome:?}"
+        );
         assert_eq!(outcome.exit_code(), 3);
     }
 
@@ -547,9 +626,25 @@ mod tests {
     fn every_outcome_describes_itself() {
         let items = vec![item("1", false, ItemVerdict::Neutral)];
         assert!(FeedbackOutcome::Quiet.describe().contains("quiet"));
-        assert!(FeedbackOutcome::BotAllClear { items: items.clone() }.describe().contains("all-clear"));
-        assert!(FeedbackOutcome::NewFeedback { items }.describe().contains("a-human"));
-        assert!(FeedbackOutcome::Inconclusive { reason: "boom".into() }.describe().contains("boom"));
+        assert!(
+            FeedbackOutcome::BotAllClear {
+                items: items.clone()
+            }
+            .describe()
+            .contains("all-clear")
+        );
+        assert!(
+            FeedbackOutcome::NewFeedback { items }
+                .describe()
+                .contains("a-human")
+        );
+        assert!(
+            FeedbackOutcome::Inconclusive {
+                reason: "boom".into()
+            }
+            .describe()
+            .contains("boom")
+        );
     }
 
     #[test]
@@ -560,8 +655,15 @@ mod tests {
             (FeedbackSource::Review, "review"),
             (FeedbackSource::CheckRun, "check"),
         ] {
-            let rendered = FeedbackItem { source, ..item("1", false, ItemVerdict::Neutral) }.describe();
-            assert!(rendered.starts_with(expected), "{rendered} should start with {expected}");
+            let rendered = FeedbackItem {
+                source,
+                ..item("1", false, ItemVerdict::Neutral)
+            }
+            .describe();
+            assert!(
+                rendered.starts_with(expected),
+                "{rendered} should start with {expected}"
+            );
         }
     }
 

@@ -21,8 +21,16 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 
 /// Accessor names that mean "give me the one global instance".
 const SINGLETON_ACCESSORS: &[&str] = &[
-    "getInstance", "get_instance", "GetInstance", "getDefault", "get_default", "instance",
-    "Instance", "global", "Global", "current",
+    "getInstance",
+    "get_instance",
+    "GetInstance",
+    "getDefault",
+    "get_default",
+    "instance",
+    "Instance",
+    "global",
+    "Global",
+    "current",
 ];
 
 /// Names that mean "look a dependency up by key", which only count on a
@@ -30,7 +38,14 @@ const SINGLETON_ACCESSORS: &[&str] = &[
 /// every map in existence.
 const LOOKUP_ACCESSORS: &[&str] = &["get", "resolve", "lookup", "make", "inject"];
 
-const LOCATOR_SUFFIXES: &[&str] = &["Locator", "Container", "Registry", "Injector", "Provider", "Factory"];
+const LOCATOR_SUFFIXES: &[&str] = &[
+    "Locator",
+    "Container",
+    "Registry",
+    "Injector",
+    "Provider",
+    "Factory",
+];
 
 /// A callee's `receiver`/`method` pair, read from the node rather than from its
 /// text: a `MemberAccess`'s two children (`Db.getInstance`, `db.get_instance`),
@@ -45,7 +60,7 @@ fn receiver_and_method(callee: &AstNode) -> Option<(&str, &str)> {
         // Rust turbofish (`Registry::global::<T>()`) wraps the path one level
         // deeper; unwrap and try again.
         NodeKind::Other(kind) if kind.as_ref() == "generic_function" => {
-            return callee.first_child().and_then(receiver_and_method)
+            return callee.first_child().and_then(receiver_and_method);
         }
         _ => None,
     }?;
@@ -56,7 +71,10 @@ fn receiver_and_method(callee: &AstNode) -> Option<(&str, &str)> {
 /// Whether a lookup-by-key call is one on a locator/container/registry, the only
 /// receivers for which `get`/`resolve` means "hand me a dependency".
 fn locator_lookup(receiver: &str, method: &str) -> bool {
-    LOCATOR_SUFFIXES.iter().any(|suffix| receiver.ends_with(suffix)) && LOOKUP_ACCESSORS.contains(&method)
+    LOCATOR_SUFFIXES
+        .iter()
+        .any(|suffix| receiver.ends_with(suffix))
+        && LOOKUP_ACCESSORS.contains(&method)
 }
 
 /// Whether `receiver` names a type or a module rather than a value in hand.
@@ -79,7 +97,9 @@ pub struct ServiceLocatorRule {
 
 impl ServiceLocatorRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:service-locator").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:service-locator").expect("valid rule id"),
+        }
     }
 }
 
@@ -159,13 +179,17 @@ mod tests {
 
     fn ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         ServiceLocatorRule::new().check(&file, &ast)
     }
 
     fn py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         ServiceLocatorRule::new().check(&file, &ast)
     }
 
@@ -181,7 +205,11 @@ mod tests {
             "class OrderService {\n  save(o: Order): void {\n    Database.getInstance().insert(o);\n  }\n}\n",
         );
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("`Database`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`Database`"),
+            "{}",
+            findings[0].message
+        );
         assert!(findings[0].message.contains("getInstance"));
     }
 
@@ -194,7 +222,9 @@ mod tests {
 
     #[test]
     fn ignores_an_ordinary_get_on_a_map() {
-        assert!(ts("const value = cache.get('key');\nconst other = Cache.get('key');\n").is_empty());
+        assert!(
+            ts("const value = cache.get('key');\nconst other = Cache.get('key');\n").is_empty()
+        );
     }
 
     #[test]
@@ -212,7 +242,8 @@ mod tests {
 
     #[test]
     fn flags_a_python_singleton_accessor() {
-        let findings = py("class Service:\n    def run(self):\n        Database.get_instance().query()\n");
+        let findings =
+            py("class Service:\n    def run(self):\n        Database.get_instance().query()\n");
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("get_instance"));
     }
@@ -238,7 +269,9 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         assert!(ServiceLocatorRule::new().check(&file, &ast).is_empty());
     }
 

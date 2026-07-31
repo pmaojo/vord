@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 /// The command the hooks invoke. Deliberately a bare `yunq` rather than an
 /// absolute path: this file gets committed and shared, and an absolute path
@@ -129,7 +129,9 @@ pub fn merge_hooks(mut settings: Value, command: &str) -> (Value, bool) {
         settings = Value::Object(Map::new());
     }
     let root = settings.as_object_mut().expect("just ensured object");
-    let hooks = root.entry("hooks").or_insert_with(|| Value::Object(Map::new()));
+    let hooks = root
+        .entry("hooks")
+        .or_insert_with(|| Value::Object(Map::new()));
     if !hooks.is_object() {
         *hooks = Value::Object(Map::new());
     }
@@ -137,7 +139,9 @@ pub fn merge_hooks(mut settings: Value, command: &str) -> (Value, bool) {
 
     let mut changed = false;
     for event in ["PreToolUse", "PostToolUse"] {
-        let entry = hooks.entry(event).or_insert_with(|| Value::Array(Vec::new()));
+        let entry = hooks
+            .entry(event)
+            .or_insert_with(|| Value::Array(Vec::new()));
         if !entry.is_array() {
             *entry = Value::Array(Vec::new());
         }
@@ -172,7 +176,11 @@ fn already_installed(matchers: &[Value], command: &str) -> bool {
         group
             .get("hooks")
             .and_then(|h| h.as_array())
-            .is_some_and(|hooks| hooks.iter().any(|h| h.get("command").and_then(|c| c.as_str()) == Some(command)))
+            .is_some_and(|hooks| {
+                hooks
+                    .iter()
+                    .any(|h| h.get("command").and_then(|c| c.as_str()) == Some(command))
+            })
     })
 }
 
@@ -180,7 +188,10 @@ fn already_installed(matchers: &[Value], command: &str) -> bool {
 pub fn install(root: &Path, command: &str) -> anyhow::Result<()> {
     let policy_path = root.join(yunq_cli::hook::POLICY_FILE);
     if policy_path.exists() {
-        println!("✅ {} already exists — left untouched", policy_path.display());
+        println!(
+            "✅ {} already exists — left untouched",
+            policy_path.display()
+        );
     } else {
         std::fs::write(&policy_path, POLICY_TEMPLATE)
             .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", policy_path.display()))?;
@@ -201,8 +212,12 @@ pub fn install(root: &Path, command: &str) -> anyhow::Result<()> {
         if raw.trim().is_empty() {
             Value::Object(Map::new())
         } else {
-            serde_json::from_str(&raw)
-                .map_err(|e| anyhow::anyhow!("{} is not valid JSON ({e}) — fix or move it, then re-run", settings_path.display()))?
+            serde_json::from_str(&raw).map_err(|e| {
+                anyhow::anyhow!(
+                    "{} is not valid JSON ({e}) — fix or move it, then re-run",
+                    settings_path.display()
+                )
+            })?
         }
     } else {
         Value::Object(Map::new())
@@ -210,11 +225,20 @@ pub fn install(root: &Path, command: &str) -> anyhow::Result<()> {
 
     let (merged, changed) = merge_hooks(existing, command);
     if changed {
-        std::fs::write(&settings_path, format!("{}\n", serde_json::to_string_pretty(&merged)?))
-            .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", settings_path.display()))?;
-        println!("🪝 Installed PreToolUse + PostToolUse hooks in {}", settings_path.display());
+        std::fs::write(
+            &settings_path,
+            format!("{}\n", serde_json::to_string_pretty(&merged)?),
+        )
+        .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", settings_path.display()))?;
+        println!(
+            "🪝 Installed PreToolUse + PostToolUse hooks in {}",
+            settings_path.display()
+        );
     } else {
-        println!("✅ Hooks already present in {} — nothing to do", settings_path.display());
+        println!(
+            "✅ Hooks already present in {} — nothing to do",
+            settings_path.display()
+        );
     }
 
     println!(
@@ -233,8 +257,14 @@ mod tests {
         let (merged, changed) = merge_hooks(json!({}), DEFAULT_HOOK_COMMAND);
         assert!(changed);
         assert_eq!(merged["hooks"]["PreToolUse"][0]["matcher"], "Edit|Write");
-        assert_eq!(merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"], DEFAULT_HOOK_COMMAND);
-        assert_eq!(merged["hooks"]["PostToolUse"][0]["hooks"][0]["command"], DEFAULT_HOOK_COMMAND);
+        assert_eq!(
+            merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            DEFAULT_HOOK_COMMAND
+        );
+        assert_eq!(
+            merged["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+            DEFAULT_HOOK_COMMAND
+        );
     }
 
     #[test]
@@ -256,8 +286,14 @@ mod tests {
         assert!(changed);
         assert_eq!(merged["model"], "opus");
         assert_eq!(merged["permissions"]["allow"][0], "Bash(git status)");
-        assert_eq!(merged["hooks"]["Stop"][0]["hooks"][0]["command"], "notify", "other events untouched");
-        assert_eq!(merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"], DEFAULT_HOOK_COMMAND);
+        assert_eq!(
+            merged["hooks"]["Stop"][0]["hooks"][0]["command"], "notify",
+            "other events untouched"
+        );
+        assert_eq!(
+            merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            DEFAULT_HOOK_COMMAND
+        );
     }
 
     #[test]
@@ -284,7 +320,10 @@ mod tests {
             }] }
         });
         let (merged, changed) = merge_hooks(existing, DEFAULT_HOOK_COMMAND);
-        assert!(changed, "PostToolUse is still missing, so something does change");
+        assert!(
+            changed,
+            "PostToolUse is still missing, so something does change"
+        );
         let pre = merged["hooks"]["PreToolUse"].as_array().expect("array");
         assert_eq!(pre.len(), 1, "PreToolUse must not gain a second yunq hook");
         assert_eq!(pre[0]["matcher"], "Write");
@@ -299,12 +338,19 @@ mod tests {
 
     #[test]
     fn the_shipped_policy_template_parses_and_protects_paths() {
-        let policy = yunq_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
+        let policy =
+            yunq_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
         assert!(policy.enabled());
         assert!(policy.evaluate(".github/workflows/ci.yml", &[]).is_denied());
         assert!(policy.evaluate("infra/main.tf", &[]).is_denied());
-        assert!(policy.evaluate("yunq-policy.toml", &[]).is_denied(), "the policy must protect its own rulebook");
-        assert!(policy.evaluate("yunq.toml", &[]).is_denied(), "the gate config must protect its own thresholds");
+        assert!(
+            policy.evaluate("yunq-policy.toml", &[]).is_denied(),
+            "the policy must protect its own rulebook"
+        );
+        assert!(
+            policy.evaluate("yunq.toml", &[]).is_denied(),
+            "the gate config must protect its own thresholds"
+        );
         assert!(!policy.evaluate("src/app.ts", &[]).is_denied());
         assert!(
             !policy.has_gherkin_requirements(),
@@ -316,9 +362,16 @@ mod tests {
     fn the_shipped_policy_template_turns_on_a_stricter_ai_touched_threshold() {
         use yunq_agent_policy::{Finding, Provenance};
 
-        let policy = yunq_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
-        assert_eq!(policy.block_at_or_above(), yunq_rules_engine::Severity::Critical);
-        assert_eq!(policy.block_at_or_above_for(Provenance::AiTouched), yunq_rules_engine::Severity::Major);
+        let policy =
+            yunq_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
+        assert_eq!(
+            policy.block_at_or_above(),
+            yunq_rules_engine::Severity::Critical
+        );
+        assert_eq!(
+            policy.block_at_or_above_for(Provenance::AiTouched),
+            yunq_rules_engine::Severity::Major
+        );
 
         let major_finding = [Finding {
             rule: yunq_rules_engine::RuleId::new("smells:long-method").expect("valid rule id"),
@@ -327,11 +380,15 @@ mod tests {
             line: 1,
         }];
         assert!(
-            !policy.evaluate_with_provenance("src/app.ts", &major_finding, Provenance::Unestablished).is_denied(),
+            !policy
+                .evaluate_with_provenance("src/app.ts", &major_finding, Provenance::Unestablished)
+                .is_denied(),
             "major is below the shipped base threshold of critical"
         );
         assert!(
-            policy.evaluate_with_provenance("src/app.ts", &major_finding, Provenance::AiTouched).is_denied(),
+            policy
+                .evaluate_with_provenance("src/app.ts", &major_finding, Provenance::AiTouched)
+                .is_denied(),
             "major meets the shipped ai_touched threshold"
         );
     }

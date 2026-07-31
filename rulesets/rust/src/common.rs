@@ -49,7 +49,10 @@ pub(crate) fn impl_trait_is(node: &AstNode, name: &str) -> bool {
 /// doesn't survive conversion to this neutral AST as a node, so it's read
 /// back out of the raw source between the two operand spans.
 pub(crate) fn operator_between<'a>(source: &'a str, left: &AstNode, right: &AstNode) -> &'a str {
-    source.get(left.byte_range().end..right.byte_range().start).unwrap_or("").trim()
+    source
+        .get(left.byte_range().end..right.byte_range().start)
+        .unwrap_or("")
+        .trim()
 }
 
 /// Whether the contiguous run of comment lines directly above `start_line`

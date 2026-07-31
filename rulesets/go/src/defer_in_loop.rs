@@ -10,7 +10,9 @@
 //! the end of that call.
 
 use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use yunq_rules_engine::{
+    Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
+};
 
 use crate::common::{collect_bounded, is_other, loop_body};
 
@@ -103,7 +105,10 @@ mod tests {
 
     #[test]
     fn ignores_defer_outside_any_loop() {
-        assert!(check("package main\nfunc f() {\n\tf, _ := os.Open(\"x\")\n\tdefer f.Close()\n}\n").is_empty());
+        assert!(
+            check("package main\nfunc f() {\n\tf, _ := os.Open(\"x\")\n\tdefer f.Close()\n}\n")
+                .is_empty()
+        );
     }
 
     #[test]

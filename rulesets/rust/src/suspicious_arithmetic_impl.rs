@@ -21,10 +21,14 @@ const ARITHMETIC_TRAITS: &[(&str, &str, &str)] = &[
 const ARITHMETIC_OPS: &[&str] = &["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"];
 
 fn method_named<'a>(impl_item: &'a AstNode, name: &str) -> Option<&'a AstNode> {
-    let body = impl_item.children().iter().find(|c| is_other(c.kind(), "declaration_list"))?;
+    let body = impl_item
+        .children()
+        .iter()
+        .find(|c| is_other(c.kind(), "declaration_list"))?;
     body.children().iter().find(|c| {
         *c.kind() == NodeKind::FunctionDef
-            && c.first_child().is_some_and(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
+            && c.first_child()
+                .is_some_and(|n| *n.kind() == NodeKind::Identifier && n.text() == name)
     })
 }
 
@@ -56,7 +60,9 @@ pub struct SuspiciousArithmeticImplRule {
 
 impl SuspiciousArithmeticImplRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:suspicious-arithmetic-impl").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:suspicious-arithmetic-impl").expect("valid rule id"),
+        }
     }
 }
 
@@ -104,25 +110,27 @@ impl Rule for SuspiciousArithmeticImplRule {
         ast.descendants()
             .filter(|n| is_other(n.kind(), "impl_item"))
             .flat_map(|impl_item| {
-                ARITHMETIC_TRAITS.iter().filter_map(move |(trait_name, method, expected_op)| {
-                    if !impl_trait_is(impl_item, trait_name) {
-                        return None;
-                    }
-                    let func = method_named(impl_item, method)?;
-                    let mut ops = Vec::new();
-                    operators_used(func, file.content(), &mut ops);
-                    if ops.contains(expected_op) || ops.is_empty() {
-                        return None;
-                    }
-                    Some(Finding::new(
-                        format!(
-                            "`impl {trait_name} for _` uses `{}` but never `{expected_op}` — \
+                ARITHMETIC_TRAITS
+                    .iter()
+                    .filter_map(move |(trait_name, method, expected_op)| {
+                        if !impl_trait_is(impl_item, trait_name) {
+                            return None;
+                        }
+                        let func = method_named(impl_item, method)?;
+                        let mut ops = Vec::new();
+                        operators_used(func, file.content(), &mut ops);
+                        if ops.contains(expected_op) || ops.is_empty() {
+                            return None;
+                        }
+                        Some(Finding::new(
+                            format!(
+                                "`impl {trait_name} for _` uses `{}` but never `{expected_op}` — \
                             check this is really the intended operation",
-                            ops[0]
-                        ),
-                        func.span(),
-                    ))
-                })
+                                ops[0]
+                            ),
+                            func.span(),
+                        ))
+                    })
             })
             .collect()
     }
@@ -175,17 +183,18 @@ mod tests {
 
     #[test]
     fn ignores_non_arithmetic_trait() {
-        assert!(check(
-            "impl Clone for P { fn clone(&self) -> P { P { x: self.x - 1 } } }\n"
-        )
-        .is_empty());
+        assert!(
+            check("impl Clone for P { fn clone(&self) -> P { P { x: self.x - 1 } } }\n").is_empty()
+        );
     }
 
     #[test]
     fn ignores_add_impl_with_no_arithmetic() {
-        assert!(check(
-            "impl Add for P { type Output = P; fn add(self, o: P) -> P { self.combine(o) } }\n"
-        )
-        .is_empty());
+        assert!(
+            check(
+                "impl Add for P { type Output = P; fn add(self, o: P) -> P { self.combine(o) } }\n"
+            )
+            .is_empty()
+        );
     }
 }

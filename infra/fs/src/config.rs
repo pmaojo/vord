@@ -355,9 +355,15 @@ command_timeout_secs = 60
         let config: YunqConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.agent.max_turns, Some(12));
         assert_eq!(config.agent.max_tokens, Some(250_000));
-        assert_eq!(config.agent.allowed_commands.as_deref(), Some(["cargo".to_string(), "just".to_string()].as_slice()));
+        assert_eq!(
+            config.agent.allowed_commands.as_deref(),
+            Some(["cargo".to_string(), "just".to_string()].as_slice())
+        );
         assert_eq!(config.agent.command_timeout_secs, Some(60));
-        assert_eq!(config.agent.max_rejections, None, "an unset field stays unset rather than defaulting to zero");
+        assert_eq!(
+            config.agent.max_rejections, None,
+            "an unset field stays unset rather than defaulting to zero"
+        );
     }
 
     #[test]
@@ -386,7 +392,10 @@ pattern = "**"
 reason = "QA is read-only"
 "#;
         let config: YunqConfig = toml::from_str(toml_content).unwrap();
-        assert_eq!(config.swarm.worktree_root.as_deref(), Some(".yunq/worktrees"));
+        assert_eq!(
+            config.swarm.worktree_root.as_deref(),
+            Some(".yunq/worktrees")
+        );
         assert_eq!(config.swarm.roles.len(), 2);
         assert_eq!(config.swarm.roles[0].name, "coder");
         assert!(config.swarm.roles[0].protected_paths.is_empty());

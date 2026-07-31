@@ -47,10 +47,21 @@ const TS_DECORATORS: &[&str] = &[
 
 /// Python mapped-base classes and mapping helpers: Django, SQLAlchemy (both the
 /// declarative and the 2.0 style), SQLModel, MongoEngine, Beanie.
-const PYTHON_BASES: &[&str] =
-    &["models.Model", "DeclarativeBase", "SQLModel", "Document", "EmbeddedDocument", "Base"];
-const PYTHON_MAPPERS: &[&str] =
-    &["Column(", "mapped_column(", "relationship(", "declarative_base(", "ForeignKey("];
+const PYTHON_BASES: &[&str] = &[
+    "models.Model",
+    "DeclarativeBase",
+    "SQLModel",
+    "Document",
+    "EmbeddedDocument",
+    "Base",
+];
+const PYTHON_MAPPERS: &[&str] = &[
+    "Column(",
+    "mapped_column(",
+    "relationship(",
+    "declarative_base(",
+    "ForeignKey(",
+];
 
 /// Go markers: a `gorm:`/`db:`/`bson:` column tag on a struct field, or an
 /// embedded `gorm.Model`. Go has no annotations, so the mapping rides on struct
@@ -93,15 +104,30 @@ fn markers(file: &SourceFile, ast: &AstNode) -> Vec<(String, yunq_ast::Span)> {
     }
     if *language == LanguageIdentifier::python() {
         let mut found = Vec::new();
-        for class in ast.descendants().filter(|n| is_other(n, "class_definition")) {
-            let Some(bases) = class.children().iter().find(|c| is_other(c, "argument_list")) else { continue };
-            if let Some(base) = PYTHON_BASES.iter().find(|base| bases.text().contains(*base)) {
+        for class in ast
+            .descendants()
+            .filter(|n| is_other(n, "class_definition"))
+        {
+            let Some(bases) = class
+                .children()
+                .iter()
+                .find(|c| is_other(c, "argument_list"))
+            else {
+                continue;
+            };
+            if let Some(base) = PYTHON_BASES
+                .iter()
+                .find(|base| bases.text().contains(*base))
+            {
                 found.push((base.to_string(), class.span()));
             }
         }
         for call in ast.descendants().filter(|n| *n.kind() == NodeKind::Call) {
             let text = call.text();
-            if let Some(mapper) = PYTHON_MAPPERS.iter().find(|mapper| text.starts_with(*mapper)) {
+            if let Some(mapper) = PYTHON_MAPPERS
+                .iter()
+                .find(|mapper| text.starts_with(*mapper))
+            {
                 found.push((mapper.trim_end_matches('(').to_string(), call.span()));
             }
         }
@@ -117,7 +143,9 @@ fn markers(file: &SourceFile, ast: &AstNode) -> Vec<(String, yunq_ast::Span)> {
                     .iter()
                     .find(|c| *c.kind() == NodeKind::StringLiteral)
                     .and_then(|literal| {
-                        GO_TAG_MARKERS.iter().find(|marker| literal.text().contains(*marker))
+                        GO_TAG_MARKERS
+                            .iter()
+                            .find(|marker| literal.text().contains(*marker))
                     })
                     .map(|marker| marker.trim_end_matches(':').to_string());
                 let embedded = GO_EMBEDDED_MARKERS
@@ -150,7 +178,9 @@ pub struct PersistenceInDomainRule {
 
 impl PersistenceInDomainRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("ddd:persistence-in-domain").expect("valid rule id") }
+        Self {
+            id: RuleId::new("ddd:persistence-in-domain").expect("valid rule id"),
+        }
     }
 }
 
@@ -222,9 +252,13 @@ mod tests {
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::go() {
             yunq_parser_go::GoParser::new().parse(&file).unwrap()
         } else {
@@ -235,22 +269,45 @@ mod tests {
 
     #[test]
     fn flags_typeorm_decorators_on_a_domain_entity() {
-        let code = "@Entity()\nexport class Order {\n  @PrimaryGeneratedColumn()\n  id: number;\n}\n";
-        let findings = check("src/domain/order.ts", code, LanguageIdentifier::typescript());
+        let code =
+            "@Entity()\nexport class Order {\n  @PrimaryGeneratedColumn()\n  id: number;\n}\n";
+        let findings = check(
+            "src/domain/order.ts",
+            code,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 2);
-        assert!(findings[0].message.contains("`@Entity`"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`@Entity`"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
     fn silent_on_the_same_decorators_in_the_infrastructure_layer() {
         let code = "@Entity()\nexport class OrderRow {\n  @Column()\n  id: number;\n}\n";
-        assert!(check("src/infrastructure/order_row.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/infrastructure/order_row.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn silent_on_unrelated_decorators() {
         let code = "@Injectable()\nexport class OrderPolicy {}\n";
-        assert!(check("src/domain/order_policy.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/order_policy.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -306,6 +363,13 @@ mod tests {
     #[test]
     fn silent_in_test_only_paths() {
         let code = "@Entity()\nexport class Order {}\n";
-        assert!(check("tests/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "tests/domain/order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 }

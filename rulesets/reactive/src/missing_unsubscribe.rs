@@ -17,7 +17,9 @@ pub struct MissingUnsubscribeRule {
 
 impl MissingUnsubscribeRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("reactive:missing-unsubscribe").expect("valid rule id") }
+        Self {
+            id: RuleId::new("reactive:missing-unsubscribe").expect("valid rule id"),
+        }
     }
 }
 
@@ -84,7 +86,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         MissingUnsubscribeRule::new().check(&file, &ast)
     }
 
@@ -123,7 +127,8 @@ mod tests {
 
     #[test]
     fn flags_local_subscription_never_unsubscribed() {
-        let findings = check("function run() {\n  const sub = source$.subscribe((x) => console.log(x));\n}\n");
+        let findings =
+            check("function run() {\n  const sub = source$.subscribe((x) => console.log(x));\n}\n");
         assert_eq!(findings.len(), 1);
     }
 

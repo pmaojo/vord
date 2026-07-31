@@ -20,7 +20,7 @@
 use std::collections::BTreeSet;
 
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_import_graph::{layer_of, HexLayer};
+use yunq_import_graph::{HexLayer, layer_of};
 use yunq_symbols::{ClassInfo, MemberInfo, MethodInfo};
 
 /// Field names and type suffixes that mean "this type has identity" — the mark
@@ -47,7 +47,9 @@ pub fn is_value_object(class: &ClassInfo<'_>) -> bool {
         let name = field.name.trim_start_matches('_').to_ascii_lowercase();
         IDENTITY_FIELDS.contains(&name.as_str())
             || field.declared_type.as_deref().is_some_and(|declared| {
-                IDENTITY_TYPE_SUFFIXES.iter().any(|suffix| declared.trim_end_matches('>').ends_with(suffix))
+                IDENTITY_TYPE_SUFFIXES
+                    .iter()
+                    .any(|suffix| declared.trim_end_matches('>').ends_with(suffix))
             })
     })
 }
@@ -97,7 +99,13 @@ pub fn is_application_path(path: &str) -> bool {
 /// carry their own type.
 pub fn field_declared_type<'a>(class: &'a ClassInfo<'_>, field: &'a MemberInfo) -> Option<&'a str> {
     field.declared_type.as_deref().or_else(|| {
-        class.constructor()?.params.iter().find(|param| param.name == field.name)?.declared_type.as_deref()
+        class
+            .constructor()?
+            .params
+            .iter()
+            .find(|param| param.name == field.name)?
+            .declared_type
+            .as_deref()
     })
 }
 
@@ -139,9 +147,15 @@ pub struct Accessor {
 /// substring search over the statement's text would also match an operator
 /// inside a string literal on the right-hand side; the gap cannot.
 fn is_compound_assignment(assignment: &AstNode) -> bool {
-    let Some(target) = assignment.first_child() else { return false };
-    let Some(value) = assignment.children().get(1) else { return false };
-    let Some(operator) = assignment.text_between(target, value) else { return false };
+    let Some(target) = assignment.first_child() else {
+        return false;
+    };
+    let Some(value) = assignment.children().get(1) else {
+        return false;
+    };
+    let Some(operator) = assignment.text_between(target, value) else {
+        return false;
+    };
     operator.trim() != "="
 }
 
@@ -153,23 +167,36 @@ fn is_compound_assignment(assignment: &AstNode) -> bool {
 /// `reference_expression` carries an explicit `mutable_specifier` child for
 /// `&mut`, so even that is a node rather than a token to match.
 fn returned_expression(statement: &AstNode) -> (&AstNode, bool) {
-    const TRANSPARENT: &[&str] = &["return_statement", "expression_statement", "expression_list"];
+    const TRANSPARENT: &[&str] = &[
+        "return_statement",
+        "expression_statement",
+        "expression_list",
+    ];
     let mut node = statement;
     let mut mutable = false;
     loop {
         if is_other(node, "reference_expression") {
             // `&mut self.items` is `[mutable_specifier, <operand>]`; `&self.items`
             // is `[<operand>]`. The operand is the last child either way.
-            mutable = mutable || node.children().iter().any(|c| is_other(c, "mutable_specifier"));
-            let Some(operand) = node.children().last() else { return (node, mutable) };
+            mutable = mutable
+                || node
+                    .children()
+                    .iter()
+                    .any(|c| is_other(c, "mutable_specifier"));
+            let Some(operand) = node.children().last() else {
+                return (node, mutable);
+            };
             node = operand;
             continue;
         }
-        let transparent = matches!(node.kind(), NodeKind::Other(k) if TRANSPARENT.contains(&k.as_ref()));
+        let transparent =
+            matches!(node.kind(), NodeKind::Other(k) if TRANSPARENT.contains(&k.as_ref()));
         if !transparent {
             return (node, mutable);
         }
-        let Some(inner) = node.first_child() else { return (node, mutable) };
+        let Some(inner) = node.first_child() else {
+            return (node, mutable);
+        };
         node = inner;
     }
 }
@@ -178,16 +205,28 @@ fn returned_expression(statement: &AstNode) -> (&AstNode, bool) {
 /// `.to_vec()`, `.iter()` — peeled off so the field read underneath is visible.
 /// Structural: a `Call` whose callee is a `MemberAccess` naming one of these.
 fn unwrap_pass_through_call(expression: &AstNode) -> &AstNode {
-    const PASS_THROUGH: &[&str] =
-        &["clone", "to_vec", "to_string", "as_str", "as_slice", "iter", "copied", "to_owned"];
+    const PASS_THROUGH: &[&str] = &[
+        "clone",
+        "to_vec",
+        "to_string",
+        "as_str",
+        "as_slice",
+        "iter",
+        "copied",
+        "to_owned",
+    ];
     if *expression.kind() != NodeKind::Call {
         return expression;
     }
-    let Some(callee) = expression.first_child() else { return expression };
+    let Some(callee) = expression.first_child() else {
+        return expression;
+    };
     if *callee.kind() != NodeKind::MemberAccess {
         return expression;
     }
-    let Some(method) = callee.children().get(1) else { return expression };
+    let Some(method) = callee.children().get(1) else {
+        return expression;
+    };
     if !PASS_THROUGH.contains(&method.text()) {
         return expression;
     }
@@ -197,7 +236,10 @@ fn unwrap_pass_through_call(expression: &AstNode) -> &AstNode {
 /// The field a `<instance>.<field>` access reads, where `<instance>` is whatever
 /// this language calls the current object: `this`, `self`, or the declared name
 /// of a Go receiver (`func (o *Order) ..` -> `o`).
-pub(crate) fn accessed_field<'a>(expression: &'a AstNode, receiver: Option<&str>) -> Option<&'a str> {
+pub(crate) fn accessed_field<'a>(
+    expression: &'a AstNode,
+    receiver: Option<&str>,
+) -> Option<&'a str> {
     if *expression.kind() != NodeKind::MemberAccess {
         return None;
     }
@@ -218,7 +260,9 @@ pub(crate) fn accessed_field<'a>(expression: &'a AstNode, receiver: Option<&str>
 /// produce an accessor.
 pub fn accessor_of(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Option<Accessor> {
     let statements = body_statements(method.node);
-    let [only] = statements.as_slice() else { return None };
+    let [only] = statements.as_slice() else {
+        return None;
+    };
     let receiver = method.receiver.as_deref();
 
     // An assignment is wrapped in an `expression_statement` in every grammar
@@ -227,7 +271,8 @@ pub fn accessor_of(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Option
     let assignment = if *only.kind() == NodeKind::Assignment {
         Some(*only)
     } else {
-        only.first_child().filter(|child| *child.kind() == NodeKind::Assignment)
+        only.first_child()
+            .filter(|child| *child.kind() == NodeKind::Assignment)
     };
     if let Some(assignment) = assignment {
         if is_compound_assignment(assignment) {
@@ -300,7 +345,11 @@ type VisibilityPolicy = fn(&MethodInfo<'_>) -> bool;
 /// Rust: an explicit `pub` (the grammar carries it as a `visibility_modifier`
 /// child, so this is a node check, not a text prefix).
 fn rust_is_public(method: &MethodInfo<'_>) -> bool {
-    method.node.children().iter().any(|c| is_other(c, "visibility_modifier"))
+    method
+        .node
+        .children()
+        .iter()
+        .any(|c| is_other(c, "visibility_modifier"))
 }
 
 /// Go: exported means the identifier starts with an upper-case letter. There is
@@ -313,7 +362,9 @@ fn go_is_public(method: &MethodInfo<'_>) -> bool {
 /// `#private` name, and — Python's convention in place of a keyword — no leading
 /// underscore.
 fn default_is_public(method: &MethodInfo<'_>) -> bool {
-    if method.name.starts_with('#') || (method.name.starts_with('_') && !method.name.starts_with("__")) {
+    if method.name.starts_with('#')
+        || (method.name.starts_with('_') && !method.name.starts_with("__"))
+    {
         return false;
     }
     !method
@@ -361,10 +412,16 @@ pub fn wire_dto_names(ast: &AstNode) -> BTreeSet<String> {
                     .iter()
                     .find(|c| is_other(c, "argument_list"))
                     .is_some_and(|bases| {
-                        ["BaseModel", "TypedDict"].iter().any(|base| bases.text().contains(base))
+                        ["BaseModel", "TypedDict"]
+                            .iter()
+                            .any(|base| bases.text().contains(base))
                     });
                 if pydantic {
-                    if let Some(name) = node.children().iter().find(|c| *c.kind() == NodeKind::Identifier) {
+                    if let Some(name) = node
+                        .children()
+                        .iter()
+                        .find(|c| *c.kind() == NodeKind::Identifier)
+                    {
                         names.insert(name.text().to_string());
                     }
                 }
@@ -380,7 +437,11 @@ pub fn wire_dto_names(ast: &AstNode) -> BTreeSet<String> {
                 .find(|next| !is_other(next, "attribute_item"))
                 .filter(|next| is_other(next, "struct_item") || is_other(next, "enum_item"));
             if let Some(declared) = declared {
-                if let Some(name) = declared.children().iter().find(|c| is_other(c, "type_identifier")) {
+                if let Some(name) = declared
+                    .children()
+                    .iter()
+                    .find(|c| is_other(c, "type_identifier"))
+                {
                     names.insert(name.text().to_string());
                 }
             }
@@ -426,7 +487,11 @@ fn declared_type_name(node: &AstNode) -> Option<&str> {
 /// no use for a class's fields or methods at all.
 pub fn declared_types(ast: &AstNode) -> Vec<(&str, Span)> {
     ast.descendants()
-        .filter(|node| TYPE_DECLARATION_KINDS.iter().any(|kind| is_other(node, kind)))
+        .filter(|node| {
+            TYPE_DECLARATION_KINDS
+                .iter()
+                .any(|kind| is_other(node, kind))
+        })
         .filter_map(|node| declared_type_name(node).map(|name| (name, node.span())))
         .collect()
 }
@@ -462,7 +527,11 @@ pub fn repository_backed_names(files: &[(SourceFile, AstNode)]) -> BTreeSet<Stri
 
 /// A class's declared field names.
 pub fn field_names(class: &ClassInfo<'_>) -> BTreeSet<String> {
-    class.fields.iter().map(|field| field.name.clone()).collect()
+    class
+        .fields
+        .iter()
+        .map(|field| field.name.clone())
+        .collect()
 }
 
 /// The methods that say something about how the type was designed: not
@@ -487,15 +556,23 @@ mod tests {
     fn parse(path: &str, code: &str, language: LanguageIdentifier) -> AstNode {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else {
             yunq_parser_rust::RustParser::new().parse(&file).unwrap()
         }
     }
 
-    fn accessors(code: &str, language: LanguageIdentifier, class_name: &str) -> Vec<(String, Accessor)> {
+    fn accessors(
+        code: &str,
+        language: LanguageIdentifier,
+        class_name: &str,
+    ) -> Vec<(String, Accessor)> {
         let ast = parse("t", code, language);
         let registry = ClassRegistry::build(&ast);
         let class = registry.get(class_name).expect("class in registry");
@@ -539,7 +616,10 @@ mod tests {
             LanguageIdentifier::typescript(),
             "Order",
         );
-        assert!(found.is_empty(), "a guarded setter enforces an invariant: {found:?}");
+        assert!(
+            found.is_empty(),
+            "a guarded setter enforces an invariant: {found:?}"
+        );
     }
 
     #[test]
@@ -549,7 +629,10 @@ mod tests {
             LanguageIdentifier::rust(),
             "Metrics",
         );
-        assert!(found.is_empty(), "`+=` changes state relative to itself: {found:?}");
+        assert!(
+            found.is_empty(),
+            "`+=` changes state relative to itself: {found:?}"
+        );
     }
 
     #[test]
@@ -595,8 +678,14 @@ mod tests {
         );
         let registry = ClassRegistry::build(&ast);
         let order = registry.get("Order").unwrap();
-        assert!(is_public(order.method("total").unwrap(), &LanguageIdentifier::rust()));
-        assert!(!is_public(order.method("internal").unwrap(), &LanguageIdentifier::rust()));
+        assert!(is_public(
+            order.method("total").unwrap(),
+            &LanguageIdentifier::rust()
+        ));
+        assert!(!is_public(
+            order.method("internal").unwrap(),
+            &LanguageIdentifier::rust()
+        ));
 
         let ts = parse(
             "t.ts",
@@ -605,8 +694,14 @@ mod tests {
         );
         let ts_registry = ClassRegistry::build(&ts);
         let ts_order = ts_registry.get("Order").unwrap();
-        assert!(!is_public(ts_order.method("hidden").unwrap(), &LanguageIdentifier::typescript()));
-        assert!(is_public(ts_order.method("shown").unwrap(), &LanguageIdentifier::typescript()));
+        assert!(!is_public(
+            ts_order.method("hidden").unwrap(),
+            &LanguageIdentifier::typescript()
+        ));
+        assert!(is_public(
+            ts_order.method("shown").unwrap(),
+            &LanguageIdentifier::typescript()
+        ));
     }
 
     #[test]
@@ -618,7 +713,10 @@ mod tests {
         );
         let dtos = wire_dto_names(&ast);
         assert!(dtos.contains("Handoff"));
-        assert!(!dtos.contains("Order"), "a type nobody deserializes is not a boundary type");
+        assert!(
+            !dtos.contains("Order"),
+            "a type nobody deserializes is not a boundary type"
+        );
     }
 
     #[test]

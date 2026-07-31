@@ -114,7 +114,11 @@ pub struct ConnectedBackend {
 /// Transport port so tests can fake the server.
 #[async_trait::async_trait]
 pub trait DiagnosticTransport: Send + Sync + std::fmt::Debug {
-    async fn push(&self, batch: &DiagnosticBatch, use_gzip: bool) -> Result<ServerPushResponse, TransportError>;
+    async fn push(
+        &self,
+        batch: &DiagnosticBatch,
+        use_gzip: bool,
+    ) -> Result<ServerPushResponse, TransportError>;
     async fn health(&self) -> Result<(), TransportError>;
 }
 
@@ -131,7 +135,10 @@ impl ConnectedBackend {
     }
 
     /// Push a batch of findings. On 5xx / transport error, buffer locally.
-    pub async fn push_diagnostics(&mut self, batch: DiagnosticBatch) -> Result<usize, ConnectedError> {
+    pub async fn push_diagnostics(
+        &mut self,
+        batch: DiagnosticBatch,
+    ) -> Result<usize, ConnectedError> {
         let use_gzip = batch.diagnostics.len() > self.config.gzip_threshold_bytes;
         let resp = self.transport.push(&batch, use_gzip).await?;
         Ok(resp.accepted)
@@ -162,9 +169,10 @@ impl ConnectedBackend {
             self.config.bearer_token = refresh.clone();
             self.state = ConnectionState::Authenticating;
             // Retry health check to verify new token works
-            self.transport.health().await.map_err(|_| {
-                ConnectedError::Auth("refresh token rejected".into())
-            })?;
+            self.transport
+                .health()
+                .await
+                .map_err(|_| ConnectedError::Auth("refresh token rejected".into()))?;
             self.state = ConnectionState::Online;
             Ok(())
         } else {
@@ -216,18 +224,19 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[derive(Debug, Default)]
     struct ScriptedTransport {
         script: Mutex<Vec<Result<ServerPushResponse, TransportError>>>,
-        push_count: Mutex<u32>,
+        push_count: AtomicU32,
     }
 
     impl ScriptedTransport {
         fn push_then(outcomes: Vec<Result<ServerPushResponse, TransportError>>) -> Self {
             Self {
                 script: Mutex::new(outcomes),
-                push_count: Mutex::new(0),
+                push_count: AtomicU32::new(0),
             }
         }
     }
@@ -239,8 +248,7 @@ mod tests {
             _batch: &DiagnosticBatch,
             use_gzip: bool,
         ) -> Result<ServerPushResponse, TransportError> {
-            let mut count = self.push_count.lock().unwrap();
-            *count += 1;
+            self.push_count.fetch_add(1, Ordering::SeqCst);
             let _ = use_gzip; // recorded for size assertions
             let mut script = self.script.lock().unwrap();
             if script.is_empty() {
@@ -280,9 +288,11 @@ mod tests {
 
     #[tokio::test]
     async fn push_diagnostics_returns_accepted_count() {
-        let transport = ScriptedTransport::push_then(
-            vec![Ok(ServerPushResponse { accepted: 3, rejected: 0, retry_after_ms: None })],
-        );
+        let transport = ScriptedTransport::push_then(vec![Ok(ServerPushResponse {
+            accepted: 3,
+            rejected: 0,
+            retry_after_ms: None,
+        })]);
         let mut backend = ConnectedBackend::new(config(), Box::new(transport));
         let batch = DiagnosticBatch {
             client_id: "c1".into(),
@@ -358,28 +368,19 @@ mod tests {
 
     #[test]
     fn sane_defaults_have_30s_heartbeat() {
-        let cfg = ConnectedConfig::sane_defaults(
-            Url::parse("https://x").unwrap(),
-            "t".into(),
-        );
+        let cfg = ConnectedConfig::sane_defaults(Url::parse("https://x").unwrap(), "t".into());
         assert_eq!(cfg.heartbeat, Duration::from_secs(30));
     }
 
     #[test]
     fn sane_defaults_have_4k_buffer_capacity() {
-        let cfg = ConnectedConfig::sane_defaults(
-            Url::parse("https://x").unwrap(),
-            "t".into(),
-        );
+        let cfg = ConnectedConfig::sane_defaults(Url::parse("https://x").unwrap(), "t".into());
         assert_eq!(cfg.offline_buffer_capacity, 4_096);
     }
 
     #[test]
     fn sane_defaults_have_4k_gzip_threshold() {
-        let cfg = ConnectedConfig::sane_defaults(
-            Url::parse("https://x").unwrap(),
-            "t".into(),
-        );
+        let cfg = ConnectedConfig::sane_defaults(Url::parse("https://x").unwrap(), "t".into());
         assert_eq!(cfg.gzip_threshold_bytes, 4_096);
     }
 }

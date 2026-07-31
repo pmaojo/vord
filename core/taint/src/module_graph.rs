@@ -40,26 +40,32 @@ pub struct ModuleImports {
 pub fn collect_imports(file: &str, ast: &AstNode, all_paths: &[&str]) -> ModuleImports {
     let mut bindings = HashMap::new();
     let mut has_import_statements = false;
-    for import in ast
-        .descendants()
-        .filter(|n| matches!(n.kind(), NodeKind::Other(kind) if kind.as_ref() == "import_statement"))
-    {
+    for import in ast.descendants().filter(
+        |n| matches!(n.kind(), NodeKind::Other(kind) if kind.as_ref() == "import_statement"),
+    ) {
         has_import_statements = true;
-        let Some(source) = import.children().iter().find(|c| *c.kind() == NodeKind::StringLiteral) else {
+        let Some(source) = import
+            .children()
+            .iter()
+            .find(|c| *c.kind() == NodeKind::StringLiteral)
+        else {
             continue;
         };
         let specifier = strip_quotes(source.text());
-        let Some(target) = resolve_module_specifier(file, specifier, all_paths) else { continue };
-        let Some(clause) = import
-            .children()
-            .iter()
-            .find(|c| matches!(c.kind(), NodeKind::Other(kind) if kind.as_ref() == "import_clause"))
-        else {
+        let Some(target) = resolve_module_specifier(file, specifier, all_paths) else {
+            continue;
+        };
+        let Some(clause) = import.children().iter().find(
+            |c| matches!(c.kind(), NodeKind::Other(kind) if kind.as_ref() == "import_clause"),
+        ) else {
             continue;
         };
         collect_clause_bindings(clause, &target, &mut bindings);
     }
-    ModuleImports { bindings, has_import_statements }
+    ModuleImports {
+        bindings,
+        has_import_statements,
+    }
 }
 
 /// Reads one `import_clause`'s children — a bare default-import identifier,
@@ -67,7 +73,11 @@ pub fn collect_imports(file: &str, ast: &AstNode, all_paths: &[&str]) -> ModuleI
 /// `namespace_import` (`* as ns`) is intentionally not covered: calls through
 /// a namespace binding (`ns.helper()`) are member-access call sites, out of
 /// scope for this same-name resolution.
-fn collect_clause_bindings(clause: &AstNode, target: &str, bindings: &mut HashMap<String, FunctionKey>) {
+fn collect_clause_bindings(
+    clause: &AstNode,
+    target: &str,
+    bindings: &mut HashMap<String, FunctionKey>,
+) {
     for child in clause.children() {
         match child.kind() {
             NodeKind::Identifier => {
@@ -83,14 +93,22 @@ fn collect_clause_bindings(clause: &AstNode, target: &str, bindings: &mut HashMa
                 for spec in child.children().iter().filter(
                     |c| matches!(c.kind(), NodeKind::Other(k) if k.as_ref() == "import_specifier"),
                 ) {
-                    let idents: Vec<&AstNode> =
-                        spec.children().iter().filter(|c| *c.kind() == NodeKind::Identifier).collect();
-                    let Some(exported) = idents.first() else { continue };
+                    let idents: Vec<&AstNode> = spec
+                        .children()
+                        .iter()
+                        .filter(|c| *c.kind() == NodeKind::Identifier)
+                        .collect();
+                    let Some(exported) = idents.first() else {
+                        continue;
+                    };
                     // `{ name as alias }`: two identifier children, exported
                     // name first, local alias second. `{ name }` alone: the
                     // single identifier is both.
                     let local = idents.last().unwrap_or(exported);
-                    bindings.insert(local.text().to_string(), (target.to_string(), exported.text().to_string()));
+                    bindings.insert(
+                        local.text().to_string(),
+                        (target.to_string(), exported.text().to_string()),
+                    );
                 }
             }
             _ => {}
@@ -106,23 +124,37 @@ fn strip_quotes(text: &str) -> &str {
 /// `all_paths` it names, trying the specifier as-is, with common ES-module
 /// extensions appended, and as a directory `index` file. Bare specifiers
 /// (not starting with `.`) are always external and return `None`.
-pub fn resolve_module_specifier(importer: &str, specifier: &str, all_paths: &[&str]) -> Option<String> {
+pub fn resolve_module_specifier(
+    importer: &str,
+    specifier: &str,
+    all_paths: &[&str],
+) -> Option<String> {
     if !specifier.starts_with('.') {
         return None;
     }
-    let importer_dir = std::path::Path::new(importer).parent().unwrap_or_else(|| std::path::Path::new(""));
+    let importer_dir = std::path::Path::new(importer)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new(""));
     let joined = normalize_path(&importer_dir.join(specifier));
     let joined_str = joined.to_string_lossy().replace('\\', "/");
 
     const EXTENSIONS: &[&str] = &["", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
-    const INDEX_SUFFIXES: &[&str] =
-        &["/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
+    const INDEX_SUFFIXES: &[&str] = &["/index.ts", "/index.tsx", "/index.js", "/index.jsx"];
 
     EXTENSIONS
         .iter()
         .map(|ext| format!("{joined_str}{ext}"))
-        .chain(INDEX_SUFFIXES.iter().map(|suffix| format!("{joined_str}{suffix}")))
-        .find_map(|candidate| all_paths.iter().find(|p| **p == candidate).map(|p| p.to_string()))
+        .chain(
+            INDEX_SUFFIXES
+                .iter()
+                .map(|suffix| format!("{joined_str}{suffix}")),
+        )
+        .find_map(|candidate| {
+            all_paths
+                .iter()
+                .find(|p| **p == candidate)
+                .map(|p| p.to_string())
+        })
 }
 
 /// Collapses `.`/`..` components purely lexically (no filesystem access —
@@ -151,7 +183,10 @@ mod tests {
         // A same-named local function must not be picked up just because a
         // package import shares its name — non-relative specifiers are
         // rejected outright.
-        assert_eq!(resolve_module_specifier("main.ts", "child_process", &["child_process.ts"]), None);
+        assert_eq!(
+            resolve_module_specifier("main.ts", "child_process", &["child_process.ts"]),
+            None
+        );
         assert_eq!(
             resolve_module_specifier("main.ts", "./lib", &["lib.ts", "other.ts"]),
             Some("lib.ts".to_string())
@@ -176,7 +211,10 @@ mod tests {
 
     #[test]
     fn unresolvable_relative_specifier_returns_none() {
-        assert_eq!(resolve_module_specifier("main.ts", "./missing", &["lib.ts"]), None);
+        assert_eq!(
+            resolve_module_specifier("main.ts", "./missing", &["lib.ts"]),
+            None
+        );
     }
 
     #[test]

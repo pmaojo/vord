@@ -53,7 +53,11 @@ fn referenced_classes(class: &ClassInfo<'_>, registry: &ClassRegistry<'_>) -> BT
                 record(&name);
             }
         }
-        for node in method.node.descendants().filter(|n| *n.kind() == NodeKind::Identifier) {
+        for node in method
+            .node
+            .descendants()
+            .filter(|n| *n.kind() == NodeKind::Identifier)
+        {
             record(node.text());
         }
     }
@@ -64,7 +68,9 @@ fn referenced_classes(class: &ClassInfo<'_>, registry: &ClassRegistry<'_>) -> BT
 /// a reference to `Order`. Non-class names are filtered by the registry
 /// lookup at the call site, so no primitive table is needed here.
 fn type_names(declared: Option<&str>) -> Vec<String> {
-    let Some(declared) = declared else { return Vec::new() };
+    let Some(declared) = declared else {
+        return Vec::new();
+    };
     declared
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter(|part| !part.is_empty())
@@ -79,7 +85,10 @@ pub struct ClassFanOutRule {
 
 impl ClassFanOutRule {
     pub fn new(max_dependencies: usize) -> Self {
-        Self { id: RuleId::new("smells:class-fan-out").expect("valid rule id"), max_dependencies }
+        Self {
+            id: RuleId::new("smells:class-fan-out").expect("valid rule id"),
+            max_dependencies,
+        }
     }
 }
 
@@ -128,7 +137,9 @@ impl CrossFileRule for ClassFanOutRule {
             if dependencies.len() <= self.max_dependencies {
                 continue;
             }
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let Some(span) = class.span else { continue };
             findings.push((
                 index,
@@ -160,7 +171,9 @@ mod tests {
             code.push_str(&format!("class Dep{index} {{}}\n"));
         }
         code.push_str("class Service {\n");
-        let params: Vec<String> = (0..count).map(|index| format!("d{index}: Dep{index}")).collect();
+        let params: Vec<String> = (0..count)
+            .map(|index| format!("d{index}: Dep{index}"))
+            .collect();
         code.push_str(&format!("  constructor({}) {{}}\n", params.join(", ")));
         code.push_str("}\n");
         code
@@ -168,16 +181,26 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        ClassFanOutRule::default().check(&files).into_iter().map(|(_, f)| f).collect()
+        ClassFanOutRule::default()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
     fn flags_a_class_coupled_to_more_than_twenty_others() {
         let findings = check_ts(&service_with_collaborators(21));
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("`Service` is coupled to 21"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("`Service` is coupled to 21"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
@@ -190,10 +213,15 @@ mod tests {
         let code = "class Dep {}\nclass Service {\n  a: Dep;\n  b: Dep;\n  use(d: Dep): Dep {\n    return new Dep();\n  }\n}\n";
         let findings = ClassFanOutRule::new(1).check(&{
             let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-            let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+            let ast = yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap();
             vec![(file, ast)]
         });
-        assert!(findings.is_empty(), "one distinct dependency, mentioned four times: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "one distinct dependency, mentioned four times: {findings:?}"
+        );
     }
 
     #[test]
@@ -201,8 +229,10 @@ mod tests {
         let parser = yunq_parser_typescript::TypeScriptParser::new();
         let dep_code = "export class DepA {}\nexport class DepB {}\n";
         let service_code = "class Service {\n  constructor(a: DepA, b: DepB) {}\n}\n";
-        let dep_file = SourceFile::new("deps.ts", dep_code, LanguageIdentifier::typescript()).unwrap();
-        let service_file = SourceFile::new("service.ts", service_code, LanguageIdentifier::typescript()).unwrap();
+        let dep_file =
+            SourceFile::new("deps.ts", dep_code, LanguageIdentifier::typescript()).unwrap();
+        let service_file =
+            SourceFile::new("service.ts", service_code, LanguageIdentifier::typescript()).unwrap();
         let files = vec![
             (dep_file.clone(), parser.parse(&dep_file).unwrap()),
             (service_file.clone(), parser.parse(&service_file).unwrap()),
@@ -216,13 +246,18 @@ mod tests {
     #[test]
     fn ignores_names_that_are_not_classes_at_all() {
         let code = "class Service {\n  run(): void {\n    console.log(JSON.stringify(Math.max(1, 2)));\n  }\n}\n";
-        assert!(ClassFanOutRule::new(0)
-            .check(&{
-                let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-                let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
-                vec![(file, ast)]
-            })
-            .is_empty());
+        assert!(
+            ClassFanOutRule::new(0)
+                .check(&{
+                    let file =
+                        SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
+                    let ast = yunq_parser_typescript::TypeScriptParser::new()
+                        .parse(&file)
+                        .unwrap();
+                    vec![(file, ast)]
+                })
+                .is_empty()
+        );
     }
 
     #[test]
@@ -233,7 +268,9 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         let findings = ClassFanOutRule::new(1).check(&[(file, ast)]);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].1.message.contains("`Service`"));
@@ -268,8 +305,10 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let files =
-            vec![(prod.clone(), parser.parse(&prod).unwrap()), (test.clone(), parser.parse(&test).unwrap())];
+        let files = vec![
+            (prod.clone(), parser.parse(&prod).unwrap()),
+            (test.clone(), parser.parse(&test).unwrap()),
+        ];
         let findings = ClassFanOutRule::new(1).check(&files);
         assert!(findings.is_empty(), "{findings:?}");
     }

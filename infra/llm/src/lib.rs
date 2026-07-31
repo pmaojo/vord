@@ -32,7 +32,9 @@ pub struct MockLlmAdapter {
 
 impl MockLlmAdapter {
     pub fn new(proposal: FixProposal) -> Self {
-        Self { proposal: Some(proposal) }
+        Self {
+            proposal: Some(proposal),
+        }
     }
 
     pub fn failing() -> Self {
@@ -42,9 +44,9 @@ impl MockLlmAdapter {
 
 impl LlmProvider for MockLlmAdapter {
     async fn generate_fix(&self, _prompt: &FixPrompt) -> Result<FixProposal, LlmError> {
-        self.proposal.clone().ok_or_else(|| {
-            LlmError::ApiFailure("Mock LLM failed as configured".to_string())
-        })
+        self.proposal
+            .clone()
+            .ok_or_else(|| LlmError::ApiFailure("Mock LLM failed as configured".to_string()))
     }
 }
 

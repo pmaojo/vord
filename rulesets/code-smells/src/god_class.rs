@@ -24,7 +24,11 @@ pub struct GodClassRule {
 
 impl GodClassRule {
     pub fn new(max_methods: usize, max_fields: usize) -> Self {
-        Self { id: RuleId::new("smells:god-class").expect("valid rule id"), max_methods, max_fields }
+        Self {
+            id: RuleId::new("smells:god-class").expect("valid rule id"),
+            max_methods,
+            max_fields,
+        }
     }
 }
 
@@ -60,7 +64,8 @@ impl CrossFileRule for GodClassRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let registry = ClassRegistry::build_cross_file(&views);
         registry
             .iter()
@@ -99,9 +104,15 @@ mod tests {
 
     fn check_ts(code: &str, max_methods: usize, max_fields: usize) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        GodClassRule::new(max_methods, max_fields).check(&files).into_iter().map(|(_, f)| f).collect()
+        GodClassRule::new(max_methods, max_fields)
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     fn method_block(n: usize) -> String {
@@ -137,23 +148,35 @@ mod tests {
     fn flags_rust_struct_with_too_many_methods_across_impl_blocks() {
         let code = format!(
             "struct Big {{ x: i32 }}\nimpl Big {{\n{}}}\n",
-            (0..5).map(|i| format!("  fn m{i}(&self) {{}}\n")).collect::<String>()
+            (0..5)
+                .map(|i| format!("  fn m{i}(&self) {{}}\n"))
+                .collect::<String>()
         );
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
         let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
         let files = vec![(file, ast)];
-        let findings: Vec<Finding> =
-            GodClassRule::new(3, 100).check(&files).into_iter().map(|(_, f)| f).collect();
+        let findings: Vec<Finding> = GodClassRule::new(3, 100)
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Big"));
     }
 
     #[test]
     fn flags_rust_struct_whose_methods_come_from_an_impl_in_a_different_file() {
-        let struct_file = SourceFile::new("s.rs", "struct Big { x: i32 }\n", LanguageIdentifier::rust()).unwrap();
+        let struct_file = SourceFile::new(
+            "s.rs",
+            "struct Big { x: i32 }\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
         let impl_code = format!(
             "impl Big {{\n{}}}\n",
-            (0..5).map(|i| format!("  fn m{i}(&self) {{}}\n")).collect::<String>()
+            (0..5)
+                .map(|i| format!("  fn m{i}(&self) {{}}\n"))
+                .collect::<String>()
         );
         let impl_file = SourceFile::new("i.rs", impl_code, LanguageIdentifier::rust()).unwrap();
         let parser = yunq_parser_rust::RustParser::new();

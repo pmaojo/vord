@@ -16,6 +16,7 @@ categories = ["development-tools", "development-tools::testing"]
 [workspace.dependencies]
 # Internal crates
 yunq-ast = { path = "core/ast", version = "0.2.1" }
+yunq-cfg = { path = "core/cfg", version = "0.2.1" }
 yunq-profiles = { path = "core/profiles", version = "0.2.1" }
 yunq-rules-engine = { path = "core/rules-engine", version = "0.2.1" }
 yunq-taint = { path = "core/taint", version = "0.2.1" }

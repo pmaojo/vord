@@ -40,11 +40,18 @@ impl LocatedFinding {
     /// The identity used for before/after comparison — see the module docs
     /// for why the line number is not part of it.
     fn identity(&self) -> (String, String, String) {
-        (self.file.clone(), self.rule.to_string(), self.message.clone())
+        (
+            self.file.clone(),
+            self.rule.to_string(),
+            self.message.clone(),
+        )
     }
 
     pub fn describe(&self) -> String {
-        format!("{}:{} {} ({}) — {}", self.file, self.line, self.rule, self.severity, self.message)
+        format!(
+            "{}:{} {} ({}) — {}",
+            self.file, self.line, self.rule, self.severity, self.message
+        )
     }
 }
 
@@ -54,7 +61,10 @@ pub enum Completion {
     /// The target issue (if one was named) is gone and nothing new appeared.
     Done,
     /// The task named a rule to remove and the analyzer still sees it.
-    TargetRemains { rule: RuleId, occurrences: Vec<LocatedFinding> },
+    TargetRemains {
+        rule: RuleId,
+        occurrences: Vec<LocatedFinding>,
+    },
     /// Findings that were not in the baseline are present now.
     Regressed { introduced: Vec<LocatedFinding> },
 }
@@ -71,15 +81,18 @@ impl Completion {
         match self {
             Completion::Done => "the analyzer agrees the task is complete".to_string(),
             Completion::TargetRemains { rule, occurrences } => {
-                let mut out = format!("the analyzer still reports {rule}, so the task is not complete:\n");
+                let mut out =
+                    format!("the analyzer still reports {rule}, so the task is not complete:\n");
                 for finding in occurrences {
                     out.push_str(&format!("  - {}\n", finding.describe()));
                 }
                 out
             }
             Completion::Regressed { introduced } => {
-                let mut out =
-                    format!("your changes introduced {} finding(s) that were not there before:\n", introduced.len());
+                let mut out = format!(
+                    "your changes introduced {} finding(s) that were not there before:\n",
+                    introduced.len()
+                );
                 for finding in introduced {
                     out.push_str(&format!("  - {}\n", finding.describe()));
                 }
@@ -119,12 +132,22 @@ fn introduced(baseline: &[LocatedFinding], current: &[LocatedFinding]) -> Vec<Lo
 /// target, because an agent that removed the target by introducing something
 /// worse should be told about the thing it introduced, and an agent that
 /// never removed the target should be told that first.
-pub fn judge(baseline: &[LocatedFinding], current: &[LocatedFinding], target: Option<&RuleId>) -> Completion {
+pub fn judge(
+    baseline: &[LocatedFinding],
+    current: &[LocatedFinding],
+    target: Option<&RuleId>,
+) -> Completion {
     if let Some(rule) = target {
-        let occurrences: Vec<LocatedFinding> =
-            current.iter().filter(|finding| finding.rule == *rule).cloned().collect();
+        let occurrences: Vec<LocatedFinding> = current
+            .iter()
+            .filter(|finding| finding.rule == *rule)
+            .cloned()
+            .collect();
         if !occurrences.is_empty() {
-            return Completion::TargetRemains { rule: rule.clone(), occurrences };
+            return Completion::TargetRemains {
+                rule: rule.clone(),
+                occurrences,
+            };
         }
     }
 
@@ -184,7 +207,10 @@ mod tests {
     fn a_pre_existing_finding_elsewhere_does_not_block_completion() {
         // The task was about `owasp:xss`; the long method was already there
         // and is not this task's problem.
-        let baseline = vec![finding("a.rs", "owasp:xss", "unescaped", 3), finding("b.rs", "smells:long-method", "too long", 40)];
+        let baseline = vec![
+            finding("a.rs", "owasp:xss", "unescaped", 3),
+            finding("b.rs", "smells:long-method", "too long", 40),
+        ];
         let current = vec![finding("b.rs", "smells:long-method", "too long", 40)];
         let target = rule("owasp:xss");
         assert_eq!(judge(&baseline, &current, Some(&target)), Completion::Done);
@@ -226,16 +252,24 @@ mod tests {
     fn the_same_rule_in_a_different_file_is_a_regression() {
         let baseline = vec![finding("a.rs", "owasp:xss", "unescaped", 3)];
         let current = vec![finding("b.rs", "owasp:xss", "unescaped", 3)];
-        assert!(matches!(judge(&baseline, &current, None), Completion::Regressed { .. }));
+        assert!(matches!(
+            judge(&baseline, &current, None),
+            Completion::Regressed { .. }
+        ));
     }
 
     #[test]
     fn the_surviving_target_outranks_a_regression_in_the_report() {
         let baseline = vec![finding("a.rs", "owasp:xss", "unescaped", 3)];
-        let current =
-            vec![finding("a.rs", "owasp:xss", "unescaped", 3), finding("a.rs", "owasp:eval-usage", "eval", 9)];
+        let current = vec![
+            finding("a.rs", "owasp:xss", "unescaped", 3),
+            finding("a.rs", "owasp:eval-usage", "eval", 9),
+        ];
         let target = rule("owasp:xss");
-        assert!(matches!(judge(&baseline, &current, Some(&target)), Completion::TargetRemains { .. }));
+        assert!(matches!(
+            judge(&baseline, &current, Some(&target)),
+            Completion::TargetRemains { .. }
+        ));
     }
 
     #[test]

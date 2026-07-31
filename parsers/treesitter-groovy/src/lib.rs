@@ -13,8 +13,11 @@ yunq_treesitter_adapter::declare_parser!(
 fn map_kind(kind: &str) -> NodeKind {
     match kind {
         "program" => NodeKind::SourceUnit,
-        "method_declaration" | "constructor_declaration" | "compact_constructor_declaration"
-        | "function_definition" | "closure" => NodeKind::FunctionDef,
+        "method_declaration"
+        | "constructor_declaration"
+        | "compact_constructor_declaration"
+        | "function_definition"
+        | "closure" => NodeKind::FunctionDef,
         "method_invocation" | "object_creation_expression" | "juxt_function_call" => NodeKind::Call,
         "string_literal" => NodeKind::StringLiteral,
         "identifier" => NodeKind::Identifier,

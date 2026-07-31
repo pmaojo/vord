@@ -31,7 +31,10 @@ pub enum HandoffIoError {
 }
 
 fn io_err(path: &Path, source: std::io::Error) -> HandoffIoError {
-    HandoffIoError::Io { path: path.to_path_buf(), source }
+    HandoffIoError::Io {
+        path: path.to_path_buf(),
+        source,
+    }
 }
 
 fn queue_dir(root: &Path, name: &str) -> PathBuf {
@@ -127,7 +130,9 @@ pub fn inbox(root: &Path, role: &str) -> Result<Vec<Handoff>, HandoffIoError> {
 /// no-op error (not a panic) when the id is not actually in that inbox —
 /// double-acking after a crash-and-retry must be safe.
 pub fn ack(root: &Path, role: &str, id: &str) -> Result<(), HandoffIoError> {
-    let source = queue_dir(root, "inbox").join(role).join(format!("{id}.json"));
+    let source = queue_dir(root, "inbox")
+        .join(role)
+        .join(format!("{id}.json"));
     if !source.exists() {
         return Ok(());
     }
@@ -146,7 +151,10 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "yunq-handoff-{}-{}",
             std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         root
@@ -163,7 +171,10 @@ mod tests {
 
         let waiting = inbox(&root, "qa").unwrap();
         assert_eq!(waiting, vec![handoff]);
-        assert!(inbox(&root, "coder").unwrap().is_empty(), "delivery is scoped to the addressed role");
+        assert!(
+            inbox(&root, "coder").unwrap().is_empty(),
+            "delivery is scoped to the addressed role"
+        );
 
         std::fs::remove_dir_all(&root).ok();
     }

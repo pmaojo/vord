@@ -28,7 +28,9 @@ pub struct DynamicRegexpSourceRule {
 
 impl DynamicRegexpSourceRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:dynamic-regexp-source").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:dynamic-regexp-source").expect("valid rule id"),
+        }
     }
 }
 
@@ -86,7 +88,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         DynamicRegexpSourceRule::new().check(&file, &ast)
     }
 

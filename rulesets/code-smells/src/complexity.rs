@@ -11,7 +11,10 @@ pub struct ComplexityRule {
 
 impl ComplexityRule {
     pub fn new(max: u32) -> Self {
-        Self { id: RuleId::new("smells:high-complexity").expect("valid rule id"), max }
+        Self {
+            id: RuleId::new("smells:high-complexity").expect("valid rule id"),
+            max,
+        }
     }
 }
 
@@ -94,7 +97,8 @@ mod tests {
 
     #[test]
     fn nested_functions_do_not_inflate_the_parent() {
-        let code = "fn outer() {\n    let inner = |x: i32| { if x > 0 { () } };\n    inner(1);\n}\n";
+        let code =
+            "fn outer() {\n    let inner = |x: i32| { if x > 0 { () } };\n    inner(1);\n}\n";
         // Only the closure (complexity 2) exceeds max 1 — the outer function
         // is not inflated by its nested function's branches.
         let findings = check_rust(code, 1);

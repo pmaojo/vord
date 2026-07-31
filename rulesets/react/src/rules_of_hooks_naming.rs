@@ -12,7 +12,9 @@ use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
 use crate::common::{hook_call_name, is_hook_name, own_scope_descendants};
 
 fn calls_a_hook(func: &AstNode) -> bool {
-    own_scope_descendants(func).into_iter().any(|n| hook_call_name(n).is_some())
+    own_scope_descendants(func)
+        .into_iter()
+        .any(|n| hook_call_name(n).is_some())
 }
 
 /// The declared name of a `function`-keyword form (`function_declaration` /
@@ -34,8 +36,14 @@ fn declared_name(func: &AstNode) -> Option<&str> {
 /// name lives on the `VariableDecl`, the function on one of its other
 /// children (the initializer).
 fn variable_decl_name(decl: &AstNode) -> Option<(&str, &AstNode)> {
-    let name = decl.first_child().filter(|c| *c.kind() == NodeKind::Identifier)?.text();
-    let func = decl.children().iter().find(|c| *c.kind() == NodeKind::FunctionDef)?;
+    let name = decl
+        .first_child()
+        .filter(|c| *c.kind() == NodeKind::Identifier)?
+        .text();
+    let func = decl
+        .children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::FunctionDef)?;
     Some((name, func))
 }
 
@@ -64,7 +72,9 @@ pub struct RulesOfHooksNamingRule {
 
 impl RulesOfHooksNamingRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:rules-of-hooks-naming").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:rules-of-hooks-naming").expect("valid rule id"),
+        }
     }
 }
 
@@ -120,7 +130,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         RulesOfHooksNamingRule::new().check(&file, &ast)
     }
 
@@ -133,7 +145,8 @@ mod tests {
 
     #[test]
     fn flags_lowercase_arrow_function_calling_a_hook() {
-        let findings = check("const fetchStuff = () => {\n    const [x] = useState(0);\n    return x;\n};\n");
+        let findings =
+            check("const fetchStuff = () => {\n    const [x] = useState(0);\n    return x;\n};\n");
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("fetchStuff"));
     }
@@ -146,7 +159,8 @@ mod tests {
 
     #[test]
     fn allows_component_named_function() {
-        let findings = check("function Widget() {\n    useEffect(() => {}, []);\n    return null;\n}\n");
+        let findings =
+            check("function Widget() {\n    useEffect(() => {}, []);\n    return null;\n}\n");
         assert!(findings.is_empty());
     }
 

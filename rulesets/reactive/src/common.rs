@@ -22,7 +22,10 @@ pub(crate) fn is_method_call(node: &AstNode, method: &str) -> bool {
     }
     node.first_child().is_some_and(|callee| {
         *callee.kind() == NodeKind::MemberAccess
-            && callee.children().last().is_some_and(|p| *p.kind() == NodeKind::Identifier && p.text() == method)
+            && callee
+                .children()
+                .last()
+                .is_some_and(|p| *p.kind() == NodeKind::Identifier && p.text() == method)
     })
 }
 
@@ -31,7 +34,10 @@ pub(crate) fn is_method_call(node: &AstNode, method: &str) -> bool {
 /// (`source.pipe(...).subscribe(...)`'s outer call is still recognized by
 /// its own callee's last segment regardless of what its base expression is).
 pub(crate) fn rhs_method_call<'a>(node: &'a AstNode, method: &str) -> Option<&'a AstNode> {
-    node.children().iter().skip(1).find(|value| is_method_call(value, method))
+    node.children()
+        .iter()
+        .skip(1)
+        .find(|value| is_method_call(value, method))
 }
 
 /// Whether some `<receiver_text>.<method>(...)` call exists anywhere in

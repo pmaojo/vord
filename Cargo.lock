@@ -2940,6 +2940,7 @@ dependencies = [
 name = "yunq-ast"
 version = "0.2.1"
 dependencies = [
+ "regex",
  "thiserror",
 ]
 
@@ -2955,6 +2956,14 @@ dependencies = [
  "yunq-cli",
  "yunq-parser-rust",
  "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-cfg"
+version = "0.2.1"
+dependencies = [
+ "thiserror",
+ "yunq-ast",
 ]
 
 [[package]]
@@ -3632,6 +3641,7 @@ dependencies = [
  "yunq-ast",
  "yunq-parser-rust",
  "yunq-rules-engine",
+ "yunq-taint",
 ]
 
 [[package]]
@@ -3694,6 +3704,7 @@ version = "0.2.1"
 dependencies = [
  "thiserror",
  "yunq-ast",
+ "yunq-cfg",
  "yunq-parser-typescript",
  "yunq-rules-engine",
 ]

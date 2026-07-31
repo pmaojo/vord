@@ -66,12 +66,19 @@ impl TokenizedFile {
     /// A tokenized file with no declaration boundaries known — the
     /// degraded form used when no parser is registered for the language.
     pub fn new(path: String, lines: Vec<(u32, String)>) -> Self {
-        Self { path, lines, declaration_lines: Vec::new() }
+        Self {
+            path,
+            lines,
+            declaration_lines: Vec::new(),
+        }
     }
 
     /// How many declaration boundaries fall inside an inclusive line range.
     fn declarations_within(&self, start_line: u32, end_line: u32) -> usize {
-        self.declaration_lines.iter().filter(|l| (start_line..=end_line).contains(l)).count()
+        self.declaration_lines
+            .iter()
+            .filter(|l| (start_line..=end_line).contains(l))
+            .count()
     }
 }
 
@@ -260,7 +267,10 @@ fn statements(file: &TokenizedFile) -> Vec<Statement> {
         .map(|(line_number, text)| {
             let mut hasher = DefaultHasher::new();
             text.hash(&mut hasher);
-            Statement { line_number: *line_number, hash: hasher.finish() }
+            Statement {
+                line_number: *line_number,
+                hash: hasher.finish(),
+            }
         })
         .collect()
 }
@@ -313,8 +323,14 @@ fn chunk_blocks(statements: &[Statement], block_size: usize) -> Vec<Block> {
 
     let mut blocks = Vec::with_capacity(statements.len() - block_size + 1);
     for (first, last) in ((block_size - 1)..statements.len()).enumerate() {
-        hash = hash.wrapping_mul(PRIME_BASE).wrapping_add(statements[last].hash);
-        blocks.push(Block { stmt_start: first, stmt_end: last, hash });
+        hash = hash
+            .wrapping_mul(PRIME_BASE)
+            .wrapping_add(statements[last].hash);
+        blocks.push(Block {
+            stmt_start: first,
+            stmt_end: last,
+            hash,
+        });
         // Remove the outgoing statement from the rolling hash.
         hash = hash.wrapping_sub(power.wrapping_mul(statements[first].hash));
     }
@@ -328,7 +344,10 @@ fn build_hash_index(per_file_blocks: &[Vec<Block>]) -> HashMap<u64, Vec<(usize, 
     let mut index: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
     for (file_index, blocks) in per_file_blocks.iter().enumerate() {
         for (block_index, block) in blocks.iter().enumerate() {
-            index.entry(block.hash).or_default().push((file_index, block_index));
+            index
+                .entry(block.hash)
+                .or_default()
+                .push((file_index, block_index));
         }
     }
     index
@@ -350,7 +369,10 @@ fn record_pair(
     let (file_a, idx_a) = a;
     let (file_b, idx_b) = b;
     let delta = idx_b as isize - idx_a as isize;
-    matches.entry((file_a, file_b, delta)).or_default().insert(idx_b);
+    matches
+        .entry((file_a, file_b, delta))
+        .or_default()
+        .insert(idx_b);
 }
 
 fn group_matches_by_delta(
@@ -363,8 +385,11 @@ fn group_matches_by_delta(
         }
         for i in 0..locations.len() {
             for j in (i + 1)..locations.len() {
-                let (a, b) =
-                    if locations[i] <= locations[j] { (locations[i], locations[j]) } else { (locations[j], locations[i]) };
+                let (a, b) = if locations[i] <= locations[j] {
+                    (locations[i], locations[j])
+                } else {
+                    (locations[j], locations[i])
+                };
                 record_pair(&mut matches, a, b);
             }
         }
@@ -467,10 +492,14 @@ fn literal_density_in_region(file: &TokenizedFile, start_line: u32, end_line: u3
 
 pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> DuplicationReport {
     let block_size = config.block_size.max(2);
-    let per_file_statements: Vec<Vec<Statement>> =
-        files.iter().map(|f| collapse_repeats(statements(f))).collect();
-    let per_file_blocks: Vec<Vec<Block>> =
-        per_file_statements.iter().map(|s| chunk_blocks(s, block_size)).collect();
+    let per_file_statements: Vec<Vec<Statement>> = files
+        .iter()
+        .map(|f| collapse_repeats(statements(f)))
+        .collect();
+    let per_file_blocks: Vec<Vec<Block>> = per_file_statements
+        .iter()
+        .map(|s| chunk_blocks(s, block_size))
+        .collect();
 
     let index = build_hash_index(&per_file_blocks);
     let matches = group_matches_by_delta(&index);
@@ -546,7 +575,10 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
         .flat_map(|r| (r.start_line..=r.end_line).map(move |line| (r.file.as_str(), line)))
         .collect();
 
-    DuplicationReport { duplicated_lines: duplicated.len(), clone_sets }
+    DuplicationReport {
+        duplicated_lines: duplicated.len(),
+        clone_sets,
+    }
 }
 
 #[cfg(test)]
@@ -561,17 +593,28 @@ mod tests {
     }
 
     fn block_body(prefix: &str) -> String {
-        (0..6).map(|i| format!("    let {prefix}_{i} = compute({i});\n")).collect()
+        (0..6)
+            .map(|i| format!("    let {prefix}_{i} = compute({i});\n"))
+            .collect()
     }
 
     #[test]
     fn detects_cross_file_duplicates_and_merges_windows() {
-        let shared: String = (0..8).map(|i| format!("    total += weights[{i}] * {i};\n")).collect();
+        let shared: String = (0..8)
+            .map(|i| format!("    total += weights[{i}] * {i};\n"))
+            .collect();
         let a = format!("fn a() {{\n{shared}}}\n");
         let b = format!("fn b() {{\n\n{shared}}}\n");
         let files = [file("a.rs", &a), file("b.rs", &b)];
 
-        let report = find_duplicates(&files, DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
+        let report = find_duplicates(
+            &files,
+            DuplicationConfig {
+                block_size: 5,
+                min_lines: 5,
+                ..Default::default()
+            },
+        );
         assert_eq!(report.clone_sets.len(), 1);
         let set = &report.clone_sets[0];
         // 8 shared body lines + the identical closing brace line.
@@ -588,7 +631,14 @@ mod tests {
             file("a.rs", &format!("fn a() {{\n{}}}\n", block_body("alpha"))),
             file("b.rs", &format!("fn b() {{\n{}}}\n", block_body("beta"))),
         ];
-        let report = find_duplicates(&files, DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
+        let report = find_duplicates(
+            &files,
+            DuplicationConfig {
+                block_size: 5,
+                min_lines: 5,
+                ..Default::default()
+            },
+        );
         assert!(report.clone_sets.is_empty());
         assert_eq!(report.duplicated_lines, 0);
     }
@@ -616,20 +666,32 @@ mod tests {
 
     #[test]
     fn three_way_duplicate_is_one_set_with_three_occurrences() {
-        let shared: String = (0..6).map(|i| format!("    acc += items[{i}];\n")).collect();
+        let shared: String = (0..6)
+            .map(|i| format!("    acc += items[{i}];\n"))
+            .collect();
         let files = [
             file("a.rs", &format!("fn a() {{\n{shared}}}\n")),
             file("b.rs", &format!("fn b() {{\n{shared}}}\n")),
             file("c.rs", &format!("fn c() {{\n{shared}}}\n")),
         ];
-        let report = find_duplicates(&files, DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
+        let report = find_duplicates(
+            &files,
+            DuplicationConfig {
+                block_size: 5,
+                min_lines: 5,
+                ..Default::default()
+            },
+        );
         // One shape in three places — one finding, not the a-b/a-c/b-c
         // pairs. This is the whole point of grouping: the pair count grows
         // quadratically with how widely a shape was copied, so the most
         // duplicated code produced the most unreadable report.
         assert_eq!(report.clone_sets.len(), 1);
-        let files_listed: Vec<&str> =
-            report.clone_sets[0].regions.iter().map(|r| r.file.as_str()).collect();
+        let files_listed: Vec<&str> = report.clone_sets[0]
+            .regions
+            .iter()
+            .map(|r| r.file.as_str())
+            .collect();
         assert_eq!(files_listed, ["a.rs", "b.rs", "c.rs"]);
         assert_eq!(report.total_regions(), 3);
     }
@@ -640,12 +702,20 @@ mod tests {
         // what a floor exists to exclude: they are the shape of the
         // language, not copied logic, and they outnumber real clones by an
         // order of magnitude on a codebase of small uniform files.
-        let shared: String = (0..6).map(|i| format!("    acc += items[{i}];\n")).collect();
+        let shared: String = (0..6)
+            .map(|i| format!("    acc += items[{i}];\n"))
+            .collect();
         let files = [
             file("a.rs", &format!("fn a() {{\n{shared}}}\n")),
             file("b.rs", &format!("fn b() {{\n{shared}}}\n")),
         ];
-        let report = find_duplicates(&files, DuplicationConfig { min_lines: 10, ..Default::default() });
+        let report = find_duplicates(
+            &files,
+            DuplicationConfig {
+                min_lines: 10,
+                ..Default::default()
+            },
+        );
         assert!(report.clone_sets.is_empty());
         // Density has to agree with the findings: a line nobody is told
         // about must not count as duplicated.
@@ -704,7 +774,10 @@ mod tests {
             declaration_lines: vec![1, 4, 7, 12],
         };
         let files = [with_bounds("a.rs"), with_bounds("b.rs")];
-        let config = DuplicationConfig { min_lines: 5, ..Default::default() };
+        let config = DuplicationConfig {
+            min_lines: 5,
+            ..Default::default()
+        };
         assert!(
             find_duplicates(&files, config).clone_sets.is_empty(),
             "a run of separate declarations must not be reported as copied code"
@@ -734,23 +807,40 @@ mod tests {
         let tokenize = |path: &str, prefix: &str, normalize: bool| {
             let lines: Vec<(u32, String)> = (0..10)
                 .map(|i| {
-                    let name = if normalize { IDENTIFIER_PLACEHOLDER } else { prefix };
-                    (i + 1, format!("let {name} {i} = {name} . compute ( step ) ;"))
+                    let name = if normalize {
+                        IDENTIFIER_PLACEHOLDER
+                    } else {
+                        prefix
+                    };
+                    (
+                        i + 1,
+                        format!("let {name} {i} = {name} . compute ( step ) ;"),
+                    )
                 })
                 .collect();
             let _ = body(prefix);
             TokenizedFile::new(path.into(), lines)
         };
 
-        let type_1 = [tokenize("a.rs", "alpha", false), tokenize("b.rs", "beta", false)];
+        let type_1 = [
+            tokenize("a.rs", "alpha", false),
+            tokenize("b.rs", "beta", false),
+        ];
         assert!(
-            find_duplicates(&type_1, DuplicationConfig::default()).clone_sets.is_empty(),
+            find_duplicates(&type_1, DuplicationConfig::default())
+                .clone_sets
+                .is_empty(),
             "renamed copy must be invisible while identifiers are preserved"
         );
 
-        let type_2 = [tokenize("a.rs", "alpha", true), tokenize("b.rs", "beta", true)];
+        let type_2 = [
+            tokenize("a.rs", "alpha", true),
+            tokenize("b.rs", "beta", true),
+        ];
         assert_eq!(
-            find_duplicates(&type_2, DuplicationConfig::default()).clone_sets.len(),
+            find_duplicates(&type_2, DuplicationConfig::default())
+                .clone_sets
+                .len(),
             1,
             "erasing identifiers must reveal the renamed copy"
         );
@@ -768,7 +858,14 @@ mod tests {
             .collect();
         let a = TokenizedFile::new("a.rs".into(), body.clone());
         let b = TokenizedFile::new("b.rs".into(), body);
-        let report = find_duplicates(&[a, b], DuplicationConfig { block_size: 5, min_lines: 5, ..Default::default() });
+        let report = find_duplicates(
+            &[a, b],
+            DuplicationConfig {
+                block_size: 5,
+                min_lines: 5,
+                ..Default::default()
+            },
+        );
         assert_eq!(report.clone_sets.len(), 1);
         assert_eq!(report.clone_sets[0].lines, 6);
     }
@@ -784,7 +881,10 @@ mod tests {
         let arm = |i: u32| -> (u32, String) {
             (
                 i,
-                format!("case {} : return {} ;", STRING_PLACEHOLDER, STRING_PLACEHOLDER),
+                format!(
+                    "case {} : return {} ;",
+                    STRING_PLACEHOLDER, STRING_PLACEHOLDER
+                ),
             )
         };
         let switch_body: Vec<(u32, String)> = vec![
@@ -801,12 +901,15 @@ mod tests {
         let a = TokenizedFile::new("a.ts".into(), switch_body.clone());
         let b = TokenizedFile::new("b.ts".into(), switch_body.clone());
         let c = TokenizedFile::new("c.ts".into(), switch_body);
-        let report = find_duplicates(&[a, b, c], DuplicationConfig {
-            block_size: 5,
-            min_lines: 5,
-            max_literal_density: Some(0.20),
-            ..Default::default()
-        });
+        let report = find_duplicates(
+            &[a, b, c],
+            DuplicationConfig {
+                block_size: 5,
+                min_lines: 5,
+                max_literal_density: Some(0.20),
+                ..Default::default()
+            },
+        );
         // 10 STR placeholders / ~43 tokens ≈ 23% > 20% threshold.
         assert!(
             report.clone_sets.is_empty(),
@@ -822,7 +925,10 @@ mod tests {
         let body: Vec<(u32, String)> = (0..6)
             .map(|i| {
                 let tokens = if i == 2 {
-                    format!("if ( ! name ) {{ throw new Error ( {} ) ; }}", STRING_PLACEHOLDER)
+                    format!(
+                        "if ( ! name ) {{ throw new Error ( {} ) ; }}",
+                        STRING_PLACEHOLDER
+                    )
                 } else {
                     format!("let x{i} = compute ( step ) ;")
                 };
@@ -831,11 +937,14 @@ mod tests {
             .collect();
         let a = TokenizedFile::new("a.rs".into(), body.clone());
         let b = TokenizedFile::new("b.rs".into(), body);
-        let report = find_duplicates(&[a, b], DuplicationConfig {
-            block_size: 5,
-            min_lines: 5,
-            ..Default::default()
-        });
+        let report = find_duplicates(
+            &[a, b],
+            DuplicationConfig {
+                block_size: 5,
+                min_lines: 5,
+                ..Default::default()
+            },
+        );
         assert_eq!(
             report.clone_sets.len(),
             1,
@@ -849,7 +958,10 @@ mod tests {
         let arm = |i: u32| -> (u32, String) {
             (
                 i,
-                format!("case {} : return {} ;", STRING_PLACEHOLDER, STRING_PLACEHOLDER),
+                format!(
+                    "case {} : return {} ;",
+                    STRING_PLACEHOLDER, STRING_PLACEHOLDER
+                ),
             )
         };
         let switch_body: Vec<(u32, String)> = vec![
@@ -866,12 +978,15 @@ mod tests {
         let a = TokenizedFile::new("a.ts".into(), switch_body.clone());
         let b = TokenizedFile::new("b.ts".into(), switch_body.clone());
         let c = TokenizedFile::new("c.ts".into(), switch_body);
-        let report = find_duplicates(&[a, b, c], DuplicationConfig {
-            block_size: 5,
-            min_lines: 5,
-            max_literal_density: None,
-            ..Default::default()
-        });
+        let report = find_duplicates(
+            &[a, b, c],
+            DuplicationConfig {
+                block_size: 5,
+                min_lines: 5,
+                max_literal_density: None,
+                ..Default::default()
+            },
+        );
         assert_eq!(
             report.clone_sets.len(),
             1,

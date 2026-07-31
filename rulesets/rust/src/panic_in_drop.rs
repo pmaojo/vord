@@ -17,17 +17,23 @@ const PANIC_MACROS: &[&str] = &[
 ];
 
 fn drop_method(impl_item: &AstNode) -> Option<&AstNode> {
-    let body = impl_item.children().iter().find(|c| is_other(c.kind(), "declaration_list"))?;
+    let body = impl_item
+        .children()
+        .iter()
+        .find(|c| is_other(c.kind(), "declaration_list"))?;
     body.children().iter().find(|c| {
         *c.kind() == NodeKind::FunctionDef
-            && c.first_child().is_some_and(|n| *n.kind() == NodeKind::Identifier && n.text() == "drop")
+            && c.first_child()
+                .is_some_and(|n| *n.kind() == NodeKind::Identifier && n.text() == "drop")
     })
 }
 
 /// Whether `call` risks panicking: a `panic!`-family macro, or `.unwrap()`/
 /// `.expect(..)` on a `Result`/`Option`.
 fn panic_risk(call: &AstNode) -> bool {
-    let Some(callee) = call.first_child() else { return false };
+    let Some(callee) = call.first_child() else {
+        return false;
+    };
     match callee.kind() {
         NodeKind::Identifier => PANIC_MACROS.contains(&callee.text()),
         NodeKind::MemberAccess => {
@@ -50,7 +56,9 @@ pub struct PanicInDropRule {
 
 impl PanicInDropRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:panic-in-drop").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:panic-in-drop").expect("valid rule id"),
+        }
     }
 }
 
@@ -133,15 +141,17 @@ mod tests {
 
     #[test]
     fn flags_unwrap_in_drop() {
-        let findings =
-            check("impl Drop for Foo {\n    fn drop(&mut self) {\n        self.close().unwrap();\n    }\n}\n");
+        let findings = check(
+            "impl Drop for Foo {\n    fn drop(&mut self) {\n        self.close().unwrap();\n    }\n}\n",
+        );
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn flags_panic_macro_in_drop() {
-        let findings =
-            check("impl Drop for Foo {\n    fn drop(&mut self) {\n        panic!(\"bad\");\n    }\n}\n");
+        let findings = check(
+            "impl Drop for Foo {\n    fn drop(&mut self) {\n        panic!(\"bad\");\n    }\n}\n",
+        );
         assert_eq!(findings.len(), 1);
     }
 
@@ -155,7 +165,10 @@ mod tests {
 
     #[test]
     fn ignores_unwrap_outside_drop() {
-        assert!(check("impl Foo {\n    fn close(&self) {\n        self.inner().unwrap();\n    }\n}\n").is_empty());
+        assert!(
+            check("impl Foo {\n    fn close(&self) {\n        self.inner().unwrap();\n    }\n}\n")
+                .is_empty()
+        );
     }
 
     #[test]

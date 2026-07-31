@@ -106,8 +106,13 @@ pub struct IssueFacets {
 /// One workflow action recorded against an issue, for audit/history display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChangelogAction {
-    Transitioned { from: IssueStatus, transition: IssueTransition },
-    Assigned { assignee: Option<String> },
+    Transitioned {
+        from: IssueStatus,
+        transition: IssueTransition,
+    },
+    Assigned {
+        assignee: Option<String>,
+    },
 }
 
 /// A single changelog entry.
@@ -232,7 +237,9 @@ impl Issue {
                 (IssueStatus::Resolved, Some(resolution))
             }
             (IssueStatus::Resolved, IssueTransition::Reopen) => (IssueStatus::Open, None),
-            (IssueStatus::Resolved, IssueTransition::Close) => (IssueStatus::Closed, self.resolution),
+            (IssueStatus::Resolved, IssueTransition::Close) => {
+                (IssueStatus::Closed, self.resolution)
+            }
             (from, transition) => return Err(InvalidTransitionError { from, transition }),
         };
         (self.status, self.resolution) = next;

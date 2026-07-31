@@ -26,7 +26,11 @@ pub struct PullRequestFeedbackReader {
 }
 
 impl PullRequestFeedbackReader {
-    pub fn new(token: impl Into<String>, owner: impl Into<String>, repo: impl Into<String>) -> Self {
+    pub fn new(
+        token: impl Into<String>,
+        owner: impl Into<String>,
+        repo: impl Into<String>,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             token: token.into(),
@@ -65,23 +69,40 @@ impl PullRequestFeedbackReader {
         let issue_comments: Vec<Comment> = self.get(&format!("issues/{number}/comments")).await?;
         let review_comments: Vec<Comment> = self.get(&format!("pulls/{number}/comments")).await?;
         let reviews: Vec<Review> = self.get(&format!("pulls/{number}/reviews")).await?;
-        let checks: CheckRuns = self.get(&format!("commits/{}/check-runs", pull.head.sha)).await?;
+        let checks: CheckRuns = self
+            .get(&format!("commits/{}/check-runs", pull.head.sha))
+            .await?;
 
         let mut items = Vec::new();
-        items.extend(issue_comments.iter().map(|c| c.to_item(FeedbackSource::IssueComment)));
-        items.extend(review_comments.iter().map(|c| c.to_item(FeedbackSource::ReviewComment)));
+        items.extend(
+            issue_comments
+                .iter()
+                .map(|c| c.to_item(FeedbackSource::IssueComment)),
+        );
+        items.extend(
+            review_comments
+                .iter()
+                .map(|c| c.to_item(FeedbackSource::ReviewComment)),
+        );
         items.extend(reviews.iter().filter_map(Review::to_item));
         items.extend(checks.check_runs.iter().filter_map(CheckRun::to_item));
 
         // A queued or running check has not reported yet. Counted rather than
         // guessed at: reporting it as clean would be a lie, reporting it as
         // failing would be a different one.
-        let outstanding = checks.check_runs.iter().filter(|run| !run.is_complete()).count();
+        let outstanding = checks
+            .check_runs
+            .iter()
+            .filter(|run| !run.is_complete())
+            .count();
         Ok(Poll::Observed { items, outstanding })
     }
 
     async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, String> {
-        let url = format!("{}/repos/{}/{}/{path}", self.api_base, self.owner, self.repo);
+        let url = format!(
+            "{}/repos/{}/{}/{path}",
+            self.api_base, self.owner, self.repo
+        );
         let response = self
             .client
             .get(&url)
@@ -92,7 +113,10 @@ impl PullRequestFeedbackReader {
             .await
             .map_err(|e| format!("GET {url} failed: {e}"))?;
         let status = response.status();
-        let body = response.text().await.map_err(|e| format!("GET {url} body unreadable: {e}"))?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| format!("GET {url} body unreadable: {e}"))?;
         if !status.is_success() {
             return Err(format!("GET {url} returned {status}: {body}"));
         }
@@ -224,9 +248,12 @@ impl CheckRun {
         Some(FeedbackItem {
             id: format!("check:{}:{conclusion}", self.id),
             source: FeedbackSource::CheckRun,
-            author: self.app.as_ref().map(|a| a.slug.clone()).filter(|s| !s.is_empty()).unwrap_or_else(
-                || self.name.clone(),
-            ),
+            author: self
+                .app
+                .as_ref()
+                .map(|a| a.slug.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| self.name.clone()),
             body: format!("{} → {conclusion}", self.name),
             // A check run is always a machine, whatever posted it.
             bot: true,
@@ -289,7 +316,8 @@ mod tests {
 
     #[test]
     fn a_bot_is_recognised_by_type_and_by_login_suffix() {
-        let by_type: Comment = parse(r#"{"id":1,"body":"","user":{"login":"copilot","type":"Bot"}}"#);
+        let by_type: Comment =
+            parse(r#"{"id":1,"body":"","user":{"login":"copilot","type":"Bot"}}"#);
         assert!(by_type.to_item(FeedbackSource::IssueComment).bot);
         let by_login: Comment = parse(r#"{"id":2,"body":"","user":{"login":"dependabot[bot]"}}"#);
         assert!(by_login.to_item(FeedbackSource::IssueComment).bot);
@@ -310,12 +338,17 @@ mod tests {
         assert_eq!(review_verdict("APPROVED"), ItemVerdict::Clean);
         assert_eq!(review_verdict("CHANGES_REQUESTED"), ItemVerdict::NeedsWork);
         assert_eq!(review_verdict("COMMENTED"), ItemVerdict::Neutral);
-        assert_eq!(review_verdict("approved"), ItemVerdict::Clean, "state casing varies by endpoint");
+        assert_eq!(
+            review_verdict("approved"),
+            ItemVerdict::Clean,
+            "state casing varies by endpoint"
+        );
     }
 
     #[test]
     fn a_pending_review_is_not_yet_feedback() {
-        let review: Review = parse(r#"{"id":9,"state":"PENDING","body":"","user":{"login":"alice"}}"#);
+        let review: Review =
+            parse(r#"{"id":9,"state":"PENDING","body":"","user":{"login":"alice"}}"#);
         assert!(review.to_item().is_none());
     }
 
@@ -343,13 +376,17 @@ mod tests {
     fn a_running_check_is_outstanding_rather_than_reported() {
         let run: CheckRun = parse(r#"{"id":1,"name":"CI","status":"in_progress"}"#);
         assert!(!run.is_complete());
-        assert!(run.to_item().is_none(), "a check that has not finished has said nothing");
+        assert!(
+            run.to_item().is_none(),
+            "a check that has not finished has said nothing"
+        );
     }
 
     #[test]
     fn a_completed_check_is_always_a_bot_and_keeps_its_conclusion_in_its_id() {
-        let run: CheckRun =
-            parse(r#"{"id":1,"name":"CI","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}"#);
+        let run: CheckRun = parse(
+            r#"{"id":1,"name":"CI","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}"#,
+        );
         let item = run.to_item().unwrap();
         assert!(item.bot);
         assert_eq!(item.author, "github-actions");
@@ -362,7 +399,8 @@ mod tests {
 
     #[test]
     fn a_check_with_no_app_falls_back_to_its_own_name() {
-        let run: CheckRun = parse(r#"{"id":1,"name":"lint","status":"completed","conclusion":"success"}"#);
+        let run: CheckRun =
+            parse(r#"{"id":1,"name":"lint","status":"completed","conclusion":"success"}"#);
         assert_eq!(run.to_item().unwrap().author, "lint");
     }
 

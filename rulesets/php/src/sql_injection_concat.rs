@@ -3,14 +3,22 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::{callee_node, is_other, operator_between};
 
-const FUNCTION_SINKS: &[&str] =
-    &["mysqli_query", "mysql_query", "pg_query", "pg_exec", "sqlite_query", "sqlite_exec"];
+const FUNCTION_SINKS: &[&str] = &[
+    "mysqli_query",
+    "mysql_query",
+    "pg_query",
+    "pg_exec",
+    "sqlite_query",
+    "sqlite_exec",
+];
 const METHOD_SINKS: &[&str] = &["query", "exec", "prepare"];
 
 fn is_function_sink(call: &AstNode) -> bool {
     // A bare function call has exactly `[name, arguments]` — two children.
     call.children().len() == 2
-        && callee_node(call).is_some_and(|c| *c.kind() == NodeKind::Identifier && FUNCTION_SINKS.contains(&c.text()))
+        && callee_node(call).is_some_and(|c| {
+            *c.kind() == NodeKind::Identifier && FUNCTION_SINKS.contains(&c.text())
+        })
 }
 
 /// tree-sitter-php flattens a method call to `Call([receiver, method_name,
@@ -58,7 +66,9 @@ pub struct SqlInjectionConcatRule {
 
 impl SqlInjectionConcatRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("php:sql-injection-concat").expect("valid rule id") }
+        Self {
+            id: RuleId::new("php:sql-injection-concat").expect("valid rule id"),
+        }
     }
 }
 
@@ -107,7 +117,10 @@ impl Rule for SqlInjectionConcatRule {
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter(|call| is_function_sink(call) || is_method_sink(call))
             .filter_map(|call| {
-                let args = call.children().iter().find(|c| is_other(c.kind(), "arguments"))?;
+                let args = call
+                    .children()
+                    .iter()
+                    .find(|c| is_other(c.kind(), "arguments"))?;
                 args.children()
                     .iter()
                     .any(|arg| built_by_concatenation(arg, file.content()))

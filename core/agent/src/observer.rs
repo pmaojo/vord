@@ -30,7 +30,10 @@ pub enum AgentEvent {
     ToolCallFinished { result: ToolResult },
     /// A proposed write was judged (not necessarily applied — see
     /// `evaluation.is_denied()`).
-    WriteJudged { path: String, evaluation: Evaluation },
+    WriteJudged {
+        path: String,
+        evaluation: Evaluation,
+    },
     /// The model claimed completion and the analyzer ruled on the claim.
     Adjudicated { completion: Completion },
     /// The run reached one of its six terminal states.
@@ -74,8 +77,8 @@ impl<T: Observer + ?Sized> Observer for std::sync::Arc<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn a_noop_observer_drops_every_event_silently() {

@@ -28,9 +28,9 @@ const BRANCH_KINDS: &[&str] = &[
     "ternary_expression",
     "boolean_operator",
     "enhanced_for_statement", // Groovy/Java-family for-each
-    "switch_label", // Groovy's per-case switch marker
-    "repeat_statement", // Lua's `repeat ... until`
-    "elseif_statement", // Lua's `elseif` (no wrapping `elif_clause` node)
+    "switch_label",           // Groovy's per-case switch marker
+    "repeat_statement",       // Lua's `repeat ... until`
+    "elseif_statement",       // Lua's `elseif` (no wrapping `elif_clause` node)
 ];
 
 /// One function's cyclomatic complexity and source span. `cyclomatic` is
@@ -77,7 +77,12 @@ mod tests {
     #[test]
     fn nested_functions_do_not_inflate_the_parent() {
         let leaf = AstNode::new(NodeKind::FunctionDef, Span::new(2, 1, 2, 20), "", vec![]);
-        let root = AstNode::new(NodeKind::FunctionDef, Span::new(1, 1, 3, 1), "", vec![leaf.clone()]);
+        let root = AstNode::new(
+            NodeKind::FunctionDef,
+            Span::new(1, 1, 3, 1),
+            "",
+            vec![leaf.clone()],
+        );
         let results = compute(&root);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].cyclomatic, 1);

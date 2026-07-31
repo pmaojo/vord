@@ -9,22 +9,43 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 
 use crate::common::{callee_name, is_other, own_scope_descendants};
 
-const MUTATING_METHODS: &[&str] =
-    &["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"];
+const MUTATING_METHODS: &[&str] = &[
+    "push",
+    "pop",
+    "shift",
+    "unshift",
+    "splice",
+    "sort",
+    "reverse",
+    "fill",
+    "copyWithin",
+];
 
 /// The state variable name from `const [name, setName] = useState(...)` /
 /// `useReducer(...)`, if `decl` has that shape.
 fn state_variable_name(decl: &AstNode) -> Option<&str> {
-    let pattern = decl.first_child().filter(|c| is_other(c, "array_pattern"))?;
-    let name_node = pattern.children().first().filter(|c| *c.kind() == NodeKind::Identifier)?;
-    let call = decl.children().iter().find(|c| *c.kind() == NodeKind::Call)?;
+    let pattern = decl
+        .first_child()
+        .filter(|c| is_other(c, "array_pattern"))?;
+    let name_node = pattern
+        .children()
+        .first()
+        .filter(|c| *c.kind() == NodeKind::Identifier)?;
+    let call = decl
+        .children()
+        .iter()
+        .find(|c| *c.kind() == NodeKind::Call)?;
     matches!(callee_name(call), Some("useState") | Some("useReducer")).then(|| name_node.text())
 }
 
 /// A `<state>.<mutatingMethod>(...)` call, returning the method name.
 fn mutation_on<'a>(call: &AstNode, state_vars: &[&'a str]) -> Option<(&'a str, &'static str)> {
-    let callee = call.first_child().filter(|c| *c.kind() == NodeKind::MemberAccess)?;
-    let [object, property] = callee.children() else { return None };
+    let callee = call
+        .first_child()
+        .filter(|c| *c.kind() == NodeKind::MemberAccess)?;
+    let [object, property] = callee.children() else {
+        return None;
+    };
     if *object.kind() != NodeKind::Identifier || *property.kind() != NodeKind::Identifier {
         return None;
     }
@@ -39,7 +60,9 @@ pub struct DirectStateMutationRule {
 
 impl DirectStateMutationRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("react:direct-state-mutation").expect("valid rule id") }
+        Self {
+            id: RuleId::new("react:direct-state-mutation").expect("valid rule id"),
+        }
     }
 }
 
@@ -126,7 +149,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         DirectStateMutationRule::new().check(&file, &ast)
     }
 

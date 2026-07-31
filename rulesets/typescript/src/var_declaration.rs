@@ -17,7 +17,9 @@ pub struct VarDeclarationRule {
 
 impl VarDeclarationRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("typescript:var-declaration").expect("valid rule id") }
+        Self {
+            id: RuleId::new("typescript:var-declaration").expect("valid rule id"),
+        }
     }
 }
 
@@ -60,7 +62,12 @@ impl Rule for VarDeclarationRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         ast.descendants()
             .filter(|n| is_other(n, "variable_declaration"))
-            .map(|n| Finding::new("`var` is function-scoped and hoisted; use `let` or `const` instead", n.span()))
+            .map(|n| {
+                Finding::new(
+                    "`var` is function-scoped and hoisted; use `let` or `const` instead",
+                    n.span(),
+                )
+            })
             .collect()
     }
 }
@@ -74,7 +81,9 @@ mod tests {
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         VarDeclarationRule::new().check(&file, &ast)
     }
 

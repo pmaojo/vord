@@ -16,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use yunq_ast::{LanguageIdentifier, SourceFile};
 use yunq_parser_rust::RustParser;
 use yunq_rules_engine::AstParser;
@@ -27,7 +27,9 @@ fn corpus_dir() -> PathBuf {
 
 fn rust_files_under(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else { return files };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return files;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -47,7 +49,11 @@ fn rust_files_under(dir: &Path) -> Vec<PathBuf> {
 fn corpus_lines_of_code(dir: &Path) -> u64 {
     rust_files_under(dir)
         .iter()
-        .map(|path| std::fs::read_to_string(path).map(|c| c.lines().count() as u64).unwrap_or(0))
+        .map(|path| {
+            std::fs::read_to_string(path)
+                .map(|c| c.lines().count() as u64)
+                .unwrap_or(0)
+        })
         .sum()
 }
 
@@ -78,7 +84,10 @@ fn calculate_sum(numbers: &[i32]) -> i32 {
 fn bench_full_pipeline_corpus(c: &mut Criterion) {
     let corpus = corpus_dir();
     let loc = corpus_lines_of_code(&corpus);
-    assert!(loc > 0, "corpus at {corpus:?} is empty — check benches/corpus/rust/");
+    assert!(
+        loc > 0,
+        "corpus at {corpus:?} is empty — check benches/corpus/rust/"
+    );
 
     let mut group = c.benchmark_group("full_pipeline");
     group.throughput(Throughput::Elements(loc));

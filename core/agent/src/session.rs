@@ -32,11 +32,19 @@ pub struct ToolResult {
 
 impl ToolResult {
     pub fn ok(call_id: impl Into<String>, content: impl Into<String>) -> Self {
-        Self { call_id: call_id.into(), content: content.into(), is_error: false }
+        Self {
+            call_id: call_id.into(),
+            content: content.into(),
+            is_error: false,
+        }
     }
 
     pub fn error(call_id: impl Into<String>, content: impl Into<String>) -> Self {
-        Self { call_id: call_id.into(), content: content.into(), is_error: true }
+        Self {
+            call_id: call_id.into(),
+            content: content.into(),
+            is_error: true,
+        }
     }
 }
 
@@ -44,7 +52,10 @@ impl ToolResult {
 pub enum Message {
     System(String),
     User(String),
-    Assistant { text: Option<String>, calls: Vec<ToolCall> },
+    Assistant {
+        text: Option<String>,
+        calls: Vec<ToolCall>,
+    },
     ToolResults(Vec<ToolResult>),
 }
 
@@ -87,7 +98,9 @@ pub struct Transcript {
 
 impl Transcript {
     pub fn new(system: impl Into<String>) -> Self {
-        Self { messages: vec![Message::System(system.into())] }
+        Self {
+            messages: vec![Message::System(system.into())],
+        }
     }
 
     pub fn push_user(&mut self, text: impl Into<String>) {
@@ -102,7 +115,10 @@ impl Transcript {
         if turn.text.is_none() && turn.calls.is_empty() {
             return;
         }
-        self.messages.push(Message::Assistant { text: turn.text.clone(), calls: turn.calls.clone() });
+        self.messages.push(Message::Assistant {
+            text: turn.text.clone(),
+            calls: turn.calls.clone(),
+        });
     }
 
     /// Records the answers to the last assistant turn's calls. An empty
@@ -132,7 +148,11 @@ mod tests {
     use super::*;
 
     fn call(id: &str) -> ToolCall {
-        ToolCall { id: id.to_string(), name: "read".to_string(), input: serde_json::json!({ "path": "a" }) }
+        ToolCall {
+            id: id.to_string(),
+            name: "read".to_string(),
+            input: serde_json::json!({ "path": "a" }),
+        }
     }
 
     #[test]
@@ -144,13 +164,21 @@ mod tests {
 
     #[test]
     fn a_turn_with_no_calls_claims_completion() {
-        let turn = AssistantTurn { text: Some("done".into()), calls: vec![], usage: TokenUsage::default() };
+        let turn = AssistantTurn {
+            text: Some("done".into()),
+            calls: vec![],
+            usage: TokenUsage::default(),
+        };
         assert!(turn.claims_completion());
     }
 
     #[test]
     fn a_turn_with_calls_does_not_claim_completion() {
-        let turn = AssistantTurn { text: None, calls: vec![call("1")], usage: TokenUsage::default() };
+        let turn = AssistantTurn {
+            text: None,
+            calls: vec![call("1")],
+            usage: TokenUsage::default(),
+        };
         assert!(!turn.claims_completion());
     }
 
@@ -164,7 +192,11 @@ mod tests {
     #[test]
     fn an_assistant_turn_with_only_calls_is_recorded() {
         let mut transcript = Transcript::new("sys");
-        transcript.push_assistant(&AssistantTurn { text: None, calls: vec![call("1")], usage: TokenUsage::default() });
+        transcript.push_assistant(&AssistantTurn {
+            text: None,
+            calls: vec![call("1")],
+            usage: TokenUsage::default(),
+        });
         assert_eq!(transcript.messages().len(), 2);
     }
 
@@ -183,11 +215,25 @@ mod tests {
 
     #[test]
     fn token_usage_totals_both_directions() {
-        assert_eq!(TokenUsage { input: 10, output: 5 }.total(), 15);
+        assert_eq!(
+            TokenUsage {
+                input: 10,
+                output: 5
+            }
+            .total(),
+            15
+        );
     }
 
     #[test]
     fn token_usage_saturates_rather_than_overflowing() {
-        assert_eq!(TokenUsage { input: u64::MAX, output: 1 }.total(), u64::MAX);
+        assert_eq!(
+            TokenUsage {
+                input: u64::MAX,
+                output: 1
+            }
+            .total(),
+            u64::MAX
+        );
     }
 }

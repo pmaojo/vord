@@ -35,7 +35,11 @@ pub struct AnemicDomainModelRule {
 
 impl AnemicDomainModelRule {
     pub fn new(min_fields: usize, min_accessors: usize) -> Self {
-        Self { id: RuleId::new("ddd:anemic-domain-model").expect("valid rule id"), min_fields, min_accessors }
+        Self {
+            id: RuleId::new("ddd:anemic-domain-model").expect("valid rule id"),
+            min_fields,
+            min_accessors,
+        }
     }
 }
 
@@ -84,8 +88,10 @@ impl CrossFileRule for AnemicDomainModelRule {
             return Vec::new();
         }
         let registry = ClassRegistry::build_cross_file(&views);
-        let dtos: std::collections::BTreeSet<String> =
-            views.iter().flat_map(|(_, ast)| wire_dto_names(ast)).collect();
+        let dtos: std::collections::BTreeSet<String> = views
+            .iter()
+            .flat_map(|(_, ast)| wire_dto_names(ast))
+            .collect();
         let mut findings = Vec::new();
         for class in registry.iter() {
             if dtos.contains(&class.name) {
@@ -96,11 +102,16 @@ impl CrossFileRule for AnemicDomainModelRule {
             }
             let methods = declared_methods(class);
             let fields = field_names(class);
-            let accessors = methods.iter().filter(|m| accessor_of(m, &fields).is_some()).count();
+            let accessors = methods
+                .iter()
+                .filter(|m| accessor_of(m, &fields).is_some())
+                .count();
             if accessors < self.min_accessors || accessors != methods.len() {
                 continue;
             }
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             let Some(span) = class.span else { continue };
             findings.push((
                 index,
@@ -128,39 +139,79 @@ mod tests {
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+            yunq_parser_typescript::TypeScriptParser::new()
+                .parse(&file)
+                .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new().parse(&file).unwrap()
+            yunq_parser_python::PythonParser::new()
+                .parse(&file)
+                .unwrap()
         } else {
             yunq_parser_rust::RustParser::new().parse(&file).unwrap()
         };
-        AnemicDomainModelRule::default().check(&[(file, ast)]).into_iter().map(|(_, f)| f).collect()
+        AnemicDomainModelRule::default()
+            .check(&[(file, ast)])
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     const ANEMIC_TS: &str = "export class Order {\n  private id: string = '';\n  private status: string = '';\n  private total: number = 0;\n  getId(): string {\n    return this.id;\n  }\n  getStatus(): string {\n    return this.status;\n  }\n  setStatus(status: string): void {\n    this.status = status;\n  }\n  getTotal(): number {\n    return this.total;\n  }\n}\n";
 
     #[test]
     fn flags_a_getter_setter_only_entity_in_the_domain_layer() {
-        let findings = check("src/domain/order.ts", ANEMIC_TS, LanguageIdentifier::typescript());
+        let findings = check(
+            "src/domain/order.ts",
+            ANEMIC_TS,
+            LanguageIdentifier::typescript(),
+        );
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("`Order` holds 3 fields behind 4 accessors"), "{}", findings[0].message);
+        assert!(
+            findings[0]
+                .message
+                .contains("`Order` holds 3 fields behind 4 accessors"),
+            "{}",
+            findings[0].message
+        );
     }
 
     #[test]
     fn silent_outside_the_domain_layer() {
-        assert!(check("src/adapters/order_dto.ts", ANEMIC_TS, LanguageIdentifier::typescript()).is_empty());
-        assert!(check("src/dto/order.ts", ANEMIC_TS, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/adapters/order_dto.ts",
+                ANEMIC_TS,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
+        assert!(
+            check(
+                "src/dto/order.ts",
+                ANEMIC_TS,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn silent_when_the_entity_has_real_behavior() {
         let code = "export class Order {\n  private id: string = '';\n  private status: string = '';\n  private total: number = 0;\n  getId(): string {\n    return this.id;\n  }\n  confirm(): void {\n    if (this.total <= 0) {\n      throw new Error('empty order');\n    }\n    this.status = 'confirmed';\n  }\n}\n";
-        assert!(check("src/domain/order.ts", code, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "src/domain/order.ts",
+                code,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn a_record_with_no_methods_is_a_value_object_not_an_anemic_model() {
-        let code = "pub struct Money {\n    amount: i64,\n    currency: String,\n    scale: u8,\n}\n";
+        let code =
+            "pub struct Money {\n    amount: i64,\n    currency: String,\n    scale: u8,\n}\n";
         assert!(check("src/domain/money.rs", code, LanguageIdentifier::rust()).is_empty());
     }
 
@@ -176,7 +227,11 @@ mod tests {
     fn a_trait_impl_does_not_count_as_domain_behavior() {
         let code = "pub struct Order {\n    id: String,\n    status: String,\n    total: i64,\n}\n\nimpl Order {\n    pub fn id(&self) -> &String {\n        &self.id\n    }\n    pub fn status(&self) -> &String {\n        &self.status\n    }\n}\n\nimpl Display for Order {\n    fn fmt(&self, f: &mut Formatter) -> Result {\n        write!(f, \"{}\", self.id)\n    }\n}\n";
         let findings = check("src/domain/order.rs", code, LanguageIdentifier::rust());
-        assert_eq!(findings.len(), 1, "a Display impl is not behavior the model chose: {findings:?}");
+        assert_eq!(
+            findings.len(),
+            1,
+            "a Display impl is not behavior the model chose: {findings:?}"
+        );
     }
 
     #[test]
@@ -195,6 +250,13 @@ mod tests {
 
     #[test]
     fn silent_in_test_only_paths() {
-        assert!(check("tests/domain/order.ts", ANEMIC_TS, LanguageIdentifier::typescript()).is_empty());
+        assert!(
+            check(
+                "tests/domain/order.ts",
+                ANEMIC_TS,
+                LanguageIdentifier::typescript()
+            )
+            .is_empty()
+        );
     }
 }

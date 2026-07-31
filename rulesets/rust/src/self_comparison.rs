@@ -24,7 +24,9 @@ pub struct SelfComparisonRule {
 
 impl SelfComparisonRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:self-comparison").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:self-comparison").expect("valid rule id"),
+        }
     }
 }
 

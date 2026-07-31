@@ -11,17 +11,27 @@
 /// True when `content`'s `line` (1-based) carries a `yunq-ignore` comment
 /// that covers `rule_id`.
 pub fn is_suppressed(content: &str, line: u32, rule_id: &str) -> bool {
-    let Some(index) = line.checked_sub(1) else { return false };
-    let Some(text) = content.lines().nth(index as usize) else { return false };
-    let Some(marker) = text.find("yunq-ignore") else { return false };
+    let Some(index) = line.checked_sub(1) else {
+        return false;
+    };
+    let Some(text) = content.lines().nth(index as usize) else {
+        return false;
+    };
+    let Some(marker) = text.find("yunq-ignore") else {
+        return false;
+    };
 
     let after = &text[marker + "yunq-ignore".len()..];
     let Some(rest) = after.trim_start().strip_prefix(':') else {
         // Bare `// yunq-ignore` with no colon: suppresses everything.
-        return after.trim_start().is_empty() || !after.trim_start().starts_with(|c: char| c.is_alphanumeric());
+        return after.trim_start().is_empty()
+            || !after
+                .trim_start()
+                .starts_with(|c: char| c.is_alphanumeric());
     };
 
-    rest.split(',').any(|entry| entry.split_whitespace().next() == Some(rule_id))
+    rest.split(',')
+        .any(|entry| entry.split_whitespace().next() == Some(rule_id))
 }
 
 #[cfg(test)]
@@ -52,8 +62,7 @@ mod tests {
 
     #[test]
     fn explanatory_prose_after_the_rule_id_does_not_break_matching() {
-        let content =
-            "let h = \"X-Request-Id\"; // yunq-ignore: secrets:high-entropy-string (this is the header name, not a secret)\n";
+        let content = "let h = \"X-Request-Id\"; // yunq-ignore: secrets:high-entropy-string (this is the header name, not a secret)\n";
         assert!(is_suppressed(content, 1, "secrets:high-entropy-string"));
         assert!(!is_suppressed(content, 1, "smells:unwrap-usage"));
     }

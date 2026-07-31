@@ -37,7 +37,9 @@ mod tests {
 
     #[test]
     fn maps_java_concepts() {
-        let ast = parse("public class Test {\n  // TODO: fix\n  public static void main(String[] args) {\n    System.out.println(\"hello\");\n  }\n}");
+        let ast = parse(
+            "public class Test {\n  // TODO: fix\n  public static void main(String[] args) {\n    System.out.println(\"hello\");\n  }\n}",
+        );
         assert_eq!(ast.kind(), &NodeKind::SourceUnit);
         assert_eq!(ast.find_all(&NodeKind::FunctionDef).len(), 1);
         assert_eq!(ast.find_all(&NodeKind::Comment).len(), 1);

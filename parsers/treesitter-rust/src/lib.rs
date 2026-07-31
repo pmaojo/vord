@@ -46,7 +46,9 @@ mod tests {
 
     #[test]
     fn maps_core_concepts() {
-        let ast = parse("// FIXME: rewrite\nfn main() {\n    let secret = \"hunter2\";\n    let value = std::env::var(\"HOME\").unwrap();\n}\n");
+        let ast = parse(
+            "// FIXME: rewrite\nfn main() {\n    let secret = \"hunter2\";\n    let value = std::env::var(\"HOME\").unwrap();\n}\n",
+        );
         assert_eq!(ast.kind(), &NodeKind::SourceUnit);
         assert_eq!(ast.find_all(&NodeKind::FunctionDef).len(), 1);
         assert_eq!(ast.find_all(&NodeKind::VariableDecl).len(), 2);

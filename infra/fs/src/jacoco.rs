@@ -23,12 +23,18 @@ pub enum JacocoError {
 }
 
 pub fn parse_jacoco(content: &str) -> Result<CoverageSummary, JacocoError> {
-    parse_jacoco_report(content)?.summary().map_err(|e| JacocoError::Malformed(e.to_string()))
+    parse_jacoco_report(content)?
+        .summary()
+        .map_err(|e| JacocoError::Malformed(e.to_string()))
 }
 
 fn missed_and_covered(trimmed: &str) -> (usize, usize) {
-    let missed = extract_attr(trimmed, "missed").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-    let covered = extract_attr(trimmed, "covered").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+    let missed = extract_attr(trimmed, "missed")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
+    let covered = extract_attr(trimmed, "covered")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
     (missed, covered)
 }
 
@@ -82,8 +88,12 @@ impl Accumulator {
         if self.current_file.is_none() {
             return;
         }
-        let Some(nr) = extract_attr(trimmed, "nr").and_then(|s| s.parse::<u32>().ok()) else { return };
-        let ci = extract_attr(trimmed, "ci").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+        let Some(nr) = extract_attr(trimmed, "nr").and_then(|s| s.parse::<u32>().ok()) else {
+            return;
+        };
+        let ci = extract_attr(trimmed, "ci")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
         self.current_lines.insert(nr, ci);
     }
 
@@ -192,7 +202,10 @@ mod tests {
 
     #[test]
     fn empty_input_is_an_error() {
-        assert!(matches!(parse_jacoco("<report></report>"), Err(JacocoError::Empty)));
+        assert!(matches!(
+            parse_jacoco("<report></report>"),
+            Err(JacocoError::Empty)
+        ));
     }
 
     #[test]

@@ -239,10 +239,19 @@ mod tests {
     #[test]
     fn classifies_each_ring_from_its_conventional_directory_name() {
         assert_eq!(layer_of("src/domain/order.ts"), HexLayer::Domain);
-        assert_eq!(layer_of("src/application/place_order.ts"), HexLayer::Application);
+        assert_eq!(
+            layer_of("src/application/place_order.ts"),
+            HexLayer::Application
+        );
         assert_eq!(layer_of("src/ports/order_repository.ts"), HexLayer::Port);
-        assert_eq!(layer_of("src/adapters/http/order_controller.ts"), HexLayer::Adapter);
-        assert_eq!(layer_of("src/infrastructure/postgres_orders.ts"), HexLayer::Infrastructure);
+        assert_eq!(
+            layer_of("src/adapters/http/order_controller.ts"),
+            HexLayer::Adapter
+        );
+        assert_eq!(
+            layer_of("src/infrastructure/postgres_orders.ts"),
+            HexLayer::Infrastructure
+        );
     }
 
     #[test]
@@ -257,14 +266,20 @@ mod tests {
         // The file is domain code that happens to live inside a deployable
         // called `api` — not an adapter.
         assert_eq!(layer_of("apps/api/src/domain/order.ts"), HexLayer::Domain);
-        assert_eq!(layer_of("services/web/application/place_order.py"), HexLayer::Application);
+        assert_eq!(
+            layer_of("services/web/application/place_order.py"),
+            HexLayer::Application
+        );
     }
 
     #[test]
     fn adapter_and_infrastructure_share_a_depth_so_neither_can_violate_the_other() {
         assert_eq!(HexLayer::Adapter.depth(), HexLayer::Infrastructure.depth());
         let graph = graph_of(&[
-            ("src/adapters/api.ts", "import { db } from '../infrastructure/db';\n"),
+            (
+                "src/adapters/api.ts",
+                "import { db } from '../infrastructure/db';\n",
+            ),
             ("src/infrastructure/db.ts", "export const db = 1;\n"),
         ]);
         assert!(inward_dependency_violations(&graph).is_empty());
@@ -273,7 +288,10 @@ mod tests {
     #[test]
     fn flags_domain_importing_infrastructure() {
         let graph = graph_of(&[
-            ("src/domain/order.ts", "import { db } from '../infrastructure/db';\n"),
+            (
+                "src/domain/order.ts",
+                "import { db } from '../infrastructure/db';\n",
+            ),
             ("src/infrastructure/db.ts", "export const db = 1;\n"),
         ]);
         let violations = inward_dependency_violations(&graph);
@@ -286,8 +304,14 @@ mod tests {
     #[test]
     fn flags_domain_importing_the_application_layer_above_it() {
         let graph = graph_of(&[
-            ("src/domain/order.ts", "import { place } from '../application/place_order';\n"),
-            ("src/application/place_order.ts", "export const place = 1;\n"),
+            (
+                "src/domain/order.ts",
+                "import { place } from '../application/place_order';\n",
+            ),
+            (
+                "src/application/place_order.ts",
+                "export const place = 1;\n",
+            ),
         ]);
         let violations = inward_dependency_violations(&graph);
         assert_eq!(violations.len(), 1);
@@ -297,8 +321,14 @@ mod tests {
     #[test]
     fn silent_on_the_intended_inward_direction() {
         let graph = graph_of(&[
-            ("src/adapters/order_controller.ts", "import { place } from '../application/place_order';\n"),
-            ("src/application/place_order.ts", "import { Order } from '../domain/order';\nexport const place = 1;\n"),
+            (
+                "src/adapters/order_controller.ts",
+                "import { place } from '../application/place_order';\n",
+            ),
+            (
+                "src/application/place_order.ts",
+                "import { Order } from '../domain/order';\nexport const place = 1;\n",
+            ),
             ("src/domain/order.ts", "export class Order {}\n"),
         ]);
         assert!(inward_dependency_violations(&graph).is_empty());
@@ -307,8 +337,14 @@ mod tests {
     #[test]
     fn silent_when_the_application_layer_depends_on_a_port_it_declares() {
         let graph = graph_of(&[
-            ("src/application/place_order.ts", "import { OrderRepository } from '../ports/order_repository';\n"),
-            ("src/ports/order_repository.ts", "export interface OrderRepository {}\n"),
+            (
+                "src/application/place_order.ts",
+                "import { OrderRepository } from '../ports/order_repository';\n",
+            ),
+            (
+                "src/ports/order_repository.ts",
+                "export interface OrderRepository {}\n",
+            ),
         ]);
         assert!(inward_dependency_violations(&graph).is_empty());
     }
@@ -316,7 +352,10 @@ mod tests {
     #[test]
     fn silent_when_either_side_is_unclassified() {
         let graph = graph_of(&[
-            ("src/domain/order.ts", "import { fmt } from '../utils/format';\n"),
+            (
+                "src/domain/order.ts",
+                "import { fmt } from '../utils/format';\n",
+            ),
             ("src/utils/format.ts", "export const fmt = 1;\n"),
         ]);
         assert!(inward_dependency_violations(&graph).is_empty());
@@ -326,7 +365,10 @@ mod tests {
     fn flags_a_python_domain_package_importing_infrastructure() {
         let parser = yunq_parser_python::PythonParser::new();
         let files = [
-            ("src/domain/order.py", "from src.infrastructure.db import session\n"),
+            (
+                "src/domain/order.py",
+                "from src.infrastructure.db import session\n",
+            ),
             ("src/infrastructure/db.py", "session = 1\n"),
         ];
         let parsed: Vec<(SourceFile, AstNode)> = files

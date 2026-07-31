@@ -14,8 +14,14 @@ pub struct InvalidProjectKeyError(String);
 impl ProjectKey {
     pub fn new(raw: &str) -> Result<Self, InvalidProjectKeyError> {
         let valid = !raw.is_empty()
-            && raw.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:".contains(c));
-        if valid { Ok(Self(raw.to_string())) } else { Err(InvalidProjectKeyError(raw.to_string())) }
+            && raw
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.:".contains(c));
+        if valid {
+            Ok(Self(raw.to_string()))
+        } else {
+            Err(InvalidProjectKeyError(raw.to_string()))
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -66,7 +72,11 @@ pub struct InvalidPullRequestNumberError;
 
 impl PullRequestNumber {
     pub fn new(raw: u32) -> Result<Self, InvalidPullRequestNumberError> {
-        if raw == 0 { Err(InvalidPullRequestNumberError) } else { Ok(Self(raw)) }
+        if raw == 0 {
+            Err(InvalidPullRequestNumberError)
+        } else {
+            Ok(Self(raw))
+        }
     }
 
     pub fn get(&self) -> u32 {
@@ -79,7 +89,10 @@ impl PullRequestNumber {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AnalysisScope {
     Branch(BranchName),
-    PullRequest { number: PullRequestNumber, target: BranchName },
+    PullRequest {
+        number: PullRequestNumber,
+        target: BranchName,
+    },
 }
 
 /// The full identity of one analysis: which project, on which scope.

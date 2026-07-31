@@ -24,7 +24,9 @@ pub struct UnsafeSendSyncImplRule {
 
 impl UnsafeSendSyncImplRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("rust:unsafe-send-sync-impl").expect("valid rule id") }
+        Self {
+            id: RuleId::new("rust:unsafe-send-sync-impl").expect("valid rule id"),
+        }
     }
 }
 
@@ -61,7 +63,12 @@ impl Rule for UnsafeSendSyncImplRule {
                 can no longer verify; a `SAFETY` comment must justify why the type actually \
                 tolerates being moved or shared across threads."
                 .into(),
-            tags: vec!["security".into(), "unsafe".into(), "concurrency".into(), "rust".into()],
+            tags: vec![
+                "security".into(),
+                "unsafe".into(),
+                "concurrency".into(),
+                "rust".into(),
+            ],
             cwe: Some(362),
             produces_hotspots: true,
         }

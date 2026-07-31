@@ -10,9 +10,17 @@
 //! target identifier, `Call` starts with its callee.
 
 mod cross;
+pub mod ifds;
+pub mod kildall;
 pub mod module_graph;
+pub mod polonius;
+pub mod slicing;
 
 pub use cross::{CrossFileFlow, CrossFileTaint};
+pub use ifds::{ExplodedEdge, ExplodedNode, Fact, IfdsSolver};
+pub use kildall::{KildallWorklist, LatticeValue, ReachingDefsLattice};
+pub use polonius::{BorrowCheckFacts, BorrowCheckViolation, Loan, Origin, PoloniusEngine};
+pub use slicing::{ProgramSlice, SlicingCriterion, WeiserSlicer};
 
 use std::collections::HashMap;
 
@@ -30,6 +38,16 @@ pub struct TaintConfig {
 impl TaintConfig {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Pre-populates standard web framework source markers (`process.argv`, `process.env`, `req.query`, `req.body`, `req.params`).
+    pub fn web_defaults() -> Self {
+        Self::new()
+            .with_source_marker("process.argv")
+            .with_source_marker("process.env")
+            .with_source_marker("req.query")
+            .with_source_marker("req.body")
+            .with_source_marker("req.params")
     }
 
     /// Any expression whose text contains this marker is considered tainted.
@@ -94,7 +112,9 @@ impl TaintAnalysis {
         let mut flows = Vec::new();
 
         for call in ast.descendants().filter(|n| *n.kind() == NodeKind::Call) {
-            let Some(callee) = call.first_child() else { continue };
+            let Some(callee) = call.first_child() else {
+                continue;
+            };
             let callee_name = Self::callee_name(callee);
             if !self.config.sink_callees.iter().any(|s| s == &callee_name) {
                 continue;
@@ -127,8 +147,14 @@ impl TaintAnalysis {
     /// expression(s). Returns whether it newly tainted anything — `false`
     /// when the target isn't a plain identifier, is already tainted, or
     /// none of its values are tainted (yet).
-    fn try_taint_declaration(&self, node: &AstNode, tainted: &mut HashMap<String, TaintedVar>) -> bool {
-        let Some(target) = node.first_child() else { return false };
+    fn try_taint_declaration(
+        &self,
+        node: &AstNode,
+        tainted: &mut HashMap<String, TaintedVar>,
+    ) -> bool {
+        let Some(target) = node.first_child() else {
+            return false;
+        };
         if *target.kind() != NodeKind::Identifier {
             return false;
         }
@@ -140,7 +166,10 @@ impl TaintAnalysis {
             if let Some(marker) = self.direct_source(value) {
                 tainted.insert(
                     name.clone(),
-                    TaintedVar { source: marker.clone(), trace: vec![format!("`{name}` tainted by `{marker}`")] },
+                    TaintedVar {
+                        source: marker.clone(),
+                        trace: vec![format!("`{name}` tainted by `{marker}`")],
+                    },
                 );
                 return true;
             }
@@ -148,7 +177,13 @@ impl TaintAnalysis {
                 let parent = tainted[&origin].clone();
                 let mut trace = parent.trace;
                 trace.push(format!("`{name}` tainted via `{origin}`"));
-                tainted.insert(name.clone(), TaintedVar { source: parent.source, trace });
+                tainted.insert(
+                    name.clone(),
+                    TaintedVar {
+                        source: parent.source,
+                        trace,
+                    },
+                );
                 return true;
             }
         }
@@ -178,7 +213,10 @@ impl TaintAnalysis {
         if self.is_sanitized(expr) {
             return None;
         }
-        self.config.source_markers.iter().find(|m| expr.subtree_contains_text(m))
+        self.config
+            .source_markers
+            .iter()
+            .find(|m| expr.subtree_contains_text(m))
     }
 
     /// A tainted identifier referenced anywhere in this expression subtree,
@@ -195,19 +233,26 @@ impl TaintAnalysis {
         if *expr.kind() == NodeKind::Identifier && tainted.contains_key(expr.text()) {
             return Some(expr.text().to_string());
         }
-        expr.children().iter().find_map(|child| self.tainted_identifier(child, tainted))
+        expr.children()
+            .iter()
+            .find_map(|child| self.tainted_identifier(child, tainted))
     }
 
     /// Whether `node` is a call to a configured sanitizer — trusted to
     /// return a clean value regardless of what flows into its arguments.
     fn is_sanitized(&self, node: &AstNode) -> bool {
         *node.kind() == NodeKind::Call
-            && node.first_child().is_some_and(|callee| self.is_sanitizer(callee))
+            && node
+                .first_child()
+                .is_some_and(|callee| self.is_sanitizer(callee))
     }
 
     fn is_sanitizer(&self, callee: &AstNode) -> bool {
         let name = Self::callee_name(callee);
-        self.config.sanitizer_callees.iter().any(|s| *s == name || callee.text().ends_with(s.as_str()))
+        self.config
+            .sanitizer_callees
+            .iter()
+            .any(|s| *s == name || callee.text().ends_with(s.as_str()))
     }
 
     /// For `MemberAccess` callees like `child_process.execSync`, sinks match
@@ -240,7 +285,12 @@ mod tests {
 
     fn decl(name: &str, value: AstNode) -> AstNode {
         let text = format!("{name} = {}", value.text());
-        AstNode::new(NodeKind::VariableDecl, span(), text, vec![ident(name), value])
+        AstNode::new(
+            NodeKind::VariableDecl,
+            span(),
+            text,
+            vec![ident(name), value],
+        )
     }
 
     fn call(callee: &str, arg: AstNode) -> AstNode {
@@ -253,14 +303,18 @@ mod tests {
     }
 
     fn config() -> TaintConfig {
-        TaintConfig::new().with_source_marker("process.argv").with_sink("eval")
+        TaintConfig::new()
+            .with_source_marker("process.argv")
+            .with_sink("eval")
     }
 
     #[test]
     fn detects_flow_through_a_variable() {
-        let source_expr =
-            AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
-        let ast = unit(vec![decl("input", source_expr), call("eval", ident("input"))]);
+        let source_expr = AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
+        let ast = unit(vec![
+            decl("input", source_expr),
+            call("eval", ident("input")),
+        ]);
 
         let flows = TaintAnalysis::new(config()).find_flows(&ast);
         assert_eq!(flows.len(), 1);
@@ -271,8 +325,7 @@ mod tests {
 
     #[test]
     fn detects_transitive_flow_and_direct_flow() {
-        let source_expr =
-            AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
+        let source_expr = AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
         let ast = unit(vec![
             decl("a", source_expr.clone()),
             decl("b", ident("a")),
@@ -288,7 +341,10 @@ mod tests {
     #[test]
     fn clean_variables_do_not_flow() {
         let ast = unit(vec![
-            decl("safe", AstNode::new(NodeKind::StringLiteral, span(), "\"hi\"", vec![])),
+            decl(
+                "safe",
+                AstNode::new(NodeKind::StringLiteral, span(), "\"hi\"", vec![]),
+            ),
             call("eval", ident("safe")),
         ]);
         assert!(TaintAnalysis::new(config()).find_flows(&ast).is_empty());
@@ -296,8 +352,7 @@ mod tests {
 
     #[test]
     fn member_access_callee_matches_last_segment() {
-        let source_expr =
-            AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
+        let source_expr = AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
         let callee = AstNode::new(
             NodeKind::MemberAccess,
             span(),
@@ -312,7 +367,9 @@ mod tests {
         );
         let ast = unit(vec![decl("x", source_expr), sink_call]);
 
-        let cfg = TaintConfig::new().with_source_marker("process.argv").with_sink("execSync");
+        let cfg = TaintConfig::new()
+            .with_source_marker("process.argv")
+            .with_sink("execSync");
         let flows = TaintAnalysis::new(cfg).find_flows(&ast);
         assert_eq!(flows.len(), 1);
         assert_eq!(flows[0].sink, "execSync");
@@ -330,7 +387,11 @@ mod tests {
             call("eval", ident("input")),
         ]);
 
-        assert!(TaintAnalysis::new(config_with_sanitizer()).find_flows(&ast).is_empty());
+        assert!(
+            TaintAnalysis::new(config_with_sanitizer())
+                .find_flows(&ast)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -338,13 +399,20 @@ mod tests {
         let source_expr = AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
         let ast = unit(vec![call("eval", call("sanitize", source_expr))]);
 
-        assert!(TaintAnalysis::new(config_with_sanitizer()).find_flows(&ast).is_empty());
+        assert!(
+            TaintAnalysis::new(config_with_sanitizer())
+                .find_flows(&ast)
+                .is_empty()
+        );
     }
 
     #[test]
     fn unsanitized_flow_is_still_detected_alongside_a_sanitizer() {
         let source_expr = AstNode::new(NodeKind::MemberAccess, span(), "process.argv", vec![]);
-        let ast = unit(vec![decl("input", source_expr), call("eval", ident("input"))]);
+        let ast = unit(vec![
+            decl("input", source_expr),
+            call("eval", ident("input")),
+        ]);
 
         let flows = TaintAnalysis::new(config_with_sanitizer()).find_flows(&ast);
         assert_eq!(flows.len(), 1);

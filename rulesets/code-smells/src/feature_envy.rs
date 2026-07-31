@@ -24,8 +24,13 @@ use yunq_symbols::ClassRegistry;
 fn count_accesses(body: &AstNode, base_name: &str) -> (usize, usize) {
     let mut own = 0usize;
     let mut foreign = 0usize;
-    for access in body.descendants().filter(|n| *n.kind() == NodeKind::MemberAccess) {
-        let Some(base) = access.first_child() else { continue };
+    for access in body
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::MemberAccess)
+    {
+        let Some(base) = access.first_child() else {
+            continue;
+        };
         // Only a direct `name.field` counts, not a chain's outer link
         // (`a.b.c`'s outer access has `a.b` as its base, not a plain name) —
         // avoids double-counting one physical access as two.
@@ -48,7 +53,10 @@ pub struct FeatureEnvyRule {
 
 impl FeatureEnvyRule {
     pub fn new(min_foreign_accesses: usize) -> Self {
-        Self { id: RuleId::new("smells:feature-envy").expect("valid rule id"), min_foreign_accesses }
+        Self {
+            id: RuleId::new("smells:feature-envy").expect("valid rule id"),
+            min_foreign_accesses,
+        }
     }
 }
 
@@ -81,11 +89,14 @@ impl CrossFileRule for FeatureEnvyRule {
     }
 
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
-        let views: Vec<(&str, &AstNode)> = files.iter().map(|(file, ast)| (file.path(), ast)).collect();
+        let views: Vec<(&str, &AstNode)> =
+            files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let registry = ClassRegistry::build_cross_file(&views);
         let mut findings = Vec::new();
         for class in registry.iter() {
-            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else { continue };
+            let Some(index) = files.iter().position(|(file, _)| file.path() == class.file) else {
+                continue;
+            };
             for method in &class.methods {
                 // Foreign-typed parameters: a declared type that resolves to
                 // a *different* known class, possibly declared in another
@@ -144,9 +155,15 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        FeatureEnvyRule::default().check(&files).into_iter().map(|(_, f)| f).collect()
+        FeatureEnvyRule::default()
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect()
     }
 
     #[test]
@@ -191,9 +208,15 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_python::PythonParser::new()
+            .parse(&file)
+            .unwrap();
         let files = vec![(file, ast)];
-        let findings: Vec<Finding> = FeatureEnvyRule::new(2).check(&files).into_iter().map(|(_, f)| f).collect();
+        let findings: Vec<Finding> = FeatureEnvyRule::new(2)
+            .check(&files)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Invoice::format"));
     }

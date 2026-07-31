@@ -49,9 +49,15 @@ pub fn extract_covers_patterns(content: &str) -> Vec<String> {
             continue;
         }
         for token in trimmed.split_whitespace() {
-            let Some(rest) = token.strip_prefix('@') else { continue };
-            let Some(rest) = rest.strip_prefix(COVERS_TAG) else { continue };
-            let Some(inner) = rest.strip_prefix('(').and_then(|s| s.strip_suffix(')')) else { continue };
+            let Some(rest) = token.strip_prefix('@') else {
+                continue;
+            };
+            let Some(rest) = rest.strip_prefix(COVERS_TAG) else {
+                continue;
+            };
+            let Some(inner) = rest.strip_prefix('(').and_then(|s| s.strip_suffix(')')) else {
+                continue;
+            };
             if !inner.is_empty() {
                 patterns.push(inner.to_string());
             }
@@ -74,17 +80,25 @@ impl GherkinCoverageIndex {
     /// callers that already have them (e.g. tests, or a caller with its own
     /// file-collection strategy). Use [`Self::build_from_repo`] to also do
     /// the filesystem walk.
-    pub fn build<'a>(feature_file_contents: impl IntoIterator<Item = &'a str>) -> Result<Self, GherkinCoverageError> {
+    pub fn build<'a>(
+        feature_file_contents: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Self, GherkinCoverageError> {
         let mut builder = GlobSetBuilder::new();
         for content in feature_file_contents {
             for pattern in extract_covers_patterns(content) {
-                let glob = Glob::new(&pattern)
-                    .map_err(|source| GherkinCoverageError::Glob { pattern: pattern.clone(), source })?;
+                let glob = Glob::new(&pattern).map_err(|source| GherkinCoverageError::Glob {
+                    pattern: pattern.clone(),
+                    source,
+                })?;
                 builder.add(glob);
             }
         }
-        let globs =
-            builder.build().map_err(|source| GherkinCoverageError::Glob { pattern: "<set>".to_string(), source })?;
+        let globs = builder
+            .build()
+            .map_err(|source| GherkinCoverageError::Glob {
+                pattern: "<set>".to_string(),
+                source,
+            })?;
         Ok(Self { globs })
     }
 
@@ -128,14 +142,23 @@ mod tests {
     #[test]
     fn extracts_a_single_covers_tag_on_a_feature_line() {
         let content = "@covers(core/domain/order.rs)\nFeature: Order placement\n";
-        assert_eq!(extract_covers_patterns(content), vec!["core/domain/order.rs".to_string()]);
+        assert_eq!(
+            extract_covers_patterns(content),
+            vec!["core/domain/order.rs".to_string()]
+        );
     }
 
     #[test]
     fn extracts_multiple_tags_sharing_one_line() {
         let content = "@covers(core/domain/order.rs) @slow @covers(core/domain/cart.rs)\nScenario: Checkout\n";
         let patterns = extract_covers_patterns(content);
-        assert_eq!(patterns, vec!["core/domain/order.rs".to_string(), "core/domain/cart.rs".to_string()]);
+        assert_eq!(
+            patterns,
+            vec![
+                "core/domain/order.rs".to_string(),
+                "core/domain/cart.rs".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -149,7 +172,13 @@ Feature: Orders
     Given a paid order
 ";
         let patterns = extract_covers_patterns(content);
-        assert_eq!(patterns, vec!["core/domain/**".to_string(), "core/domain/refund.rs".to_string()]);
+        assert_eq!(
+            patterns,
+            vec![
+                "core/domain/**".to_string(),
+                "core/domain/refund.rs".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -175,14 +204,16 @@ Feature: Orders
 
     #[test]
     fn an_index_built_from_tags_matches_a_covered_path() {
-        let index = GherkinCoverageIndex::build(["@covers(core/domain/order.rs)\nFeature: x\n"]).expect("builds");
+        let index = GherkinCoverageIndex::build(["@covers(core/domain/order.rs)\nFeature: x\n"])
+            .expect("builds");
         assert!(index.covers("core/domain/order.rs"));
         assert!(!index.covers("core/domain/cart.rs"));
     }
 
     #[test]
     fn an_index_built_from_a_glob_tag_matches_the_whole_subtree() {
-        let index = GherkinCoverageIndex::build(["@covers(core/domain/**)\nFeature: x\n"]).expect("builds");
+        let index =
+            GherkinCoverageIndex::build(["@covers(core/domain/**)\nFeature: x\n"]).expect("builds");
         assert!(index.covers("core/domain/order.rs"));
         assert!(index.covers("core/domain/nested/refund.rs"));
         assert!(!index.covers("core/other/order.rs"));
@@ -219,7 +250,8 @@ Feature: Orders
 
     #[test]
     fn build_from_repo_with_no_feature_files_covers_nothing() {
-        let dir = std::env::temp_dir().join(format!("yunq-gherkin-empty-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("yunq-gherkin-empty-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         std::fs::write(dir.join("main.rs"), "fn main() {}\n").expect("write");
 

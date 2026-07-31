@@ -4,8 +4,8 @@
 use serde::Serialize;
 use yunq_rules_engine::{
     AnalysisReport, CloneSet, ConditionStatus, CoverageSummary, CrapFinding, GateEvaluation,
-    GateStatus, Hotspot, Issue, Metrics, MutationSummary, NewCodeAnalysis, RemediationEffortSummary,
-    TestReportSummary,
+    GateStatus, Hotspot, Issue, Metrics, MutationSummary, NewCodeAnalysis,
+    RemediationEffortSummary, Severity, TestReportSummary,
 };
 
 #[derive(Serialize)]
@@ -331,22 +331,36 @@ impl From<&Metrics> for MetricsDto {
             comment_lines: metrics.comment_lines(),
             comment_lines_density: metrics.comment_lines_density(),
             max_nesting_depth: metrics.max_nesting_depth(),
-            remediation_effort_by_rule: remediation_effort_by_rule_dto(metrics.remediation_effort()),
-            remediation_effort_by_component: remediation_effort_by_component_dto(metrics.remediation_effort()),
+            remediation_effort_by_rule: remediation_effort_by_rule_dto(
+                metrics.remediation_effort(),
+            ),
+            remediation_effort_by_component: remediation_effort_by_component_dto(
+                metrics.remediation_effort(),
+            ),
         }
     }
 }
 
 fn remediation_effort_by_rule_dto(effort: &RemediationEffortSummary) -> Vec<RuleEffortDto> {
-    let by_rule = effort.by_rule.iter().map(|(rule, minutes)| (rule.to_string(), *minutes)).collect();
+    let by_rule = effort
+        .by_rule
+        .iter()
+        .map(|(rule, minutes)| (rule.to_string(), *minutes))
+        .collect();
     sorted_effort(by_rule)
         .into_iter()
         .map(|(rule, minutes)| RuleEffortDto { rule, minutes })
         .collect()
 }
 
-fn remediation_effort_by_component_dto(effort: &RemediationEffortSummary) -> Vec<ComponentEffortDto> {
-    let by_component = effort.by_component.iter().map(|(c, m)| (c.clone(), *m)).collect();
+fn remediation_effort_by_component_dto(
+    effort: &RemediationEffortSummary,
+) -> Vec<ComponentEffortDto> {
+    let by_component = effort
+        .by_component
+        .iter()
+        .map(|(c, m)| (c.clone(), *m))
+        .collect();
     sorted_effort(by_component)
         .into_iter()
         .map(|(component, minutes)| ComponentEffortDto { component, minutes })
@@ -387,7 +401,11 @@ impl ReportDto {
             test_report: test_report.map(TestReportDto::from),
             mutation: report.mutation().map(MutationDto::from),
             coverage_new_code,
-            duplications: report.duplications().iter().map(DuplicationDto::from).collect(),
+            duplications: report
+                .duplications()
+                .iter()
+                .map(DuplicationDto::from)
+                .collect(),
             crap: sorted_crap_findings(report),
             metrics: MetricsDto::from(report.metrics()),
             context,
@@ -399,18 +417,26 @@ impl ReportDto {
 /// list is the deliverable (roadmap item C3), not merely a set.
 fn sorted_crap(report: &AnalysisReport) -> Vec<CrapFinding> {
     let mut findings = report.crap_findings();
-    findings.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    findings.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     findings
 }
 
 fn sorted_crap_findings(report: &AnalysisReport) -> Vec<CrapFindingDto> {
-    sorted_crap(report).iter().map(CrapFindingDto::from).collect()
+    sorted_crap(report)
+        .iter()
+        .map(CrapFindingDto::from)
+        .collect()
 }
 
 fn render_issues_text(out: &mut String, report: &AnalysisReport) {
     let issues: Vec<&Issue> = report.issues().iter().collect();
     // Group by file, sorting files by issue count (descending) then path.
-    let mut by_file: std::collections::BTreeMap<&str, Vec<&Issue>> = std::collections::BTreeMap::new();
+    let mut by_file: std::collections::BTreeMap<&str, Vec<&Issue>> =
+        std::collections::BTreeMap::new();
     for issue in &issues {
         by_file.entry(issue.file()).or_default().push(issue);
     }
@@ -537,7 +563,10 @@ fn render_crap_text(out: &mut String, report: &AnalysisReport) {
     if findings.is_empty() {
         return;
     }
-    out.push_str(&format!("\nRisk hotspots (CRAP), worst first — {} function(s):\n", findings.len()));
+    out.push_str(&format!(
+        "\nRisk hotspots (CRAP), worst first — {} function(s):\n",
+        findings.len()
+    ));
     for finding in findings {
         out.push_str(&format!(
             "  {:>6.1}  {}:{}  (cyclomatic complexity {}, {:.0}% line coverage)\n",
@@ -554,14 +583,20 @@ fn render_coverage_text(out: &mut String, report: &AnalysisReport, coverage_new_
     if let Some(coverage) = report.coverage() {
         out.push_str(&format!(
             "Coverage: {} ({}/{} lines)\n",
-            coverage.percent().map(|p| format!("{p:.1}%")).unwrap_or_else(|| "n/a".to_string()),
+            coverage
+                .percent()
+                .map(|p| format!("{p:.1}%"))
+                .unwrap_or_else(|| "n/a".to_string()),
             coverage.covered_lines(),
             coverage.coverable_lines(),
         ));
         if coverage.coverable_branches() > 0 {
             out.push_str(&format!(
                 "Branch coverage: {} ({}/{} branches)\n",
-                coverage.percent_branches().map(|p| format!("{p:.1}%")).unwrap_or_else(|| "n/a".to_string()),
+                coverage
+                    .percent_branches()
+                    .map(|p| format!("{p:.1}%"))
+                    .unwrap_or_else(|| "n/a".to_string()),
                 coverage.covered_branches(),
                 coverage.coverable_branches(),
             ));
@@ -576,14 +611,23 @@ fn render_test_report_text(out: &mut String, test_report: Option<&TestReportSumm
     let Some(tests) = test_report else { return };
     out.push_str(&format!(
         "Tests: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
-        tests.total_tests, tests.passed_tests, tests.failed_tests, tests.skipped_tests, tests.errors,
+        tests.total_tests,
+        tests.passed_tests,
+        tests.failed_tests,
+        tests.skipped_tests,
+        tests.errors,
         tests.time_seconds,
     ));
     if tests.suites.len() > 1 {
         for suite in &tests.suites {
             out.push_str(&format!(
                 "  - {}: {} total, {} passed, {} failed, {} skipped, {} errors ({:.2}s)\n",
-                suite.name, suite.tests, suite.passed, suite.failures, suite.errors, suite.skipped,
+                suite.name,
+                suite.tests,
+                suite.passed,
+                suite.failures,
+                suite.errors,
+                suite.skipped,
                 suite.time_seconds,
             ));
         }
@@ -591,7 +635,9 @@ fn render_test_report_text(out: &mut String, test_report: Option<&TestReportSumm
 }
 
 fn render_mutation_text(out: &mut String, report: &AnalysisReport) {
-    let Some(mutation) = report.mutation() else { return };
+    let Some(mutation) = report.mutation() else {
+        return;
+    };
     out.push_str(&format!(
         "Mutation score: {} ({} killed, {} survived, {} timeout, {} no coverage, {} of {} mutants total)\n",
         mutation.mutation_score().map(|s| format!("{s:.1}%")).unwrap_or_else(|| "n/a".to_string()),
@@ -655,7 +701,10 @@ pub fn render_text(
     render_crap_text(&mut out, report);
     render_coverage_text(&mut out, report, coverage_new_code);
     if let Some(new_code) = new_code {
-        out.push_str(&format!("New issues since previous analysis: {}\n", new_code.new_issues().len()));
+        out.push_str(&format!(
+            "New issues since previous analysis: {}\n",
+            new_code.new_issues().len()
+        ));
     }
     render_test_report_text(&mut out, test_report);
     render_mutation_text(&mut out, report);
@@ -714,7 +763,11 @@ fn render_agent_prompt_gate_conditions(out: &mut String, gate: &GateEvaluation) 
     }
 }
 
-pub fn render_agent_prompt(report: &AnalysisReport, gate: &GateEvaluation, scan_path: &str) -> String {
+pub fn render_agent_prompt(
+    report: &AnalysisReport,
+    gate: &GateEvaluation,
+    scan_path: &str,
+) -> String {
     let mut issues: Vec<&Issue> = report.issues().iter().collect();
     issues.sort_by(|a, b| {
         b.severity()
@@ -758,5 +811,126 @@ pub fn render_json(
     coverage_new_code: Option<f64>,
     context: ScanContextDto,
 ) -> serde_json::Result<String> {
-    serde_json::to_string_pretty(&ReportDto::build(report, gate, new_code, test_report, coverage_new_code, context))
+    serde_json::to_string_pretty(&ReportDto::build(
+        report,
+        gate,
+        new_code,
+        test_report,
+        coverage_new_code,
+        context,
+    ))
+}
+
+#[derive(Serialize)]
+struct SarifLogDto {
+    #[serde(rename = "$schema")]
+    schema: &'static str,
+    version: &'static str,
+    runs: Vec<SarifRunDto>,
+}
+
+#[derive(Serialize)]
+struct SarifRunDto {
+    tool: SarifToolDto,
+    results: Vec<SarifResultDto>,
+}
+
+#[derive(Serialize)]
+struct SarifToolDto {
+    driver: SarifDriverDto,
+}
+
+#[derive(Serialize)]
+struct SarifDriverDto {
+    name: &'static str,
+    #[serde(rename = "semanticVersion")]
+    semantic_version: &'static str,
+}
+
+#[derive(Serialize)]
+struct SarifResultDto {
+    #[serde(rename = "ruleId")]
+    rule_id: String,
+    level: &'static str,
+    message: SarifMessageDto,
+    locations: Vec<SarifLocationDto>,
+}
+
+#[derive(Serialize)]
+struct SarifMessageDto {
+    text: String,
+}
+
+#[derive(Serialize)]
+struct SarifLocationDto {
+    #[serde(rename = "physicalLocation")]
+    physical_location: SarifPhysicalLocationDto,
+}
+
+#[derive(Serialize)]
+struct SarifPhysicalLocationDto {
+    #[serde(rename = "artifactLocation")]
+    artifact_location: SarifArtifactLocationDto,
+    region: SarifRegionDto,
+}
+
+#[derive(Serialize)]
+struct SarifArtifactLocationDto {
+    uri: String,
+}
+
+#[derive(Serialize)]
+struct SarifRegionDto {
+    #[serde(rename = "startLine")]
+    start_line: u32,
+    #[serde(rename = "startColumn")]
+    start_column: u32,
+}
+
+pub fn render_sarif(report: &AnalysisReport) -> serde_json::Result<String> {
+    let results = report
+        .issues()
+        .iter()
+        .map(|issue| {
+            let level = match issue.severity() {
+                Severity::Blocker | Severity::Critical => "error",
+                Severity::Major => "warning",
+                _ => "note",
+            };
+            SarifResultDto {
+                rule_id: issue.rule().to_string(),
+                level,
+                message: SarifMessageDto {
+                    text: issue.message().to_string(),
+                },
+                locations: vec![SarifLocationDto {
+                    physical_location: SarifPhysicalLocationDto {
+                        artifact_location: SarifArtifactLocationDto {
+                            uri: issue.file().to_string(),
+                        },
+                        region: SarifRegionDto {
+                            start_line: issue.span().start_line,
+                            start_column: issue.span().start_col,
+                        },
+                    },
+                }],
+            }
+        })
+        .collect();
+
+    let sarif = SarifLogDto {
+        schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        version: "2.1.0",
+        runs: vec![SarifRunDto {
+            tool: SarifToolDto {
+                driver: SarifDriverDto {
+                    name: "yunq",
+                    semantic_version: env!("CARGO_PKG_VERSION"),
+                },
+            },
+            results,
+        }],
+    };
+
+    serde_json::to_string_pretty(&sarif)
 }

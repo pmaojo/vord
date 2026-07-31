@@ -5,8 +5,24 @@ use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
 
 const CODE_KEYWORDS: &[&str] = &[
-    "if ", "if(", "for ", "for(", "while ", "while(", "function ", "function(", "def ", "class ",
-    "return ", "const ", "let ", "var ", "public ", "private ", "import ", "from ",
+    "if ",
+    "if(",
+    "for ",
+    "for(",
+    "while ",
+    "while(",
+    "function ",
+    "function(",
+    "def ",
+    "class ",
+    "return ",
+    "const ",
+    "let ",
+    "var ",
+    "public ",
+    "private ",
+    "import ",
+    "from ",
 ];
 
 /// Strips common comment markers (`//`, `#`, `/* ... */`, leading `*`) from a
@@ -27,8 +43,10 @@ fn looks_like_code(inner: &str) -> bool {
         return false;
     }
     let starts_with_keyword = CODE_KEYWORDS.iter().any(|kw| inner.starts_with(kw));
-    let has_code_punctuation =
-        inner.ends_with(';') || inner.ends_with('{') || inner.ends_with(')') || inner.contains(" = ");
+    let has_code_punctuation = inner.ends_with(';')
+        || inner.ends_with('{')
+        || inner.ends_with(')')
+        || inner.contains(" = ");
     starts_with_keyword && has_code_punctuation
 }
 
@@ -38,7 +56,9 @@ pub struct CommentedOutCodeRule {
 
 impl CommentedOutCodeRule {
     pub fn new() -> Self {
-        Self { id: RuleId::new("smells:commented-out-code").expect("valid rule id") }
+        Self {
+            id: RuleId::new("smells:commented-out-code").expect("valid rule id"),
+        }
     }
 }
 
@@ -82,7 +102,12 @@ mod tests {
     use super::*;
 
     fn comment(text: &str) -> AstNode {
-        AstNode::new(NodeKind::Comment, yunq_ast::Span::new(1, 1, 1, text.len() as u32), text, vec![])
+        AstNode::new(
+            NodeKind::Comment,
+            yunq_ast::Span::new(1, 1, 1, text.len() as u32),
+            text,
+            vec![],
+        )
     }
 
     #[test]

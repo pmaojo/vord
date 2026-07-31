@@ -71,8 +71,13 @@ pub fn score_function(
 ) -> Option<CrapFinding> {
     let coverage_percent = coverage_in_span(lines, span)?;
     let score = crap_score(cyclomatic, coverage_percent);
-    (score > REFACTOR_CANDIDATE_THRESHOLD)
-        .then(|| CrapFinding { path: path.to_string(), span, cyclomatic, coverage_percent, score })
+    (score > REFACTOR_CANDIDATE_THRESHOLD).then(|| CrapFinding {
+        path: path.to_string(),
+        span,
+        cyclomatic,
+        coverage_percent,
+        score,
+    })
 }
 
 #[cfg(test)]
@@ -89,7 +94,10 @@ mod tests {
     fn uncovered_complex_function_scores_high() {
         // CC=10, 0% covered: 100*1 + 10 = 110, well past the high-risk band.
         let score = crap_score(10, 0.0);
-        assert!(score > HIGH_RISK_THRESHOLD, "expected > {HIGH_RISK_THRESHOLD}, got {score}");
+        assert!(
+            score > HIGH_RISK_THRESHOLD,
+            "expected > {HIGH_RISK_THRESHOLD}, got {score}"
+        );
     }
 
     #[test]
