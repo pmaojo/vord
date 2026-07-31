@@ -9,9 +9,18 @@
 /// line is far more likely to be an assertion-heavy test fixture than real
 /// production code.
 pub fn is_test_only_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    if lower.contains(".spec.")
+        || lower.contains(".test.")
+        || lower.contains("__tests__")
+        || lower.contains("/tests/")
+        || lower.starts_with("tests/")
+    {
+        return true;
+    }
     std::path::Path::new(path)
         .components()
-        .any(|c| c.as_os_str() == "tests")
+        .any(|c| c.as_os_str() == "tests" || c.as_os_str() == "__tests__" || c.as_os_str() == "fixtures")
 }
 
 /// A half-open `[start, end)` line range (1-based, matching `Span`).
@@ -155,6 +164,48 @@ fn skip_raw_string(bytes: &[u8], r_idx: usize) -> Option<usize> {
     }
 }
 
+/// True when `path` looks like vendored, third-party, or precompiled code
+/// that should be excluded from static analysis to avoid false positives.
+pub fn is_vendored_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+
+    // Minified / precompiled bundles
+    if lower.ends_with(".min.js")
+        || lower.ends_with(".min.css")
+        || lower.ends_with(".bundle.js")
+    {
+        return true;
+    }
+
+    // Well-known vendored / build-output directories
+    let vendored_segments: &[&str] = &[
+        "/vendor/",
+        "/vendors/",
+        "/node_modules/",
+        "/bower_components/",
+        "/dist/",
+        "/build/",
+        "/third_party/",
+        "/third-party/",
+        "/3rdparty/",
+        "/public/assets/",
+        "/public/external/",
+        "/public/demo/",
+    ];
+
+    // Normalise so that a relative path like `vendor/foo.js` is also caught
+    // by prefixing a `/` when the path doesn't already start with one.
+    let normalised = if lower.starts_with('/') {
+        lower.clone()
+    } else {
+        format!("/{lower}")
+    };
+
+    vendored_segments
+        .iter()
+        .any(|seg| normalised.contains(seg))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +268,42 @@ mod tests {
         assert_eq!(ranges.len(), 1);
         let last_line = content.lines().count() as u32;
         assert!(in_ranges(&ranges, last_line - 1));
+    }
+
+    #[test]
+    fn vendored_paths_are_detected() {
+        // Minified files
+        assert!(is_vendored_path("assets/jquery.min.js"));
+        assert!(is_vendored_path("css/styles.min.css"));
+        assert!(is_vendored_path("js/app.bundle.js"));
+
+        // Well-known vendored directories
+        assert!(is_vendored_path("vendor/gems/foo.rb"));
+        assert!(is_vendored_path("vendors/lib/bar.js"));
+        assert!(is_vendored_path("node_modules/lodash/index.js"));
+        assert!(is_vendored_path("bower_components/angular/angular.js"));
+        assert!(is_vendored_path("dist/bundle.js"));
+        assert!(is_vendored_path("build/output.js"));
+        assert!(is_vendored_path("third_party/protobuf/gen.rs"));
+        assert!(is_vendored_path("third-party/lib.js"));
+        assert!(is_vendored_path("3rdparty/utils.js"));
+
+        // Rails / public patterns
+        assert!(is_vendored_path("public/assets/application.js"));
+        assert!(is_vendored_path("public/external/lib.js"));
+        assert!(is_vendored_path("public/demo/sample.js"));
+
+        // Case-insensitive
+        assert!(is_vendored_path("NODE_MODULES/react/index.js"));
+        assert!(is_vendored_path("Vendor/Lib/foo.php"));
+    }
+
+    #[test]
+    fn normal_app_paths_are_not_vendored() {
+        assert!(!is_vendored_path("src/main.rs"));
+        assert!(!is_vendored_path("app/controllers/users.rb"));
+        assert!(!is_vendored_path("lib/utils.ts"));
+        assert!(!is_vendored_path("core/rules-engine/src/lib.rs"));
+        assert!(!is_vendored_path("components/Button.tsx"));
     }
 }

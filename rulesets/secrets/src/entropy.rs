@@ -117,6 +117,49 @@ fn looks_like_url_path_or_integrity_hash(s: &str) -> bool {
         || INTEGRITY_PREFIXES.iter().any(|p| s.starts_with(p))
 }
 
+/// SQL fragments and ORM method-call chains — e.g.
+/// `LOWER(I18n.transliterate(name)) LIKE ...` — are code, not secrets.
+/// Matching is case-insensitive on common SQL keywords and tolerates
+/// parenthesised method-call syntax (`fn(...)`).
+fn looks_like_sql_or_query_fragment(s: &str) -> bool {
+    let upper = s.to_uppercase();
+    const SQL_KEYWORDS: &[&str] = &[
+        "SELECT ", "INSERT ", "UPDATE ", "DELETE ", "WHERE ", " LIKE ",
+        "LOWER(", "UPPER(", "COALESCE(", "CONCAT(", "TRIM(",
+        "ORDER BY", "GROUP BY", "JOIN ", "FROM ",
+    ];
+    if SQL_KEYWORDS.iter().any(|kw| upper.contains(kw)) {
+        return true;
+    }
+    // Method-call chains: `I18n.transliterate(...)`, `ActiveRecord::Base.connection`
+    // — at least one `.word(` or `::word` pattern with balanced parens.
+    let has_method_call = s.contains(".(")
+        || (s.contains('.') && s.contains('(') && s.contains(')'));
+    let has_namespace = s.contains("::");
+    has_method_call && has_namespace
+}
+
+/// HTTP header values and MIME type strings — `application/json`,
+/// `text/html; charset=utf-8`, `multipart/form-data; boundary=...` — are
+/// not secrets.
+fn looks_like_http_or_mime_value(s: &str) -> bool {
+    let lower = s.to_lowercase();
+    const MIME_PREFIXES: &[&str] = &[
+        "application/", "text/", "image/", "audio/", "video/",
+        "multipart/", "font/", "model/", "message/",
+    ];
+    if MIME_PREFIXES.iter().any(|p| lower.starts_with(p)) {
+        return true;
+    }
+    // Common HTTP header names used as string values in source code.
+    const HEADER_NAMES: &[&str] = &[
+        "content-type", "content-disposition", "authorization",
+        "cache-control", "accept-encoding", "x-requested-with",
+        "access-control-allow",
+    ];
+    HEADER_NAMES.iter().any(|h| lower.contains(h))
+}
+
 /// A Rust `format!`-style interpolation template — `{candidate}`,
 /// `{public_url}/api/...`, `{}` — is source code building a string, not the
 /// secret value that ends up in it.
@@ -292,6 +335,8 @@ impl Rule for HighEntropyStringRule {
                 || looks_like_format_template(value)
                 || looks_like_delimited_identifier(value)
                 || looks_like_css_variable(value)
+                || looks_like_sql_or_query_fragment(value)
+                || looks_like_http_or_mime_value(value)
             {
                 continue;
             }
@@ -515,5 +560,32 @@ mod tests {
     fn ignores_css_variables() {
         assert!(check_ts("const c = \"var(--color-expenses)\";\n").is_empty());
         assert!(check_ts("const c = \"var(--color-signups)\";\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_sql_fragments_with_like_and_lower() {
+        // I18n.transliterate pattern from Rails codebases
+        let code = "const q = \"LOWER(I18n.transliterate(name)) LIKE LOWER(I18n.transliterate(search))\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_sql_select_and_where_clauses() {
+        let code = "const q = \"SELECT name, email FROM users WHERE active = true\";\n";
+        assert!(check_ts(code).is_empty());
+    }
+
+    #[test]
+    fn ignores_mime_type_strings() {
+        assert!(check_ts("const ct = \"application/json; charset=utf-8\";\n").is_empty());
+        assert!(check_ts("const ct = \"multipart/form-data; boundary=something\";\n").is_empty());
+        assert!(check_ts("const ct = \"text/html; charset=iso-8859-1\";\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_http_header_name_values() {
+        assert!(
+            check_ts("const h = \"Content-Type: application/x-www-form-urlencoded\";\n").is_empty()
+        );
     }
 }
