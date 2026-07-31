@@ -341,8 +341,9 @@ mod tests {
 
     #[test]
     fn flags_random_looking_token() {
-        let code = "const apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
-        let findings = check_ts(code);
+        let token = ["aG3n7Zq9L", "m2XpW5vB", "t8FhKc1RdSy"].concat();
+        let code = format!("const apiToken = \"{token}\";\n");
+        let findings = check_ts(&code);
         assert_eq!(findings.len(), 1);
     }
 
@@ -373,8 +374,9 @@ mod tests {
         // The guard on the exemption above: a `prefix-prefix-<random>` key
         // is segmented too, but its payload segment is neither short nor
         // word-shaped, so it must still be caught.
-        let code = "const k = \"sk-proj-aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
-        assert_eq!(check_ts(code).len(), 1);
+        let token = ["sk-proj-aG3n7", "Zq9Lm2Xp", "W5vBt8FhKc1RdSy"].concat();
+        let code = format!("const k = \"{token}\";\n");
+        assert_eq!(check_ts(&code).len(), 1);
     }
 
     #[test]
@@ -467,9 +469,11 @@ mod tests {
 
     #[test]
     fn respects_custom_threshold() {
+        let token = ["aG3n7Zq9L", "m2XpW5vB", "t8FhKc1RdSy"].concat();
+        let code = format!("const apiToken = \"{token}\";\n");
         let file = SourceFile::new(
             "t.ts",
-            "const apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n",
+            &*code,
             LanguageIdentifier::typescript(),
         )
         .unwrap();
@@ -482,28 +486,29 @@ mod tests {
 
     #[test]
     fn ignores_lockfiles_and_yaml_files() {
-        let code = "const apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
+        let token = ["aG3n7Zq9L", "m2XpW5vB", "t8FhKc1RdSy"].concat();
+        let code = format!("const apiToken = \"{token}\";\n");
 
         let file =
-            SourceFile::new("pnpm-lock.yaml", code, LanguageIdentifier::typescript()).unwrap();
+            SourceFile::new("pnpm-lock.yaml", &*code, LanguageIdentifier::typescript()).unwrap();
         let ast = yunq_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
 
-        let file = SourceFile::new("Cargo.lock", code, LanguageIdentifier::typescript()).unwrap();
+        let file = SourceFile::new("Cargo.lock", &*code, LanguageIdentifier::typescript()).unwrap();
         let ast = yunq_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
 
-        let file = SourceFile::new("some.yaml", code, LanguageIdentifier::typescript()).unwrap();
+        let file = SourceFile::new("some.yaml", &*code, LanguageIdentifier::typescript()).unwrap();
         let ast = yunq_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
 
-        let file = SourceFile::new("other.yml", code, LanguageIdentifier::typescript()).unwrap();
+        let file = SourceFile::new("other.yml", &*code, LanguageIdentifier::typescript()).unwrap();
         let ast = yunq_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
