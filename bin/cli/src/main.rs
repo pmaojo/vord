@@ -357,7 +357,7 @@ struct ProjectScopeArgs {
 /// what gets analyzed or whether the scan passes, only what is emitted.
 #[derive(clap::Args)]
 struct OutputArgs {
-    #[arg(long, value_enum, default_value_t = Format::Text)]
+    #[arg(long, value_enum, default_value_t = Format::Json)]
     format: Format,
     /// Print a ready-to-paste prompt handing the findings to an AI coding agent.
     #[arg(long)]

@@ -878,16 +878,29 @@ impl AnalysisReport {
             .issues_by_severity()
             .get(&Severity::Major)
             .unwrap_or(&0);
+        let minor = *self
+            .metrics
+            .issues_by_severity()
+            .get(&Severity::Minor)
+            .unwrap_or(&0);
+        let info = *self
+            .metrics
+            .issues_by_severity()
+            .get(&Severity::Info)
+            .unwrap_or(&0);
         let hotspots = self.hotspots.len();
         // `duplicated_lines_density` is already a 0.0..=100.0 percentage,
         // not a count — it does not get the per-KLOC treatment the count
-        // -based terms above do, only the same weight the original formula
-        // gave it.
-        let dup_penalty = self.metrics.duplicated_lines_density() * 0.5;
+        // -based terms above do. Weighted at 1.0 so a codebase with 5 %
+        // duplication loses 5 points (more if the duplication is denser),
+        // making the score sensitive to copy-paste at any project size.
+        let dup_penalty = self.metrics.duplicated_lines_density() * 1.0;
 
         let penalty = per_kloc(blocker) * 10.0
             + per_kloc(critical) * 5.0
-            + per_kloc(major)
+            + per_kloc(major) * 2.0
+            + per_kloc(minor) * 0.5
+            + per_kloc(info) * 0.1
             + per_kloc(hotspots) * 2.0
             + dup_penalty;
         (100.0 - penalty).max(0.0).round() as u32

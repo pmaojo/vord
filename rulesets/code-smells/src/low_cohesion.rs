@@ -215,6 +215,25 @@ impl CrossFileRule for LowCohesionRule {
                 {
                     return None;
                 }
+                // Data containers (accumulators, DTOs, metrics holders)
+                // have independent getter/setter pairs for each field — a
+                // deliberate design pattern, not a cohesion smell. When
+                // every stateful method touches at most a handful of fields
+                // and the class carries enough state to be a collection of
+                // counters rather than a behavioural type, the finding is
+                // noise: there is nothing to refactor.
+                if class.fields.len() >= 4 {
+                    let field_names: BTreeSet<&str> =
+                        class.fields.iter().map(|f| f.name.as_str()).collect();
+                    let all_simple = cohesion_relevant_methods(class)
+                        .iter()
+                        .map(|m| own_field_accesses(m.node, &field_names))
+                        .filter(|a| !a.is_empty())
+                        .all(|a| a.len() <= 3);
+                    if all_simple {
+                        return None;
+                    }
+                }
                 let clusters = method_clusters(class);
                 if clusters.len() < 2 {
                     return None;

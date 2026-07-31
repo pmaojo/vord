@@ -529,7 +529,7 @@ fn render_duplications_text(out: &mut String, report: &AnalysisReport) {
     }
     let occurrences: usize = report.duplications().iter().map(|s| s.regions.len()).sum();
     out.push_str(&format!(
-        "Duplication: {} clone sets, {} occurrences, {} lines ({:.1}%)\n",
+        "\n── Duplication: {} clone sets, {} occurrences, {} lines ({:.1}%)\n",
         metrics.duplicated_blocks(),
         occurrences,
         metrics.duplicated_lines(),
