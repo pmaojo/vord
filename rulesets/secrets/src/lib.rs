@@ -19,8 +19,6 @@
 //! [`yunq_rules_engine::Rule`]; the engine never changes when rules are
 //! added (Open/Closed) — same architecture as `rulesets/owasp`.
 
-#![feature(let_chains)]
-
 mod custom_pattern;
 mod entropy;
 mod provider_patterns;

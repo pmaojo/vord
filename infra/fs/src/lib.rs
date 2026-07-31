@@ -2,8 +2,6 @@
 //! translates readable files in supported languages into validated
 //! [`SourceFile`]s. Unsupported and non-UTF-8 files are skipped.
 
-#![feature(let_chains)]
-
 mod agent_workspace;
 mod baseline;
 mod cache;
