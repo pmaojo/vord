@@ -59,13 +59,20 @@ fn report_if_conditional_hook_call(node: &AstNode, conditional: bool, findings: 
     }
 }
 
+fn is_function_boundary(node: &AstNode) -> bool {
+    *node.kind() == NodeKind::FunctionDef
+        || is_other(node, "arrow_function")
+        || is_other(node, "function_expression")
+        || is_other(node, "function_declaration")
+}
+
 /// A block/program's children run in sequence, so a statement after an
 /// unconditional early exit (`return`/`throw`, or an early-return guard) is
 /// itself reached conditionally even though it isn't nested inside a branch.
 fn walk_block(node: &AstNode, conditional: bool, findings: &mut Vec<Finding>) {
     let mut after_return = false;
     for child in node.children() {
-        if *child.kind() == NodeKind::FunctionDef {
+        if is_function_boundary(child) {
             continue;
         }
         walk(
@@ -95,7 +102,7 @@ fn walk(node: &AstNode, conditional: bool, findings: &mut Vec<Finding>) {
     }
 
     for child in node.children() {
-        if *child.kind() == NodeKind::FunctionDef {
+        if is_function_boundary(child) {
             continue;
         }
         walk(child, conditional || is_conditional_kind(child), findings);

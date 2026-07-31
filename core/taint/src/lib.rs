@@ -40,11 +40,10 @@ impl TaintConfig {
         Self::default()
     }
 
-    /// Pre-populates standard web framework source markers (`process.argv`, `process.env`, `req.query`, `req.body`, `req.params`).
+    /// Pre-populates standard web framework source markers (`process.argv`, `req.query`, `req.body`, `req.params`).
     pub fn web_defaults() -> Self {
         Self::new()
             .with_source_marker("process.argv")
-            .with_source_marker("process.env")
             .with_source_marker("req.query")
             .with_source_marker("req.body")
             .with_source_marker("req.params")

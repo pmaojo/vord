@@ -143,6 +143,9 @@ fn load_source_entry(
         Err(e) => return Err(e.into()),
     };
     let display = display_path(path, relative);
+    if yunq_rules_engine::is_vendored_path(&display) {
+        return Ok(None);
+    }
     Ok(SourceFile::new(display, content, language).ok())
 }
 
@@ -265,6 +268,32 @@ mod tests {
 
         assert_eq!(sources.len(), 1);
         assert!(!sources[0].path().starts_with('/'));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn vendored_files_are_skipped_during_collection() {
+        let dir = std::env::temp_dir().join(format!(
+            "yunq-collect-sources-vendor-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("node_modules/lodash")).unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("node_modules/lodash/index.js"),
+            "module.exports = {};\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/app.ts"), "const x = 1;\n").unwrap();
+
+        let sources = collect_sources(&dir).unwrap();
+
+        assert_eq!(sources.len(), 1, "vendored file should be skipped");
+        assert_eq!(sources[0].path(), "src/app.ts");
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

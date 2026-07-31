@@ -43,3 +43,22 @@ to = "bin"
 [[architecture.forbidden_dependencies]]
 from = "infra"
 to = "bin"
+
+[swarm]
+topology = "four-pack"
+
+[[swarm.role]]
+name = "architect"
+description = "High-level domain architecture and Gherkin acceptance criteria"
+
+[[swarm.role]]
+name = "coder"
+description = "Implements feature code and unit tests"
+
+[[swarm.role]]
+name = "cleaner"
+description = "Refactors code smells, prunes test redundancy, keeps CRAP complexity low"
+
+[[swarm.role]]
+name = "qa"
+description = "Runs coverage, mutation testing, and final quality gate"

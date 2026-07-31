@@ -64,7 +64,7 @@ pub use project::{
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 pub use structural_metrics::StructuralCounts;
 pub use suppression::is_suppressed;
-pub use test_code::{LineRange, in_ranges, is_test_only_path, rust_test_module_ranges};
+pub use test_code::{LineRange, in_ranges, is_test_only_path, is_vendored_path, rust_test_module_ranges};
 
 // Re-export duplication vocabulary so consumers depend on one facade.
 pub use yunq_cpd::{CloneRegion, CloneSet, DuplicationConfig, TokenNormalization};

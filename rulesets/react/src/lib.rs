@@ -15,6 +15,7 @@ mod common;
 pub mod react_hooks;
 
 mod array_index_key;
+mod auth_token_in_web_storage;
 mod dangerously_set_inner_html;
 mod direct_state_mutation;
 mod exhaustive_deps;
@@ -31,6 +32,7 @@ mod unused_state;
 mod zustand_fresh_selector;
 
 pub use array_index_key::ArrayIndexKeyRule;
+pub use auth_token_in_web_storage::AuthTokenInWebStorageRule;
 pub use dangerously_set_inner_html::DangerouslySetInnerHtmlRule;
 pub use direct_state_mutation::DirectStateMutationRule;
 pub use exhaustive_deps::ExhaustiveDepsRule;
@@ -67,5 +69,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(JsxNoScriptUrlRule::new()),
         Box::new(LazyStateInitRule::new()),
         Box::new(ZustandFreshSelectorRule::new()),
+        Box::new(AuthTokenInWebStorageRule::new()),
     ]
 }
