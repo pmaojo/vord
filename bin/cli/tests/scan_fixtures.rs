@@ -48,7 +48,31 @@ fn scans_fixtures_and_finds_every_rule_family() {
         );
     }
 
-    assert_eq!(report.metrics().files_scanned(), 18);
+    assert_eq!(report.metrics().files_scanned(), 21);
+
+    // Negative regression: deliberately clean files must not pick up spurious
+    // language-rule findings (rules that skip `fixtures/` are covered in
+    // `clean_corpus.rs` instead).
+    let spurious_clean: Vec<String> = report
+        .issues()
+        .iter()
+        .filter(|issue| {
+            issue.file().ends_with("clean.py")
+                || issue.file().ends_with("clean.ts")
+                || issue.file().ends_with("clean.rs")
+        })
+        .filter(|issue| {
+            let rule = issue.rule().as_str();
+            rule.starts_with("python:")
+                || rule.starts_with("typescript:")
+                || rule.starts_with("rust:")
+        })
+        .map(|issue| format!("{} — {}", issue.file(), issue.rule()))
+        .collect();
+    assert!(
+        spurious_clean.is_empty(),
+        "spurious findings on clean fixtures: {spurious_clean:?}"
+    );
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);
