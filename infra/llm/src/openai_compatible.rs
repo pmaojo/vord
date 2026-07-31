@@ -33,14 +33,27 @@ impl OpenAiCompatibleAdapter {
         }
     }
 
-    /// Builds adapter from environment variables (`YUNQ_LLM_BASE_URL`, `YUNQ_LLM_MODEL`, `YUNQ_LLM_API_KEY`).
+    /// Builds adapter from environment variables (`YUNQ_LLM_BASE_URL`, `YUNQ_LLM_MODEL`, `YUNQ_LLM_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`).
     pub fn from_env() -> Self {
+        let is_gemini =
+            std::env::var("GEMINI_API_KEY").is_ok() && std::env::var("OPENAI_API_KEY").is_err();
+        let default_base = if is_gemini {
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        } else {
+            DEFAULT_OPENAI_BASE
+        };
+        let default_model = if is_gemini {
+            "gemini-3.5-flash"
+        } else {
+            DEFAULT_OPENAI_MODEL
+        };
+
         let api_base =
-            std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| DEFAULT_OPENAI_BASE.to_string());
-        let model =
-            std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| DEFAULT_OPENAI_MODEL.to_string());
+            std::env::var("YUNQ_LLM_BASE_URL").unwrap_or_else(|_| default_base.to_string());
+        let model = std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| default_model.to_string());
         let api_key = std::env::var("YUNQ_LLM_API_KEY")
             .or_else(|_| std::env::var("OPENAI_API_KEY"))
+            .or_else(|_| std::env::var("GEMINI_API_KEY"))
             .unwrap_or_default();
         Self::new(api_base, model, api_key)
     }

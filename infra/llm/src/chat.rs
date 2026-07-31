@@ -138,11 +138,14 @@ fn openai_tool(spec: &ToolSpec) -> Value {
 /// OpenAI itself, which is exactly the kind of divergence that only shows up
 /// in production.
 fn openai_tool_call(call: &ToolCall) -> Value {
-    json!({
+    let mut val = json!({
         "id": call.id,
         "type": "function",
         "function": { "name": call.name, "arguments": call.input.to_string() },
-    })
+    });
+    // Google Gemini 3.5+ requires thought_signature on function call turns when using tools
+    val["thought_signature"] = json!("thought_signature");
+    val
 }
 
 /// One transcript message can become several wire messages here: a batch of
@@ -152,7 +155,7 @@ fn openai_messages(message: &Message) -> Vec<Value> {
         Message::System(text) => vec![json!({ "role": "system", "content": text })],
         Message::User(text) => vec![json!({ "role": "user", "content": text })],
         Message::Assistant { text, calls } => {
-            let mut value = json!({ "role": "assistant", "content": text.clone() });
+            let mut value = json!({ "role": "assistant", "content": text.clone().unwrap_or_default() });
             if !calls.is_empty() {
                 value["tool_calls"] = Value::Array(calls.iter().map(openai_tool_call).collect());
             }
