@@ -157,7 +157,10 @@ impl Rule for RegexSecretRule {
 
 /// Every shipped provider-signature rule, one per credential format.
 pub fn all_provider_rules() -> Vec<Box<dyn Rule>> {
-    PROVIDER_SPECS.iter().map(|spec| Box::new(RegexSecretRule::from_spec(spec)) as Box<dyn Rule>).collect()
+    PROVIDER_SPECS
+        .iter()
+        .map(|spec| Box::new(RegexSecretRule::from_spec(spec)) as Box<dyn Rule>)
+        .collect()
 }
 
 #[cfg(test)]
@@ -168,10 +171,15 @@ mod tests {
     use super::*;
 
     fn check_rule(id: &str, code: &str) -> Vec<Finding> {
-        let spec = PROVIDER_SPECS.iter().find(|s| s.id == id).unwrap_or_else(|| panic!("no such spec: {id}"));
+        let spec = PROVIDER_SPECS
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap_or_else(|| panic!("no such spec: {id}"));
         let rule = RegexSecretRule::from_spec(spec);
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = yunq_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
         rule.check(&file, &ast)
     }
 
@@ -186,7 +194,10 @@ mod tests {
     #[test]
     fn detects_aws_access_key_id() {
         let key = ["AKIAIOSFODNN7", "EXAMPLE"].concat();
-        let findings = check_rule("secrets:aws-access-key-id", &format!("const k = \"{key}\";\n"));
+        let findings = check_rule(
+            "secrets:aws-access-key-id",
+            &format!("const k = \"{key}\";\n"),
+        );
         assert_eq!(findings.len(), 1);
     }
 
@@ -216,18 +227,32 @@ mod tests {
 
     #[test]
     fn detects_gcp_service_account_key() {
-        let marker = ["-----BEGIN PRI", "VATE KEY-----\\nMII...\\n-----END PRIVATE KEY-----\\n"].concat();
+        let marker = [
+            "-----BEGIN PRI",
+            "VATE KEY-----\\nMII...\\n-----END PRIVATE KEY-----\\n",
+        ]
+        .concat();
         let code = format!("{{\"type\": \"service_account\", \"private_key\": \"{marker}\"}}\n");
-        assert_eq!(check_rule("secrets:gcp-service-account-key", &code).len(), 1);
+        assert_eq!(
+            check_rule("secrets:gcp-service-account-key", &code).len(),
+            1
+        );
     }
 
     #[test]
     fn detects_azure_storage_connection_string() {
-        let account_key = ["Eby8vdM02xNOcqFlqUwJPLlm", "Eb26PoLNhH8Rh0P6Ohu8SIWXeghdI4WFHU="].concat();
+        let account_key = [
+            "Eby8vdM02xNOcqFlqUwJPLlm",
+            "Eb26PoLNhH8Rh0P6Ohu8SIWXeghdI4WFHU=",
+        ]
+        .concat();
         let code = format!(
             "const conn = \"DefaultEndpointsProtocol=https;AccountName=foo;AccountKey={account_key};EndpointSuffix=core.windows.net\";\n"
         );
-        assert_eq!(check_rule("secrets:azure-storage-connection-string", &code).len(), 1);
+        assert_eq!(
+            check_rule("secrets:azure-storage-connection-string", &code).len(),
+            1
+        );
     }
 
     #[test]
@@ -242,54 +267,98 @@ mod tests {
     #[test]
     fn detects_stripe_live_keys() {
         let sk_live = ["sk_live_4eC39HqLyjWDarj", "tT1zdp7dc"].concat();
-        assert_eq!(check_rule("secrets:stripe-live-key", &format!("const k = \"{sk_live}\";\n")).len(), 1);
+        assert_eq!(
+            check_rule(
+                "secrets:stripe-live-key",
+                &format!("const k = \"{sk_live}\";\n")
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
     fn ignores_stripe_test_keys() {
-        assert!(check_rule("secrets:stripe-live-key", "const k = \"sk_test_4eC39HqLyjWDarjtT1zdp7dc\";\n").is_empty());
+        let sk_test = ["sk_test_4eC39HqLyjWDarj", "tT1zdp7dc"].concat();
+        assert!(
+            check_rule(
+                "secrets:stripe-live-key",
+                &format!("const k = \"{sk_test}\";\n")
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn detects_private_key_block() {
         let block = ["-----BEGIN RSA PRI", "VATE KEY-----"].concat();
-        assert_eq!(check_rule("secrets:private-key-block", &format!("{block}\n")).len(), 1);
+        assert_eq!(
+            check_rule("secrets:private-key-block", &format!("{block}\n")).len(),
+            1
+        );
     }
 
     #[test]
     fn detects_github_tokens() {
         let ghp = ["ghp_16C7e42F292c6912E77", "10c838347Ae178B4a"].concat();
-        assert_eq!(check_rule("secrets:github-token", &format!("const t = \"{ghp}\";\n")).len(), 1);
+        assert_eq!(
+            check_rule("secrets:github-token", &format!("const t = \"{ghp}\";\n")).len(),
+            1
+        );
     }
 
     #[test]
     fn ignores_github_prefix_mentioned_in_docs() {
-        assert!(check_rule("secrets:github-token", "// tokens start with ghp_ prefix\n").is_empty());
+        assert!(
+            check_rule("secrets:github-token", "// tokens start with ghp_ prefix\n").is_empty()
+        );
     }
 
     #[test]
     fn detects_slack_token() {
         let xoxb = ["xoxb-2444333222111-sim", "ulated-token-value"].concat();
-        assert_eq!(check_rule("secrets:slack-token", &format!("const t = \"{xoxb}\";\n")).len(), 1);
+        assert_eq!(
+            check_rule("secrets:slack-token", &format!("const t = \"{xoxb}\";\n")).len(),
+            1
+        );
     }
 
     #[test]
     fn detects_npm_token() {
         let token = ["npm_1234567890abcdefghij", "klmnopqrstuvwxyz1234"].concat();
-        assert_eq!(check_rule("secrets:npm-token", &format!(".npmrc: //registry.npmjs.org/:_authToken={token}\n")).len(), 1);
+        assert_eq!(
+            check_rule(
+                "secrets:npm-token",
+                &format!(".npmrc: //registry.npmjs.org/:_authToken={token}\n")
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
     fn detects_jwt_like_token() {
-        let jwt = ["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", ".eyJzdWIiOiIxMjM0NTY3ODkwIn0", ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"].concat();
-        assert_eq!(check_rule("secrets:jwt-like-token", &format!("const t = \"{jwt}\";\n")).len(), 1);
+        let jwt = [
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+            ".eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+            ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+        ]
+        .concat();
+        assert_eq!(
+            check_rule("secrets:jwt-like-token", &format!("const t = \"{jwt}\";\n")).len(),
+            1
+        );
     }
 
     #[test]
     fn ignores_clean_code() {
         let code = "function add(a: number, b: number): number {\n  return a + b;\n}\n";
         for spec in PROVIDER_SPECS {
-            assert!(check_rule(spec.id, code).is_empty(), "false positive on {}", spec.id);
+            assert!(
+                check_rule(spec.id, code).is_empty(),
+                "false positive on {}",
+                spec.id
+            );
         }
     }
 }
