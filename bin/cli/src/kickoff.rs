@@ -31,6 +31,7 @@ pub fn run_kickoff(template: &str, target_dir: &Path) -> Result<(), KickoffError
         "rust-clean" | "rust" => kickoff_rust_clean(target_dir),
         "python-clean" | "python" => kickoff_python_clean(target_dir),
         "typescript-clean" | "ts" => kickoff_typescript_clean(target_dir),
+        "fullstack-hexagonal" | "hexagonal" => kickoff_fullstack_hexagonal(target_dir),
         other => Err(KickoffError::UnknownTemplate(other.to_string())),
     }
 }
@@ -168,5 +169,57 @@ name = "recommended"
     }
 
     println!("Successfully initialized clean TypeScript template at {:?}", base);
+    Ok(())
+}
+
+fn kickoff_fullstack_hexagonal(base: &Path) -> Result<(), KickoffError> {
+    let dirs = [
+        "backend/src/domain/entities",
+        "backend/src/domain/ports",
+        "backend/src/infrastructure/adapters",
+        "backend/src/infrastructure/web",
+        "frontend/src/features",
+        "frontend/src/shared",
+        "spec",
+    ];
+
+    for d in &dirs {
+        let p = base.join(d);
+        fs::create_dir_all(&p).map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
+    }
+
+    let spec_yaml = base.join("spec/architecture.yaml");
+    if !spec_yaml.exists() {
+        let spec_content = r#"name: fullstack-hexagonal-app
+version: 1.0.0
+nodes:
+  - name: user-domain
+    type: domain
+    contract: "ports/user_service.rs"
+  - name: auth-adapter
+    type: adapter
+    depends_on:
+      - user-domain
+"#;
+        fs::write(&spec_yaml, spec_content)
+            .map_err(|e| KickoffError::WriteFileFailed(spec_yaml.display().to_string(), e))?;
+    }
+
+    let yunq_toml = base.join("yunq.toml");
+    if !yunq_toml.exists() {
+        let default_config = r#"# yunq configuration for Fullstack Hexagonal project
+[profile]
+name = "recommended"
+
+[rules]
+"architecture:hexagonal-layer-violation" = "blocking"
+"architecture:graph-circular-dependency" = "blocking"
+"rust:typeshare-dto-sync" = "major"
+"#;
+        fs::write(&yunq_toml, default_config)
+            .map_err(|e| KickoffError::WriteFileFailed(yunq_toml.display().to_string(), e))?;
+    }
+
+    println!("Successfully initialized Fullstack Hexagonal template at {:?}", base);
     Ok(())
 }

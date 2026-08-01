@@ -4206,6 +4206,7 @@ dependencies = [
 name = "yunq-rules-architecture"
 version = "0.2.1"
 dependencies = [
+ "serde_json",
  "yunq-ast",
  "yunq-import-graph",
  "yunq-parser-go",

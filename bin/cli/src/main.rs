@@ -14,6 +14,7 @@ mod ci_detect;
 mod crap;
 mod hook_install;
 mod kickoff;
+mod mcp;
 mod monorepo_scan;
 mod tui;
 mod wizard;
@@ -80,6 +81,8 @@ enum Command {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
+    /// Start the Model Context Protocol (MCP) JSON-RPC stdio server.
+    Mcp,
 }
 
 #[derive(Subcommand)]
@@ -447,6 +450,10 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Swarm { action }) => run_swarm(action).await,
         Some(Command::Kickoff { template, path }) => {
             kickoff::run_kickoff(&template, &path)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Mcp) => {
+            mcp::run_mcp_server()?;
             Ok(ExitCode::SUCCESS)
         }
     }
