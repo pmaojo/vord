@@ -19,7 +19,7 @@ ALL_TARGETS=(
   "pygoat|https://github.com/adeyosemanputra/pygoat.git|Target App (Python)|Deliberately vulnerable Django app"
   "flask|https://github.com/pallets/flask.git|Clean Prod (Python)|WSGI web application framework"
   "express|https://github.com/expressjs/express.git|Clean Prod (Node.js)|Fast, unopinionated web framework"
-  "juice-shop|https://github.com/OWASP/juice-shop.git|Target App (Node.js)|OWASP Juice Shop vulnerable app"
+  "juice-shop|https://github.com/juice-shop/juice-shop.git|Target App (Node.js)|OWASP Juice Shop vulnerable app"
   "curl|https://github.com/curl/curl.git|Clean Prod (C)|Command line tool for transferring data with URLs"
   "sast-benchmark|https://github.com/Perdiga/sast-benchmark.git|Precision (Multi)|Labeled SAST vulnerability benchmark"
 )
