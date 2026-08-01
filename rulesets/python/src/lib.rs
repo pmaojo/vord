@@ -24,6 +24,7 @@ mod open_without_encoding;
 mod raise_generic_exception;
 mod raise_without_from;
 mod requests_missing_timeout;
+mod ruff_adapter;
 mod sql_injection;
 mod subprocess_shell_true;
 mod tarfile_unsafe_extraction;
@@ -56,6 +57,7 @@ pub use open_without_encoding::OpenWithoutEncodingRule;
 pub use raise_generic_exception::RaiseGenericExceptionRule;
 pub use raise_without_from::RaiseWithoutFromRule;
 pub use requests_missing_timeout::RequestsMissingTimeoutRule;
+pub use ruff_adapter::RuffAdapterRule;
 pub use sql_injection::SqlInjectionRule;
 pub use subprocess_shell_true::SubprocessShellTrueRule;
 pub use tarfile_unsafe_extraction::TarfileUnsafeExtractionRule;
@@ -101,5 +103,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(MutableClassAttributeRule::new()),
         Box::new(MissingTypeAnnotationsRule::new()),
         Box::new(ModernTypeSyntaxRule::new()),
+        Box::new(RuffAdapterRule::new()),
     ]
 }

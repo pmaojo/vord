@@ -48,7 +48,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
         );
     }
 
-    assert_eq!(report.metrics().files_scanned(), 18);
+    assert_eq!(report.metrics().files_scanned(), 21);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);

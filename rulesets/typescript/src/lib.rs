@@ -12,6 +12,7 @@ mod mass_assignment_from_request_body;
 mod math_random_for_token;
 mod no_explicit_any;
 mod open_redirect_location_assignment;
+mod oxlint_adapter;
 mod promise_then_without_catch;
 mod redos_nested_quantifier;
 mod sensitive_data_in_web_storage;
@@ -28,6 +29,7 @@ pub use mass_assignment_from_request_body::MassAssignmentFromRequestBodyRule;
 pub use math_random_for_token::MathRandomForTokenRule;
 pub use no_explicit_any::NoExplicitAnyRule;
 pub use open_redirect_location_assignment::OpenRedirectLocationAssignmentRule;
+pub use oxlint_adapter::OxlintAdapterRule;
 pub use promise_then_without_catch::PromiseThenWithoutCatchRule;
 pub use redos_nested_quantifier::RedosNestedQuantifierRule;
 pub use sensitive_data_in_web_storage::SensitiveDataInWebStorageRule;
@@ -39,20 +41,21 @@ use yunq_rules_engine::Rule;
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
     vec![
-        Box::new(LooseEqualityRule::new()),
-        Box::new(VarDeclarationRule::new()),
-        Box::new(LeftoverDebugStatementRule::new()),
-        Box::new(PromiseThenWithoutCatchRule::new()),
-        Box::new(MathRandomForTokenRule::new()),
         Box::new(DynamicRegexpSourceRule::new()),
-        Box::new(RedosNestedQuantifierRule::new()),
-        Box::new(JsonParseUnguardedRule::new()),
-        Box::new(OpenRedirectLocationAssignmentRule::new()),
-        Box::new(SensitiveDataInWebStorageRule::new()),
-        Box::new(MassAssignmentFromRequestBodyRule::new()),
         Box::new(InnerHtmlAssignmentRule::new()),
+        Box::new(JsonParseUnguardedRule::new()),
+        Box::new(LeftoverDebugStatementRule::new()),
+        Box::new(LooseEqualityRule::new()),
+        Box::new(MassAssignmentFromRequestBodyRule::new()),
+        Box::new(MathRandomForTokenRule::new()),
+        Box::new(OpenRedirectLocationAssignmentRule::new()),
+        Box::new(PromiseThenWithoutCatchRule::new()),
+        Box::new(RedosNestedQuantifierRule::new()),
+        Box::new(SensitiveDataInWebStorageRule::new()),
         Box::new(SwallowedExceptionRule::new()),
+        Box::new(VarDeclarationRule::new()),
         Box::new(BooleanNamingRule::new()),
         Box::new(NoExplicitAnyRule::new()),
+        Box::new(OxlintAdapterRule::new()),
     ]
 }

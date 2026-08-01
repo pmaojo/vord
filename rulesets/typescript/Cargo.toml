@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }
+oxc = "0.45.0"
 
 [dev-dependencies]
 yunq-parser-typescript = { workspace = true }

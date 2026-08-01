@@ -488,7 +488,7 @@ name = "coder"
 
         handoff_ack(&root, "qa", &handoff.id).unwrap();
         let waiting = handoff_inbox(&root, "qa").unwrap();
-        assert_eq!(waiting.len(), 1);
+        assert!(waiting.is_empty());
         std::fs::remove_dir_all(&root).ok();
     }
 }

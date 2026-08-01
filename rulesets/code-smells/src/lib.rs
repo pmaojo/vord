@@ -64,6 +64,8 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(DbCallInLoopRule::new()),
         Box::new(CommentedOutCodeRule::new()),
         Box::new(UnreachableCodeRule::new()),
+        Box::new(TypeCheckChainRule::default()),
+        Box::new(ServiceLocatorRule::new()),
     ]
 }
 

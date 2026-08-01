@@ -7,6 +7,7 @@ mod absurd_extreme_comparison;
 mod almost_swapped;
 mod blocking_sleep_in_async;
 mod box_leak;
+mod clippy_adapter;
 mod dbg_macro;
 mod derive_hash_manual_partial_eq;
 mod disallow_panic_macros;
@@ -34,6 +35,7 @@ pub use absurd_extreme_comparison::AbsurdExtremeComparisonRule;
 pub use almost_swapped::AlmostSwappedRule;
 pub use blocking_sleep_in_async::BlockingSleepInAsyncRule;
 pub use box_leak::BoxLeakRule;
+pub use clippy_adapter::RustClippyAdapterRule;
 pub use dbg_macro::DbgMacroRule;
 pub use derive_hash_manual_partial_eq::DeriveHashManualPartialEqRule;
 pub use disallow_panic_macros::DisallowPanicMacrosRule;
@@ -88,5 +90,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(DisallowUnwrapExpectRule::new()),
         Box::new(RustNamingConventionRule::new()),
         Box::new(DisallowPanicMacrosRule::new()),
+        Box::new(RustClippyAdapterRule::new()),
     ]
 }

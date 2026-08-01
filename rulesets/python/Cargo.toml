@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }
+littrs-ruff-python-parser = "0.6.2"
 
 [dev-dependencies]
 yunq-parser-python = { workspace = true }
