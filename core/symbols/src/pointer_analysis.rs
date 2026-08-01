@@ -22,10 +22,26 @@ pub struct AndersenAnalysis;
 impl AndersenAnalysis {
     /// Solves points-to sets for variables given inclusion constraints.
     pub fn solve(constraints: &[PointerConstraint]) -> HashMap<String, HashSet<String>> {
+        let (mut pts, mut graph) = Self::initial_pass(constraints);
+
+        // Worklist fixed-point transitive closure
+        let mut changed = true;
+        while changed {
+            changed = false;
+            changed |= Self::propagate_load_store(constraints, &pts, &mut graph);
+            changed |= Self::propagate_points_to(&mut pts, &graph);
+        }
+
+        pts
+    }
+
+    /// First pass: seed points-to sets from AddressOf and
+    /// add Copy edges to the constraint graph.
+    fn initial_pass(
+        constraints: &[PointerConstraint],
+    ) -> (HashMap<String, HashSet<String>>, HashMap<String, HashSet<String>>) {
         let mut pts: HashMap<String, HashSet<String>> = HashMap::new();
         let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
-
-        // Initial pass for AddressOf and Copy constraints
         for c in constraints {
             match c {
                 PointerConstraint::AddressOf { ptr, loc } => {
@@ -37,55 +53,70 @@ impl AndersenAnalysis {
                 _ => {}
             }
         }
+        (pts, graph)
+    }
 
-        // Worklist fixed-point transitive closure algorithm
-        let mut changed = true;
-        while changed {
-            changed = false;
-
-            for c in constraints {
-                match c {
-                    PointerConstraint::Load { from_ptr, to } => {
-                        if let Some(locs) = pts.get(from_ptr).cloned() {
-                            for loc in locs {
-                                if graph.entry(loc.clone()).or_default().insert(to.clone()) {
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-                    PointerConstraint::Store { from, to_ptr } => {
-                        if let Some(locs) = pts.get(to_ptr).cloned() {
-                            for loc in locs {
-                                if graph.entry(from.clone()).or_default().insert(loc.clone()) {
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            // Propagate points-to sets along constraint graph edges
-            let nodes: Vec<String> = graph.keys().cloned().collect();
-            for from in nodes {
-                if let Some(from_pts) = pts.get(&from).cloned() {
-                    if let Some(targets) = graph.get(&from).cloned() {
-                        for to in targets {
-                            let to_pts = pts.entry(to).or_default();
-                            let orig_len = to_pts.len();
-                            to_pts.extend(from_pts.iter().cloned());
-                            if to_pts.len() > orig_len {
+    /// One iteration of Load and Store constraint resolution.
+    /// Returns whether any new copy edge was added to `graph`.
+    fn propagate_load_store(
+        constraints: &[PointerConstraint],
+        pts: &HashMap<String, HashSet<String>>,
+        graph: &mut HashMap<String, HashSet<String>>,
+    ) -> bool {
+        let mut changed = false;
+        for c in constraints {
+            match c {
+                PointerConstraint::Load { from_ptr, to } => {
+                    if let Some(locs) = pts.get(from_ptr) {
+                        for loc in locs {
+                            if graph.entry(loc.clone()).or_default().insert(to.clone()) {
                                 changed = true;
                             }
                         }
                     }
                 }
+                PointerConstraint::Store { from, to_ptr } => {
+                    if let Some(locs) = pts.get(to_ptr) {
+                        for loc in locs {
+                            if graph.entry(from.clone()).or_default().insert(loc.clone()) {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
+        changed
+    }
 
-        pts
+    /// Transitive closure: for every edge `from → to` in `graph`,
+    /// propagate `from`'s points-to set into `to`'s.
+    /// Returns whether any point-to set grew.
+    fn propagate_points_to(
+        pts: &mut HashMap<String, HashSet<String>>,
+        graph: &HashMap<String, HashSet<String>>,
+    ) -> bool {
+        let mut changed = false;
+        let nodes: Vec<String> = graph.keys().cloned().collect();
+        for from in nodes {
+            let Some(from_pts) = pts.get(&from) else {
+                continue;
+            };
+            let from_pts = from_pts.clone();
+            let Some(targets) = graph.get(&from) else {
+                continue;
+            };
+            for to in targets {
+                let to_pts = pts.entry(to.clone()).or_default();
+                let orig_len = to_pts.len();
+                to_pts.extend(from_pts.iter().cloned());
+                if to_pts.len() > orig_len {
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 }
 

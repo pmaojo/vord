@@ -183,159 +183,191 @@ fn parse_nodes_from_json(content: &str) -> Option<Vec<ArchitectureNode>> {
     }
 }
 
+/// Whether `trimmed` begins a new architecture node entry.
+/// `has_current` is true when we're already inside a node body.
+fn begins_new_node(trimmed: &str, has_current: bool, reserved_keys: &[&str]) -> bool {
+    // List entries always start a new node.
+    if trimmed.starts_with("- id:")
+        || trimmed.starts_with("- name:")
+        || trimmed.starts_with("- node:")
+    {
+        return true;
+    }
+    // "id:", "name:", "node:" start a new node only without a current one;
+    // inside a node body they are field updates handled by parse_yaml_field.
+    let is_id_like = trimmed.starts_with("id:")
+        || trimmed.starts_with("name:")
+        || trimmed.starts_with("node:");
+    if is_id_like {
+        return !has_current;
+    }
+    // Non-reserved mapping keys start a new node.
+    if trimmed.ends_with(':') {
+        let key = trimmed
+            .trim_end_matches(':')
+            .trim_start_matches("- ")
+            .trim();
+        return !reserved_keys.contains(&key) && !key.contains(' ');
+    }
+    false
+}
+
+/// Extracts the node id from a YAML node-start line.
+fn extract_node_id(trimmed: &str) -> String {
+    if trimmed.starts_with("- id:")
+        || trimmed.starts_with("id:")
+        || trimmed.starts_with("- name:")
+        || trimmed.starts_with("name:")
+        || trimmed.starts_with("- node:")
+        || trimmed.starts_with("node:")
+    {
+        let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            return strip_quotes(parts[1]);
+        }
+    }
+    // Mapping-key node: the key itself is the id.
+    if trimmed.ends_with(':') {
+        let key = trimmed
+            .trim_end_matches(':')
+            .trim_start_matches("- ")
+            .trim();
+        return strip_quotes(key);
+    }
+    String::new()
+}
+
+/// Saves the current node (if valid) and resets the slot.
+fn save_current_node(
+    current_node: &mut Option<ArchitectureNode>,
+    nodes: &mut Vec<ArchitectureNode>,
+) {
+    if let Some(node) = current_node.take() {
+        if !node.id.is_empty() {
+            nodes.push(node);
+        }
+    }
+}
+
+/// Parses one line as a field of the current architecture node.
+/// Updates `in_depends_on`: `true` when inside a multi-line `depends_on`
+/// block waiting for list items, reset to `false` by any other field.
+fn parse_yaml_field(node: &mut ArchitectureNode, trimmed: &str, in_depends_on: &mut bool) {
+    if trimmed.starts_with("id:")
+        || trimmed.starts_with("- id:")
+        || trimmed.starts_with("name:")
+        || trimmed.starts_with("- name:")
+    {
+        let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            node.id = strip_quotes(parts[1]);
+        }
+        return;
+    }
+
+    if trimmed.starts_with("type:") || trimmed.starts_with("layer:") || trimmed.starts_with("kind:") {
+        *in_depends_on = false;
+        let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            node.node_type = Some(strip_quotes(parts[1]));
+        }
+        return;
+    }
+
+    if trimmed.starts_with("contract:") {
+        *in_depends_on = false;
+        let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            node.contract = Some(strip_quotes(parts[1]));
+        }
+        return;
+    }
+
+    if trimmed.starts_with("interface:") {
+        *in_depends_on = false;
+        let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            node.interface = Some(strip_quotes(parts[1]));
+        }
+        return;
+    }
+
+    if trimmed.starts_with("depends_on:")
+        || trimmed.starts_with("dependencies:")
+        || trimmed.starts_with("requires:")
+    {
+        let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            let val = parts[1].trim();
+            if val.starts_with('[') && val.ends_with(']') {
+                let inner = &val[1..val.len() - 1];
+                for item in inner.split(',') {
+                    let dep = strip_quotes(item);
+                    if !dep.is_empty() {
+                        node.depends_on.push(dep);
+                    }
+                }
+                *in_depends_on = false;
+            } else if !val.is_empty() {
+                node.depends_on.push(strip_quotes(val));
+                *in_depends_on = false;
+            } else {
+                *in_depends_on = true;
+            }
+        }
+        return;
+    }
+
+    // Multi-line depends_on list items.
+    if *in_depends_on {
+        if trimmed.starts_with('-') {
+            let dep = strip_quotes(trimmed.trim_start_matches('-'));
+            if !dep.is_empty() {
+                node.depends_on.push(dep);
+            }
+        } else if trimmed.contains(':') {
+            *in_depends_on = false;
+        }
+    }
+}
+
 fn parse_nodes_from_yaml(content: &str) -> Vec<ArchitectureNode> {
     let mut nodes: Vec<ArchitectureNode> = Vec::new();
     let mut current_node: Option<ArchitectureNode> = None;
     let mut in_depends_on = false;
 
     let reserved_keys: &[&str] = &[
-        "nodes",
-        "graph",
-        "services",
-        "components",
-        "modules",
-        "spec",
-        "version",
-        "depends_on",
-        "dependencies",
-        "requires",
-        "imports",
-        "contract",
-        "interface",
-        "type",
-        "layer",
-        "kind",
-        "description",
-        "metadata",
-        "api_version",
-        "apiVersion",
+        "nodes", "graph", "services", "components", "modules",
+        "spec", "version", "depends_on", "dependencies", "requires",
+        "imports", "contract", "interface", "type", "layer", "kind",
+        "description", "metadata", "api_version", "apiVersion",
     ];
 
     for (idx, line) in content.lines().enumerate() {
-        let line_num = (idx + 1) as u32;
-        let line_len = line.len().max(1) as u32;
         let trimmed = line.trim();
-
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
 
-        let is_list_node = trimmed.starts_with("- id:")
-            || trimmed.starts_with("- name:")
-            || trimmed.starts_with("- node:");
-
-        let is_key_node = !is_list_node
-            && (trimmed.starts_with("id:")
-                || trimmed.starts_with("name:")
-                || trimmed.starts_with("node:"));
-
-        let is_mapping_node_key = if !is_list_node && !is_key_node && trimmed.ends_with(':') {
-            let key = trimmed.trim_end_matches(':').trim_start_matches("- ").trim();
-            !reserved_keys.contains(&key) && !key.contains(' ')
-        } else {
-            false
-        };
-
-        if is_list_node || (is_key_node && current_node.is_none()) || is_mapping_node_key {
-            if let Some(node) = current_node.take() {
-                if !node.id.is_empty() {
-                    nodes.push(node);
-                }
-            }
+        if begins_new_node(trimmed, current_node.is_some(), reserved_keys) {
+            save_current_node(&mut current_node, &mut nodes);
             in_depends_on = false;
-
-            let mut node = ArchitectureNode {
-                line: line_num,
-                line_len,
+            let node = ArchitectureNode {
+                line: (idx + 1) as u32,
+                line_len: line.len().max(1) as u32,
+                id: extract_node_id(trimmed),
                 ..ArchitectureNode::default()
             };
-
-            if is_list_node || is_key_node {
-                let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    node.id = strip_quotes(parts[1]);
-                }
-            } else if is_mapping_node_key {
-                let key = trimmed.trim_end_matches(':').trim_start_matches("- ").trim();
-                node.id = strip_quotes(key);
-            }
             current_node = Some(node);
             continue;
         }
 
         if let Some(ref mut node) = current_node {
-            if trimmed.starts_with("id:")
-                || trimmed.starts_with("- id:")
-                || trimmed.starts_with("name:")
-                || trimmed.starts_with("- name:")
-            {
-                let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    node.id = strip_quotes(parts[1]);
-                }
-            } else if trimmed.starts_with("type:")
-                || trimmed.starts_with("layer:")
-                || trimmed.starts_with("kind:")
-            {
-                in_depends_on = false;
-                let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    node.node_type = Some(strip_quotes(parts[1]));
-                }
-            } else if trimmed.starts_with("contract:") {
-                in_depends_on = false;
-                let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    node.contract = Some(strip_quotes(parts[1]));
-                }
-            } else if trimmed.starts_with("interface:") {
-                in_depends_on = false;
-                let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    node.interface = Some(strip_quotes(parts[1]));
-                }
-            } else if trimmed.starts_with("depends_on:")
-                || trimmed.starts_with("dependencies:")
-                || trimmed.starts_with("requires:")
-            {
-                let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    let val = parts[1].trim();
-                    if val.starts_with('[') && val.ends_with(']') {
-                        let inner = &val[1..val.len() - 1];
-                        for item in inner.split(',') {
-                            let dep = strip_quotes(item);
-                            if !dep.is_empty() {
-                                node.depends_on.push(dep);
-                            }
-                        }
-                        in_depends_on = false;
-                    } else if !val.is_empty() {
-                        node.depends_on.push(strip_quotes(val));
-                        in_depends_on = false;
-                    } else {
-                        in_depends_on = true;
-                    }
-                }
-            } else if in_depends_on {
-                if trimmed.starts_with('-') {
-                    let dep = strip_quotes(trimmed.trim_start_matches('-'));
-                    if !dep.is_empty() {
-                        node.depends_on.push(dep);
-                    }
-                } else if trimmed.contains(':') {
-                    in_depends_on = false;
-                }
-            }
+            parse_yaml_field(node, trimmed, &mut in_depends_on);
         }
     }
 
-    if let Some(node) = current_node {
-        if !node.id.is_empty() {
-            nodes.push(node);
-        }
-    }
-
+    save_current_node(&mut current_node, &mut nodes);
     nodes
 }
 
