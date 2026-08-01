@@ -21,3 +21,8 @@
 # The npm wrapper downloads this at install time.
 npm/bin/yunq
 npm/bin/yunq.exe
+
+# Benchmark runner targets & reports
+.benchmark-targets/
+.benchmark-results/
+

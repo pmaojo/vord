@@ -18,8 +18,14 @@ impl SsrfRule {
         let config = TaintConfig::web_defaults()
             .with_sink("fetch")
             .with_sink("request")
-            .with_sink("get")
-            .with_sink("post")
+            .with_sink("axios.get")
+            .with_sink("axios.post")
+            .with_sink("http.get")
+            .with_sink("http.request")
+            .with_sink("https.get")
+            .with_sink("https.request")
+            .with_sink("got")
+            .with_sink("superagent")
             .with_sanitizer("sanitize")
             .with_sanitizer("isAllowedHost");
         Self {
@@ -119,6 +125,12 @@ mod tests {
     fn sanitized_flow_is_silent() {
         let findings =
             check("const target = req.query;\nconst safe = isAllowedHost(target);\nfetch(safe);\n");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn app_post_route_handler_is_not_an_ssrf_sink() {
+        let findings = check("app.post('/login', function(req, res) { const u = req.body.username; });\n");
         assert!(findings.is_empty());
     }
 }
