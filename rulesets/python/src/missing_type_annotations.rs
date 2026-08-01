@@ -23,18 +23,16 @@ impl Rule for MissingTypeAnnotationsRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             if *node.kind() == NodeKind::FunctionDef {
                 let text = node.text();
                 // Check if top-level or public function `def foo(...)` lacks `->` return type hint
                 if let Some(first_line) = text.lines().next() {
-                    if first_line.starts_with("def ") && !first_line.starts_with("def _") {
-                        if !first_line.contains("->") {
-                            out.push(Finding::new(
-                                "Public Python function missing explicit return type annotation (`-> ReturnType`). Enforce strict typing for AI agent clarity.",
-                                node.span(),
-                            ));
-                        }
+                    if first_line.starts_with("def ") && !first_line.starts_with("def _") && !first_line.contains("->") {
+                        out.push(Finding::new(
+                            "Public Python function missing explicit return type annotation (`-> ReturnType`). Enforce strict typing for AI agent clarity.",
+                            node.span(),
+                        ));
                     }
                 }
             }

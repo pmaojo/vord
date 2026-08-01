@@ -23,7 +23,7 @@ impl Rule for BooleanNamingRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             // Check variable declarators with boolean type annotation or true/false assignment
             if matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "variable_declarator") {
                 if let Some(id_node) = node.first_child() {

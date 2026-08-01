@@ -244,9 +244,11 @@ fn parse_nodes_from_yaml(content: &str) -> Vec<ArchitectureNode> {
             }
             in_depends_on = false;
 
-            let mut node = ArchitectureNode::default();
-            node.line = line_num;
-            node.line_len = line_len;
+            let mut node = ArchitectureNode {
+                line: line_num,
+                line_len,
+                ..ArchitectureNode::default()
+            };
 
             if is_list_node || is_key_node {
                 let parts: Vec<&str> = trimmed.splitn(2, ':').collect();

@@ -25,7 +25,7 @@ impl Rule for ContextProviderMemoRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             if is_other(node, "jsx_element") || is_other(node, "jsx_self_closing_element") {
                 if let Some(tag) = opening_tag(node) {
                     let text = tag.text();

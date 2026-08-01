@@ -23,7 +23,7 @@ impl Rule for NoDefaultExportComponentRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             // export_statement with "default" keyword
             if matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "export_statement") {
                 let text = node.text();

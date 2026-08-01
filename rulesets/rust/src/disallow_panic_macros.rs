@@ -46,7 +46,7 @@ impl Rule for DisallowPanicMacrosRule {
 
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, in_test: bool, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, in_test: bool, out: &mut Vec<Finding>) {
             let is_now_test = in_test || is_test_node(node);
 
             if !is_now_test {

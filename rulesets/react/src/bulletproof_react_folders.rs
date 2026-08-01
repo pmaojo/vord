@@ -27,7 +27,7 @@ impl Rule for BulletproofReactFolderRule {
         }
 
         // Ignore root entry points like main.tsx, App.tsx, index.ts, vite-env.d.ts, setupTests.ts
-        let file_name = path.split(['/', '\\']).last().unwrap_or("");
+        let file_name = path.split(['/', '\\']).next_back().unwrap_or("");
         if matches!(
             file_name,
             "index.ts"

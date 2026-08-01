@@ -29,7 +29,7 @@ impl Rule for DisallowUnwrapExpectRule {
 
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             if matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "call_expression") {
                 if let Some(field) = node.first_child() {
                     let text = field.text();

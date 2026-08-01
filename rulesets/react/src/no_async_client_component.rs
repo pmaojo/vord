@@ -87,12 +87,12 @@ fn is_component_function(node: &AstNode) -> bool {
     }
 
     // Check if function returns or contains JSX
-    node.descendants().any(|n| is_jsx_kind(n))
+    node.descendants().any(is_jsx_kind)
 }
 
 fn contains_hook_call(node: &AstNode) -> bool {
     node.descendants().any(|n| {
-        *n.kind() == NodeKind::Call && callee_name(n).is_some_and(|name| is_hook_name(name))
+        *n.kind() == NodeKind::Call && callee_name(n).is_some_and(is_hook_name)
     })
 }
 

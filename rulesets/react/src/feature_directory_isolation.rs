@@ -23,7 +23,7 @@ impl Rule for FeatureDirectoryIsolationRule {
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, file: &SourceFile, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, file: &SourceFile, out: &mut Vec<Finding>) {
             // tree-sitter-typescript: import_statement -> source: string
             if matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "import_statement") {
                 for child in node.children() {
@@ -61,11 +61,9 @@ fn is_deep_feature_import(import_spec: &str, current_file_path: &str) -> bool {
                 // Check if current file is in the same feature
                 let current_parts: Vec<&str> = current_file_path.split(['/', '\\']).collect();
                 if let Some(c_idx) = current_parts.iter().position(|&p| p == "features") {
-                    if current_parts.len() > c_idx + 1 && parts.len() > idx + 1 {
-                        if current_parts[c_idx + 1] == parts[idx + 1] {
-                            // Internal import inside the SAME feature is allowed
-                            return false;
-                        }
+                    if current_parts.len() > c_idx + 1 && parts.len() > idx + 1 && current_parts[c_idx + 1] == parts[idx + 1] {
+                        // Internal import inside the SAME feature is allowed
+                        return false;
                     }
                 }
                 return true;

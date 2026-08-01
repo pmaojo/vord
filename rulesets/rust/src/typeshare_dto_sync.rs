@@ -91,10 +91,8 @@ fn is_typeshare_attr(attr: &AstNode) -> bool {
     if compact.starts_with("#[typeshare") || compact.starts_with("#![typeshare") {
         return true;
     }
-    if compact.starts_with("#[derive") || compact.starts_with("#![derive") {
-        if compact.contains("Typeshare") {
-            return true;
-        }
+    if (compact.starts_with("#[derive") || compact.starts_with("#![derive")) && compact.contains("Typeshare") {
+        return true;
     }
     false
 }

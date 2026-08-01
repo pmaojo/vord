@@ -71,9 +71,7 @@ fn variable_declaration_component_func(node: &AstNode) -> Option<(&str, &AstNode
 }
 
 fn is_pascal_case(name: &str) -> bool {
-    name.chars()
-        .next()
-        .map_or(false, |c| c.is_ascii_uppercase())
+    name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
 }
 
 fn is_callback_or_attr_node(node: &AstNode, current: bool) -> bool {

@@ -32,7 +32,7 @@ fn is_weak_crypto_hash(line: &str) -> bool {
         return false;
     }
 
-    let weak_algo = lower.contains("\"md5\"")
+    lower.contains("\"md5\"")
         || lower.contains("'md5'")
         || lower.contains("\"sha1\"")
         || lower.contains("'sha1'")
@@ -41,9 +41,7 @@ fn is_weak_crypto_hash(line: &str) -> bool {
         || lower.contains("hashlib.md5")
         || lower.contains("hashlib.sha1")
         || lower.contains("cryptojs.md5")
-        || lower.contains("cryptojs.sha1");
-
-    weak_algo
+        || lower.contains("cryptojs.sha1")
 }
 
 pub struct WeakCryptoHashRule {
