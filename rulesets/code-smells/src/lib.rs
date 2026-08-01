@@ -25,9 +25,11 @@ mod type_check_chain;
 mod unreachable_code;
 mod unwrap_usage;
 mod ck_metrics;
+mod halstead_mi;
 
 pub use ck_metrics::CkMetricsRule;
 pub use class_fan_out::ClassFanOutRule;
+pub use halstead_mi::{HalsteadMiConfig, HalsteadMiRule};
 pub use cognitive_complexity::CognitiveComplexityRule;
 pub use commented_out_code::CommentedOutCodeRule;
 pub use complexity::ComplexityRule;
@@ -68,6 +70,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(UnreachableCodeRule::new()),
         Box::new(TypeCheckChainRule::default()),
         Box::new(ServiceLocatorRule::new()),
+        Box::new(HalsteadMiRule::default()),
     ]
 }
 
