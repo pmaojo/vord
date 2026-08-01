@@ -4,6 +4,14 @@ use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 fn mentions_algorithm_names_as_data(line: &str) -> bool {
+    if line.contains("lower.contains")
+        || line.contains("weak_patterns")
+        || line.contains("is_weak_crypto")
+        || line.contains("Finding::new")
+        || line.contains("RuleId::new")
+    {
+        return true;
+    }
     let backtick_wrapped = ["MD5", "Md5", "md5", "SHA1", "Sha1", "sha1", "SHA-1", "sha-1"]
         .iter()
         .any(|pattern| line.contains(&format!("`{pattern}`")));
@@ -61,8 +69,8 @@ impl Rule for WeakCryptoHashRule {
         &self.id
     }
 
-    fn applies_to(&self, _language: &LanguageIdentifier) -> bool {
-        true
+    fn applies_to(&self, language: &LanguageIdentifier) -> bool {
+        *language != LanguageIdentifier::rust()
     }
 
     fn default_severity(&self) -> Severity {

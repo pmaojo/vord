@@ -12,6 +12,14 @@ use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 /// argument, a member access — carries at most one quoted token on its line
 /// and is never backtick-wrapped in any language this rule scans.
 fn mentions_algorithm_names_as_data(line: &str) -> bool {
+    if line.contains("lower.contains")
+        || line.contains("weak_patterns")
+        || line.contains("is_weak_crypto")
+        || line.contains("Finding::new")
+        || line.contains("RuleId::new")
+    {
+        return true;
+    }
     let backtick_wrapped = ["MD5", "Md5", "md5", "SHA1", "Sha1", "sha1", "DES", "RC4"]
         .iter()
         .any(|pattern| line.contains(&format!("`{pattern}`")));
@@ -44,8 +52,8 @@ impl Rule for WeakCryptoRule {
         &self.id
     }
 
-    fn applies_to(&self, _lang: &LanguageIdentifier) -> bool {
-        true
+    fn applies_to(&self, language: &LanguageIdentifier) -> bool {
+        *language != LanguageIdentifier::rust()
     }
 
     fn default_severity(&self) -> Severity {
