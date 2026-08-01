@@ -208,6 +208,8 @@ enum SwarmAction {
         #[arg(long)]
         task: String,
     },
+    /// Interactive spec-driven Swarm & Worktree Ratatui Dashboard (Offline / LLM-less).
+    Tui,
 }
 
 #[derive(Subcommand)]
@@ -635,6 +637,10 @@ async fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::Run { task } => run_topology(&root, &task).await,
+        SwarmAction::Tui => {
+            yunq_cli::swarm::run_swarm_tui(&root)?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 

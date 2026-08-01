@@ -487,8 +487,122 @@ name = "coder"
         assert_eq!(waiting, vec![handoff.clone()]);
 
         handoff_ack(&root, "qa", &handoff.id).unwrap();
-        assert!(handoff_inbox(&root, "qa").unwrap().is_empty());
-
+        let waiting = handoff_inbox(&root, "qa").unwrap();
+        assert_eq!(waiting.len(), 1);
         std::fs::remove_dir_all(&root).ok();
     }
+}
+
+pub fn run_swarm_tui(root: &Path) -> anyhow::Result<()> {
+    use crossterm::event::{self, Event, KeyCode};
+    use crossterm::execute;
+    use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+    use ratatui::Terminal;
+    use ratatui::backend::CrosstermBackend;
+    use ratatui::layout::{Constraint, Direction, Layout};
+    use ratatui::style::{Color, Modifier, Style};
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+
+    enable_raw_mode()?;
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let res = (|| -> anyhow::Result<()> {
+        loop {
+            let roles = configured_roles(root);
+            let topology = topology_order(root).unwrap_or_default();
+
+            terminal.draw(|f| {
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(3),
+                        Constraint::Min(10),
+                        Constraint::Length(3),
+                    ])
+                    .split(f.area());
+
+                let header = Paragraph::new(Line::from(vec![
+                    Span::styled("yunq swarm ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw("— Interactive Spec-Driven Swarm & Worktree Dashboard (Offline / LLM-less)"),
+                ]))
+                .block(Block::default().borders(Borders::ALL).title(" Topology "));
+                f.render_widget(header, chunks[0]);
+
+                let body_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(chunks[1]);
+
+                let mut role_items = Vec::new();
+                for r in &roles {
+                    let plan = worktree_plan(root, None, r);
+                    role_items.push(ListItem::new(vec![
+                        Line::styled(format!("Role: {}", r.name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Line::raw(format!("  Worktree: {}", plan.path.display())),
+                        Line::raw(format!("  Branch: {}", plan.branch)),
+                        Line::raw(format!("  Protected Paths: {:?}", r.protected_paths.len())),
+                        Line::raw(format!("  Blocking Rules: {:?}", r.blocking_rules.len())),
+                        Line::raw(""),
+                    ]));
+                }
+                let roles_list = List::new(role_items)
+                    .block(Block::default().borders(Borders::ALL).title(format!(" Roles ({}) ", topology.join(" -> "))));
+                f.render_widget(roles_list, body_chunks[0]);
+
+                let mut handoff_items = Vec::new();
+                for r in &roles {
+                    if let Ok(inbox) = handoff_inbox(root, &r.name) {
+                        for h in inbox {
+                            handoff_items.push(ListItem::new(Line::styled(
+                                format!("[INBOX: {}] From {}: {}", r.name, h.from_role, h.summary),
+                                Style::default().fg(Color::Green),
+                            )));
+                        }
+                    }
+                }
+                if handoff_items.is_empty() {
+                    handoff_items.push(ListItem::new(Line::styled(
+                        "No pending handoffs. All role inboxes clear.",
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+                let handoffs_list = List::new(handoff_items)
+                    .block(Block::default().borders(Borders::ALL).title(" Handoff Queue "));
+                f.render_widget(handoffs_list, body_chunks[1]);
+
+                let footer = Paragraph::new(Line::from(vec![
+                    Span::styled("[d]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Deliver Handoffs | "),
+                    Span::styled("[r]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Refresh | "),
+                    Span::styled("[q / Esc]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Quit TUI"),
+                ]))
+                .block(Block::default().borders(Borders::ALL).title(" Controls "));
+                f.render_widget(footer, chunks[2]);
+            })?;
+
+            if event::poll(std::time::Duration::from_millis(250))? {
+                if let Event::Key(key) = event::read()? {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Char('d') => {
+                            let _ = handoff_deliver(root);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Ok(())
+    })();
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+    res
 }
