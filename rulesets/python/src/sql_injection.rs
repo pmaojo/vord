@@ -7,14 +7,9 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-const EXECUTE_METHODS: &[&str] = &["execute", "executemany"];
+use crate::common::other_kind_name;
 
-fn other_kind_name(node: &AstNode) -> Option<&str> {
-    match node.kind() {
-        NodeKind::Other(name) => Some(name.as_ref()),
-        _ => None,
-    }
-}
+const EXECUTE_METHODS: &[&str] = &["execute", "executemany"];
 
 fn is_eager_built_query(arg: &AstNode) -> bool {
     match arg.kind() {
@@ -76,7 +71,7 @@ impl Rule for SqlInjectionRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if crate::common::is_test_file(file.path()) {
             return Vec::new();
         }
         ast.descendants()

@@ -6,12 +6,7 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-fn other_kind_name(node: &AstNode) -> Option<&str> {
-    match node.kind() {
-        NodeKind::Other(name) => Some(name.as_ref()),
-        _ => None,
-    }
-}
+use crate::common::other_kind_name;
 
 fn has_shell_true_argument(call: &AstNode) -> bool {
     let Some(args) = call
@@ -83,7 +78,7 @@ impl Rule for SubprocessShellTrueRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if crate::common::is_test_file(file.path()) {
             return Vec::new();
         }
         ast.descendants()
