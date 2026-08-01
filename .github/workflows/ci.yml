@@ -47,6 +47,28 @@ jobs:
         # meet today: zero blocker/critical issues, zero parse failures.
         run: ./target/debug/yunq scan . --enforce-gate
 
+      - name: Update health score badge
+        run: bash scripts/update-health-badge.sh ./target/debug/yunq .
+
+      # Only persist the badge on pushes to main, not on every PR branch —
+      # the README badge always reflects main's last green build.
+      #
+      # NOTE: This pushes directly to main. If main is a protected branch
+      # (requiring PRs), this step will fail. Either disable branch protection
+      # for this single file, or switch to a badge-update PR workflow.
+      - name: Commit updated badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .yunq-health.json
+          if git diff --cached --quiet; then
+            echo "Health badge unchanged."
+          else
+            git commit -m "ci: update health score badge to $(jq -r .message .yunq-health.json)"
+            git push
+          fi
+
   dogfood-coverage:
     name: yunq's own test coverage (measured, not yet gated)
     runs-on: ubuntu-latest
