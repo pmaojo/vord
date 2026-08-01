@@ -87,6 +87,9 @@ pub async fn run() -> anyhow::Result<ExitCode> {
                 Action::Remediate => {
                     remediate_loop(&theme, &report, &scan_path, diff_files.as_deref()).await?;
                 }
+                Action::ConfigureToml => {
+                    configure_yunq_toml(&theme, &root)?;
+                }
                 Action::InstallCi => {
                     install_ci(&root, false)?;
                 }
@@ -192,6 +195,7 @@ fn count_issues_in_files(issues: &[Issue], files: &[String]) -> usize {
 enum Action {
     AgentPrompt,
     Remediate,
+    ConfigureToml,
     InstallCi,
     Rescan,
     Exit,
@@ -210,6 +214,8 @@ fn action_menu(
         labels.push("Arreglar issues con el remediador (uno a uno)".to_string());
         actions.push(Action::Remediate);
     }
+    labels.push("Configurar perfil de reglas y topología swarm (yunq.toml)".to_string());
+    actions.push(Action::ConfigureToml);
     if let Some(root) = git_root
         && detect_existing_ci(root).is_none()
     {
@@ -477,6 +483,70 @@ fn parse_name_only(raw: &str) -> Vec<String> {
         .filter(|line| !line.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+pub fn configure_yunq_toml(theme: &ColorfulTheme, root: &Path) -> anyhow::Result<()> {
+    let presets = [
+        "recommended (Equilibrado para todo tipo de repositorios)",
+        "bulletproof-react (Reglas de arquitectura React Doctor & Bulletproof)",
+        "owasp-strict (Seguridad estricta OWASP & Taint analysis)",
+        "ai-agent (Reducción de opciones & determinismo para Agentes IA)",
+    ];
+    let preset_choice = Select::with_theme(theme)
+        .with_prompt("Selecciona el perfil de reglas")
+        .items(&presets)
+        .default(0)
+        .interact()?;
+
+    let topologies = [
+        "four-pack (architect -> coder -> cleaner -> qa)",
+        "two-pack (coder -> reviewer)",
+        "none (Modo single-agent sin swarm)",
+    ];
+    let topo_choice = Select::with_theme(theme)
+        .with_prompt("Selecciona la topología de Swarm")
+        .items(&topologies)
+        .default(0)
+        .interact()?;
+
+    let profile_name = match preset_choice {
+        0 => "recommended",
+        1 => "bulletproof-react",
+        2 => "owasp-strict",
+        3 => "ai-agent",
+        _ => "recommended",
+    };
+
+    let topo_val = match topo_choice {
+        0 => "four-pack",
+        1 => "two-pack",
+        _ => "none",
+    };
+
+    let toml_content = format!(
+        "# Configuración generada por el wizard interactivo de yunq\n\
+         [profile]\n\
+         name = \"{profile_name}\"\n\n\
+         [swarm]\n\
+         topology = \"{topo_val}\"\n\n\
+         [[swarm.role]]\n\
+         name = \"architect\"\n\
+         blocking_rules = [\"architecture:folder-naming-casing\"]\n\n\
+         [[swarm.role]]\n\
+         name = \"coder\"\n\
+         blocking_rules = [\"react:feature-directory-isolation\", \"owasp:sql-injection-concat\"]\n\n\
+         [[swarm.role]]\n\
+         name = \"cleaner\"\n\
+         blocking_rules = [\"react:no-useless-memo\", \"python:modern-type-syntax\"]\n\n\
+         [[swarm.role]]\n\
+         name = \"qa\"\n\
+         blocking_rules = [\"rust:disallow-unwrap-expect\", \"typescript:no-explicit-any\"]\n"
+    );
+
+    let target = root.join("yunq.toml");
+    std::fs::write(&target, toml_content)?;
+    println!("\n¡Configuración guardada en {}!", target.display());
+    Ok(())
 }
 
 #[cfg(test)]
