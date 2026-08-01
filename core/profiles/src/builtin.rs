@@ -48,6 +48,7 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         // rulesets/mutation — instant AST mutation testing & boundary/boolean gap analysis.
         (rule("mutation:conditional-boundary"), Severity::Minor),
         (rule("mutation:boolean-inversion"), Severity::Minor),
+        (rule("mutation:arithmetic-operator"), Severity::Minor),
         // rulesets/secrets — provider-pattern rules, all Severity::Blocker.
         (rule("secrets:high-entropy-string"), Severity::Major),
         (rule("secrets:aws-access-key-id"), Severity::Blocker),
