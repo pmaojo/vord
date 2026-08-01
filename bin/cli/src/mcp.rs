@@ -16,7 +16,7 @@ pub fn run_mcp_server() -> io::Result<()> {
 
         if let Ok(req) = serde_json::from_str::<Value>(trimmed) {
             if let Some(resp) = handle_rpc_request(&req) {
-                let resp_str = serde_json::to_string(&resp).unwrap();
+                let resp_str = serde_json::to_string(&resp).expect("JSON serialization cannot fail for a valid Value");
                 println!("{}", resp_str);
             }
         }

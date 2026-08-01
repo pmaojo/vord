@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>yunq arch — component architecture</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; }
+  header { padding: 16px 24px; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; border-bottom: 1px solid #1e293b; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .stats { color: #94a3b8; font-size: 13px; }
+  header .legend { margin-left: auto; font-size: 12px; display: flex; gap: 14px; align-items: center; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .dot.cycle { background: #ef4444; }
+  .dot.clean { background: #22c55e; }
+  main { display: flex; min-height: calc(100vh - 57px); }
+  #graph { flex: 1; height: calc(100vh - 57px); }
+  aside { width: 320px; border-left: 1px solid #1e293b; padding: 16px; overflow-y: auto; font-size: 13px; }
+  aside h2 { font-size: 14px; margin: 0 0 12px; color: #f8fafc; }
+  aside table { width: 100%; border-collapse: collapse; }
+  aside td, aside th { padding: 4px 6px; text-align: left; border-bottom: 1px solid #1e293b; }
+  aside th { color: #94a3b8; font-weight: 500; }
+  #hint { color: #64748b; font-size: 12px; margin-top: 12px; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<header>
+  <h1>yunq arch</h1>
+  <span class="stats" id="stats"></span>
+  <span class="legend">
+    <span><span class="dot clean"></span>clean component</span>
+    <span><span class="dot cycle"></span>in dependency cycle</span>
+  </span>
+</header>
+<main>
+  <div id="graph"><canvas id="cv"></canvas></div>
+  <aside><h2>Component metrics</h2><div id="detail"><p>Click a node.</p></div><p id="hint">Force-directed layout: nodes repel, edges pull. Red = member of a dependency cycle.</p></aside>
+</main>
+<script>
+const DATA = {
+  "components": [
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "benches",
+      "distance_from_main_sequence": 0.19999999999999996,
+      "efferent": 4,
+      "in_zone_of_pain": true,
+      "instability": 0.8
+    },
+    {
+      "abstractness": 0.15135135135135136,
+      "afferent": 0,
+      "component": "benches/corpus",
+      "distance_from_main_sequence": 0.15135135135135136,
+      "efferent": 5,
+      "in_zone_of_pain": false,
+      "instability": 1.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 0,
+      "component": "benches/src",
+      "distance_from_main_sequence": 0.0,
+      "efferent": 2,
+      "in_zone_of_pain": false,
+      "instability": 1.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 3,
+      "component": "bin/cli",
+      "distance_from_main_sequence": 0.054545454545454564,
+      "efferent": 52,
+      "in_zone_of_pain": true,
+      "instability": 0.9454545454545454
+    },
+    {
+      "abstractness": 0.09090909090909091,
+      "afferent": 0,
+      "component": "bin/lsp",
+      "distance_from_main_sequence": 0.09090909090909083,
+      "efferent": 4,
+      "in_zone_of_pain": false,
+      "instability": 1.0
+    },
+    {
+      "abstractness": 0.09803921568627451,
+      "afferent": 4,
+      "component": "core/agent",
+      "distance_from_main_sequence": 0.5686274509803921,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.3333333333333333
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 2,
+      "component": "core/agent-policy",
+      "distance_from_main_sequence": 0.6666666666666667,
+      "efferent": 1,
+      "in_zone_of_pain": true,
+      "instability": 0.3333333333333333
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 54,
+      "component": "core/ast",
+      "distance_from_main_sequence": 1.0,
+      "efferent": 0,
+      "in_zone_of_pain": true,
+      "instability": 0.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 2,
+      "component": "core/cfg",
+      "distance_from_main_sequence": 0.6666666666666667,
+      "efferent": 1,
+      "in_zone_of_pain": true,
+      "instability": 0.3333333333333333
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "core/crap",
+      "distance_from_main_sequence": 0.5,
+      "efferent": 1,
+      "in_zone_of_pain": true,
+      "instability": 0.5
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 6,
+      "component": "core/duplication",
+      "distance_from_main_sequence": 0.8571428571428572,
+      "efferent": 1,
+      "in_zone_of_pain": true,
+      "instability": 0.14285714285714285
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 3,
+      "component": "core/import-graph",
+      "distance_from_main_sequence": 0.6,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.4
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 4,
+      "component": "core/profiles",
+      "distance_from_main_sequence": 1.0,
+      "efferent": 0,
+      "in_zone_of_pain": true,
+      "instability": 0.0
+    },
+    {
+      "abstractness": 0.08695652173913043,
+      "afferent": 4,
+      "component": "core/remediation",
+      "distance_from_main_sequence": 0.5797101449275363,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.3333333333333333
+    },
+    {
+      "abstractness": 0.23622047244094488,
+      "afferent": 33,
+      "component": "core/rules-engine",
+      "distance_from_main_sequence": 0.655671419450947,
+      "efferent": 4,
+      "in_zone_of_pain": true,
+      "instability": 0.10810810810810811
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 2,
+      "component": "core/swarm",
+      "distance_from_main_sequence": 1.0,
+      "efferent": 0,
+      "in_zone_of_pain": true,
+      "instability": 0.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 3,
+      "component": "core/symbols",
+      "distance_from_main_sequence": 0.75,
+      "efferent": 1,
+      "in_zone_of_pain": true,
+      "instability": 0.25
+    },
+    {
+      "abstractness": 0.038461538461538464,
+      "afferent": 4,
+      "component": "core/taint",
+      "distance_from_main_sequence": 0.6282051282051282,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.3333333333333333
+    },
+    {
+      "abstractness": 0.5,
+      "afferent": 0,
+      "component": "fixtures",
+      "distance_from_main_sequence": 0.5,
+      "efferent": 0,
+      "in_zone_of_pain": true,
+      "instability": 0.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 0,
+      "component": "fixtures/hexagon",
+      "distance_from_main_sequence": 1.0,
+      "efferent": 0,
+      "in_zone_of_pain": true,
+      "instability": 0.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 0,
+      "component": "infra/azure",
+      "distance_from_main_sequence": 0.0,
+      "efferent": 1,
+      "in_zone_of_pain": false,
+      "instability": 1.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 0,
+      "component": "infra/bitbucket",
+      "distance_from_main_sequence": 0.0,
+      "efferent": 1,
+      "in_zone_of_pain": false,
+      "instability": 1.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "infra/fs",
+      "distance_from_main_sequence": 0.16666666666666663,
+      "efferent": 5,
+      "in_zone_of_pain": true,
+      "instability": 0.8333333333333334
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "infra/github",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 0,
+      "component": "infra/gitlab",
+      "distance_from_main_sequence": 0.0,
+      "efferent": 1,
+      "in_zone_of_pain": false,
+      "instability": 1.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "infra/llm",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 2,
+      "component": "infra/memory",
+      "distance_from_main_sequence": 0.5,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.5
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "infra/pdf",
+      "distance_from_main_sequence": 0.5,
+      "efferent": 1,
+      "in_zone_of_pain": true,
+      "instability": 0.5
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 0,
+      "component": "npm",
+      "distance_from_main_sequence": 1.0,
+      "efferent": 0,
+      "in_zone_of_pain": true,
+      "instability": 0.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 0,
+      "component": "npm/bin",
+      "distance_from_main_sequence": 1.0,
+      "efferent": 0,
+      "in_zone_of_pain": true,
+      "instability": 0.0
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 22,
+      "component": "parsers/treesitter-adapter",
+      "distance_from_main_sequence": 0.8461538461538461,
+      "efferent": 4,
+      "in_zone_of_pain": true,
+      "instability": 0.15384615384615385
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-bash",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-c",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-cpp",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-csharp",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-css",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-dockerfile",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-elixir",
+      "distance_from_main_sequence": 0.19999999999999996,
+      "efferent": 4,
+      "in_zone_of_pain": true,
+      "instability": 0.8
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-go",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-groovy",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-hcl",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-html",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-java",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-json",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-kotlin",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-lua",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-php",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-python",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-ruby",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 2,
+      "component": "parsers/treesitter-rust",
+      "distance_from_main_sequence": 0.5,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.5
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-scala",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-swift",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 2,
+      "component": "parsers/treesitter-tokens",
+      "distance_from_main_sequence": 0.6666666666666667,
+      "efferent": 1,
+      "in_zone_of_pain": true,
+      "instability": 0.3333333333333333
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-typescript",
+      "distance_from_main_sequence": 0.19999999999999996,
+      "efferent": 4,
+      "in_zone_of_pain": true,
+      "instability": 0.8
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-xml",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "parsers/treesitter-yaml",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/a11y",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/ai-agent",
+      "distance_from_main_sequence": 0.25,
+      "efferent": 3,
+      "in_zone_of_pain": true,
+      "instability": 0.75
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/architecture",
+      "distance_from_main_sequence": 0.25,
+      "efferent": 3,
+      "in_zone_of_pain": true,
+      "instability": 0.75
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/code-smells",
+      "distance_from_main_sequence": 0.19999999999999996,
+      "efferent": 4,
+      "in_zone_of_pain": true,
+      "instability": 0.8
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/ddd",
+      "distance_from_main_sequence": 0.19999999999999996,
+      "efferent": 4,
+      "in_zone_of_pain": true,
+      "instability": 0.8
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/go",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/iac",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/mutation",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/owasp",
+      "distance_from_main_sequence": 0.25,
+      "efferent": 3,
+      "in_zone_of_pain": true,
+      "instability": 0.75
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/php",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/python",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/react",
+      "distance_from_main_sequence": 0.25,
+      "efferent": 3,
+      "in_zone_of_pain": true,
+      "instability": 0.75
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/reactive",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/rust",
+      "distance_from_main_sequence": 0.25,
+      "efferent": 3,
+      "in_zone_of_pain": true,
+      "instability": 0.75
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/secrets",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 1,
+      "component": "rulesets/typescript",
+      "distance_from_main_sequence": 0.33333333333333337,
+      "efferent": 2,
+      "in_zone_of_pain": true,
+      "instability": 0.6666666666666666
+    },
+    {
+      "abstractness": 0.0,
+      "afferent": 0,
+      "component": "scripts",
+      "distance_from_main_sequence": 1.0,
+      "efferent": 0,
+      "in_zone_of_pain": true,
+      "instability": 0.0
+    }
+  ],
+  "cycles": [],
+  "edges": [
+    [
+      "benches",
+      "bin/cli"
+    ],
+    [
+      "benches",
+      "core/ast"
+    ],
+    [
+      "benches",
+      "core/rules-engine"
+    ],
+    [
+      "benches",
+      "parsers/treesitter-rust"
+    ],
+    [
+      "benches/corpus",
+      "core/ast"
+    ],
+    [
+      "benches/corpus",
+      "core/duplication"
+    ],
+    [
+      "benches/corpus",
+      "core/profiles"
+    ],
+    [
+      "benches/corpus",
+      "core/rules-engine"
+    ],
+    [
+      "benches/corpus",
+      "core/taint"
+    ],
+    [
+      "benches/src",
+      "benches"
+    ],
+    [
+      "benches/src",
+      "bin/cli"
+    ],
+    [
+      "bin/cli",
+      "core/agent"
+    ],
+    [
+      "bin/cli",
+      "core/agent-policy"
+    ],
+    [
+      "bin/cli",
+      "core/ast"
+    ],
+    [
+      "bin/cli",
+      "core/import-graph"
+    ],
+    [
+      "bin/cli",
+      "core/remediation"
+    ],
+    [
+      "bin/cli",
+      "core/rules-engine"
+    ],
+    [
+      "bin/cli",
+      "core/swarm"
+    ],
+    [
+      "bin/cli",
+      "infra/fs"
+    ],
+    [
+      "bin/cli",
+      "infra/github"
+    ],
+    [
+      "bin/cli",
+      "infra/llm"
+    ],
+    [
+      "bin/cli",
+      "infra/memory"
+    ],
+    [
+      "bin/cli",
+      "infra/pdf"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-bash"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-c"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-cpp"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-csharp"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-css"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-dockerfile"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-elixir"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-go"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-groovy"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-hcl"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-html"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-java"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-json"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-kotlin"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-lua"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-php"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-python"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-ruby"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-rust"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-scala"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-swift"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-typescript"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-xml"
+    ],
+    [
+      "bin/cli",
+      "parsers/treesitter-yaml"
+    ],
+    [
+      "bin/cli",
+      "rulesets/a11y"
+    ],
+    [
+      "bin/cli",
+      "rulesets/ai-agent"
+    ],
+    [
+      "bin/cli",
+      "rulesets/architecture"
+    ],
+    [
+      "bin/cli",
+      "rulesets/code-smells"
+    ],
+    [
+      "bin/cli",
+      "rulesets/ddd"
+    ],
+    [
+      "bin/cli",
+      "rulesets/go"
+    ],
+    [
+      "bin/cli",
+      "rulesets/iac"
+    ],
+    [
+      "bin/cli",
+      "rulesets/mutation"
+    ],
+    [
+      "bin/cli",
+      "rulesets/owasp"
+    ],
+    [
+      "bin/cli",
+      "rulesets/php"
+    ],
+    [
+      "bin/cli",
+      "rulesets/python"
+    ],
+    [
+      "bin/cli",
+      "rulesets/react"
+    ],
+    [
+      "bin/cli",
+      "rulesets/reactive"
+    ],
+    [
+      "bin/cli",
+      "rulesets/rust"
+    ],
+    [
+      "bin/cli",
+      "rulesets/secrets"
+    ],
+    [
+      "bin/cli",
+      "rulesets/typescript"
+    ],
+    [
+      "bin/lsp",
+      "bin/cli"
+    ],
+    [
+      "bin/lsp",
+      "core/ast"
+    ],
+    [
+      "bin/lsp",
+      "core/rules-engine"
+    ],
+    [
+      "bin/lsp",
+      "infra/memory"
+    ],
+    [
+      "core/agent",
+      "core/agent-policy"
+    ],
+    [
+      "core/agent",
+      "core/profiles"
+    ],
+    [
+      "core/agent-policy",
+      "core/profiles"
+    ],
+    [
+      "core/cfg",
+      "core/ast"
+    ],
+    [
+      "core/crap",
+      "core/ast"
+    ],
+    [
+      "core/duplication",
+      "core/ast"
+    ],
+    [
+      "core/import-graph",
+      "core/ast"
+    ],
+    [
+      "core/import-graph",
+      "core/rules-engine"
+    ],
+    [
+      "core/remediation",
+      "core/ast"
+    ],
+    [
+      "core/remediation",
+      "core/rules-engine"
+    ],
+    [
+      "core/rules-engine",
+      "core/ast"
+    ],
+    [
+      "core/rules-engine",
+      "core/crap"
+    ],
+    [
+      "core/rules-engine",
+      "core/duplication"
+    ],
+    [
+      "core/rules-engine",
+      "core/profiles"
+    ],
+    [
+      "core/symbols",
+      "core/ast"
+    ],
+    [
+      "core/taint",
+      "core/ast"
+    ],
+    [
+      "core/taint",
+      "core/cfg"
+    ],
+    [
+      "infra/azure",
+      "core/rules-engine"
+    ],
+    [
+      "infra/bitbucket",
+      "core/rules-engine"
+    ],
+    [
+      "infra/fs",
+      "core/agent"
+    ],
+    [
+      "infra/fs",
+      "core/ast"
+    ],
+    [
+      "infra/fs",
+      "core/remediation"
+    ],
+    [
+      "infra/fs",
+      "core/rules-engine"
+    ],
+    [
+      "infra/fs",
+      "core/swarm"
+    ],
+    [
+      "infra/github",
+      "core/agent"
+    ],
+    [
+      "infra/github",
+      "core/rules-engine"
+    ],
+    [
+      "infra/gitlab",
+      "core/rules-engine"
+    ],
+    [
+      "infra/llm",
+      "core/agent"
+    ],
+    [
+      "infra/llm",
+      "core/remediation"
+    ],
+    [
+      "infra/memory",
+      "core/remediation"
+    ],
+    [
+      "infra/memory",
+      "core/rules-engine"
+    ],
+    [
+      "infra/pdf",
+      "core/rules-engine"
+    ],
+    [
+      "parsers/treesitter-adapter",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-adapter",
+      "core/duplication"
+    ],
+    [
+      "parsers/treesitter-adapter",
+      "core/rules-engine"
+    ],
+    [
+      "parsers/treesitter-adapter",
+      "parsers/treesitter-tokens"
+    ],
+    [
+      "parsers/treesitter-bash",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-bash",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-c",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-c",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-cpp",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-cpp",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-csharp",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-csharp",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-css",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-css",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-dockerfile",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-dockerfile",
+      "core/rules-engine"
+    ],
+    [
+      "parsers/treesitter-elixir",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-elixir",
+      "core/duplication"
+    ],
+    [
+      "parsers/treesitter-elixir",
+      "core/rules-engine"
+    ],
+    [
+      "parsers/treesitter-elixir",
+      "parsers/treesitter-tokens"
+    ],
+    [
+      "parsers/treesitter-go",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-go",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-groovy",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-groovy",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-hcl",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-hcl",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-html",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-html",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-java",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-java",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-json",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-json",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-kotlin",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-kotlin",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-lua",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-lua",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-php",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-php",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-python",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-python",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-ruby",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-ruby",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-rust",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-rust",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-scala",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-scala",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-swift",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-swift",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-tokens",
+      "core/duplication"
+    ],
+    [
+      "parsers/treesitter-typescript",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-typescript",
+      "core/duplication"
+    ],
+    [
+      "parsers/treesitter-typescript",
+      "core/rules-engine"
+    ],
+    [
+      "parsers/treesitter-typescript",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-xml",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-xml",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "parsers/treesitter-yaml",
+      "core/ast"
+    ],
+    [
+      "parsers/treesitter-yaml",
+      "parsers/treesitter-adapter"
+    ],
+    [
+      "rulesets/a11y",
+      "core/ast"
+    ],
+    [
+      "rulesets/a11y",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/ai-agent",
+      "core/ast"
+    ],
+    [
+      "rulesets/ai-agent",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/ai-agent",
+      "core/taint"
+    ],
+    [
+      "rulesets/architecture",
+      "core/ast"
+    ],
+    [
+      "rulesets/architecture",
+      "core/import-graph"
+    ],
+    [
+      "rulesets/architecture",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/code-smells",
+      "core/ast"
+    ],
+    [
+      "rulesets/code-smells",
+      "core/cfg"
+    ],
+    [
+      "rulesets/code-smells",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/code-smells",
+      "core/symbols"
+    ],
+    [
+      "rulesets/ddd",
+      "core/ast"
+    ],
+    [
+      "rulesets/ddd",
+      "core/import-graph"
+    ],
+    [
+      "rulesets/ddd",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/ddd",
+      "core/symbols"
+    ],
+    [
+      "rulesets/go",
+      "core/ast"
+    ],
+    [
+      "rulesets/go",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/iac",
+      "core/ast"
+    ],
+    [
+      "rulesets/iac",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/mutation",
+      "core/ast"
+    ],
+    [
+      "rulesets/mutation",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/owasp",
+      "core/ast"
+    ],
+    [
+      "rulesets/owasp",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/owasp",
+      "core/taint"
+    ],
+    [
+      "rulesets/php",
+      "core/ast"
+    ],
+    [
+      "rulesets/php",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/python",
+      "core/ast"
+    ],
+    [
+      "rulesets/python",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/react",
+      "core/ast"
+    ],
+    [
+      "rulesets/react",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/react",
+      "core/symbols"
+    ],
+    [
+      "rulesets/reactive",
+      "core/ast"
+    ],
+    [
+      "rulesets/reactive",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/rust",
+      "core/ast"
+    ],
+    [
+      "rulesets/rust",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/rust",
+      "core/taint"
+    ],
+    [
+      "rulesets/secrets",
+      "core/ast"
+    ],
+    [
+      "rulesets/secrets",
+      "core/rules-engine"
+    ],
+    [
+      "rulesets/typescript",
+      "core/ast"
+    ],
+    [
+      "rulesets/typescript",
+      "core/rules-engine"
+    ]
+  ],
+  "files": 499
+};
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = () => cv.clientWidth, H = () => cv.clientHeight;
+function resize() { const dpr = window.devicePixelRatio || 1; cv.width = W() * dpr; cv.height = H() * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+window.addEventListener('resize', resize);
+const cycleMembers = new Set(DATA.cycles.flat());
+const nodes = DATA.components.map(c => ({
+  id: c.component, m: c, x: Math.random()*400, y: Math.random()*400, vx: 0, vy: 0,
+  r: 14 + Math.min(18, (c.afferent + c.efferent) * 4),
+  cyc: cycleMembers.has(c.component)
+}));
+const byId = new Map(nodes.map(n => [n.id, n]));
+const edges = DATA.edges.map(([a, b]) => [byId.get(a), byId.get(b)]).filter(e => e[0] && e[1]);
+function tick() {
+  const K = 0.06, C = 6000, L = 110, DAMP = 0.85;
+  for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+    const a = nodes[i], b = nodes[j];
+    let dx = a.x - b.x, dy = a.y - b.y;
+    const d2 = dx*dx + dy*dy + 1, d = Math.sqrt(d2);
+    let f = C / d2;
+    dx /= d; dy /= d;
+    a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+  }
+  for (const [a, b] of edges) {
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.sqrt(dx*dx + dy*dy) + 0.001;
+    let f = (d - L) * K;
+    dx /= d; dy /= d;
+    a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+  }
+  const cx = W()/2, cy = H()/2;
+  for (const n of nodes) {
+    n.vx += (cx - n.x) * 0.001; n.vy += (cy - n.y) * 0.001;
+    n.vx *= DAMP; n.vy *= DAMP;
+    n.x += n.vx; n.y += n.vy;
+    n.x = Math.max(20, Math.min(W() - 20, n.x));
+    n.y = Math.max(20, Math.min(H() - 20, n.y));
+  }
+}
+function draw() {
+  ctx.clearRect(0, 0, W(), H());
+  ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('color-scheme').includes('dark') ? 'rgba(148,163,184,0.35)' : 'rgba(30,41,59,0.35)';
+  for (const [a, b] of edges) {
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  for (const n of nodes) {
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = n.cyc ? '#ef4444' : '#22c55e';
+    ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = (n.cyc ? '700 ' : '') + '11px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const label = n.id.split('/').pop().split('.').shift();
+    ctx.fillText(label, n.x, n.y + n.r + 12);
+  }
+}
+function hit(x, y) {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i]; const dx = n.x - x, dy = n.y - y;
+    if (dx*dx + dy*dy <= (n.r + 6) * (n.r + 6)) return n;
+  }
+  return null;
+}
+cv.addEventListener('click', e => {
+  const r = cv.getBoundingClientRect();
+  const n = hit(e.clientX - r.left, e.clientY - r.top);
+  if (!n) return;
+  const m = n.m;
+  document.getElementById('detail').innerHTML =
+    '<table><tr><th>Component</th><td>' + n.id.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</td></tr>' +
+    '<tr><th>Ca (afferent)</th><td>' + m.afferent + '</td></tr>' +
+    '<tr><th>Ce (efferent)</th><td>' + m.efferent + '</td></tr>' +
+    '<tr><th>Instability I</th><td>' + m.instability.toFixed(2) + '</td></tr>' +
+    '<tr><th>Abstractness A</th><td>' + m.abstractness.toFixed(2) + '</td></tr>' +
+    '<tr><th>Distance D</th><td>' + m.distance_from_main_sequence.toFixed(2) + '</td></tr>' +
+    '<tr><th>Zone of pain</th><td>' + (m.in_zone_of_pain ? 'yes' : 'no') + '</td></tr></table>';
+});
+document.getElementById('stats').textContent =
+  DATA.files + ' files · ' + DATA.components.length + ' components · ' + DATA.edges.length + ' edges · ' + DATA.cycles.length + ' cycles';
+resize();
+for (let i = 0; i < 700; i++) tick();
+requestAnimationFrame(function loop() { draw(); requestAnimationFrame(loop); });
+</script>
+</body>
+</html>

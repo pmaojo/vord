@@ -1,10 +1,14 @@
 pub mod arithmetic_operator_mutant;
 pub mod boolean_inversion_mutant;
 pub mod conditional_boundary_mutant;
+pub mod return_value_substitution;
+pub mod void_call_deletion;
 
 pub use arithmetic_operator_mutant::ArithmeticOperatorMutantRule;
 pub use boolean_inversion_mutant::BooleanInversionMutantRule;
 pub use conditional_boundary_mutant::ConditionalBoundaryMutantRule;
+pub use return_value_substitution::ReturnValueSubstitutionMutantRule;
+pub use void_call_deletion::VoidCallDeletionMutantRule;
 
 use std::sync::Arc;
 use yunq_rules_engine::Rule;
@@ -15,6 +19,8 @@ pub fn rules() -> Vec<Arc<dyn Rule>> {
         Arc::new(ConditionalBoundaryMutantRule::new()),
         Arc::new(BooleanInversionMutantRule::new()),
         Arc::new(ArithmeticOperatorMutantRule::new()),
+        Arc::new(ReturnValueSubstitutionMutantRule::new()),
+        Arc::new(VoidCallDeletionMutantRule::new()),
     ]
 }
 
@@ -24,6 +30,8 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(ConditionalBoundaryMutantRule::new()),
         Box::new(BooleanInversionMutantRule::new()),
         Box::new(ArithmeticOperatorMutantRule::new()),
+        Box::new(ReturnValueSubstitutionMutantRule::new()),
+        Box::new(VoidCallDeletionMutantRule::new()),
     ]
 }
 

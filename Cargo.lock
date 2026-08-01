@@ -4351,6 +4351,7 @@ name = "yunq-rules-smells"
 version = "0.2.1"
 dependencies = [
  "yunq-ast",
+ "yunq-cfg",
  "yunq-parser-go",
  "yunq-parser-php",
  "yunq-parser-python",
