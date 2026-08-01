@@ -8,18 +8,19 @@
 
 set -euo pipefail
 
-# Resolve the yunq binary: prefer the one on PATH, fall back to a local
-# debug build so `cargo build` users aren't blocked.
-if ! command -v yunq &>/dev/null && [ -x ./target/debug/yunq ]; then
+# Resolve the yunq binary: prefer local builds so `cargo build` users always
+# run the latest code, falling back to PATH for installed releases.
+YUNQ=
+if [ -x ./target/debug/yunq ]; then
   YUNQ=./target/debug/yunq
-elif ! command -v yunq &>/dev/null && [ -x ./target/release/yunq ]; then
+elif [ -x ./target/release/yunq ]; then
   YUNQ=./target/release/yunq
-else
+elif command -v yunq &>/dev/null; then
   YUNQ=yunq
 fi
 
-if ! command -v "$YUNQ" &>/dev/null && [ ! -x "$YUNQ" ]; then
-  echo "⚠️  yunq: yunq binary not found (checked PATH, ./target/debug/yunq, ./target/release/yunq)"
+if [ -z "$YUNQ" ]; then
+  echo "⚠️  yunq: yunq binary not found (checked ./target/debug/yunq, ./target/release/yunq, PATH)"
   echo "    Skipping pre-commit scan. Build yunq or install it on PATH to enable the gate."
   exit 0
 fi
@@ -51,4 +52,3 @@ fi
 
 echo "✅ yunq: gate passed — commit allowed."
 exit 0
-

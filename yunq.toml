@@ -44,6 +44,9 @@ to = "bin"
 from = "infra"
 to = "bin"
 
+[gate]
+min_health_score = 96
+
 [swarm]
 topology = "four-pack"
 
