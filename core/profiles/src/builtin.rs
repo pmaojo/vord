@@ -71,6 +71,7 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("owasp:command-execution"), Severity::Major),
         // rulesets/owasp — cross-file rule, runs once per scan.
         (rule("owasp:cross-file-injection"), Severity::Blocker),
+        (rule("smells:ck-oo-metrics"), Severity::Major),
         // rulesets/architecture — cross-file rule, runs once per scan.
         (rule("architecture:dependency-cycle"), Severity::Major),
         // rulesets/architecture — cross-file, config-driven, only ever

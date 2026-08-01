@@ -24,7 +24,9 @@ mod todo_comment;
 mod type_check_chain;
 mod unreachable_code;
 mod unwrap_usage;
+mod ck_metrics;
 
+pub use ck_metrics::CkMetricsRule;
 pub use class_fan_out::ClassFanOutRule;
 pub use cognitive_complexity::CognitiveComplexityRule;
 pub use commented_out_code::CommentedOutCodeRule;
@@ -78,5 +80,6 @@ pub fn all_cross_rules() -> Vec<Box<dyn CrossFileRule>> {
         Box::new(RefusedBequestRule::new()),
         Box::new(ConcreteDependencyRule::new()),
         Box::new(OverrideNarrowsContractRule::new()),
+        Box::new(CkMetricsRule::default()),
     ]
 }
