@@ -62,6 +62,7 @@ yunq-rules-architecture = { workspace = true }
 yunq-rules-ddd = { workspace = true }
 yunq-import-graph = { workspace = true }
 yunq-rules-reactive = { workspace = true }
+yunq-rules-mutation = { workspace = true }
 yunq-rules-typescript = { workspace = true }
 yunq-rules-php = { workspace = true }
 yunq-rules-go = { workspace = true }
