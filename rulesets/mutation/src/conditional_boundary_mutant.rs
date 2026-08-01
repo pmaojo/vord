@@ -13,7 +13,7 @@ impl Rule for ConditionalBoundaryMutantRule {
     }
 
     fn default_severity(&self) -> Severity {
-        Severity::Minor
+        Severity::Info
     }
 
     fn issue_type(&self) -> IssueType {

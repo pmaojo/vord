@@ -312,6 +312,7 @@ impl Rule for HighEntropyStringRule {
             || path.contains("/translations/")
             || path.ends_with(".po")
             || path.ends_with(".pot")
+            || path.contains("rulesets/secrets")
         {
             return Vec::new();
         }

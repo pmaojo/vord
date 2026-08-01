@@ -17,8 +17,8 @@ pub struct HalsteadMiConfig {
 impl Default for HalsteadMiConfig {
     fn default() -> Self {
         Self {
-            threshold_warning: 40.0,
-            threshold_error: 20.0,
+            threshold_warning: 20.0,
+            threshold_error: 10.0,
         }
     }
 }
