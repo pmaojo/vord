@@ -67,13 +67,16 @@ pub struct ComponentMetrics {
 }
 
 impl ComponentMetrics {
-    /// `I = Ce / (Ca + Ce)`. A component with no coupling at all is defined
-    /// as maximally stable (0.0) rather than undefined: nothing depends on
-    /// it and it depends on nothing, so no change pressure reaches it.
+    /// `I = Ce / (Ca + Ce)`. A component with no coupling at all returns
+    /// 0.5 (neutral): with zero relationships there is no basis to call it
+    /// either stable or unstable. The old convention of returning 0.0 for
+    /// this case made every isolated leaf component display `D = |A + 0 -
+    /// 1| = 1.0` — a mathematical artifact that punished components simply
+    /// for being disconnected from the rest of the graph.
     pub fn instability(&self) -> f64 {
         let total = self.afferent + self.efferent;
         if total == 0 {
-            return 0.0;
+            return 0.5;
         }
         self.efferent as f64 / total as f64
     }
@@ -98,7 +101,7 @@ impl ComponentMetrics {
     /// of uselessness) reads very differently in a finding message, so
     /// callers distinguish them.
     pub fn in_zone_of_pain(&self) -> bool {
-        self.abstractness() + self.instability() < 1.0
+        self.afferent > 0 && self.abstractness() + self.instability() < 1.0
     }
 }
 
@@ -232,11 +235,17 @@ mod tests {
     }
 
     #[test]
-    fn an_uncoupled_component_is_stable_rather_than_undefined() {
+    fn an_uncoupled_component_has_neutral_instability() {
         let census = BTreeMap::from([("solo".to_string(), TypeCensus::new(3, 0))]);
         let metrics = component_metrics(&graph_of(&[]), &census);
-        assert_eq!(metrics["solo"].instability(), 0.0);
+        // No coupling → I = 0.5 (neutral), not 0.0 (which produced the
+        // false D = |0 + 0 - 1| = 1.0 artifact for every leaf component).
+        assert_eq!(metrics["solo"].instability(), 0.5);
         assert_eq!(metrics["solo"].abstractness(), 0.0);
+        // A = 0, I = 0.5 → D = 0.5: the honest assessment of an isolated
+        // component — neither pain nor uselessness, just disconnected.
+        assert_eq!(metrics["solo"].distance_from_main_sequence(), 0.5);
+        assert!(!metrics["solo"].in_zone_of_pain());
     }
 
     #[test]
@@ -253,9 +262,21 @@ mod tests {
         let census = BTreeMap::from([("pkg-core/src".to_string(), TypeCensus::new(10, 0))]);
         let metrics = component_metrics(&fan_in_graph(), &census);
         let core = &metrics["pkg-core/src"];
-        // A = 0, I = 0 -> D = 1.
+        // A = 0, I = 0 -> D = 1. Ca = 2 -> genuinely in pain.
         assert_eq!(core.distance_from_main_sequence(), 1.0);
         assert!(core.in_zone_of_pain());
+    }
+
+    #[test]
+    fn an_isolated_component_is_neither_painful_nor_useless() {
+        let census = BTreeMap::from([("solo".to_string(), TypeCensus::new(5, 0))]);
+        let metrics = component_metrics(&graph_of(&[]), &census);
+        let solo = &metrics["solo"];
+        // A = 0, I = 0.5 (neutral, no coupling) → D = 0.5.
+        // Zero dependents → not in pain.
+        // Zero abstractions + D=0.5 → not useless either — just disconnected.
+        assert_eq!(solo.distance_from_main_sequence(), 0.5);
+        assert!(!solo.in_zone_of_pain(), "isolated component is not in pain");
     }
 
     #[test]

@@ -47,6 +47,35 @@ pub struct ImportEdge {
     pub span: Span,
 }
 
+/// Interface for dependency-graph consumers: rules that need to walk edges,
+/// find cycles or query component-level coupling can depend on this trait
+/// instead of the concrete [`ImportGraph`] — the Dependency Inversion
+/// Principle at import-graph scale.
+pub trait DependencyGraph {
+    fn edges(&self) -> &[ImportEdge];
+    fn component_edges(&self) -> BTreeSet<(String, String)>;
+    fn cycles(&self) -> Vec<Vec<String>>;
+    fn edge_span(&self, from: &str, to: &str) -> Option<Span>;
+}
+
+impl DependencyGraph for ImportGraph {
+    fn edges(&self) -> &[ImportEdge] {
+        ImportGraph::edges(self)
+    }
+
+    fn component_edges(&self) -> BTreeSet<(String, String)> {
+        ImportGraph::component_edges(self)
+    }
+
+    fn cycles(&self) -> Vec<Vec<String>> {
+        ImportGraph::cycles(self)
+    }
+
+    fn edge_span(&self, from: &str, to: &str) -> Option<Span> {
+        ImportGraph::edge_span(self, from, to)
+    }
+}
+
 pub struct ImportGraph {
     edges: Vec<ImportEdge>,
 }
