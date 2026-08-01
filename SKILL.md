@@ -30,9 +30,57 @@ yunq swarm run --task "Ship feature"     # Drive full pipeline (with Assistant p
 
 ---
 
-## 🐝 How `yunq swarm` Works Without an LLM Configured
+## 🤖 How an AI Agent Drives `yunq swarm` Flows When LLM Provider is Not Configured
 
-`yunq swarm` is designed to function **100% offline and spec-driven** without requiring active LLM API keys or local LLM servers.
+When `yunq agent` (the internal LLM runner inside `yunq`) is not configured with an API key or local model provider, **you (the interactive AI Coding Assistant) step in as the model runner for each role in the swarm topology**.
+
+### Step-by-Step AI Agent Execution Protocol:
+
+1. **Query Topology & Role Contracts**:
+   - Run `yunq swarm roles` to resolve active roles (`architect` -> `coder` -> `cleaner` -> `qa`), worktree paths, protected paths, and blocking rules.
+
+2. **Trigger Pipeline Run**:
+   - Run `yunq swarm run --task "<user_task>"`.
+   - `yunq swarm` will attempt to launch the first role. Upon encountering no LLM provider, it emits the **`SWARM ASSISTANT HANDOFF PROMPT`**:
+     ```text
+     yunq swarm: LLM provider unavailable for role [architect]
+     >>> SWARM ASSISTANT HANDOFF PROMPT (role: architect) <<<
+     Worktree: /path/to/project/.yunq/worktrees/architect
+     Task: <task_description>
+     Policy Scope: blocking_rules=["react:feature-directory-isolation"], protected_paths=["infra/"]
+     >>> END PROMPT <<<
+     ```
+
+3. **Execute Role Task inside Target Worktree**:
+   - Navigate your file edits to the target worktree path (`.yunq/worktrees/<role>`).
+   - **Obey Scoped Policy**:
+     - Do NOT edit files under `protected_paths`.
+     - Run `yunq scan` inside the worktree and fix all violations matching `blocking_rules`.
+
+4. **Send & Deliver Handoff to Next Role**:
+   - Once the role's work is complete, queue a handoff for the next role in the topology:
+     ```bash
+     yunq swarm handoff-send --from architect --to coder --summary "Architectural boundaries established and verified"
+     yunq swarm handoff-deliver
+     ```
+
+5. **Drive Recipient Role Inbox**:
+   - Read the incoming handoff for the recipient role:
+     ```bash
+     yunq swarm handoff-inbox --role coder
+     ```
+   - Perform the next role's task in its worktree (`.yunq/worktrees/coder`).
+   - Acknowledge receipt once complete:
+     ```bash
+     yunq swarm handoff-ack --role coder --id <handoff_id>
+     ```
+
+6. **Monitor & Inspect via TUI**:
+   - Launch `yunq swarm tui` at any time to inspect active worktree branches, pending handoffs, and policy scope metrics in a terminal interface.
+
+---
+
+## 🐝 `yunq swarm` Architecture Reference
 
 ```
        ┌────────────────┐
@@ -58,41 +106,3 @@ yunq swarm run --task "Ship feature"     # Drive full pipeline (with Assistant p
  │   Swarm Assistant Prompt Fallback / TUI │ (yunq swarm tui)
  └─────────────────────────────────────────┘
 ```
-
-### 1. Specification-Driven Topology & Worktrees
-- Configured in `yunq.toml`:
-  ```toml
-  [swarm]
-  topology = "four-pack" # architect -> coder -> cleaner -> qa
-
-  [[swarm.role]]
-  name = "coder"
-  blocking_rules = ["react:feature-directory-isolation"]
-  protected_paths = ["infra/", "core/"]
-  ```
-- Each role executes inside its own isolated git worktree (`.yunq/worktrees/<role>`) on a dedicated branch (`yunq/swarm/<role>`), ensuring zero accidental collateral edits across features.
-
-### 2. Durable Handoff Protocol
-- Handoffs are plain JSON files stored under `.yunq/handoffs/`:
-  - `outbox/`: Pending outgoing handoffs.
-  - `inbox/`: Delivered messages waiting for the recipient role.
-  - `sent/`: Acknowledged historical handoffs.
-- Roles pass structured progress summaries and constraints down the pipeline without needing an active LLM memory context.
-
-### 3. Swarm Assistant Prompt Fallback
-- When `yunq swarm run` is executed without a configured LLM provider, `yunq swarm` automatically outputs a structured **Swarm Assistant Handoff Prompt**:
-  ```text
-  >>> SWARM ASSISTANT HANDOFF PROMPT (role: architect) <<<
-  Worktree: /path/to/project/.yunq/worktrees/architect
-  Task: Implement clean architecture layer boundaries
-  Policy Scope: blocking_rules=["architecture:folder-naming-casing"], protected_paths=["core/"]
-  >>> END PROMPT <<<
-  ```
-- The active AI pair programmer (or human developer) receives the exact role contract and worktree target to complete the task directly!
-
-### 4. Interactive Ratatui Dashboard (`yunq swarm tui`)
-- Launch the interactive terminal UI:
-  ```bash
-  yunq swarm tui
-  ```
-- Features real-time topology order, worktree status, protected path metrics, and handoff inbox queues with single-key shortcuts (`[d]` deliver handoffs, `[r]` refresh, `[q]` quit).
