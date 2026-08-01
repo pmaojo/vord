@@ -1,18 +1,5 @@
 //! Rust-specific rules: idioms and anti-patterns that only make sense for
-//! this language — `unsafe` (undocumented blocks, unchecked `Send`/`Sync`
-//! impls, `mem::transmute`/`mem::forget`/`mem::uninitialized`/`mem::zeroed`,
-//! `Box::leak`), unsynchronized global state (`static mut`), panic safety
-//! (`Drop::drop`, where unwinding aborts the process), abrupt process
-//! termination, the `From`-over-`Into` conversion idiom, `Hash`/`Eq`
-//! contract violations, self-comparison and fragile float-literal
-//! comparison bugs, no-op `drop` on a reference, blocking an async
-//! runtime's thread with `thread::sleep`, arithmetic footguns (`% 1`,
-//! `a = b; b = a;`, absurd unsigned-vs-`0` comparisons, an arithmetic trait
-//! impl using the wrong operator), a `Mutex<bool>`/`Mutex<u32>` that could
-//! be a lock-free atomic, and a lock guard still held across an `.await`
-//! point. Language-neutral checks (unwrap/expect, complexity,
-//! postponed-work comments, …) that also apply to Rust live in
-//! `rulesets/code-smells`.
+//! this language.
 
 mod common;
 
@@ -20,8 +7,11 @@ mod absurd_extreme_comparison;
 mod almost_swapped;
 mod blocking_sleep_in_async;
 mod box_leak;
+mod clippy_adapter;
 mod dbg_macro;
 mod derive_hash_manual_partial_eq;
+mod disallow_panic_macros;
+mod disallow_unwrap_expect;
 mod drop_on_reference;
 mod float_literal_eq;
 mod from_over_into;
@@ -34,6 +24,7 @@ mod mutex_atomic_candidate;
 mod nll_borrow_check;
 mod panic_in_drop;
 mod process_exit;
+mod rust_naming_convention;
 mod self_comparison;
 mod static_mut;
 mod suspicious_arithmetic_impl;
@@ -44,8 +35,11 @@ pub use absurd_extreme_comparison::AbsurdExtremeComparisonRule;
 pub use almost_swapped::AlmostSwappedRule;
 pub use blocking_sleep_in_async::BlockingSleepInAsyncRule;
 pub use box_leak::BoxLeakRule;
+pub use clippy_adapter::RustClippyAdapterRule;
 pub use dbg_macro::DbgMacroRule;
 pub use derive_hash_manual_partial_eq::DeriveHashManualPartialEqRule;
+pub use disallow_panic_macros::DisallowPanicMacrosRule;
+pub use disallow_unwrap_expect::DisallowUnwrapExpectRule;
 pub use drop_on_reference::DropOnReferenceRule;
 pub use float_literal_eq::FloatLiteralEqRule;
 pub use from_over_into::FromOverIntoRule;
@@ -58,6 +52,7 @@ pub use mutex_atomic_candidate::MutexAtomicCandidateRule;
 pub use nll_borrow_check::NllBorrowCheckRule;
 pub use panic_in_drop::PanicInDropRule;
 pub use process_exit::ProcessExitRule;
+pub use rust_naming_convention::RustNamingConventionRule;
 pub use self_comparison::SelfComparisonRule;
 pub use static_mut::StaticMutRule;
 pub use suspicious_arithmetic_impl::SuspiciousArithmeticImplRule;
@@ -79,18 +74,22 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(UnsafeSendSyncImplRule::new()),
         Box::new(PanicInDropRule::new()),
         Box::new(FromOverIntoRule::new()),
-        Box::new(DbgMacroRule::new()),
-        Box::new(DropOnReferenceRule::new()),
+        Box::new(DeriveHashManualPartialEqRule::new()),
         Box::new(SelfComparisonRule::new()),
         Box::new(FloatLiteralEqRule::new()),
-        Box::new(DeriveHashManualPartialEqRule::new()),
+        Box::new(DropOnReferenceRule::new()),
         Box::new(BlockingSleepInAsyncRule::new()),
         Box::new(ModuloOneRule::new()),
         Box::new(AlmostSwappedRule::new()),
         Box::new(AbsurdExtremeComparisonRule::new()),
-        Box::new(MutexAtomicCandidateRule::new()),
         Box::new(SuspiciousArithmeticImplRule::new()),
+        Box::new(MutexAtomicCandidateRule::new()),
         Box::new(LockHeldAcrossAwaitRule::new()),
+        Box::new(DbgMacroRule::new()),
         Box::new(NllBorrowCheckRule::new()),
+        Box::new(DisallowUnwrapExpectRule::new()),
+        Box::new(RustNamingConventionRule::new()),
+        Box::new(DisallowPanicMacrosRule::new()),
+        Box::new(RustClippyAdapterRule::new()),
     ]
 }

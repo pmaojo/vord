@@ -10,6 +10,8 @@
 .yunq-audit.jsonl
 .yunq-provenance.json
 .yunq-triage.json
+.yunq/
+.freebuff/
 
 # `.claude/settings.json` is deliberately NOT ignored: `yunq hook install`
 # writes it so every teammate and CI run is gated by the same policy, which
