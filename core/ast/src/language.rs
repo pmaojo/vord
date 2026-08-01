@@ -178,6 +178,26 @@ impl LanguageIdentifier {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    pub fn is_typescript(&self) -> bool {
+        self.0 == "typescript"
+    }
+
+    pub fn is_javascript(&self) -> bool {
+        self.0 == "typescript" || self.0 == "javascript"
+    }
+
+    pub fn is_python(&self) -> bool {
+        self.0 == "python"
+    }
+
+    pub fn is_rust(&self) -> bool {
+        self.0 == "rust"
+    }
+
+    pub fn is_go(&self) -> bool {
+        self.0 == "go"
+    }
 }
 
 impl fmt::Display for LanguageIdentifier {

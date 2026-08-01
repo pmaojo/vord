@@ -13,6 +13,7 @@ mod blame;
 mod ci_detect;
 mod crap;
 mod hook_install;
+mod kickoff;
 mod monorepo_scan;
 mod tui;
 mod wizard;
@@ -69,6 +70,15 @@ enum Command {
     Swarm {
         #[command(subcommand)]
         action: SwarmAction,
+    },
+    /// Kickoff a new project template for AI-driven development.
+    Kickoff {
+        /// Template name (react-bulletproof, rust-clean, python-clean, typescript-clean).
+        #[arg(default_value = "react-bulletproof")]
+        template: String,
+        /// Target directory.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
     },
 }
 
@@ -433,6 +443,10 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Hook { action }) => run_hook(action).await,
         Some(Command::Agent { action }) => run_agent(action).await,
         Some(Command::Swarm { action }) => run_swarm(action).await,
+        Some(Command::Kickoff { template, path }) => {
+            kickoff::run_kickoff(&template, &path)?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 

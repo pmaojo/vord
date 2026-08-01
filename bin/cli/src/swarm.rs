@@ -187,9 +187,30 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
             max_tokens: None,
             model: None,
         };
-        let outcome = agent::run_with_policy(&plan.path, args, policy).await?;
+        let task_desc = args.task.clone();
+        let outcome = match agent::run_with_policy(&plan.path, args, policy).await {
+            Ok(res) => res,
+            Err(err) => {
+                eprintln!("\nyunq swarm: LLM provider unavailable for role [{role_name}]: {err}");
+                eprintln!(">>> SWARM ASSISTANT HANDOFF PROMPT (role: {role_name}) <<<");
+                eprintln!("Worktree: {}", plan.path.display());
+                eprintln!("Task: {}", task_desc);
+                eprintln!("Policy Scope: blocking_rules={:?}, protected_paths={:?}", role.blocking_rules, role.protected_paths);
+                eprintln!(">>> END PROMPT <<<\n");
+                return Err(err);
+            }
+        };
 
         let completed = matches!(outcome, RunOutcome::Completed { .. });
+        if !completed {
+            eprintln!("\nyunq swarm: LLM provider unavailable/failed for role [{role_name}]: {}", outcome.describe());
+            eprintln!(">>> SWARM ASSISTANT HANDOFF PROMPT (role: {role_name}) <<<");
+            eprintln!("Worktree: {}", plan.path.display());
+            eprintln!("Task: {}", task_desc);
+            eprintln!("Policy Scope: blocking_rules={:?}, protected_paths={:?}", role.blocking_rules, role.protected_paths);
+            eprintln!(">>> END PROMPT <<<\n");
+        }
+
         if let Some(next) = order.get(position + 1) {
             let summary = format!("{} — {}", role_name, outcome.describe());
             handoff_send(root, role_name, next, &summary)?;

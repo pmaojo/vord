@@ -1,8 +1,5 @@
 //! Python-specific rules: idioms and anti-patterns that only make sense
-//! for this language (mutable default arguments, bare `except:`, unsafe
-//! `yaml.load`, `subprocess` shell injection, XXE-prone XML parsing, …).
-//! Language-neutral checks (long functions, complexity, TODO comments, …)
-//! that also apply to Python live in `rulesets/code-smells`.
+//! for this language.
 
 mod assert_used;
 mod bare_except;
@@ -16,6 +13,8 @@ mod global_statement;
 mod insecure_tempfile;
 mod len_as_condition;
 mod literal_identity_comparison;
+mod missing_type_annotations;
+mod modern_type_syntax;
 mod mutable_class_attribute;
 mod mutable_default_argument;
 mod naive_utcnow;
@@ -46,6 +45,8 @@ pub use global_statement::GlobalStatementRule;
 pub use insecure_tempfile::InsecureTempfileRule;
 pub use len_as_condition::LenAsConditionRule;
 pub use literal_identity_comparison::LiteralIdentityComparisonRule;
+pub use missing_type_annotations::MissingTypeAnnotationsRule;
+pub use modern_type_syntax::ModernTypeSyntaxRule;
 pub use mutable_class_attribute::MutableClassAttributeRule;
 pub use mutable_default_argument::MutableDefaultArgumentRule;
 pub use naive_utcnow::NaiveUtcnowRule;
@@ -78,25 +79,27 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(UnsafeYamlLoadRule::new()),
         Box::new(XmlXxeRule::new()),
         Box::new(InsecureTempfileRule::new()),
-        Box::new(WildcardImportRule::new()),
-        Box::new(TypeComparisonRule::new()),
-        Box::new(GlobalStatementRule::new()),
-        Box::new(EagerLoggingInterpolationRule::new()),
-        Box::new(NoneComparisonRule::new()),
-        Box::new(BoolComparisonRule::new()),
-        Box::new(LiteralIdentityComparisonRule::new()),
-        Box::new(LenAsConditionRule::new()),
-        Box::new(RequestsMissingTimeoutRule::new()),
         Box::new(FlaskDebugTrueRule::new()),
         Box::new(BindAllInterfacesRule::new()),
         Box::new(SqlInjectionRule::new()),
         Box::new(DebuggerLeftInCodeRule::new()),
-        Box::new(OpenWithoutEncodingRule::new()),
-        Box::new(NaiveUtcnowRule::new()),
-        Box::new(MutableClassAttributeRule::new()),
-        Box::new(NestedComprehensionRule::new()),
+        Box::new(GlobalStatementRule::new()),
+        Box::new(WildcardImportRule::new()),
         Box::new(RaiseGenericExceptionRule::new()),
         Box::new(RaiseWithoutFromRule::new()),
+        Box::new(NoneComparisonRule::new()),
+        Box::new(BoolComparisonRule::new()),
+        Box::new(TypeComparisonRule::new()),
+        Box::new(LiteralIdentityComparisonRule::new()),
+        Box::new(OpenWithoutEncodingRule::new()),
+        Box::new(NaiveUtcnowRule::new()),
+        Box::new(RequestsMissingTimeoutRule::new()),
+        Box::new(EagerLoggingInterpolationRule::new()),
+        Box::new(LenAsConditionRule::new()),
+        Box::new(NestedComprehensionRule::new()),
         Box::new(UnusedLoopVariableRule::new()),
+        Box::new(MutableClassAttributeRule::new()),
+        Box::new(MissingTypeAnnotationsRule::new()),
+        Box::new(ModernTypeSyntaxRule::new()),
     ]
 }

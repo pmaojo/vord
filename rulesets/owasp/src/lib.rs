@@ -8,17 +8,24 @@ mod custom_pattern;
 mod disabled_cert_validation;
 mod dockerfile_root;
 mod eval_usage;
+mod hardcoded_jwt_secret;
 mod hardcoded_secret;
 mod injection;
 mod insecure_deserialization;
 mod insecure_file_permissions;
 mod insecure_random;
+mod nosql_injection;
 mod path_traversal;
 mod permissive_cors;
 mod post_message_wildcard;
+mod prototype_pollution;
+mod sql_injection_concat;
 mod ssrf;
+mod ssrf_unvalidated_url;
+mod timing_attack;
 mod unverified_jwt;
 mod weak_crypto;
+mod weak_crypto_hash;
 mod xss;
 
 pub use command_exec::CommandExecHotspotRule;
@@ -27,17 +34,24 @@ pub use custom_pattern::CustomPatternRule;
 pub use disabled_cert_validation::DisabledCertValidationRule;
 pub use dockerfile_root::DockerfileRootUserRule;
 pub use eval_usage::EvalUsageRule;
+pub use hardcoded_jwt_secret::HardcodedJwtSecretRule;
 pub use hardcoded_secret::HardcodedSecretRule;
 pub use injection::InjectionRule;
 pub use insecure_deserialization::InsecureDeserializationRule;
 pub use insecure_file_permissions::InsecureFilePermissionsRule;
 pub use insecure_random::InsecureRandomRule;
+pub use nosql_injection::NoSqlInjectionRule;
 pub use path_traversal::PathTraversalRule;
 pub use permissive_cors::PermissiveCorsRule;
 pub use post_message_wildcard::PostMessageWildcardRule;
+pub use prototype_pollution::PrototypePollutionRule;
+pub use sql_injection_concat::SqlInjectionConcatRule;
 pub use ssrf::SsrfRule;
+pub use ssrf_unvalidated_url::SsrfUnvalidatedUrlRule;
+pub use timing_attack::TimingAttackRule;
 pub use unverified_jwt::UnverifiedJwtRule;
 pub use weak_crypto::WeakCryptoRule;
+pub use weak_crypto_hash::WeakCryptoHashRule;
 pub use xss::XssRule;
 
 use yunq_rules_engine::{CrossFileRule, Rule};
@@ -58,13 +72,20 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(PermissiveCorsRule::new()),
         Box::new(PostMessageWildcardRule::new()),
         Box::new(PathTraversalRule::new()),
-        Box::new(SsrfRule::new()),
         Box::new(UnverifiedJwtRule::new()),
+        Box::new(SsrfRule::new()),
+        Box::new(SsrfUnvalidatedUrlRule::new()),
         Box::new(InsecureFilePermissionsRule::new()),
+        Box::new(NoSqlInjectionRule::new()),
+        Box::new(PrototypePollutionRule::new()),
+        Box::new(TimingAttackRule::new()),
+        Box::new(SqlInjectionConcatRule::new()),
+        Box::new(HardcodedJwtSecretRule::new()),
+        Box::new(WeakCryptoHashRule::new()),
     ]
 }
 
-/// Every whole-program rule in this ruleset, for composition roots.
+/// Every cross-file rule in this ruleset, for composition roots.
 pub fn all_cross_rules() -> Vec<Box<dyn CrossFileRule>> {
     vec![Box::new(CrossFileInjectionRule::new())]
 }
