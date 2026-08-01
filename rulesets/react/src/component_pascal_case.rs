@@ -26,7 +26,7 @@ impl Rule for ComponentPascalCaseRule {
         // If file is a .tsx / component file, check filename
         let path = file.path();
         if path.ends_with(".tsx") {
-            let name = path.split(['/', '\\']).last().unwrap_or("").trim_end_matches(".tsx");
+            let name = path.split(['/', '\\']).next_back().unwrap_or("").trim_end_matches(".tsx");
             if !name.is_empty() && name != "index" && name != "App" && !is_pascal_case(name) {
                 findings.push(Finding::new(
                     format!("React component file `{}` should be named using `PascalCase` (e.g. `UserProfile.tsx`).", name),
@@ -35,19 +35,20 @@ impl Rule for ComponentPascalCaseRule {
             }
         }
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             if *node.kind() == NodeKind::FunctionDef {
                 if let Some(id_node) = node.children().iter().find(|c| *c.kind() == NodeKind::Identifier) {
                     let fn_name = id_node.text();
                     // If function returns JSX (checked simply via text containing JSX elements)
                     let text = node.text();
-                    if (text.contains("return <") || text.contains("return ( <") || text.contains("return (")) && fn_name.chars().next().map_or(false, |c| c.is_lowercase()) {
-                        if !fn_name.starts_with("use") {
-                            out.push(Finding::new(
-                                format!("React component function `{}` should use `PascalCase`.", fn_name),
-                                id_node.span(),
-                            ));
-                        }
+                    if (text.contains("return <") || text.contains("return ( <") || text.contains("return ("))
+                        && fn_name.chars().next().is_some_and(|c| c.is_lowercase())
+                        && !fn_name.starts_with("use")
+                    {
+                        out.push(Finding::new(
+                            format!("React component function `{}` should use `PascalCase`.", fn_name),
+                            id_node.span(),
+                        ));
                     }
                 }
             }

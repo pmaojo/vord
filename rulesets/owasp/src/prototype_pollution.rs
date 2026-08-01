@@ -23,15 +23,15 @@ impl Rule for PrototypePollutionRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             let text = node.text();
-            if text.contains("__proto__") || text.contains("constructor.prototype") {
-                if text.contains("Object.assign") || text.contains("merge(") || text.contains("extend(") || text.contains("deepMerge") {
-                    out.push(Finding::new(
-                        "Potential Prototype Pollution vulnerability: Merging or copying properties via `__proto__` or `constructor.prototype`. Freeze or validate object keys prior to deep operations.",
-                        node.span(),
-                    ));
-                }
+            if (text.contains("__proto__") || text.contains("constructor.prototype"))
+                && (text.contains("Object.assign") || text.contains("merge(") || text.contains("extend(") || text.contains("deepMerge"))
+            {
+                out.push(Finding::new(
+                    "Potential Prototype Pollution vulnerability: Merging or copying properties via `__proto__` or `constructor.prototype`. Freeze or validate object keys prior to deep operations.",
+                    node.span(),
+                ));
             }
             for child in node.children() {
                 walk(child, out);

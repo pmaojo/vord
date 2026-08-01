@@ -115,7 +115,11 @@ impl TaintAnalysis {
                 continue;
             };
             let callee_name = Self::callee_name(callee);
-            if !self.config.sink_callees.iter().any(|s| s == &callee_name) {
+            let callee_text = callee.text();
+            let is_sink = self.config.sink_callees.iter().any(|s| {
+                *s == callee_name || *s == callee_text || (s.contains('.') && callee_text.ends_with(s.as_str()))
+            });
+            if !is_sink {
                 continue;
             }
             for arg in &call.children()[1..] {

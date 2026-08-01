@@ -45,6 +45,10 @@ fn rule(raw: &str) -> RuleId {
 /// language's yunq way profile.
 fn generic_activations() -> Vec<(RuleId, Severity)> {
     vec![
+        // rulesets/mutation — instant AST mutation testing & boundary/boolean gap analysis.
+        (rule("mutation:conditional-boundary"), Severity::Info),
+        (rule("mutation:boolean-inversion"), Severity::Info),
+        (rule("mutation:arithmetic-operator"), Severity::Info),
         // rulesets/secrets — provider-pattern rules, all Severity::Blocker.
         (rule("secrets:high-entropy-string"), Severity::Major),
         (rule("secrets:aws-access-key-id"), Severity::Blocker),
@@ -68,6 +72,10 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("owasp:command-execution"), Severity::Major),
         // rulesets/owasp — cross-file rule, runs once per scan.
         (rule("owasp:cross-file-injection"), Severity::Blocker),
+        (rule("smells:ck-oo-metrics"), Severity::Major),
+        (rule("smells:maintainability-index"), Severity::Major),
+        (rule("ddd:repository-per-entity"), Severity::Major),
+        (rule("architecture:cross-slice-coupling"), Severity::Major),
         // rulesets/architecture — cross-file rule, runs once per scan.
         (rule("architecture:dependency-cycle"), Severity::Major),
         // rulesets/architecture — cross-file, config-driven, only ever

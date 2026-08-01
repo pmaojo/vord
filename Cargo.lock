@@ -3696,6 +3696,7 @@ dependencies = [
  "yunq-rules-engine",
  "yunq-rules-go",
  "yunq-rules-iac",
+ "yunq-rules-mutation",
  "yunq-rules-owasp",
  "yunq-rules-php",
  "yunq-rules-python",
@@ -4206,6 +4207,7 @@ dependencies = [
 name = "yunq-rules-architecture"
 version = "0.2.1"
 dependencies = [
+ "serde_json",
  "yunq-ast",
  "yunq-import-graph",
  "yunq-parser-go",
@@ -4257,6 +4259,17 @@ name = "yunq-rules-iac"
 version = "0.2.1"
 dependencies = [
  "yunq-ast",
+ "yunq-rules-engine",
+]
+
+[[package]]
+name = "yunq-rules-mutation"
+version = "0.2.1"
+dependencies = [
+ "yunq-ast",
+ "yunq-parser-python",
+ "yunq-parser-rust",
+ "yunq-parser-typescript",
  "yunq-rules-engine",
 ]
 

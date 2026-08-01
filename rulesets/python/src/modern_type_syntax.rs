@@ -36,7 +36,7 @@ impl Rule for ModernTypeSyntaxRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             let text = node.text();
             let kind_str = match node.kind() {
                 NodeKind::Other(k) => k.as_ref(),

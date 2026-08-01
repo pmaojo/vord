@@ -36,7 +36,7 @@ impl Rule for NoDynamicReflectionRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             let is_call = *node.kind() == NodeKind::Call
                 || matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "call" || k.as_ref() == "call_expression");
 
@@ -100,7 +100,7 @@ fn check_reflection_call(call_node: &AstNode) -> Option<Finding> {
     None
 }
 
-fn extract_args<'a>(call_node: &'a AstNode) -> Vec<&'a AstNode> {
+fn extract_args(call_node: &AstNode) -> Vec<&AstNode> {
     let mut args = Vec::new();
     for child in call_node.children().iter().skip(1) {
         let kind_str = match child.kind() {

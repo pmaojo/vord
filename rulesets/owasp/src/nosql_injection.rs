@@ -23,7 +23,7 @@ impl Rule for NoSqlInjectionRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             let text = node.text();
             if (text.contains("$where") || text.contains("$gt") || text.contains("$ne") || text.contains("$regex"))
                 && (text.contains("req.body") || text.contains("req.query") || text.contains("request.args") || text.contains("request.json"))

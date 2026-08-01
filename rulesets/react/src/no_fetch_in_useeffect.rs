@@ -23,7 +23,7 @@ impl Rule for NoFetchInUseEffectRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn check_call<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn check_call(node: &AstNode, out: &mut Vec<Finding>) {
             if matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "call_expression") {
                 if let Some(fn_node) = node.first_child() {
                     if fn_node.text() == "useEffect" || fn_node.text() == "React.useEffect" {

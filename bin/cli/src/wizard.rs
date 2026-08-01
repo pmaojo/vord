@@ -494,7 +494,7 @@ pub fn configure_yunq_toml(theme: &ColorfulTheme, root: &Path) -> anyhow::Result
     ];
     let preset_choice = Select::with_theme(theme)
         .with_prompt("Selecciona el perfil de reglas")
-        .items(&presets)
+        .items(presets)
         .default(0)
         .interact()?;
 
@@ -505,7 +505,7 @@ pub fn configure_yunq_toml(theme: &ColorfulTheme, root: &Path) -> anyhow::Result
     ];
     let topo_choice = Select::with_theme(theme)
         .with_prompt("Selecciona la topología de Swarm")
-        .items(&topologies)
+        .items(topologies)
         .default(0)
         .interact()?;
 

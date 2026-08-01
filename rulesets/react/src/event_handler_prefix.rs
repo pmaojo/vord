@@ -23,7 +23,7 @@ impl Rule for EventHandlerPrefixRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             if *node.kind() == NodeKind::Identifier {
                 let text = node.text();
                 // Flag internal function names ending with Handler or starting with onClick_

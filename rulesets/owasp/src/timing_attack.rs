@@ -23,7 +23,7 @@ impl Rule for TimingAttackRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             let text = node.text();
             if (text.contains("token") || text.contains("apiKey") || text.contains("api_key") || text.contains("secret") || text.contains("hash") || text.contains("signature"))
                 && (text.contains("==") || text.contains("==="))

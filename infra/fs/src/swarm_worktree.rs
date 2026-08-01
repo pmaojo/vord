@@ -166,7 +166,7 @@ mod tests {
                 .unwrap();
             assert!(status.success(), "git {args:?} failed");
         };
-        git(&["init", "-q", "-b", "main"]);
+        git(&["init", "--template=", "-q", "-b", "main"]);
         git(&["config", "user.email", "swarm@yunq.test"]);
         git(&["config", "user.name", "yunq swarm test"]);
         std::fs::write(root.join("README.md"), "hi\n").unwrap();

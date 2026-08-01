@@ -27,6 +27,8 @@ mod persistence_in_domain;
 mod primitive_obsession;
 mod value_object_mutation;
 
+mod repository_per_entity;
+
 pub use aggregate_reference::AggregateReferenceByIdRule;
 pub use anemic_domain_model::AnemicDomainModelRule;
 pub use bdd_step_reaches_infra::BddStepReachesInfraRule;
@@ -36,6 +38,7 @@ pub use exposed_collection::ExposedCollectionRule;
 pub use one_aggregate_per_transaction::OneAggregatePerTransactionRule;
 pub use persistence_in_domain::PersistenceInDomainRule;
 pub use primitive_obsession::PrimitiveObsessionRule;
+pub use repository_per_entity::RepositoryPerEntityRule;
 pub use value_object_mutation::ValueObjectMutationRule;
 
 use yunq_rules_engine::{CrossFileRule, Rule};
@@ -47,6 +50,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(DomainJargonNamingRule::new()),
         Box::new(OneAggregatePerTransactionRule::new()),
         Box::new(BddStepReachesInfraRule::new()),
+        Box::new(RepositoryPerEntityRule::new()),
     ]
 }
 

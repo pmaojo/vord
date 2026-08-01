@@ -23,7 +23,7 @@ impl Rule for RustNamingConventionRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             let kind_str = match node.kind() {
                 NodeKind::Other(k) => k.as_ref().to_string(),
                 _ => String::new(),

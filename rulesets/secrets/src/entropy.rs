@@ -306,6 +306,13 @@ impl Rule for HighEntropyStringRule {
             || path.contains("-lock.")
             || path.ends_with(".yaml")
             || path.ends_with(".yml")
+            || path.contains("/i18n/")
+            || path.contains("/locales/")
+            || path.contains("/lang/")
+            || path.contains("/translations/")
+            || path.ends_with(".po")
+            || path.ends_with(".pot")
+            || path.contains("rulesets/secrets")
         {
             return Vec::new();
         }
@@ -326,7 +333,7 @@ impl Rule for HighEntropyStringRule {
             let value = unescape_common(strip_quotes(literal.text()));
             let value = value.as_str();
 
-            if value.len() < self.min_length || value.contains(char::is_whitespace) {
+            if value.len() < self.min_length || !value.is_ascii() || value.contains(char::is_whitespace) {
                 continue;
             }
             if looks_like_hex_digest(value)

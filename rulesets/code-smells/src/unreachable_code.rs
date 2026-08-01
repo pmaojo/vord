@@ -23,7 +23,7 @@ impl Rule for UnreachableCodeRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk<'a>(node: &'a AstNode, out: &mut Vec<Finding>) {
+        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
             if matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == "statement_block" || k.as_ref() == "block") {
                 let children = node.children();
                 let mut term_idx = None;

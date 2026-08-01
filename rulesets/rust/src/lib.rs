@@ -28,6 +28,7 @@ mod rust_naming_convention;
 mod self_comparison;
 mod static_mut;
 mod suspicious_arithmetic_impl;
+mod typeshare_dto_sync;
 mod unsafe_send_sync_impl;
 mod unsafe_undocumented;
 
@@ -56,6 +57,7 @@ pub use rust_naming_convention::RustNamingConventionRule;
 pub use self_comparison::SelfComparisonRule;
 pub use static_mut::StaticMutRule;
 pub use suspicious_arithmetic_impl::SuspiciousArithmeticImplRule;
+pub use typeshare_dto_sync::TypeshareDtoSyncRule;
 pub use unsafe_send_sync_impl::UnsafeSendSyncImplRule;
 pub use unsafe_undocumented::UnsafeUndocumentedRule;
 
@@ -91,5 +93,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(RustNamingConventionRule::new()),
         Box::new(DisallowPanicMacrosRule::new()),
         Box::new(RustClippyAdapterRule::new()),
+        Box::new(TypeshareDtoSyncRule::new()),
     ]
 }

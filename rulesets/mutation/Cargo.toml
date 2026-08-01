@@ -1,10 +1,10 @@
 [package]
-name = "yunq-rules-architecture"
+name = "yunq-rules-mutation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Architecture ruleset for the yunq analysis engine"
+description = "Instant AST mutation testing and gap analysis ruleset for the yunq analysis engine"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
@@ -13,11 +13,8 @@ categories.workspace = true
 [dependencies]
 yunq-ast = { workspace = true }
 yunq-rules-engine = { workspace = true }
-yunq-import-graph = { workspace = true }
-serde_json = { workspace = true }
 
 [dev-dependencies]
 yunq-parser-typescript = { workspace = true }
-yunq-parser-python = { workspace = true }
 yunq-parser-rust = { workspace = true }
-yunq-parser-go = { workspace = true }
+yunq-parser-python = { workspace = true }

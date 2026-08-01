@@ -106,6 +106,7 @@ where
         .chain(yunq_rules_ai_agent::all_rules())
         .chain(yunq_rules_architecture::all_rules())
         .chain(yunq_rules_ddd::all_rules())
+        .chain(yunq_rules_mutation::all_rules())
         .collect();
     let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> =
         yunq_rules_owasp::all_cross_rules()

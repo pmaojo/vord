@@ -92,16 +92,14 @@ fn is_component_function(node: &AstNode) -> bool {
 
     // Check if text preceding function contains PascalCase variable name: `const Comp = ...`
     let text = node.text();
-    if text.contains("function") || text.contains("=>") {
-        if node.descendants().any(|n| is_jsx_kind(n)) {
-            return true;
-        }
+    if (text.contains("function") || text.contains("=>")) && node.descendants().any(is_jsx_kind) {
+        return true;
     }
 
     false
 }
 
-fn get_default_value_node<'a>(assignment: &'a AstNode) -> Option<&'a AstNode> {
+fn get_default_value_node(assignment: &AstNode) -> Option<&AstNode> {
     let children = assignment.children();
     if children.len() >= 2 {
         // Return the last non-operator child
@@ -111,7 +109,7 @@ fn get_default_value_node<'a>(assignment: &'a AstNode) -> Option<&'a AstNode> {
     }
 }
 
-fn unwrap_parentheses<'a>(mut node: &'a AstNode) -> &'a AstNode {
+fn unwrap_parentheses(mut node: &AstNode) -> &AstNode {
     while is_other(node, "parenthesized_expression") {
         if let Some(inner) = node.children().iter().find(|c| c.text() != "(" && c.text() != ")") {
             node = inner;
