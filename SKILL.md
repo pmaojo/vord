@@ -4,6 +4,61 @@
 
 ---
 
+## 🏆 The Perfect AI Agent Flow with `yunq`
+
+```
+  1. Kickoff / Init ──► 2. Worktree Isolation ──► 3. Fast AST Edit-Scan Loop ──► 4. Policy Gate Verification ──► 5. Handoff & Merge
+   (yunq kickoff)          (yunq swarm)             (yunq scan <30ms)               (blocking_rules = 0)         (git merge)
+```
+
+### Phase 1: Onboarding & Repository Kickoff
+1. **Initialize Project / Feature**:
+   - Run `yunq kickoff react-bulletproof` (or `rust-clean`, `python-clean`, `typescript-clean`) to generate a clean, modular structure.
+   - Or run `yunq init` to generate a project-tailored `yunq.toml`.
+
+---
+
+### Phase 2: Topology Resolution & Worktree Isolation
+2. **Query Swarm Topology**:
+   - Run `yunq swarm roles` to resolve active roles (`architect` -> `coder` -> `cleaner` -> `qa`), worktree paths (`.yunq/worktrees/<role>`), protected paths, and blocking rules.
+
+---
+
+### Phase 3: Autonomous Edit-Scan-Fix Loop (< 30ms)
+3. **Execute Code Changes inside Worktree**:
+   - Edit files inside `.yunq/worktrees/<role>`.
+4. **Instant AST Verification**:
+   - Run `yunq scan` inside the worktree.
+   - `yunq` runs Oxlint (JS/TS), Ruff (Python), Clippy (Rust), and custom React Doctor/OWASP/AI guardrails in < 30ms.
+5. **Self-Correction & Automated Fixes**:
+   - Run `yunq scan --fix` to apply automated fixes.
+   - If manual fixes are needed, inspect `yunq`'s `file:line:col` findings and fix immediately.
+
+---
+
+### Phase 4: Policy Gate Verification & Durable Handoff
+6. **Verify Policy Scope**:
+   - Ensure zero modifications to `protected_paths` and zero `blocking_rules` errors.
+7. **Send Handoff to Next Role**:
+   ```bash
+   yunq swarm handoff-send --from architect --to coder --summary "Architectural boundaries established"
+   yunq swarm handoff-deliver
+   ```
+
+---
+
+### Phase 5: Pipeline Completion & Git Merge
+8. **Final QA Verification**:
+   - Run `yunq scan` across the workspace. Verify health score (e.g., 98/100).
+9. **Merge Worktree Branch to Main**:
+   - Merge `yunq/swarm/<role>` into `main` and clean up temporary worktrees:
+     ```bash
+     git merge yunq/swarm/coder
+     yunq swarm worktree-remove --role coder
+     ```
+
+---
+
 ## ⚡ CLI Quick Reference
 
 ```bash
