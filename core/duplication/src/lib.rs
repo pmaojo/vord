@@ -146,6 +146,15 @@ pub struct DuplicationConfig {
     /// values) rather than copied logic worth refactoring. `None` disables
     /// the check entirely. Default: `Some(0.25)`.
     pub max_literal_density: Option<f32>,
+    /// When `Some(n)`, a clone set with more than `n` occurrences is
+    /// suppressed — the duplicated block is structural boilerplate (e.g.
+    /// closing braces and `findings` return shared by every `Rule::check`
+    /// implementation) rather than copied logic worth refactoring. Real
+    /// copy-paste duplication rarely spreads past a handful of files; a
+    /// 10-line block appearing in 40 files across 13 crates is the
+    /// framework's own API contract, not a defect to score against.
+    /// `None` disables the check entirely. Default: `Some(8)`.
+    pub max_occurrences: Option<usize>,
     /// Whether test code participates in duplication detection.
     ///
     /// Off by default, for the same reason every rule in this engine skips
@@ -164,8 +173,9 @@ impl Default for DuplicationConfig {
             min_lines: 10,
             normalization: TokenNormalization::default(),
             max_declarations_spanned: 1,
-            include_test_code: false,
             max_literal_density: Some(0.25),
+            max_occurrences: Some(8),
+            include_test_code: false,
         }
     }
 }
@@ -545,6 +555,14 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
             (regions.len() >= 2 && lines >= config.min_lines).then_some(CloneSet { regions, lines })
         })
         .collect();
+
+    // Suppress clone sets that appear in too many files — a 10-line block
+    // shared by 40 rules across 13 crates is the framework's API contract
+    // (every `Rule` impl ends with `findings` and closing braces), not
+    // copied logic anyone can or should refactor.
+    if let Some(max_occ) = config.max_occurrences {
+        clone_sets.retain(|set| set.regions.len() <= max_occ);
+    }
 
     // Suppress clone sets whose token stream is dominated by literal
     // placeholders — a match driven almost entirely by collapsed
@@ -991,6 +1009,63 @@ mod tests {
             report.clone_sets.len(),
             1,
             "disabled density check should not suppress"
+        );
+    }
+
+    #[test]
+    fn suppresses_clone_sets_that_appear_in_too_many_files() {
+        // A 10-line block appearing in 9 files is structural boilerplate,
+        // not copy-paste. Default max_occurrences is 8.
+        let body: Vec<(u32, String)> = (0..10)
+            .map(|i| (i as u32 + 1, format!("line_{i}")))
+            .collect();
+        let files: Vec<TokenizedFile> = (0..9)
+            .map(|i| TokenizedFile::new(format!("f{i}.rs"), body.clone()))
+            .collect();
+        let report = find_duplicates(&files, DuplicationConfig::default());
+        assert!(
+            report.clone_sets.is_empty(),
+            "9-way clone must be suppressed by max_occurrences=8"
+        );
+    }
+
+    #[test]
+    fn allows_clone_sets_at_or_below_the_occurrence_limit() {
+        let body: Vec<(u32, String)> = (0..10)
+            .map(|i| (i as u32 + 1, format!("line_{i}")))
+            .collect();
+        let files: Vec<TokenizedFile> = (0..5)
+            .map(|i| TokenizedFile::new(format!("f{i}.rs"), body.clone()))
+            .collect();
+        let report = find_duplicates(&files, DuplicationConfig::default());
+        assert_eq!(
+            report.clone_sets.len(),
+            1,
+            "5-way clone must survive max_occurrences=8"
+        );
+    }
+
+    #[test]
+    fn max_occurrences_can_be_disabled() {
+        let body: Vec<(u32, String)> = (0..10)
+            .map(|i| (i as u32 + 1, format!("line_{i}")))
+            .collect();
+        let files: Vec<TokenizedFile> = (0..15)
+            .map(|i| TokenizedFile::new(format!("f{i}.rs"), body.clone()))
+            .collect();
+        let report = find_duplicates(
+            &files,
+            DuplicationConfig {
+                block_size: 5,
+                min_lines: 5,
+                max_occurrences: None,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            report.clone_sets.len(),
+            1,
+            "disabled max_occurrences must not suppress"
         );
     }
 }

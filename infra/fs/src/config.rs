@@ -20,6 +20,17 @@ pub struct YunqConfig {
     pub agent: AgentSettings,
     #[serde(default)]
     pub swarm: SwarmSettings,
+    #[serde(default)]
+    pub gate: GateSettings,
+}
+
+/// `[gate]` in `yunq.toml` — quality-gate thresholds evaluated by
+/// `yunq scan --enforce-gate` and CI/pre-commit hooks.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GateSettings {
+    /// Minimum health score (0-100). When set, `yunq scan --enforce-gate`
+    /// exits with status 3 if the score falls below this value.
+    pub min_health_score: Option<u32>,
 }
 
 /// `[agent]` in `yunq.toml` — the `yunq agent` runtime's limits.
@@ -154,6 +165,12 @@ pub struct DuplicationSettings {
     /// straight through to `DuplicationConfig::max_literal_density`.
     /// Default: `Some(0.25)`.
     pub max_literal_density: Option<f32>,
+    /// When `Some(n)`, suppress clone sets with more than `n` occurrences —
+    /// the match is structural boilerplate (e.g. closing braces shared by
+    /// every `Rule::check` implementation), not copied logic worth
+    /// refactoring. Passed straight through to
+    /// `DuplicationConfig::max_occurrences`. Default: `Some(8)`.
+    pub max_occurrences: Option<usize>,
 }
 
 /// `[architecture]` in `yunq.toml` — declared component boundaries (roadmap

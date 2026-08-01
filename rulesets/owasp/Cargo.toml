@@ -20,3 +20,4 @@ yunq-parser-typescript = { workspace = true }
 yunq-parser-rust = { workspace = true }
 yunq-parser-python = { workspace = true }
 yunq-parser-go = { workspace = true }
+yunq-parser-java = { workspace = true }

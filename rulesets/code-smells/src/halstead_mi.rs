@@ -129,10 +129,16 @@ pub fn calculate_halstead_mi(ast: &AstNode, loc: u32) -> HalsteadMetrics {
     let estimated_bugs = volume / 3000.0;
     let time_seconds = effort / 18.0;
 
-    let cyclomatic_proxy = (n1 + total_n1 / 4) as f64;
+    // McCabe's M, derived from the real control flow graph (`E − N + 2`,
+    // `yunq_cfg::ControlFlowGraph::cyclomatic_complexity`) instead of the
+    // syntactic `n1 + N1/4` operator proxy the original formula fell back
+    // on. Building the CFG over the whole file yields exactly `1 + total
+    // decision points` across every function — the "program complexity"
+    // term the Microsoft MI formula's `M` parameter is defined to be.
+    let cyclomatic = yunq_cfg::ControlFlowGraph::build(ast).cyclomatic_complexity() as f64;
     let loc_safe = (loc as f64).max(1.0);
 
-    let mi = 171.0 - 5.2 * volume.max(1.0).ln() - 0.23 * cyclomatic_proxy - 16.2 * loc_safe.ln();
+    let mi = 171.0 - 5.2 * volume.max(1.0).ln() - 0.23 * cyclomatic - 16.2 * loc_safe.ln();
     let mi_normalized = (mi * 100.0 / 171.0).clamp(0.0, 100.0);
 
     HalsteadMetrics {

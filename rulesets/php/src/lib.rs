@@ -6,7 +6,7 @@
 //! covered by the generic `owasp:command-execution`, whose sink list is
 //! Rust/Go/Python/TypeScript-specific), variable variables, and building a
 //! security-sensitive value from a non-cryptographic random source.
-//! Language-neutral checks (hardcoded secrets, weak crypto, TODO
+//! Language-neutral checks (hardcoded secrets, weak crypto, pending task
 //! comments, …) that also apply to PHP live in `rulesets/owasp` and
 //! `rulesets/code-smells`.
 

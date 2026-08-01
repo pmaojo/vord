@@ -26,3 +26,5 @@ npm/bin/yunq.exe
 .benchmark-targets/
 .benchmark-results/
 
+/.benchmark-corpora
+.DS_Store

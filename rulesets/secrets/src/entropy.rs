@@ -194,7 +194,7 @@ fn looks_like_format_template(s: &str) -> bool {
 /// that structural set filters most of that prose out while keeping actual
 /// token shapes (base64 uses `+/=`, hex/base62 tokens carry digits, etc).
 fn has_secret_like_charset(s: &str) -> bool {
-    const STRUCTURAL: &[u8] = b"_-:.,/@";
+    const STRUCTURAL: &[u8] = b"_-:.,/@()";
     let has_digit = s.bytes().any(|b| b.is_ascii_digit());
     let has_symbol = s
         .bytes()
@@ -594,5 +594,15 @@ mod tests {
         assert!(
             check_ts("const h = \"Content-Type: application/x-www-form-urlencoded\";\n").is_empty()
         );
+    }
+
+    #[test]
+    fn ignores_code_expressions_with_parentheses() {
+        // Regression: `datetime.utcfromtimestamp(` and `datetime.utcnow()` are
+        // well-known Python API method names containing parens — parens are code
+        // syntax, not random-token characters. STRUCTURAL now includes `()`.
+        assert!(check_ts("const s = \"datetime.utcfromtimestamp(\";\n").is_empty());
+        assert!(check_ts("const s = \"datetime.utcnow()\";\n").is_empty());
+        assert!(check_ts("const call = \"console.log(42)\";\n").is_empty());
     }
 }

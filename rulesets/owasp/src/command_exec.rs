@@ -57,6 +57,7 @@ impl Rule for CommandExecHotspotRule {
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let python = *file.language() == LanguageIdentifier::python();
         let ts = *file.language() == LanguageIdentifier::typescript();
+        let java = *file.language() == LanguageIdentifier::java();
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter_map(|call| {
@@ -79,7 +80,11 @@ impl Rule for CommandExecHotspotRule {
                             .find(|c| *c.kind() == NodeKind::Identifier)
                             .is_some_and(|ident| TS_SINKS.contains(&ident.text())),
                         _ => false,
-                    });
+                    })
+                    // Java: Runtime.exec(...) / ProcessBuilder .command()/.start().
+                    // Uses .exec( and ProcessBuilder to avoid flagging harmless
+                    // Runtime.getRuntime() calls like .freeMemory() or .availableProcessors().
+                    || (java && (text.contains(".exec(") || text.contains("ProcessBuilder")));
                 sensitive.then(|| {
                     Finding::hotspot(
                         "make sure this OS command and its arguments are safe here",

@@ -16,6 +16,7 @@ mod insecure_file_permissions;
 mod insecure_random;
 mod nosql_injection;
 mod path_traversal;
+mod path_traversal_java;
 mod permissive_cors;
 mod post_message_wildcard;
 mod prototype_pollution;
@@ -27,6 +28,7 @@ mod unverified_jwt;
 mod weak_crypto;
 mod weak_crypto_hash;
 mod xss;
+mod xss_java;
 
 pub use command_exec::CommandExecHotspotRule;
 pub use cross_file_injection::CrossFileInjectionRule;
@@ -42,6 +44,7 @@ pub use insecure_file_permissions::InsecureFilePermissionsRule;
 pub use insecure_random::InsecureRandomRule;
 pub use nosql_injection::NoSqlInjectionRule;
 pub use path_traversal::PathTraversalRule;
+pub use path_traversal_java::PathTraversalJavaRule;
 pub use permissive_cors::PermissiveCorsRule;
 pub use post_message_wildcard::PostMessageWildcardRule;
 pub use prototype_pollution::PrototypePollutionRule;
@@ -53,6 +56,7 @@ pub use unverified_jwt::UnverifiedJwtRule;
 pub use weak_crypto::WeakCryptoRule;
 pub use weak_crypto_hash::WeakCryptoHashRule;
 pub use xss::XssRule;
+pub use xss_java::XssJavaRule;
 
 use yunq_rules_engine::{CrossFileRule, Rule};
 
@@ -69,9 +73,11 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(InsecureRandomRule::new()),
         Box::new(DisabledCertValidationRule::new()),
         Box::new(XssRule::new()),
+        Box::new(XssJavaRule::new()),
         Box::new(PermissiveCorsRule::new()),
         Box::new(PostMessageWildcardRule::new()),
         Box::new(PathTraversalRule::new()),
+        Box::new(PathTraversalJavaRule::new()),
         Box::new(UnverifiedJwtRule::new()),
         Box::new(SsrfRule::new()),
         Box::new(SsrfUnvalidatedUrlRule::new()),

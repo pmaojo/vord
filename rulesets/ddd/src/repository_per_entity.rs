@@ -28,9 +28,30 @@ impl Rule for RepositoryPerEntityRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        fn walk(node: &AstNode, out: &mut Vec<Finding>) {
+        // Only inspect type declarations (struct, interface, class, trait,
+        // type_spec), not arbitrary AST nodes. Walking every node
+        // recursively and checking its full subtree text causes cascading
+        // false positives — the rule's own pattern strings
+        // ("ItemRepository", etc.) and test fixtures trigger it.
+        fn is_type_declaration(node: &AstNode) -> bool {
+            matches!(
+                node.kind(),
+                yunq_ast::NodeKind::Other(k)
+                    if matches!(
+                        k.as_ref(),
+                        "struct_item"
+                            | "trait_item"
+                            | "interface_declaration"
+                            | "class_declaration"
+                            | "class_definition"
+                            | "type_spec"
+                            | "abstract_class_declaration"
+                    )
+            )
+        }
+
+        for node in ast.descendants().filter(|n| is_type_declaration(n)) {
             let text = node.text();
-            
             // Detect repositories named after known child entity concepts instead of Aggregate Roots
             if text.contains("Repository")
                 && (text.contains("ItemRepository")
@@ -38,7 +59,7 @@ impl Rule for RepositoryPerEntityRule {
                     || text.contains("LineRepository")
                     || text.contains("ChildRepository"))
             {
-                out.push(Finding::new(
+                findings.push(Finding::new(
                     format!(
                         "DDD Boundary Breach: Repository `{}` declared for a child entity. Repositories must exist ONLY for Aggregate Roots (e.g. OrderRepository), loading and persisting child entities through the Aggregate Root.",
                         text.trim()
@@ -46,14 +67,6 @@ impl Rule for RepositoryPerEntityRule {
                     node.span(),
                 ));
             }
-
-            for child in node.children() {
-                walk(child, out);
-            }
-        }
-
-        for child in ast.children() {
-            walk(child, &mut findings);
         }
 
         findings

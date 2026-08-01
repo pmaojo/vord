@@ -8,11 +8,20 @@ use yunq_rules_engine::{
     RemediationEffortSummary, Severity, TestReportSummary,
 };
 
+/// True when `rule_id` starts with `mutation:` — mutation-gap rules
+/// are informational hints about untested code paths, not quality defects.
+/// They are written to a separate `.yunq-mutation-gaps.json` file and
+/// excluded from the main text/JSON/SARIF output and agent prompt.
+pub fn is_mutation_rule(rule_id: &str) -> bool {
+    rule_id.starts_with("mutation:")
+}
+
 #[derive(Serialize)]
 pub struct ReportDto {
     pub issues: Vec<IssueDto>,
     pub hotspots: Vec<HotspotDto>,
     pub metrics: MetricsDto,
+    pub health_score: u32,
     pub rating: String,
     pub reliability_rating: String,
     pub security_rating: String,
@@ -39,6 +48,11 @@ pub struct ReportDto {
     /// sources endpoint) get a stable schema, with fields `None` when
     /// nothing was known.
     pub context: ScanContextDto,
+    /// How many mutation-gap sites (info-level hints from rules starting
+    /// with `mutation:`) this scan found. The per-site details are written
+    /// to `.yunq-mutation-gaps.json` and excluded from the main output so
+    /// AI agents don't burn context on informational noise.
+    pub mutation_gaps_count: usize,
 }
 
 /// Scan identity carried alongside the report: which project this is, and
@@ -389,9 +403,13 @@ impl ReportDto {
         coverage_new_code: Option<f64>,
         context: ScanContextDto,
     ) -> Self {
+        let all: Vec<IssueDto> = report.issues().iter().map(IssueDto::from).collect();
+        let mutation_gaps_count = all.iter().filter(|i| is_mutation_rule(&i.rule)).count();
+        let issues: Vec<IssueDto> = all.into_iter().filter(|i| !is_mutation_rule(&i.rule)).collect();
         Self {
-            issues: report.issues().iter().map(IssueDto::from).collect(),
+            issues,
             hotspots: report.hotspots().iter().map(HotspotDto::from).collect(),
+            health_score: report.health_score(),
             rating: report.rating().to_string(),
             reliability_rating: report.reliability_rating().to_string(),
             security_rating: report.security_rating().to_string(),
@@ -409,6 +427,7 @@ impl ReportDto {
             crap: sorted_crap_findings(report),
             metrics: MetricsDto::from(report.metrics()),
             context,
+            mutation_gaps_count,
         }
     }
 }
@@ -433,7 +452,11 @@ fn sorted_crap_findings(report: &AnalysisReport) -> Vec<CrapFindingDto> {
 }
 
 fn render_issues_text(out: &mut String, report: &AnalysisReport) {
-    let issues: Vec<&Issue> = report.issues().iter().collect();
+    let issues: Vec<&Issue> = report
+        .issues()
+        .iter()
+        .filter(|i| !is_mutation_rule(i.rule().as_str()))
+        .collect();
     // Group by file, sorting files by issue count (descending) then path.
     let mut by_file: std::collections::BTreeMap<&str, Vec<&Issue>> =
         std::collections::BTreeMap::new();
@@ -697,6 +720,16 @@ pub fn render_text(
     render_issues_text(&mut out, report);
     render_hotspots_text(&mut out, report);
     render_metrics_summary_text(&mut out, report);
+    let mutation_gaps = report
+        .issues()
+        .iter()
+        .filter(|i| is_mutation_rule(i.rule().as_str()))
+        .count();
+    if mutation_gaps > 0 {
+        out.push_str(&format!(
+            "Mutation gap analysis: {mutation_gaps} site(s) → .yunq-mutation-gaps.json\n"
+        ));
+    }
     render_duplications_text(&mut out, report);
     render_crap_text(&mut out, report);
     render_coverage_text(&mut out, report, coverage_new_code);
@@ -775,14 +808,34 @@ pub fn render_agent_prompt(
             .then_with(|| a.file().cmp(b.file()))
             .then_with(|| a.span().start_line.cmp(&b.span().start_line))
     });
+    let mutation_gaps = issues
+        .iter()
+        .filter(|i| is_mutation_rule(i.rule().as_str()))
+        .count();
+    let visible: Vec<&Issue> = issues
+        .into_iter()
+        .filter(|i| !is_mutation_rule(i.rule().as_str()))
+        .collect();
 
     let mut out = String::new();
     out.push_str("---- yunq agent prompt (copy everything below into your AI coding agent) ----\n");
 
-    if issues.is_empty() {
+    if visible.is_empty() && mutation_gaps == 0 {
         out.push_str(&format!(
             "yunq analyzed {scan_path} and found no issues. Quality gate: {}. Nothing to fix.\n",
             gate.status(),
+        ));
+        out.push_str("---- end of yunq agent prompt ----\n");
+        return out;
+    }
+
+    if visible.is_empty() {
+        out.push_str(&format!(
+            "yunq analyzed {scan_path} and found no actionable issues. Quality gate: {}.\n",
+            gate.status(),
+        ));
+        out.push_str(&format!(
+            "Mutation gap analysis: {mutation_gaps} site(s) → .yunq-mutation-gaps.json\n",
         ));
         out.push_str("---- end of yunq agent prompt ----\n");
         return out;
@@ -792,11 +845,17 @@ pub fn render_agent_prompt(
         "yunq analyzed {scan_path} and found {} issue(s) (quality gate: {}). Fix them one at a time, \
          make the smallest change that resolves each one, and re-run `yunq scan {scan_path}` after \
          every fix to confirm the issue is gone and no new one appeared.\n\n",
-        issues.len(),
+        visible.len(),
         gate.status(),
     ));
 
-    render_agent_prompt_issue_list(&mut out, &issues, scan_path);
+    if mutation_gaps > 0 {
+        out.push_str(&format!(
+            "Mutation gap analysis: {mutation_gaps} site(s) → .yunq-mutation-gaps.json\n",
+        ));
+    }
+
+    render_agent_prompt_issue_list(&mut out, &visible, scan_path);
     render_agent_prompt_gate_conditions(&mut out, gate);
 
     out.push_str("---- end of yunq agent prompt ----\n");
@@ -891,6 +950,7 @@ pub fn render_sarif(report: &AnalysisReport) -> serde_json::Result<String> {
     let results = report
         .issues()
         .iter()
+        .filter(|issue| !is_mutation_rule(issue.rule().as_str()))
         .map(|issue| {
             let level = match issue.severity() {
                 Severity::Blocker | Severity::Critical => "error",

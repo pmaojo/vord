@@ -301,6 +301,9 @@ pub fn duplication_config(
         max_literal_density: settings
             .max_literal_density
             .or(defaults.max_literal_density),
+        max_occurrences: settings
+            .max_occurrences
+            .or(defaults.max_occurrences),
     }
 }
 

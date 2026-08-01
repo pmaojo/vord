@@ -45,10 +45,9 @@ fn rule(raw: &str) -> RuleId {
 /// language's yunq way profile.
 fn generic_activations() -> Vec<(RuleId, Severity)> {
     vec![
-        // rulesets/mutation — instant AST mutation testing & boundary/boolean gap analysis.
-        (rule("mutation:conditional-boundary"), Severity::Info),
-        (rule("mutation:boolean-inversion"), Severity::Info),
-        (rule("mutation:arithmetic-operator"), Severity::Info),
+        // rulesets/architecture — functional-paradigm analogue of god-class
+        // (fires on classless TS/JS/Python/Go/Rust modules).
+        (rule("architecture:functional-module"), Severity::Major),
         // rulesets/secrets — provider-pattern rules, all Severity::Blocker.
         (rule("secrets:high-entropy-string"), Severity::Major),
         (rule("secrets:aws-access-key-id"), Severity::Blocker),
@@ -416,6 +415,8 @@ fn java_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
     activations.push((rule("owasp:insecure-deserialization"), Severity::Critical));
+    activations.push((rule("owasp:xss-java"), Severity::Blocker));
+    activations.push((rule("owasp:path-traversal-java"), Severity::Blocker));
     activations
 }
 

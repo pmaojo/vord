@@ -7,6 +7,8 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
+use crate::common::is_test_file;
+
 pub struct InsecureTempfileRule {
     id: RuleId,
 }
@@ -56,7 +58,7 @@ impl Rule for InsecureTempfileRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if is_test_file(file.path()) {
             return Vec::new();
         }
         ast.descendants()

@@ -5,5 +5,5 @@ pub mod cfg;
 pub mod ssa;
 
 pub use cdg::ControlDependenceGraph;
-pub use cfg::{BasicBlock, ControlFlowGraph, EdgeKind};
+pub use cfg::{BasicBlock, CfgAnalysis, ControlFlowGraph, EdgeKind};
 pub use ssa::{PhiNode, SsaForm};

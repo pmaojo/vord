@@ -1,6 +1,8 @@
 //! Python-specific rules: idioms and anti-patterns that only make sense
 //! for this language.
 
+mod common;
+
 mod assert_used;
 mod bare_except;
 mod bind_all_interfaces;
@@ -34,6 +36,8 @@ mod unused_loop_variable;
 mod wildcard_import;
 mod xml_xxe;
 
+pub use common::is_test_file;
+pub use common::other_kind_name;
 pub use assert_used::AssertUsedRule;
 pub use bare_except::BareExceptRule;
 pub use bind_all_interfaces::BindAllInterfacesRule;

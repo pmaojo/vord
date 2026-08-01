@@ -3,53 +3,61 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
+/// Whether `bytes[i..]` starts with `: any` or `:any` (with word-boundary check).
+fn scan_colon_any(bytes: &[u8], i: usize) -> bool {
+    let n = bytes.len();
+    if bytes[i] != b':' {
+        return false;
+    }
+    let mut j = i + 1;
+    while j < n && (bytes[j] == b' ' || bytes[j] == b'\t') {
+        j += 1;
+    }
+    if j + 3 > n || &bytes[j..j + 3] != b"any" {
+        return false;
+    }
+    let end = j + 3;
+    end == n || (!bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_')
+}
+
+/// Whether `bytes[i..]` starts with the standalone word `as` followed by ` any`.
+fn scan_as_any(bytes: &[u8], i: usize) -> bool {
+    let n = bytes.len();
+    // `as` must be a standalone word (not part of an identifier like `has`).
+    if i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_') {
+        return false;
+    }
+    if i + 2 > n || &bytes[i..i + 2] != b"as" {
+        return false;
+    }
+    let mut j = i + 2;
+    while j < n && (bytes[j] == b' ' || bytes[j] == b'\t') {
+        j += 1;
+    }
+    // Require at least one whitespace character between `as` and `any`.
+    if j == i + 2 {
+        return false;
+    }
+    if j + 3 > n || &bytes[j..j + 3] != b"any" {
+        return false;
+    }
+    let end = j + 3;
+    end == n || (!bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_')
+}
+
+/// Whether `bytes[i..]` starts with `<any>`.
+fn scan_angle_any(bytes: &[u8], i: usize) -> bool {
+    let n = bytes.len();
+    bytes[i] == b'<' && i + 5 <= n && &bytes[i..i + 5] == b"<any>"
+}
+
 fn is_explicit_any(line: &str) -> bool {
     let bytes = line.as_bytes();
-    let n = bytes.len();
-    let mut i = 0;
-
-    while i < n {
-        // Check for `: any` or `:any`
-        if bytes[i] == b':' {
-            let mut j = i + 1;
-            while j < n && (bytes[j] == b' ' || bytes[j] == b'\t') {
-                j += 1;
-            }
-            if j + 3 <= n && &bytes[j..j + 3] == b"any" {
-                let end = j + 3;
-                if end == n || (!bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_') {
-                    return true;
-                }
-            }
-        }
-
-        // Check for `as any`
-        if (i == 0 || (!bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_'))
-            && i + 2 <= n
-            && &bytes[i..i + 2] == b"as"
-        {
-            let mut j = i + 2;
-            if j < n && (bytes[j] == b' ' || bytes[j] == b'\t') {
-                while j < n && (bytes[j] == b' ' || bytes[j] == b'\t') {
-                    j += 1;
-                }
-                if j + 3 <= n && &bytes[j..j + 3] == b"any" {
-                    let end = j + 3;
-                    if end == n || (!bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_') {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // Check for `<any>`
-        if bytes[i] == b'<' && i + 5 <= n && &bytes[i..i + 5] == b"<any>" {
+    for i in 0..bytes.len() {
+        if scan_colon_any(bytes, i) || scan_as_any(bytes, i) || scan_angle_any(bytes, i) {
             return true;
         }
-
-        i += 1;
     }
-
     false
 }
 

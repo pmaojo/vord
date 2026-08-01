@@ -1,5 +1,7 @@
 # yunq
 
+[![Health Score](https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/pmaojo/yunq/main/.yunq-health.json&query=$.message&label=health)](https://github.com/pmaojo/yunq/blob/main/.yunq-health.json)
+
 A static analysis platform in Rust — a guardrail that judges an AI agent's
 write *before* it reaches disk, and a coding agent of its own that is judged
 by that same guardrail. One static binary, 24 languages, no JVM, no server
@@ -197,6 +199,9 @@ cargo run -p yunq-cli -- scan monorepo-root --monorepo         # discover + scan
 cargo run -p yunq-cli -- scan fixtures --mutation-report mutation.json  # ingest a Stryker-schema mutation report
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
 cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif --sarif eslint.sarif  # repeatable
+cargo run -p yunq-cli -- arch                                  # component architecture: text summary
+cargo run -p yunq-cli -- arch --format mermaid                 # Mermaid flowchart of the component graph
+cargo run -p yunq-cli -- arch --html arch.html                 # self-contained interactive viewer (open in a browser)
 cargo run -p yunq-cli -- init --yes                            # write .github/workflows/yunq.yml
 cargo run -p yunq-cli -- hook install                          # gate an AI agent's writes (see below)
 ```
@@ -612,6 +617,22 @@ the gate that decides whether a build passes, not the tool that runs the
 tests or the mutants — a test runner (or `cargo test`/`pytest`/mutation
 tool) still has to produce the report yunq consumes.
 
+Alongside ingestion, the `rulesets/mutation` crate also ships *instant*,
+AST-only gap analysis — five operator families today: `conditional-boundary`,
+`boolean-inversion`, `arithmetic-operator`, plus the two most recent,
+`return-value-substitution` (every `return` carrying a computed value is a
+substitution site) and `void-call-deletion` (every statement-level call
+whose removal no assertion would notice). These say **where** a mutant would
+exist, not whether it survives — so to close that gap, `scripts/correlate-mutation.py`
+correlates the flagged sites against a real engine's verdicts (Stryker/PIT's
+Mutation Testing Elements JSON): a site whose mutant is `killed` is already
+covered, one whose mutant `survived` (or has no coverage) is a live test gap
+worth prioritizing.
+
+```bash
+python3 scripts/correlate-mutation.py --yunq yunq.json --mutation reports/mutation-report.json --out overlap.csv
+```
+
 ## Compliance reports
 
 `--compliance-pdf`/`--compliance-csv` write the scan's findings as an OWASP
@@ -696,7 +717,7 @@ setters, and a row type *should* carry the ORM mapping.
 
 Two limits worth stating plainly rather than discovering later:
 
-- **Functional code has partial type-based coverage.** If you write
+- **Functional code now has a size/cohesion rule of its own.** If you write
   `export const makeOrder = (...) => ...` and never a `class`, the layering and
   purity rules (`hexagonal-layer-violation`, `framework-in-domain`,
   `dependency-cycle`, the component metrics) work exactly the same — they read
@@ -706,7 +727,10 @@ Two limits worth stating plainly rather than discovering later:
   declaration (`anemic-domain-model`, `public-entity-setter`,
   `aggregate-exposes-internal-collection`, `class-fan-out`, `deep-inheritance`,
   `constructor-over-injection`) stay quiet, because the defect they describe
-  needs a class to exist.
+  needs a class to exist. The one *size* smell that was missing is now covered:
+  `architecture:functional-module` counts a file's top-level exported
+  functions (including `export const f = () => ...`) and flags the classless
+  equivalent of a god class — a module exposing more than ~25 unrelated units.
 - **Mojo is not supported yet**, and the blocker is upstream: there is no
   `tree-sitter-mojo` on crates.io, and this workspace publishes to crates.io, so
   a git-only grammar cannot ship in a release. Mojo is *not* analyzable through
@@ -828,11 +852,28 @@ basic rule coverage) additionally means adding an extractor to
 
 Everything documented above — the agent runtime, the swarm, CRAP risk
 scoring, declared architecture boundaries, gate-gaming detection, the
-mutation-testing gate — is shipped, not planned. What's actually still open:
-widening the mutation gate to more crates, an interactive architecture
-viewer (`yunq arch`), detecting a project's coverage command automatically
-instead of requiring a report to be piped in, and closing the remaining
-~30% gap to the ≥100k LOC/s performance target.
+mutation-testing gate, the `yunq arch` viewer, the CFG-derived cyclomatic
+complexity behind `maintainability-index`, the functional-module rule — is
+shipped, not planned. What's actually still open:
+
+- **Empirical validation on standard corpora.** Precision today is measured
+  on an internal 5-file fixture; the real numbers need a published run over
+  OWASP Benchmark v1.2 (~2,740 Java cases), NIST Juliet (64k+ cases) and the
+  SCA Java dataset (224k labeled warnings). `scripts/benchmark-corpora.sh`
+  is the harness — hardware metadata, warm-up + N clean repeated runs,
+  median/min/max wall time, LOC/s, and SARIF/JSON artifacts per corpus.
+- **True mutant-run correlation at scale.** The correlation script works on
+  whatever report an engine already produced; wiring `cargo-mutants`/PIT
+  into the harness so sites and verdicts are produced and correlated in one
+  command is next.
+- **Empirically calibrated Health Score weights.** The penalty weights are
+  heuristic today; `scripts/calibrate-health-weights.py` fits them to a
+  labeled project dataset (least squares, or a stdlib grid search).
+- **Coverage auto-detection.** `scripts/detect-coverage.sh` locates the
+  project's LCOV/Cobertura/JaCoCo/llvm-cov/Istanbul reports and prints (or
+  runs, with `--scan`) the exact ingestion command; folding that detection
+  into `yunq scan` itself so no flag is needed is still open.
+- **Closing the remaining ~30% gap to the ≥100k LOC/s performance target.**
 
 See [ROADMAP.md](ROADMAP.md) for the current plan and [DEVLOG.md](DEVLOG.md)
 for the full build history and design rationale.

@@ -9,6 +9,7 @@ use yunq_cli::output;
 use yunq_infra_fs::{BaselineStore, FileAnalysisCache};
 use yunq_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 
+mod arch;
 mod blame;
 mod ci_detect;
 mod crap;
@@ -81,8 +82,30 @@ enum Command {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
+    /// Visualize the component architecture of a directory: import graph
+    /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
+    /// cycles. Renders text, Mermaid, JSON, or a self-contained interactive
+    /// HTML viewer (`--html arch.html`).
+    Arch {
+        /// Directory to analyze (defaults to the current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Output format: text, mermaid or json (default: text).
+        #[arg(long, value_enum, default_value = "text")]
+        format: ArchFormat,
+        /// Write a self-contained interactive HTML viewer to this path.
+        #[arg(long)]
+        html: Option<PathBuf>,
+    },
     /// Start the Model Context Protocol (MCP) JSON-RPC stdio server.
     Mcp,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ArchFormat {
+    Text,
+    Mermaid,
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -405,6 +428,11 @@ struct ScanArgs {
     /// Exit with status 3 when the quality gate fails.
     #[arg(long)]
     enforce_gate: bool,
+    /// Exit with status 3 when the health score is below this threshold (0-100).
+    /// Requires `--enforce-gate`; ignored otherwise. Defaults to the value
+    /// in yunq.toml's `[gate] min_health_score` when omitted.
+    #[arg(long)]
+    min_health_score: Option<u32>,
     /// Do not read or update the New Code baseline (.yunq-baseline.json).
     #[arg(long)]
     no_baseline: bool,
@@ -452,11 +480,32 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             kickoff::run_kickoff(&template, &path)?;
             Ok(ExitCode::SUCCESS)
         }
+        Some(Command::Arch { path, format, html }) => run_arch(&path, format, html),
         Some(Command::Mcp) => {
             mcp::run_mcp_server()?;
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// `yunq arch`: analyze the component graph and render it in the requested
+/// form. `--html` writes the interactive viewer *in addition to* the chosen
+/// format, mirroring how `--blame-output`/`--compliance-pdf` are byproducts
+/// of a scan rather than alternatives to it.
+fn run_arch(path: &std::path::Path, format: ArchFormat, html: Option<PathBuf>) -> anyhow::Result<ExitCode> {
+    let summary = arch::analyze(path)?;
+    match format {
+        ArchFormat::Text => print!("{}", arch::render_text(&summary)),
+        ArchFormat::Mermaid => print!("{}", arch::render_mermaid(&summary)),
+        ArchFormat::Json => println!("{}", arch::render_json(&summary)?),
+    }
+    if let Some(html_path) = html {
+        std::fs::write(&html_path, arch::render_html(&summary)?).map_err(|e| {
+            anyhow::anyhow!("cannot write architecture viewer to {}: {e}", html_path.display())
+        })?;
+        println!("🌐 Wrote interactive architecture viewer to {}", html_path.display());
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `yunq agent`'s entry points. Unlike the hook, these do **not** fail open:
@@ -737,6 +786,7 @@ fn load_project_scope(
     Option<String>,
     yunq_infra_fs::DuplicationSettings,
     yunq_infra_fs::ArchitectureSettings,
+    yunq_infra_fs::GateSettings,
 ) {
     yunq_infra_fs::YunqConfig::load_from_dir(path)
         .map(|config| {
@@ -749,6 +799,7 @@ fn load_project_scope(
                 config.project.key,
                 config.duplication,
                 config.architecture,
+                config.gate,
             )
         })
         .unwrap_or_default()
@@ -1305,17 +1356,88 @@ fn write_compliance_reports(args: &ScanArgs, report: &yunq_rules_engine::Analysi
     }
 }
 
+
+/// Writes mutation-gap findings (rules starting with `mutation:`) to
+/// `.yunq-mutation-gaps.json` — a separate, explorable file so AI agents
+/// don't burn context on 9,000+ informational hints. The main output only
+/// shows a count; the full per-file, per-rule breakdown lives here.
+fn write_mutation_gaps(args: &ScanArgs, report: &yunq_rules_engine::AnalysisReport) {
+    let gaps: Vec<&yunq_rules_engine::Issue> = report
+        .issues()
+        .iter()
+        .filter(|i| yunq_cli::output::is_mutation_rule(i.rule().as_str()))
+        .collect();
+    if gaps.is_empty() {
+        return;
+    }
+
+    use std::collections::BTreeMap;
+    let mut by_rule: BTreeMap<String, usize> = BTreeMap::new();
+    let mut by_file: BTreeMap<String, Vec<serde_json::Value>> = BTreeMap::new();
+    for gap in &gaps {
+        *by_rule.entry(gap.rule().to_string()).or_default() += 1;
+        by_file
+            .entry(gap.file().to_string())
+            .or_default()
+            .push(serde_json::json!({
+                "rule": gap.rule().to_string(),
+                "line": gap.span().start_line,
+                "message": gap.message(),
+            }));
+    }
+
+    let output = serde_json::json!({
+        "total_gaps": gaps.len(),
+        "by_rule": by_rule,
+        "by_file": by_file,
+    });
+
+    let output_path = if args.path.is_dir() {
+        args.path.join(".yunq-mutation-gaps.json")
+    } else {
+        args.path
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join(".yunq-mutation-gaps.json")
+    };
+    match serde_json::to_string_pretty(&output) {
+        Ok(json) => match std::fs::write(&output_path, json) {
+            Ok(()) => eprintln!(
+                "🧬 Wrote {} mutation-gap site(s) to {}",
+                gaps.len(),
+                output_path.display()
+            ),
+            Err(e) => eprintln!(
+                "warning: could not write mutation gaps to {}: {e}",
+                output_path.display()
+            ),
+        },
+        Err(e) => eprintln!("warning: could not serialize mutation gaps: {e}"),
+    }
+}
+
 fn exit_code(
     threshold: Option<Severity>,
     report: &yunq_rules_engine::AnalysisReport,
     enforce_gate: bool,
     gate: &yunq_rules_engine::GateEvaluation,
+    min_health_score: Option<u32>,
 ) -> ExitCode {
     let breached = threshold
         .zip(report.max_severity())
         .is_some_and(|(threshold, max)| max >= threshold);
     let gate_failed = enforce_gate && gate.status() == yunq_rules_engine::GateStatus::Failed;
-    if breached || gate_failed {
+    let health_below = enforce_gate
+        && min_health_score.is_some_and(|min| report.health_score() < min);
+    if breached || gate_failed || health_below {
+        if health_below {
+            let min = min_health_score.unwrap_or(0);
+            eprintln!(
+                "❌ Health score {} is below minimum {} — gate failed",
+                report.health_score(),
+                min
+            );
+        }
         ExitCode::from(3)
     } else {
         ExitCode::SUCCESS
@@ -1328,8 +1450,10 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     }
 
     let threshold = parse_fail_on_threshold(args.fail_on.clone())?;
-    let (source_dirs, exclusions, config_project_key, duplication, architecture) =
+    let (source_dirs, exclusions, config_project_key, duplication, architecture, gate_config) =
         load_project_scope(&args.path);
+    // CLI flag wins over config file; config file is the default.
+    let min_health_score = args.min_health_score.or(gate_config.min_health_score);
     let ci = resolve_ci_context();
     let context = resolve_context(&args, config_project_key, &ci);
 
@@ -1381,6 +1505,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
             .or_else(|| report.measure(key))
     });
 
+    write_mutation_gaps(&args, &report);
     report_to_github(&args, &context, &report, &gate, new_code.as_ref()).await;
     write_blame_output(&args, &report);
     write_compliance_reports(&args, &report);
@@ -1394,5 +1519,6 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         &context.to_dto(),
     )?;
 
-    Ok(exit_code(threshold, &report, args.enforce_gate, &gate))
+    Ok(exit_code(threshold, &report, args.enforce_gate, &gate, min_health_score))
 }
+// yunq pre-commit hook verified
