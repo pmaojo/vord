@@ -1,0 +1,71 @@
+{
+  "description": "Ground truth for yunq fixtures — rule IDs that SHOULD fire on each file",
+  "files": {
+    "vulnerable.ts": {
+      "is_vulnerable": true,
+      "expected_rules": ["owasp:hardcoded-secret", "owasp:eval-usage", "secrets:aws-access-key-id", "smells:todo-comment"]
+    },
+    "caller.ts": {
+      "is_vulnerable": true,
+      "expected_rules": ["owasp:cross-file-injection"]
+    },
+    "lib_exec.ts": {
+      "is_vulnerable": true,
+      "expected_rules": ["owasp:command-execution"]
+    },
+    "smelly_owasp_nosql.ts": {
+      "is_vulnerable": false,
+      "_comment": "known gap: NoSQL injection pattern not yet detected by yunq rules",
+      "expected_rules": []
+    },
+    "smelly_react.tsx": {
+      "is_vulnerable": false,
+      "_comment": "known gap: rule IDs for this pattern not yet verified",
+      "expected_rules": []
+    },
+    "smelly_react_bulletproof.tsx": {
+      "is_vulnerable": true,
+      "expected_rules": ["react:rules-of-hooks-naming"]
+    },
+    "long_function.ts": {
+      "is_vulnerable": true,
+      "expected_rules": ["smells:long-function"]
+    },
+    "inaccessible.html": {
+      "is_vulnerable": true,
+      "expected_rules": ["a11y:img-missing-alt"]
+    },
+    "insecure.tf": {
+      "is_vulnerable": true,
+      "expected_rules": ["iac:open-ingress-cidr"]
+    },
+    "clean_react.tsx": {
+      "is_vulnerable": false,
+      "expected_rules": []
+    },
+    "clean_react_bulletproof.tsx": {
+      "is_vulnerable": false,
+      "expected_rules": []
+    },
+    "lookup_table.ts": {
+      "is_vulnerable": false,
+      "expected_rules": []
+    },
+    "dirty.py": {
+      "is_vulnerable": true,
+      "expected_rules": ["owasp:hardcoded-secret", "owasp:eval-usage", "owasp:command-execution", "smells:todo-comment"]
+    },
+    "lookup_table.py": {
+      "is_vulnerable": false,
+      "expected_rules": []
+    },
+    "smelly.rs": {
+      "is_vulnerable": true,
+      "expected_rules": ["smells:unwrap-usage", "owasp:command-execution", "smells:long-function", "smells:todo-comment"]
+    },
+    "duplication_edge.rs": {
+      "is_vulnerable": false,
+      "expected_rules": []
+    }
+  }
+}

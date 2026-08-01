@@ -1,0 +1,237 @@
+{
+  "benchmark": "OWASP Benchmark v1.2",
+  "timestamp": "2026-08-01_22-55-39",
+  "hardware": {
+    "os": "Darwin",
+    "python": "3.9.6",
+    "cpu": "Apple M2 Pro",
+    "cores": 10,
+    "ram_gb": 16.0,
+    "yunq_version": "yunq 0.2.1"
+  },
+  "duration_seconds": 94.1,
+  "loc_scanned": 252966,
+  "global": {
+    "total_test_cases": 2740,
+    "confusion_matrix": {
+      "TP": 566,
+      "FP": 674,
+      "TN": 651,
+      "FN": 849
+    },
+    "precision_pct": 45.65,
+    "recall_pct": 40.0,
+    "f1_pct": 42.64,
+    "fpr_pct": 50.87
+  },
+  "by_category": {
+    "cmdi": {
+      "total": 251,
+      "confusion_matrix": {
+        "TP": 12,
+        "FP": 11,
+        "TN": 114,
+        "FN": 114
+      },
+      "precision_pct": 52.17,
+      "recall_pct": 9.52,
+      "f1_pct": 16.11,
+      "fpr_pct": 8.8
+    },
+    "crypto": {
+      "total": 246,
+      "confusion_matrix": {
+        "TP": 130,
+        "FP": 116,
+        "TN": 0,
+        "FN": 0
+      },
+      "precision_pct": 52.85,
+      "recall_pct": 100.0,
+      "f1_pct": 69.15,
+      "fpr_pct": 100.0
+    },
+    "hash": {
+      "total": 236,
+      "confusion_matrix": {
+        "TP": 65,
+        "FP": 59,
+        "TN": 48,
+        "FN": 64
+      },
+      "precision_pct": 52.42,
+      "recall_pct": 50.39,
+      "f1_pct": 51.38,
+      "fpr_pct": 55.14
+    },
+    "ldapi": {
+      "total": 59,
+      "confusion_matrix": {
+        "TP": 27,
+        "FP": 32,
+        "TN": 0,
+        "FN": 0
+      },
+      "precision_pct": 45.76,
+      "recall_pct": 100.0,
+      "f1_pct": 62.79,
+      "fpr_pct": 100.0
+    },
+    "pathtraver": {
+      "total": 268,
+      "confusion_matrix": {
+        "TP": 18,
+        "FP": 24,
+        "TN": 111,
+        "FN": 115
+      },
+      "precision_pct": 42.86,
+      "recall_pct": 13.53,
+      "f1_pct": 20.57,
+      "fpr_pct": 17.78
+    },
+    "securecookie": {
+      "total": 67,
+      "confusion_matrix": {
+        "TP": 7,
+        "FP": 3,
+        "TN": 28,
+        "FN": 29
+      },
+      "precision_pct": 70.0,
+      "recall_pct": 19.44,
+      "f1_pct": 30.43,
+      "fpr_pct": 9.68
+    },
+    "sqli": {
+      "total": 504,
+      "confusion_matrix": {
+        "TP": 169,
+        "FP": 149,
+        "TN": 83,
+        "FN": 103
+      },
+      "precision_pct": 53.14,
+      "recall_pct": 62.13,
+      "f1_pct": 57.29,
+      "fpr_pct": 64.22
+    },
+    "trustbound": {
+      "total": 126,
+      "confusion_matrix": {
+        "TP": 0,
+        "FP": 0,
+        "TN": 43,
+        "FN": 83
+      },
+      "precision_pct": 0.0,
+      "recall_pct": 0.0,
+      "f1_pct": 0.0,
+      "fpr_pct": 0.0
+    },
+    "weakrand": {
+      "total": 493,
+      "confusion_matrix": {
+        "TP": 137,
+        "FP": 275,
+        "TN": 0,
+        "FN": 81
+      },
+      "precision_pct": 33.25,
+      "recall_pct": 62.84,
+      "f1_pct": 43.49,
+      "fpr_pct": 100.0
+    },
+    "xpathi": {
+      "total": 35,
+      "confusion_matrix": {
+        "TP": 1,
+        "FP": 5,
+        "TN": 15,
+        "FN": 14
+      },
+      "precision_pct": 16.67,
+      "recall_pct": 6.67,
+      "f1_pct": 9.52,
+      "fpr_pct": 25.0
+    },
+    "xss": {
+      "total": 455,
+      "confusion_matrix": {
+        "TP": 0,
+        "FP": 0,
+        "TN": 209,
+        "FN": 246
+      },
+      "precision_pct": 0.0,
+      "recall_pct": 0.0,
+      "f1_pct": 0.0,
+      "fpr_pct": 0.0
+    }
+  },
+  "rules": {
+    "smells:long-function": {
+      "test_cases_flagged": 878,
+      "example_tcs": [
+        3,
+        5,
+        9,
+        10,
+        19
+      ]
+    },
+    "smells:cognitive-complexity": {
+      "test_cases_flagged": 361,
+      "example_tcs": [
+        9,
+        10,
+        35,
+        38,
+        53
+      ]
+    },
+    "smells:high-complexity": {
+      "test_cases_flagged": 311,
+      "example_tcs": [
+        5,
+        9,
+        10,
+        20,
+        35
+      ]
+    },
+    "smells:select-star": {
+      "test_cases_flagged": 310,
+      "example_tcs": [
+        24,
+        26,
+        32,
+        33,
+        34
+      ]
+    },
+    "owasp:weak-crypto": {
+      "test_cases_flagged": 183,
+      "example_tcs": [
+        5,
+        19,
+        20,
+        35,
+        50
+      ]
+    },
+    "secrets:high-entropy-string": {
+      "test_cases_flagged": 59,
+      "example_tcs": [
+        12,
+        21,
+        44,
+        138,
+        139
+      ]
+    }
+  },
+  "unmatched_findings_count": 0,
+  "test_cases_in_ground_truth": 2740,
+  "test_cases_found_by_yunq": 1240
+}

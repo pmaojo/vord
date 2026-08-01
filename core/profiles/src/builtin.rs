@@ -415,6 +415,8 @@ fn java_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
     activations.push((rule("owasp:insecure-deserialization"), Severity::Critical));
+    activations.push((rule("owasp:xss-java"), Severity::Blocker));
+    activations.push((rule("owasp:path-traversal-java"), Severity::Blocker));
     activations
 }
 

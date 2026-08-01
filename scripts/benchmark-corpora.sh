@@ -5,9 +5,9 @@
 # Runs yunq against standardized SAST corpora and publishes reproducible
 # precision + performance numbers:
 #
-#   * OWASP Benchmark v1.2      (~2,740 labeled Java test cases)
-#   * NIST Juliet Test Suite    (64,000+ cases in C/C++ and Java)
-#   * SCA Java dataset          (224,484 labeled defect warnings)
+#   * OWASP Benchmark v1.2beta   (~2,740 labeled Java test cases)
+#   * NIST Juliet Test Suite — Java  (112 CWEs, ~25k cases, Maven/Gradle)
+#   * NIST Juliet Test Suite — C/C++ (~64k cases, CMake build)
 #
 # For each corpus it:
 #   * captures hardware/OS metadata (CPU model, cores, RAM) in the report,
@@ -17,12 +17,17 @@
 #
 # Usage:
 #   scripts/benchmark-corpora.sh --corpus owasp --repetitions 5
-#   scripts/benchmark-corpora.sh --corpus owasp|juliet|sca|all
-#   scripts/benchmark-corpora.sh --sample /path/to/repo --repetitions 3   # validate harness on any local tree
-#   scripts/benchmark-corpora.sh --no-fetch --skip-build
+#   scripts/benchmark-corpora.sh --corpus juliet-java --repetitions 3
+#   scripts/benchmark-corpora.sh --corpus juliet-cpp --repetitions 3
+#   scripts/benchmark-corpora.sh --corpus all --no-build
+#   scripts/benchmark-corpora.sh --sample /path/to/repo --repetitions 3
 #
-# NOTE: Juliet is a ~700 MB download and the full run takes a long time; use
-# --corpus owasp or --sample for quick validation first.
+# NOTES:
+#   * Juliet Java is ~15 MB; Juliet C/C++ is ~700 MB.
+#   * The Microsoft SCA Java dataset (microsoft/vulnerability-dataset) that
+#     was listed here originally has been deleted from GitHub. Use
+#     `--corpus owasp` for labeled Java security benchmarks instead.
+#   * Start with --corpus owasp for quick validation first.
 # ==============================================================================
 
 set -euo pipefail
@@ -46,7 +51,7 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-  --corpus <name>      owasp | juliet | sca | all   (default: all)
+  --corpus <name>      owasp | juliet-java | juliet-cpp | all   (default: all)
   --repetitions <n>    measured runs per corpus      (default: 3)
   --warmup <n>         warm-up runs before measuring (default: 1)
   --sample <path>      run against any local directory instead of a corpus
@@ -96,12 +101,24 @@ capture_hardware() {
 # --- corpus definitions -------------------------------------------------------
 corpus_source() {
   case "$1" in
-    owasp)  echo "https://github.com/OWASP-Benchmark/BenchmarkJava/archive/refs/tags/v1.2.tar.gz" ;;
-    juliet) echo "https://samate.nist.gov/SARD/downloads/test-suites/2023-10-04-juliet-test-suite-for-c-cplusplus-and-java-v1-3.tar.gz" ;;
-    sca)    echo "https://github.com/microsoft/vulnerability-dataset/archive/refs/heads/main.tar.gz" ;;
+    owasp)
+      echo "https://github.com/OWASP-Benchmark/BenchmarkJava/archive/refs/tags/1.2beta.tar.gz" ;;
+    juliet-java)
+      echo "https://github.com/find-sec-bugs/juliet-test-suite/archive/refs/heads/master.tar.gz" ;;
+    juliet-cpp)
+      echo "https://github.com/arichardson/juliet-test-suite-c/archive/refs/heads/master.tar.gz" ;;
   esac
 }
 
+corpus_repo() {
+  case "$1" in
+    juliet-java) echo "https://github.com/find-sec-bugs/juliet-test-suite.git" ;;
+    juliet-cpp)  echo "https://github.com/arichardson/juliet-test-suite-c.git" ;;
+  esac
+}
+
+# For corpora hosted on GitHub, prefer git clone (faster, resume-friendly).
+# For tarball-hosted corpora (OWASP), use curl + tar.
 fetch_corpus() {
   local name="$1"
   local dir="${CORPORA_DIR}/${name}"
@@ -109,12 +126,20 @@ fetch_corpus() {
     echo "  corpus '${name}' already present in ${dir}"
     return
   fi
-  echo "  downloading ${name} from $(corpus_source "${name}") ..."
-  local tarball="${CORPORA_DIR}/${name}.tar.gz"
-  curl -fL --retry 3 -o "${tarball}" "$(corpus_source "${name}")"
-  mkdir -p "${dir}"
-  tar -xzf "${tarball}" -C "${dir}" --strip-components=1
-  rm -f "${tarball}"
+  case "${name}" in
+    owasp)
+      echo "  downloading ${name} from $(corpus_source "${name}") ..."
+      local tarball="${CORPORA_DIR}/${name}.tar.gz"
+      curl -fL --retry 3 -o "${tarball}" "$(corpus_source "${name}")"
+      mkdir -p "${dir}"
+      tar -xzf "${tarball}" -C "${dir}" --strip-components=1
+      rm -f "${tarball}"
+      ;;
+    juliet-java|juliet-cpp)
+      echo "  cloning ${name} from $(corpus_repo "${name}") ..."
+      git clone --depth 1 "$(corpus_repo "${name}")" "${dir}" 2>&1 | tail -1
+      ;;
+  esac
 }
 
 count_loc() {
@@ -216,23 +241,23 @@ if [[ -n "${SAMPLE_PATH}" ]]; then
 fi
 
 case "${CORPUS}" in
-  owasp|juliet|sca)
+  owasp|juliet-java|juliet-cpp)
     if [[ "${DO_FETCH}" == true ]] && ! fetch_corpus "${CORPUS}"; then
-      echo "  ✗ download failed for '${CORPUS}' — rerun with --no-fetch once you have the tree"
+      echo "  download failed for '${CORPUS}' — rerun with --no-fetch once you have the tree"
       exit 1
     fi
     run_corpus "${CORPUS}" "${CORPORA_DIR}/${CORPUS}"
     ;;
   all)
-    for c in owasp juliet sca; do
+    for c in owasp juliet-java juliet-cpp; do
       if [[ "${DO_FETCH}" == true ]] && ! fetch_corpus "${c}"; then
-        echo "  ✗ download failed for '${c}' — skipping (corpora are independent)"
+        echo "  download failed for '${c}' — skipping (corpora are independent)"
         continue
       fi
       run_corpus "${c}" "${CORPORA_DIR}/${c}"
     done
     ;;
-  *) echo "Unknown corpus: ${CORPUS} (owasp|juliet|sca|all)"; exit 1 ;;
+  *) echo "Unknown corpus: ${CORPUS} (owasp|juliet-java|juliet-cpp|all)"; exit 1 ;;
 esac
 
 echo ""

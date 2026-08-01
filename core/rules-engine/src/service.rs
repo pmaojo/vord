@@ -428,9 +428,8 @@ where
             content_hash: Self::content_fingerprint(file),
             config_hash,
         };
-        if let Some(cache) = &self.cache
-            && let Some(hit) = cache.get(&key)
-        {
+        let hit = self.cache.as_ref().and_then(|cache| cache.get(&key));
+        if let Some(hit) = hit {
             return FileOutcome::Analyzed {
                 lines: hit.lines,
                 debt_minutes: hit.debt_minutes,

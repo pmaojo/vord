@@ -1,0 +1,460 @@
+{
+  "timestamp": "2026-08-01_23-20-38",
+  "duration_seconds": 0.1,
+  "global": {
+    "total_fixtures": 16,
+    "file_level": {
+      "TP": 9,
+      "FP": 3,
+      "TN": 4,
+      "FN": 0,
+      "precision_pct": 75.0,
+      "recall_pct": 100.0,
+      "f1_pct": 85.7
+    },
+    "rule_level": {
+      "TP": 18,
+      "FP": 22,
+      "FN": 0,
+      "expected_rules": 18,
+      "precision_pct": 45.0,
+      "recall_pct": 100.0,
+      "f1_pct": 62.1
+    }
+  },
+  "by_language": {
+    "hcl": {
+      "fixture_count": 1,
+      "file_level": {
+        "TP": 1,
+        "FP": 0,
+        "TN": 0,
+        "FN": 0,
+        "precision_pct": 100.0,
+        "recall_pct": 100.0,
+        "f1_pct": 100.0
+      },
+      "rule_level": {
+        "TP": 1,
+        "FP": 1,
+        "FN": 0,
+        "expected_rules": 1,
+        "precision_pct": 50.0,
+        "recall_pct": 100.0,
+        "f1_pct": 66.7
+      }
+    },
+    "html": {
+      "fixture_count": 1,
+      "file_level": {
+        "TP": 1,
+        "FP": 0,
+        "TN": 0,
+        "FN": 0,
+        "precision_pct": 100.0,
+        "recall_pct": 100.0,
+        "f1_pct": 100.0
+      },
+      "rule_level": {
+        "TP": 1,
+        "FP": 1,
+        "FN": 0,
+        "expected_rules": 1,
+        "precision_pct": 50.0,
+        "recall_pct": 100.0,
+        "f1_pct": 66.7
+      }
+    },
+    "python": {
+      "fixture_count": 2,
+      "file_level": {
+        "TP": 1,
+        "FP": 0,
+        "TN": 1,
+        "FN": 0,
+        "precision_pct": 100.0,
+        "recall_pct": 100.0,
+        "f1_pct": 100.0
+      },
+      "rule_level": {
+        "TP": 4,
+        "FP": 0,
+        "FN": 0,
+        "expected_rules": 4,
+        "precision_pct": 100.0,
+        "recall_pct": 100.0,
+        "f1_pct": 100.0
+      }
+    },
+    "rust": {
+      "fixture_count": 2,
+      "file_level": {
+        "TP": 1,
+        "FP": 0,
+        "TN": 1,
+        "FN": 0,
+        "precision_pct": 100.0,
+        "recall_pct": 100.0,
+        "f1_pct": 100.0
+      },
+      "rule_level": {
+        "TP": 4,
+        "FP": 0,
+        "FN": 0,
+        "expected_rules": 4,
+        "precision_pct": 100.0,
+        "recall_pct": 100.0,
+        "f1_pct": 100.0
+      }
+    },
+    "typescript": {
+      "fixture_count": 10,
+      "file_level": {
+        "TP": 5,
+        "FP": 3,
+        "TN": 2,
+        "FN": 0,
+        "precision_pct": 62.5,
+        "recall_pct": 100.0,
+        "f1_pct": 76.9
+      },
+      "rule_level": {
+        "TP": 8,
+        "FP": 20,
+        "FN": 0,
+        "expected_rules": 8,
+        "precision_pct": 28.6,
+        "recall_pct": 100.0,
+        "f1_pct": 44.4
+      }
+    }
+  },
+  "by_rule": {
+    "a11y:img-missing-alt": {
+      "expected": 1,
+      "matched": 1,
+      "recall_pct": 100.0
+    },
+    "iac:open-ingress-cidr": {
+      "expected": 1,
+      "matched": 1,
+      "recall_pct": 100.0
+    },
+    "owasp:command-execution": {
+      "expected": 3,
+      "matched": 3,
+      "recall_pct": 100.0
+    },
+    "owasp:cross-file-injection": {
+      "expected": 1,
+      "matched": 1,
+      "recall_pct": 100.0
+    },
+    "owasp:eval-usage": {
+      "expected": 2,
+      "matched": 2,
+      "recall_pct": 100.0
+    },
+    "owasp:hardcoded-secret": {
+      "expected": 2,
+      "matched": 2,
+      "recall_pct": 100.0
+    },
+    "react:rules-of-hooks-naming": {
+      "expected": 1,
+      "matched": 1,
+      "recall_pct": 100.0
+    },
+    "secrets:aws-access-key-id": {
+      "expected": 1,
+      "matched": 1,
+      "recall_pct": 100.0
+    },
+    "smells:long-function": {
+      "expected": 2,
+      "matched": 2,
+      "recall_pct": 100.0
+    },
+    "smells:todo-comment": {
+      "expected": 3,
+      "matched": 3,
+      "recall_pct": 100.0
+    },
+    "smells:unwrap-usage": {
+      "expected": 1,
+      "matched": 1,
+      "recall_pct": 100.0
+    }
+  },
+  "per_file": [
+    {
+      "file": "vulnerable.ts",
+      "lang": "typescript",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "owasp:hardcoded-secret",
+        "owasp:eval-usage",
+        "secrets:aws-access-key-id",
+        "smells:todo-comment"
+      ],
+      "rules_fired": [
+        "owasp:eval-usage",
+        "owasp:hardcoded-secret",
+        "owasp:injection",
+        "secrets:aws-access-key-id",
+        "secrets:high-entropy-string",
+        "smells:todo-comment"
+      ],
+      "missed_rules": [],
+      "extra_rules": [
+        "owasp:injection",
+        "secrets:high-entropy-string"
+      ]
+    },
+    {
+      "file": "caller.ts",
+      "lang": "typescript",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "owasp:cross-file-injection"
+      ],
+      "rules_fired": [
+        "owasp:cross-file-injection"
+      ],
+      "missed_rules": [],
+      "extra_rules": []
+    },
+    {
+      "file": "lib_exec.ts",
+      "lang": "typescript",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "owasp:command-execution"
+      ],
+      "rules_fired": [
+        "owasp:command-execution"
+      ],
+      "missed_rules": [],
+      "extra_rules": []
+    },
+    {
+      "file": "smelly_owasp_nosql.ts",
+      "lang": "typescript",
+      "is_vulnerable": false,
+      "is_flagged": true,
+      "expected_rules": [],
+      "rules_fired": [
+        "typescript:loose-equality"
+      ],
+      "missed_rules": [],
+      "extra_rules": [
+        "typescript:loose-equality"
+      ]
+    },
+    {
+      "file": "smelly_react.tsx",
+      "lang": "typescript",
+      "is_vulnerable": false,
+      "is_flagged": true,
+      "expected_rules": [],
+      "rules_fired": [
+        "react:array-index-key",
+        "react:dangerously-set-inner-html",
+        "react:direct-state-mutation",
+        "react:hook-missing-deps-array",
+        "react:inline-prop-function-in-component",
+        "react:jsx-img-missing-alt",
+        "react:rules-of-hooks-conditional",
+        "react:unsafe-target-blank",
+        "typescript:leftover-debug-statement"
+      ],
+      "missed_rules": [],
+      "extra_rules": [
+        "react:array-index-key",
+        "react:dangerously-set-inner-html",
+        "react:direct-state-mutation",
+        "react:hook-missing-deps-array",
+        "react:inline-prop-function-in-component",
+        "react:jsx-img-missing-alt",
+        "react:rules-of-hooks-conditional",
+        "react:unsafe-target-blank",
+        "typescript:leftover-debug-statement"
+      ]
+    },
+    {
+      "file": "smelly_react_bulletproof.tsx",
+      "lang": "typescript",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "react:rules-of-hooks-naming"
+      ],
+      "rules_fired": [
+        "react:rules-of-hooks-naming",
+        "typescript:leftover-debug-statement",
+        "typescript:promise-then-without-catch"
+      ],
+      "missed_rules": [],
+      "extra_rules": [
+        "typescript:leftover-debug-statement",
+        "typescript:promise-then-without-catch"
+      ]
+    },
+    {
+      "file": "long_function.ts",
+      "lang": "typescript",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "smells:long-function"
+      ],
+      "rules_fired": [
+        "smells:cognitive-complexity",
+        "smells:high-complexity",
+        "smells:long-function"
+      ],
+      "missed_rules": [],
+      "extra_rules": [
+        "smells:cognitive-complexity",
+        "smells:high-complexity"
+      ]
+    },
+    {
+      "file": "inaccessible.html",
+      "lang": "html",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "a11y:img-missing-alt"
+      ],
+      "rules_fired": [
+        "a11y:img-missing-alt",
+        "a11y:missing-lang-attribute"
+      ],
+      "missed_rules": [],
+      "extra_rules": [
+        "a11y:missing-lang-attribute"
+      ]
+    },
+    {
+      "file": "insecure.tf",
+      "lang": "hcl",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "iac:open-ingress-cidr"
+      ],
+      "rules_fired": [
+        "iac:iam-wildcard-permission",
+        "iac:open-ingress-cidr"
+      ],
+      "missed_rules": [],
+      "extra_rules": [
+        "iac:iam-wildcard-permission"
+      ]
+    },
+    {
+      "file": "clean_react.tsx",
+      "lang": "typescript",
+      "is_vulnerable": false,
+      "is_flagged": true,
+      "expected_rules": [],
+      "rules_fired": [
+        "react:hook-missing-deps-array",
+        "smells:cognitive-complexity",
+        "smells:high-complexity",
+        "typescript:leftover-debug-statement"
+      ],
+      "missed_rules": [],
+      "extra_rules": [
+        "react:hook-missing-deps-array",
+        "smells:cognitive-complexity",
+        "smells:high-complexity",
+        "typescript:leftover-debug-statement"
+      ]
+    },
+    {
+      "file": "clean_react_bulletproof.tsx",
+      "lang": "typescript",
+      "is_vulnerable": false,
+      "is_flagged": false,
+      "expected_rules": [],
+      "rules_fired": [],
+      "missed_rules": [],
+      "extra_rules": []
+    },
+    {
+      "file": "lookup_table.ts",
+      "lang": "typescript",
+      "is_vulnerable": false,
+      "is_flagged": false,
+      "expected_rules": [],
+      "rules_fired": [],
+      "missed_rules": [],
+      "extra_rules": []
+    },
+    {
+      "file": "dirty.py",
+      "lang": "python",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "owasp:hardcoded-secret",
+        "owasp:eval-usage",
+        "owasp:command-execution",
+        "smells:todo-comment"
+      ],
+      "rules_fired": [
+        "owasp:command-execution",
+        "owasp:eval-usage",
+        "owasp:hardcoded-secret",
+        "smells:todo-comment"
+      ],
+      "missed_rules": [],
+      "extra_rules": []
+    },
+    {
+      "file": "lookup_table.py",
+      "lang": "python",
+      "is_vulnerable": false,
+      "is_flagged": false,
+      "expected_rules": [],
+      "rules_fired": [],
+      "missed_rules": [],
+      "extra_rules": []
+    },
+    {
+      "file": "smelly.rs",
+      "lang": "rust",
+      "is_vulnerable": true,
+      "is_flagged": true,
+      "expected_rules": [
+        "smells:unwrap-usage",
+        "owasp:command-execution",
+        "smells:long-function",
+        "smells:todo-comment"
+      ],
+      "rules_fired": [
+        "owasp:command-execution",
+        "smells:long-function",
+        "smells:todo-comment",
+        "smells:unwrap-usage"
+      ],
+      "missed_rules": [],
+      "extra_rules": []
+    },
+    {
+      "file": "duplication_edge.rs",
+      "lang": "rust",
+      "is_vulnerable": false,
+      "is_flagged": false,
+      "expected_rules": [],
+      "rules_fired": [],
+      "missed_rules": [],
+      "extra_rules": []
+    }
+  ]
+}

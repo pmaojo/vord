@@ -2,7 +2,7 @@
 //! utility functions and guard patterns that the clone detector
 //! otherwise flags as copy-paste.
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
+use yunq_ast::{AstNode, NodeKind};
 
 /// Returns the inner grammar-kind name for a `NodeKind::Other` node,
 /// or `None` for neutral-AST node kinds. Every Python rule that
