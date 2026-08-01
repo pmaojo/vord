@@ -3590,6 +3590,7 @@ name = "yunq-rules-owasp"
 version = "0.2.1"
 dependencies = [
  "yunq-ast",
+ "yunq-parser-go",
  "yunq-parser-python",
  "yunq-parser-rust",
  "yunq-parser-typescript",

@@ -11,6 +11,7 @@ mod eval_usage;
 mod hardcoded_secret;
 mod injection;
 mod insecure_deserialization;
+mod insecure_file_permissions;
 mod insecure_random;
 mod path_traversal;
 mod permissive_cors;
@@ -29,6 +30,7 @@ pub use eval_usage::EvalUsageRule;
 pub use hardcoded_secret::HardcodedSecretRule;
 pub use injection::InjectionRule;
 pub use insecure_deserialization::InsecureDeserializationRule;
+pub use insecure_file_permissions::InsecureFilePermissionsRule;
 pub use insecure_random::InsecureRandomRule;
 pub use path_traversal::PathTraversalRule;
 pub use permissive_cors::PermissiveCorsRule;
@@ -58,6 +60,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(PathTraversalRule::new()),
         Box::new(SsrfRule::new()),
         Box::new(UnverifiedJwtRule::new()),
+        Box::new(InsecureFilePermissionsRule::new()),
     ]
 }
 
