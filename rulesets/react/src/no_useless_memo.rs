@@ -1,8 +1,8 @@
 //! Rule: flags `useMemo` or `useCallback` used on primitive literal values
 //! (strings, numbers, booleans, null, undefined) or empty arrays/objects.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{call_arguments, callee_name, is_other};
 
@@ -151,11 +151,11 @@ fn is_useless_memo_arg(node: &AstNode) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         NoUselessMemoRule::new().check(&file, &ast)

@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::{callee_node, is_other, operator_between};
 
@@ -99,8 +99,8 @@ impl Rule for SqlInjectionConcatRule {
         20
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Building a SQL query by concatenating a value into the string before \
                 executing it is SQL injection if that value is ever influenced by external \
                 input; use a parameterized/prepared query and bind the value separately \
@@ -139,14 +139,14 @@ impl Rule for SqlInjectionConcatRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.php", code, LanguageIdentifier::php()).unwrap();
-        let ast = yunq_parser_php::PhpParser::new().parse(&file).unwrap();
+        let ast = vord_parser_php::PhpParser::new().parse(&file).unwrap();
         SqlInjectionConcatRule::new().check(&file, &ast)
     }
 

@@ -7,7 +7,7 @@
 //!
 //! Only *collaborators* count, not parameters. A value object built from six
 //! numbers is not over-injected — it is a value object — so a parameter whose
-//! declared type is data (`yunq_symbols::is_primitive_type`, which sees
+//! declared type is data (`vord_symbols::is_primitive_type`, which sees
 //! through `Vec<String>`/`Optional[int]`/`Map<string, number>`) is skipped.
 //! That distinction is what separates this from a plain "too many parameters"
 //! count (SonarQube's S107, CodeQL's `FunctionsWithManyParameters.ql`), which
@@ -18,9 +18,9 @@
 //! it is skipped rather than guessed at — plain untyped Python `__init__` is
 //! silent here by design, not by omission.
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassRegistry, MethodInfo, mentions_collaborator};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassRegistry, MethodInfo, mentions_collaborator};
 
 /// Suffixes of types that are *settings*, not services: a record of values the
 /// caller assembles and hands over. A class taking four collaborators and a
@@ -115,7 +115,7 @@ impl Rule for ConstructorOverInjectionRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         let registry = ClassRegistry::build(ast);
@@ -150,11 +150,11 @@ impl Rule for ConstructorOverInjectionRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         ConstructorOverInjectionRule::default().check(&file, &ast)
@@ -162,7 +162,7 @@ mod tests {
 
     fn py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         ConstructorOverInjectionRule::default().check(&file, &ast)
@@ -170,7 +170,7 @@ mod tests {
 
     fn rs(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         ConstructorOverInjectionRule::default().check(&file, &ast)
     }
 
@@ -279,7 +279,7 @@ mod tests {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         let findings = ConstructorOverInjectionRule::default().check(&file, &ast);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("5 injected collaborators"));
@@ -293,7 +293,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(
@@ -311,7 +311,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert_eq!(

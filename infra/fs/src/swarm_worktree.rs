@@ -1,5 +1,5 @@
-//! Git worktree lifecycle for `yunq swarm` (roadmap B1) — the I/O half of
-//! `yunq_swarm::worktree`, which only computes *where* a role's worktree and
+//! Git worktree lifecycle for `vord swarm` (roadmap B1) — the I/O half of
+//! `vord_swarm::worktree`, which only computes *where* a role's worktree and
 //! branch belong. Shells out to `git worktree`, the same primitive
 //! `infra/fs::WorktreeSandbox` already assumes exists once a worktree is
 //! created; this module is what creates and tears one down.
@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use yunq_swarm::WorktreePlan;
+use vord_swarm::WorktreePlan;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SwarmWorktreeError {
@@ -149,7 +149,7 @@ mod tests {
 
     fn init_repo() -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "yunq-swarm-worktree-{}-{}",
+            "vord-swarm-worktree-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -167,8 +167,8 @@ mod tests {
             assert!(status.success(), "git {args:?} failed");
         };
         git(&["init", "--template=", "-q", "-b", "main"]);
-        git(&["config", "user.email", "swarm@yunq.test"]);
-        git(&["config", "user.name", "yunq swarm test"]);
+        git(&["config", "user.email", "swarm@vord.test"]);
+        git(&["config", "user.name", "vord swarm test"]);
         std::fs::write(root.join("README.md"), "hi\n").unwrap();
         git(&["add", "README.md"]);
         git(&["commit", "-q", "-m", "init"]);
@@ -180,8 +180,8 @@ mod tests {
         let root = init_repo();
         let plan = WorktreePlan {
             role: "coder".to_string(),
-            path: root.join(".yunq/worktrees/coder"),
-            branch: "yunq/swarm/coder".to_string(),
+            path: root.join(".vord/worktrees/coder"),
+            branch: "vord/swarm/coder".to_string(),
         };
 
         create_worktree(&root, &plan, "main").expect("create succeeds");
@@ -193,7 +193,7 @@ mod tests {
         let listed = list_worktrees(&root).expect("list succeeds");
         assert!(
             listed.iter().any(|w| w.path == plan.path.to_string_lossy()
-                && w.branch.as_deref() == Some("yunq/swarm/coder")),
+                && w.branch.as_deref() == Some("vord/swarm/coder")),
             "expected the created worktree in {listed:?}"
         );
 
@@ -208,14 +208,14 @@ mod tests {
         let root = init_repo();
         let plan = WorktreePlan {
             role: "qa".to_string(),
-            path: root.join(".yunq/worktrees/qa"),
-            branch: "yunq/swarm/qa".to_string(),
+            path: root.join(".vord/worktrees/qa"),
+            branch: "vord/swarm/qa".to_string(),
         };
 
         create_worktree(&root, &plan, "main").expect("first create succeeds");
         remove_worktree(&root, &plan, false).expect("remove succeeds");
 
-        // The branch `yunq/swarm/qa` still exists even though the worktree
+        // The branch `vord/swarm/qa` still exists even though the worktree
         // directory is gone — recreating it must not fail as "branch already
         // exists" the way a naive `git worktree add -b` would.
         create_worktree(&root, &plan, "main")
@@ -227,11 +227,11 @@ mod tests {
 
     #[test]
     fn parses_porcelain_output_with_multiple_entries() {
-        let raw = "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /repo/.yunq/worktrees/coder\nHEAD def456\nbranch refs/heads/yunq/swarm/coder\n\n";
+        let raw = "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /repo/.vord/worktrees/coder\nHEAD def456\nbranch refs/heads/vord/swarm/coder\n\n";
         let parsed = parse_worktree_list(raw);
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].path, "/repo");
         assert_eq!(parsed[0].branch.as_deref(), Some("main"));
-        assert_eq!(parsed[1].branch.as_deref(), Some("yunq/swarm/coder"));
+        assert_eq!(parsed[1].branch.as_deref(), Some("vord/swarm/coder"));
     }
 }

@@ -14,7 +14,7 @@ pub use mem_transmute::MemTransmuteRule;
 pub use process_exit::ProcessExitRule;
 pub use unsafe_undocumented::UnsafeUndocumentedRule;
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

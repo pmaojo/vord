@@ -1,11 +1,11 @@
-//! Configuration loader for `yunq.toml` / `.yunq.toml` and legacy `sonar-project.properties`.
+//! Configuration loader for `vord.toml` / `.vord.toml` and legacy `sonar-project.properties`.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-pub struct YunqConfig {
+pub struct VordConfig {
     #[serde(default)]
     pub project: ProjectConfig,
     #[serde(default)]
@@ -24,24 +24,24 @@ pub struct YunqConfig {
     pub gate: GateSettings,
 }
 
-/// `[gate]` in `yunq.toml` — quality-gate thresholds evaluated by
-/// `yunq scan --enforce-gate` and CI/pre-commit hooks.
+/// `[gate]` in `vord.toml` — quality-gate thresholds evaluated by
+/// `vord scan --enforce-gate` and CI/pre-commit hooks.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GateSettings {
-    /// Minimum health score (0-100). When set, `yunq scan --enforce-gate`
+    /// Minimum health score (0-100). When set, `vord scan --enforce-gate`
     /// exits with status 3 if the score falls below this value.
     pub min_health_score: Option<u32>,
 }
 
-/// `[agent]` in `yunq.toml` — the `yunq agent` runtime's limits.
+/// `[agent]` in `vord.toml` — the `vord agent` runtime's limits.
 ///
-/// Not to be confused with `[agent]` in **`yunq-policy.toml`**, which is the
+/// Not to be confused with `[agent]` in **`vord-policy.toml`**, which is the
 /// Agent Permission Policy: what an agent may *do*. This table is only what a
 /// run may *spend*. They are separate files because they answer to separate
 /// people — the policy is a security control a reviewer owns, these are
 /// operational knobs whoever runs the agent owns.
 ///
-/// Every field is optional and falls back to `yunq_agent`'s own default, so a
+/// Every field is optional and falls back to `vord_agent`'s own default, so a
 /// project states only what it wants changed.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentSettings {
@@ -61,20 +61,20 @@ pub struct AgentSettings {
     pub command_timeout_secs: Option<u64>,
 }
 
-/// `[swarm]` in `yunq.toml` — worktree-per-agent isolation and role config
-/// for `yunq swarm` (roadmap B1). Every role gets its own git worktree so
+/// `[swarm]` in `vord.toml` — worktree-per-agent isolation and role config
+/// for `vord swarm` (roadmap B1). Every role gets its own git worktree so
 /// concurrent agents never contend on the index, and its own [`RoleScope`]
 /// policy narrowing (roadmap B3) so a role's access is scoped to what it
 /// actually needs — the cleaner may not touch `.github/workflows/**`, QA
 /// gets no write access at all.
 ///
-/// Absent (or with no `[[swarm.role]]` entries) means `yunq swarm` has
+/// Absent (or with no `[[swarm.role]]` entries) means `vord swarm` has
 /// nothing configured to run — the same opt-in-until-configured convention
 /// `[architecture]` and `[duplication]` already use.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SwarmSettings {
     /// Directory (repository-relative) worktrees are created under.
-    /// Defaults to `.yunq/worktrees` when unset.
+    /// Defaults to `.vord/worktrees` when unset.
     pub worktree_root: Option<String>,
     #[serde(default, rename = "role")]
     pub roles: Vec<RoleSettings>,
@@ -83,13 +83,13 @@ pub struct SwarmSettings {
     /// match a configured role's own `name`. Ignored when `pipeline` is set.
     pub topology: Option<String>,
     /// An explicit, ordered role-name pipeline — outranks `topology` the same
-    /// way a CLI flag outranks `yunq.toml` elsewhere in this file, since it
+    /// way a CLI flag outranks `vord.toml` elsewhere in this file, since it
     /// says exactly what the operator wants rather than naming a preset.
     pub pipeline: Option<Vec<String>>,
 }
 
 /// One `[[swarm.role]]` entry: a named role, its own worktree/branch naming,
-/// and the access restrictions layered onto the base `yunq-policy.toml` for
+/// and the access restrictions layered onto the base `vord-policy.toml` for
 /// writes made from inside that role's worktree.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RoleSettings {
@@ -97,7 +97,7 @@ pub struct RoleSettings {
     /// Worktree directory for this role, relative to `worktree_root`.
     /// Defaults to the role's own `name` when unset.
     pub worktree: Option<String>,
-    /// Branch the worktree is created on. Defaults to `yunq/swarm/<name>`
+    /// Branch the worktree is created on. Defaults to `vord/swarm/<name>`
     /// when unset.
     pub branch: Option<String>,
     /// Extra paths this role may never write to, beyond the base policy's
@@ -114,9 +114,9 @@ pub struct RoleSettings {
     pub escalate_rules: Vec<String>,
 }
 
-/// Same shape as `yunq-policy.toml`'s `[[protected_path]]`, declared inline
+/// Same shape as `vord-policy.toml`'s `[[protected_path]]`, declared inline
 /// under a role instead of in the policy file — a role's scope lives beside
-/// its other settings in `yunq.toml`, not split across two files.
+/// its other settings in `vord.toml`, not split across two files.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RoleProtectedPath {
     pub pattern: String,
@@ -138,7 +138,7 @@ pub struct AnalysisConfig {
     pub profile: Option<String>,
 }
 
-/// `[duplication]` in `yunq.toml`. Every field is optional and falls back
+/// `[duplication]` in `vord.toml`. Every field is optional and falls back
 /// to the engine default, so a project only states what it wants changed.
 /// These were hardcoded before, which meant a codebase whose shape did not
 /// suit the defaults had no recourse.
@@ -173,9 +173,9 @@ pub struct DuplicationSettings {
     pub max_occurrences: Option<usize>,
 }
 
-/// `[architecture]` in `yunq.toml` — declared component boundaries (roadmap
+/// `[architecture]` in `vord.toml` — declared component boundaries (roadmap
 /// D2). Components are derived automatically from directory topology
-/// (`yunq_import_graph::component_of`, roadmap D1), so there is nothing to
+/// (`vord_import_graph::component_of`, roadmap D1), so there is nothing to
 /// declare here except the edges themselves. All three lists default to
 /// empty, meaning no boundaries declared — the architecture rule is then a
 /// silent no-op, the same fail-open convention `[duplication]` follows.
@@ -199,7 +199,7 @@ pub struct ArchitectureSettings {
 /// `from`/`to` name a component (`component_of`'s output, e.g.
 /// `"core/rules-engine"`) or a whole tier with no component-name segment
 /// (e.g. `"core"`, matching every component under it) — see
-/// `yunq_import_graph::DependencyEdge` for the matching rule.
+/// `vord_import_graph::DependencyEdge` for the matching rule.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DependencyEdgeConfig {
     pub from: String,
@@ -225,22 +225,22 @@ fn default_severity_str() -> String {
     "major".to_string()
 }
 
-impl YunqConfig {
-    /// Attempts to load configuration from `yunq.toml`, `.yunq.toml`, or `sonar-project.properties`.
+impl VordConfig {
+    /// Attempts to load configuration from `vord.toml`, `.vord.toml`, or `sonar-project.properties`.
     pub fn load_from_dir(dir: &Path) -> Option<Self> {
-        let yunq_toml = dir.join("yunq.toml");
-        if yunq_toml.exists() {
-            if let Ok(content) = fs::read_to_string(&yunq_toml) {
-                if let Ok(config) = toml::from_str::<YunqConfig>(&content) {
+        let vord_toml = dir.join("vord.toml");
+        if vord_toml.exists() {
+            if let Ok(content) = fs::read_to_string(&vord_toml) {
+                if let Ok(config) = toml::from_str::<VordConfig>(&content) {
                     return Some(config);
                 }
             }
         }
 
-        let dot_yunq_toml = dir.join(".yunq.toml");
-        if dot_yunq_toml.exists() {
-            if let Ok(content) = fs::read_to_string(&dot_yunq_toml) {
-                if let Ok(config) = toml::from_str::<YunqConfig>(&content) {
+        let dot_vord_toml = dir.join(".vord.toml");
+        if dot_vord_toml.exists() {
+            if let Ok(content) = fs::read_to_string(&dot_vord_toml) {
+                if let Ok(config) = toml::from_str::<VordConfig>(&content) {
                     return Some(config);
                 }
             }
@@ -257,7 +257,7 @@ impl YunqConfig {
     }
 
     pub fn parse_sonar_properties(content: &str) -> Self {
-        let mut config = YunqConfig::default();
+        let mut config = VordConfig::default();
         for line in content.lines() {
             let line = line.trim();
             if line.starts_with('#') || line.is_empty() {
@@ -277,7 +277,7 @@ fn split_csv(val: &str) -> Vec<String> {
     val.split(',').map(|s| s.trim().to_string()).collect()
 }
 
-fn apply_sonar_property(config: &mut YunqConfig, key: &str, val: &str) {
+fn apply_sonar_property(config: &mut VordConfig, key: &str, val: &str) {
     match key {
         "sonar.projectKey" => config.project.key = Some(val.to_string()),
         "sonar.projectName" => config.project.name = Some(val.to_string()),
@@ -294,7 +294,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_yunq_toml_with_custom_rules() {
+    fn parses_vord_toml_with_custom_rules() {
         let toml_content = r#"
 [project]
 key = "my-awesome-repo"
@@ -310,7 +310,7 @@ message = "Do not leave console.log in production code"
 pattern = "console.log"
 severity = "minor"
 "#;
-        let config: YunqConfig = toml::from_str(toml_content).unwrap();
+        let config: VordConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.project.key.as_deref(), Some("my-awesome-repo"));
         assert_eq!(config.rules.custom.len(), 1);
         assert_eq!(config.rules.custom[0].pattern, "console.log");
@@ -326,7 +326,7 @@ sonar.projectName=Legacy App
 sonar.sources=src,lib
 sonar.exclusions=**/vendor/**
 "#;
-        let config = YunqConfig::parse_sonar_properties(props);
+        let config = VordConfig::parse_sonar_properties(props);
         assert_eq!(config.project.key.as_deref(), Some("legacy-sonar-key"));
         assert_eq!(config.project.name.as_deref(), Some("Legacy App"));
         assert_eq!(config.analysis.sources.unwrap(), vec!["src", "lib"]);
@@ -347,7 +347,7 @@ to = "infra"
 from = "core/legacy"
 to = "infra"
 "#;
-        let config: YunqConfig = toml::from_str(toml_content).unwrap();
+        let config: VordConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.architecture.allowed_dependencies.len(), 1);
         assert_eq!(config.architecture.allowed_dependencies[0].from, "bin");
         assert_eq!(config.architecture.forbidden_dependencies[0].to, "infra");
@@ -356,7 +356,7 @@ to = "infra"
 
     #[test]
     fn architecture_table_is_optional() {
-        let config: YunqConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
+        let config: VordConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
         assert_eq!(config.architecture, ArchitectureSettings::default());
     }
 
@@ -369,7 +369,7 @@ max_tokens = 250000
 allowed_commands = ["cargo", "just"]
 command_timeout_secs = 60
 "#;
-        let config: YunqConfig = toml::from_str(toml_content).unwrap();
+        let config: VordConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.agent.max_turns, Some(12));
         assert_eq!(config.agent.max_tokens, Some(250_000));
         assert_eq!(
@@ -385,7 +385,7 @@ command_timeout_secs = 60
 
     #[test]
     fn the_agent_table_is_optional() {
-        let config: YunqConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
+        let config: VordConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
         assert_eq!(config.agent, AgentSettings::default());
     }
 
@@ -393,14 +393,14 @@ command_timeout_secs = 60
     fn parses_swarm_roles() {
         let toml_content = r#"
 [swarm]
-worktree_root = ".yunq/worktrees"
+worktree_root = ".vord/worktrees"
 
 [[swarm.role]]
 name = "coder"
 
 [[swarm.role]]
 name = "qa"
-branch = "yunq/swarm/qa-custom"
+branch = "vord/swarm/qa-custom"
 blocking_rules = ["owasp:eval-usage"]
 escalate_rules = ["smells:god-class"]
 
@@ -408,17 +408,17 @@ escalate_rules = ["smells:god-class"]
 pattern = "**"
 reason = "QA is read-only"
 "#;
-        let config: YunqConfig = toml::from_str(toml_content).unwrap();
+        let config: VordConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(
             config.swarm.worktree_root.as_deref(),
-            Some(".yunq/worktrees")
+            Some(".vord/worktrees")
         );
         assert_eq!(config.swarm.roles.len(), 2);
         assert_eq!(config.swarm.roles[0].name, "coder");
         assert!(config.swarm.roles[0].protected_paths.is_empty());
         let qa = &config.swarm.roles[1];
         assert_eq!(qa.name, "qa");
-        assert_eq!(qa.branch.as_deref(), Some("yunq/swarm/qa-custom"));
+        assert_eq!(qa.branch.as_deref(), Some("vord/swarm/qa-custom"));
         assert_eq!(qa.blocking_rules, vec!["owasp:eval-usage".to_string()]);
         assert_eq!(qa.escalate_rules, vec!["smells:god-class".to_string()]);
         assert_eq!(qa.protected_paths.len(), 1);
@@ -427,7 +427,7 @@ reason = "QA is read-only"
 
     #[test]
     fn the_swarm_table_is_optional() {
-        let config: YunqConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
+        let config: VordConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
         assert_eq!(config.swarm, SwarmSettings::default());
         assert!(config.swarm.roles.is_empty());
     }

@@ -4,15 +4,15 @@
 //! method to behave, but a caller that substitutes this subclass in gets an
 //! exception instead, breaking substitutability outright rather than just
 //! refusing behavior quietly (the milder `smells:refused-bequest` case).
-//! Reuses `yunq_symbols::ClassRegistry` — same wiring as
+//! Reuses `vord_symbols::ClassRegistry` — same wiring as
 //! `smells:refused-bequest`.
 //!
 //! Rust is out of scope: structs have no inheritance, so "override" has no
 //! meaning there.
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry};
+use vord_ast::{AstNode, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry};
 
 /// The method body's statement list: TS's `statement_block`, Python's
 /// `block`.
@@ -137,12 +137,12 @@ impl CrossFileRule for LiskovNotImplementedRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -195,7 +195,7 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -230,7 +230,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (bird_file.clone(), parser.parse(&bird_file).unwrap()),
             (penguin_file.clone(), parser.parse(&penguin_file).unwrap()),

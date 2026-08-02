@@ -1,11 +1,11 @@
 //! Inbound adapter: Dockerfile → neutral AST.
 //!
 //! The upstream Dockerfile grammar is pinned to Tree-sitter 0.20 while the
-//! workspace uses 0.25. A line-oriented adapter covers the instructions yunq
+//! workspace uses 0.25. A line-oriented adapter covers the instructions vord
 //! currently models and avoids linking incompatible Tree-sitter ABIs.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{AstParser, ParseError};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use vord_rules_engine::{AstParser, ParseError};
 
 pub struct DockerfileParser;
 

@@ -1,7 +1,7 @@
 //! Rule: Warns when function calls are passed directly to `useState` instead of a lazy initializer `useState(() => ...)` to avoid expensive re-evaluation on every render.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 pub struct LazyStateInitRule {
     id: RuleId,
@@ -75,7 +75,7 @@ impl Rule for LazyStateInitRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::Span;
+    use vord_ast::Span;
 
     #[test]
     fn flags_eager_function_call_in_use_state() {

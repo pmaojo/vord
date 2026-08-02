@@ -4,8 +4,8 @@
 //! reviewer must confirm the input is trusted or that a hardened parser
 //! (`defusedxml`) is used instead.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const XXE_PRONE_CALLEES: &[&str] = &[
     "xml.etree.ElementTree.parse",
@@ -60,8 +60,8 @@ impl Rule for XmlXxeRule {
         15
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "The standard library's XML parsers resolve external entities by default; parsing untrusted XML with them allows XXE (local file disclosure, SSRF). Confirm the input is trusted, or parse it with defusedxml instead.".into(),
             tags: vec!["security".into(), "xxe".into(), "cwe".into(), "owasp-top10".into()],
             cwe: Some(611),
@@ -70,7 +70,7 @@ impl Rule for XmlXxeRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         ast.descendants()
@@ -83,13 +83,13 @@ impl Rule for XmlXxeRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::{AstParser, FindingKind};
+    use vord_rules_engine::{AstParser, FindingKind};
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         XmlXxeRule::new().check(&file, &ast)

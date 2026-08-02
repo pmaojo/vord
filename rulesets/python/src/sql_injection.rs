@@ -4,8 +4,8 @@
 //! values. Building the query by interpolating a value directly into the
 //! SQL text is exactly how untrusted input becomes SQL injection.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::other_kind_name;
 
@@ -61,8 +61,8 @@ impl Rule for SqlInjectionRule {
         20
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Building a SQL query by interpolating a value into the string before execute() is SQL injection if that value is ever influenced by external input; pass a parameterized query and the values as a separate argument instead.".into(),
             tags: vec!["security".into(), "injection".into(), "cwe".into(), "owasp-top10".into()],
             cwe: Some(89),
@@ -95,13 +95,13 @@ impl Rule for SqlInjectionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         SqlInjectionRule::new().check(&file, &ast)

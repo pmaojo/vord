@@ -1,14 +1,14 @@
 [package]
-name = "yunq-cpd"
+name = "vord-cpd"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Copy-paste detection (rolling-hash duplication analysis) for yunq"
+description = "Copy-paste detection (rolling-hash duplication analysis) for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
+vord-ast = { workspace = true }

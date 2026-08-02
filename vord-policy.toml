@@ -1,11 +1,11 @@
-# yunq Agent Permission Policy
+# vord Agent Permission Policy
 #
 # Governs what an autonomous coding agent (Claude Code, and any host wired to
-# `yunq hook check`) is allowed to write. This is not the quality gate: the
+# `vord hook check`) is allowed to write. This is not the quality gate: the
 # gate asks "is this project releasable?", this asks "may this one write
 # land?" — and answers before the bytes reach disk.
 #
-# Verify any change here with:  yunq hook check <file>
+# Verify any change here with:  vord hook check <file>
 
 [agent]
 enabled = true
@@ -42,15 +42,15 @@ blocking_rules = [
 advisory_rules = []
 
 # Rules that block like `blocking_rules`, but a human can lift the block for
-# one specific write with `yunq hook approve <token>` (the token is printed
+# one specific write with `vord hook approve <token>` (the token is printed
 # in the denial). Use this for findings that are too risky to let an agent
 # resolve unsupervised but are not always wrong — a blanket block would just
 # get the policy edited to remove the rule.
 escalate_rules = []
 
-# Stricter threshold for a path yunq has already seen an agent write to (or
+# Stricter threshold for a path vord has already seen an agent write to (or
 # attempt to write to) before — tracked automatically in
-# .yunq-provenance.json, no manual "mark this file as AI-generated" step
+# .vord-provenance.json, no manual "mark this file as AI-generated" step
 # required. Only the threshold tightens here; blocking_rules/escalate_rules/
 # advisory_rules above apply the same regardless of a path's provenance.
 [agent.ai_touched]
@@ -68,16 +68,16 @@ pattern = "**/*.tf"
 reason = "Terraform changes can rewrite IAM and networking; human review required."
 
 [[protected_path]]
-pattern = "yunq-policy.toml"
+pattern = "vord-policy.toml"
 reason = "This is the rulebook an agent is judged against; an agent that can edit its own referee is not governed by one."
 
 [[protected_path]]
-pattern = "yunq.toml"
+pattern = "vord.toml"
 reason = "Quality-gate thresholds and exclusions live here; loosening them is a quieter way to make a gate pass than fixing the code it flags."
 
 # Requires at least one Gherkin scenario tagged `@covers(<glob>)` somewhere
 # in the repository's .feature files before an agent may write to a matching
-# path — yunq scans for the tag, it does not run the scenario. Commented out
+# path — vord scans for the tag, it does not run the scenario. Commented out
 # by default: unlike protected_path, turning this on immediately denies every
 # matching write until real .feature coverage exists, so it needs the
 # repository to already have (or be ready to add) BDD scenarios, not just a

@@ -4,8 +4,8 @@
 //! The eager form always pays the formatting cost, even when the log
 //! level is disabled and the message is never emitted.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 const LOG_METHODS: &[&str] = &[
     "debug",
@@ -75,8 +75,8 @@ impl Rule for EagerLoggingInterpolationRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Building a log message eagerly (an f-string, %, or + before the call) pays the formatting cost even when the log level is disabled; pass a format string and the values as separate arguments instead.".into(),
             tags: vec!["performance".into(), "python-idiom".into()],
             cwe: None,
@@ -107,13 +107,13 @@ impl Rule for EagerLoggingInterpolationRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         EagerLoggingInterpolationRule::new().check(&file, &ast)

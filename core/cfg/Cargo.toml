@@ -1,15 +1,15 @@
 [package]
-name = "yunq-cfg"
+name = "vord-cfg"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Control Flow Graph (CFG), Cytron SSA, and Ferrante CDG construction for yunq"
+description = "Control Flow Graph (CFG), Cytron SSA, and Ferrante CDG construction for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
+vord-ast = { workspace = true }
 thiserror = { workspace = true }

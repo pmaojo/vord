@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use yunq_ast::Span;
-use yunq_rules_engine::{
+use vord_ast::Span;
+use vord_rules_engine::{
     AnalysisCache, CacheKey, CachedAnalysis, FileFunctionComplexity, Hotspot, HotspotStatus, Issue,
     RuleId, Severity, StructuralCounts,
 };
@@ -54,7 +54,7 @@ struct CachedFileDto {
     issues: Vec<CachedIssueDto>,
     hotspots: Vec<CachedHotspotDto>,
     // Added after the initial cache format shipped; entries written by
-    // older yunq versions simply come back as zero (fail-open, same
+    // older vord versions simply come back as zero (fail-open, same
     // migration pattern as `infra/fs::BaselineStore`).
     #[serde(default)]
     functions: usize,
@@ -67,7 +67,7 @@ struct CachedFileDto {
     #[serde(default)]
     max_nesting_depth: usize,
     // Added after the initial cache format shipped (CRAP, roadmap item C);
-    // entries written by older yunq versions come back empty, the same
+    // entries written by older vord versions come back empty, the same
     // fail-open migration the fields above already use.
     #[serde(default)]
     function_complexities: Vec<CachedFunctionComplexityDto>,
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn roundtrips_through_disk() {
-        let dir = std::env::temp_dir().join(format!("yunq-cache-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-cache-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cache.json");
 
@@ -294,10 +294,10 @@ mod tests {
 
     #[test]
     fn missing_structural_fields_fail_open_to_zero() {
-        // Simulates a cache file written by a yunq version that predates
+        // Simulates a cache file written by a vord version that predates
         // structural counters: the JSON simply omits those keys.
         let dir =
-            std::env::temp_dir().join(format!("yunq-cache-legacy-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-cache-legacy-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cache.json");
         let key = CacheKey {

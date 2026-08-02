@@ -11,7 +11,7 @@ pub use return_value_substitution::ReturnValueSubstitutionMutantRule;
 pub use void_call_deletion::VoidCallDeletionMutantRule;
 
 use std::sync::Arc;
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Returns all instant AST mutation gap analysis rules in this crate as Arcs.
 pub fn rules() -> Vec<Arc<dyn Rule>> {
@@ -38,9 +38,9 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_parser_typescript::TypeScriptParser;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_parser_typescript::TypeScriptParser;
+    use vord_rules_engine::AstParser;
 
     #[test]
     fn test_mutation_rules_detect_boundary_gaps() {

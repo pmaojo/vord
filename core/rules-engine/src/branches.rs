@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A branch within a project. The `is_main` and `is_protected` flags are
-/// data yunq needs (long-lived `main`, no force-push on `release/x`), not
+/// data vord needs (long-lived `main`, no force-push on `release/x`), not
 /// Git's local file concept.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Branch {
@@ -68,8 +68,8 @@ mod tests {
 
     #[test]
     fn main_branch_factory_marks_main_and_protected() {
-        let b = Branch::main("yunq");
-        assert_eq!(b.project_key, "yunq");
+        let b = Branch::main("vord");
+        assert_eq!(b.project_key, "vord");
         assert_eq!(b.name, "main");
         assert!(b.is_main);
         assert!(b.is_protected);
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn feature_branch_factory_marks_non_main_and_unprotected() {
-        let b = Branch::feature("yunq", "feat/new-thing");
+        let b = Branch::feature("vord", "feat/new-thing");
         assert_eq!(b.name, "feat/new-thing");
         assert!(!b.is_main);
         assert!(!b.is_protected);
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn pull_request_carries_base_and_head_branches() {
         let pr = PullRequest {
-            project_key: "yunq".to_string(),
+            project_key: "vord".to_string(),
             id: "42".to_string(),
             provider: "github".to_string(),
             base_branch: "main".to_string(),
@@ -118,9 +118,9 @@ mod tests {
 
     #[test]
     fn branch_equality_holds_for_same_data() {
-        let a = Branch::feature("yunq", "feat/x");
-        let b = Branch::feature("yunq", "feat/x");
-        let c = Branch::feature("yunq", "feat/y");
+        let a = Branch::feature("vord", "feat/x");
+        let b = Branch::feature("vord", "feat/x");
+        let c = Branch::feature("vord", "feat/y");
         assert_eq!(a, b);
         assert_ne!(a, c);
     }

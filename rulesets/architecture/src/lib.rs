@@ -23,7 +23,7 @@ pub use main_sequence::MainSequenceRule;
 pub use stable_dependencies::StableDependencyRule;
 pub use vertical_slice_coupling::VerticalSliceCouplingRule;
 
-use yunq_rules_engine::{CrossFileRule, Rule};
+use vord_rules_engine::{CrossFileRule, Rule};
 
 /// Every per-file rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

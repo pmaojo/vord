@@ -228,7 +228,7 @@ filename f.rs
     #[test]
     fn blame_file_returns_none_outside_a_git_repo() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-blame-not-a-repo-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-blame-not-a-repo-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("f.txt"), "hello\n").unwrap();
         assert!(blame_file(&dir, "f.txt").is_none());

@@ -4,8 +4,8 @@
 //! — so the same code can read a file correctly in CI and mangle it (or
 //! raise `UnicodeDecodeError`) for a user on a different platform.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -94,8 +94,8 @@ impl Rule for OpenWithoutEncodingRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "open() in text mode with no explicit encoding uses the platform's locale-preferred encoding, which differs between systems; pass encoding='utf-8' (or whatever the file actually is) so reading it is reproducible everywhere.".into(),
             tags: vec!["reliability".into(), "python-idiom".into()],
             cwe: None,
@@ -104,7 +104,7 @@ impl Rule for OpenWithoutEncodingRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         ast.descendants()
@@ -122,13 +122,13 @@ impl Rule for OpenWithoutEncodingRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         OpenWithoutEncodingRule::new().check(&file, &ast)

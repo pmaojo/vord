@@ -1,4 +1,4 @@
-# yunq Precision Evaluation: OWASP Benchmark v1.2
+# vord Precision Evaluation: OWASP Benchmark v1.2
 
 ## Environment
 ```
@@ -6,7 +6,7 @@ OS:       Darwin
 CPU:      Apple M2 Pro
 Cores:    10
 RAM:      16.0 GB
-yunq:     yunq 0.2.1
+vord:     vord 0.2.1
 ```
 
 ## Corpus

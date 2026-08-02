@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use yunq_benchmarks::{PerfReport, is_regression, percentile};
+use vord_benchmarks::{PerfReport, is_regression, percentile};
 
 fn corpus_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/rust")
@@ -100,7 +100,7 @@ fn run_benchmark() -> PerfReport {
     // criterion suite's `full_pipeline` benchmark measures, timed directly
     // so this binary needs no criterion dependency in its main path.
     let full_scan_start = Instant::now();
-    futures::executor::block_on(yunq_cli::scan(&corpus)).expect("corpus scan succeeds");
+    futures::executor::block_on(vord_cli::scan(&corpus)).expect("corpus scan succeeds");
     let full_scan_secs = full_scan_start.elapsed().as_secs_f64();
     let throughput_loc_per_sec = loc as f64 / full_scan_secs;
 
@@ -110,7 +110,7 @@ fn run_benchmark() -> PerfReport {
     for file in &files {
         for _ in 0..REPS_PER_FILE {
             let start = Instant::now();
-            futures::executor::block_on(yunq_cli::scan(file)).expect("file scan succeeds");
+            futures::executor::block_on(vord_cli::scan(file)).expect("file scan succeeds");
             per_file_ms.push(start.elapsed().as_secs_f64() * 1000.0);
         }
     }

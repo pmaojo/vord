@@ -3,8 +3,8 @@
 //! or business invariant in production code silently disappears. A
 //! reviewer must confirm the asserted condition isn't load-bearing.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct AssertUsedRule {
     id: RuleId,
@@ -45,8 +45,8 @@ impl Rule for AssertUsedRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`assert` is removed when Python runs with -O; confirm this condition is not enforcing a security or business invariant that must always run.".into(),
             tags: vec!["security".into(), "cwe".into()],
             cwe: Some(617),
@@ -55,7 +55,7 @@ impl Rule for AssertUsedRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         ast.descendants()
@@ -67,13 +67,13 @@ impl Rule for AssertUsedRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::{AstParser, FindingKind};
+    use vord_rules_engine::{AstParser, FindingKind};
 
     use super::*;
 
     fn findings(path: &str, code: &str) -> Vec<Finding> {
         let file = SourceFile::new(path, code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         AssertUsedRule::new().check(&file, &ast)

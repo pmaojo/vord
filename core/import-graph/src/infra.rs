@@ -16,7 +16,7 @@
 //! mean "this code is doing I/O", each tagged with the concern it drags in, so
 //! a finding can name it.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -375,11 +375,11 @@ pub fn infra_roster(language: &LanguageIdentifier) -> &'static [InfraModule] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn ts(code: &str) -> Vec<ImportedModule> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         imported_modules(&file, &ast)
@@ -387,7 +387,7 @@ mod tests {
 
     fn py(code: &str) -> Vec<ImportedModule> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         imported_modules(&file, &ast)
@@ -395,7 +395,7 @@ mod tests {
 
     fn rs(code: &str) -> Vec<ImportedModule> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         imported_modules(&file, &ast)
     }
 
@@ -443,7 +443,7 @@ mod tests {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         let modules = imported_modules(&file, &ast);
         assert_eq!(specifiers(&modules), vec!["database/sql", "gorm.io/gorm"]);
     }

@@ -19,9 +19,9 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_import_graph::{HexLayer, layer_of};
-use yunq_symbols::{ClassInfo, MemberInfo, MethodInfo};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use vord_import_graph::{HexLayer, layer_of};
+use vord_symbols::{ClassInfo, MemberInfo, MethodInfo};
 
 /// Field names and type suffixes that mean "this type has identity" — the mark
 /// of an entity rather than a value object.
@@ -55,10 +55,10 @@ pub fn is_value_object(class: &ClassInfo<'_>) -> bool {
 }
 
 /// Whether a method is the constructor of the type that declares it, whatever
-/// its language calls one (`yunq_symbols::is_constructor_name`: `constructor`,
+/// its language calls one (`vord_symbols::is_constructor_name`: `constructor`,
 /// `__init__`, Rust's `new`, Go's `New<Type>`).
 pub fn is_constructor(method: &MethodInfo<'_>, class: &ClassInfo<'_>) -> bool {
-    yunq_symbols::is_constructor_name(&method.name, &class.name)
+    vord_symbols::is_constructor_name(&method.name, &class.name)
 }
 
 pub fn is_other(node: &AstNode, kind: &str) -> bool {
@@ -336,7 +336,7 @@ pub fn field_mutations(method: &MethodInfo<'_>, fields: &BTreeSet<String>) -> Ve
 /// A table rather than a chain of language checks, and per-language predicates
 /// rather than a `bool` flag threaded through call sites: adding a language is a
 /// row here, and no caller has to know which languages exist. Same shape as
-/// `yunq_ast::lookup_kind` and `core/symbols::classes::EXTRACTORS`.
+/// `vord_ast::lookup_kind` and `core/symbols::classes::EXTRACTORS`.
 const VISIBILITY: &[(&str, VisibilityPolicy)] = &[("rust", rust_is_public), ("go", go_is_public)];
 
 /// Whether one language considers a method reachable from outside its type.
@@ -549,22 +549,22 @@ pub fn declared_methods<'a, 'b>(class: &'b ClassInfo<'a>) -> Vec<&'b MethodInfo<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
-    use yunq_symbols::ClassRegistry;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
+    use vord_symbols::ClassRegistry;
 
     fn parse(path: &str, code: &str, language: LanguageIdentifier) -> AstNode {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         }
     }
 

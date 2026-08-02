@@ -3,8 +3,8 @@
 //! sites and makes the function's behavior depend on mutable state the
 //! signature doesn't reveal.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -48,8 +48,8 @@ impl Rule for GlobalStatementRule {
         20
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`global` lets a function mutate module-level state that its signature doesn't reveal, creating a hidden dependency between unrelated call sites; pass the value in and return it out instead.".into(),
             tags: vec!["maintainability".into(), "python-idiom".into()],
             cwe: None,
@@ -67,13 +67,13 @@ impl Rule for GlobalStatementRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         GlobalStatementRule::new().check(&file, &ast)

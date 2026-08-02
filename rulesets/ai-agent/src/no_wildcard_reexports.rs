@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
 
 declare_rule_id!(NoWildcardReexportsRule, "ai-agent:no-wildcard-reexports");
 
@@ -24,8 +24,8 @@ impl Rule for NoWildcardReexportsRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Wildcard re-exports (`export * from ...`) in index files hide public API boundaries, confusing AI code indexing and semantic graph analysis. Use explicit re-exports (`export { Name } from ...`).".into(),
             tags: vec!["ai-agent".into(), "typescript".into(), "maintainability".into(), "architecture".into()],
             cwe: None,
@@ -79,14 +79,14 @@ fn is_wildcard_export(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check_file(path: &str, code: &str) -> Vec<Finding> {
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         NoWildcardReexportsRule::new().check(&file, &ast)

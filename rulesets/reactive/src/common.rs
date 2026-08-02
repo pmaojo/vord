@@ -4,7 +4,7 @@
 //! `.map`), and matching an assignment/declaration target against a later
 //! call's receiver by comparing source text directly.
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 /// A bindable assignment/declaration target: a plain identifier (`sub`), or
 /// a `this.field`/`self.field` member access. Both are textually canonical

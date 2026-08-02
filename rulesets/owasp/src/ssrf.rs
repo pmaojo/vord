@@ -1,6 +1,6 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
-use yunq_taint::{TaintAnalysis, TaintConfig};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_taint::{TaintAnalysis, TaintConfig};
 
 /// Taint-based Server-Side Request Forgery detection for TypeScript:
 /// user-controlled input reaching an outbound HTTP request sink lets an
@@ -58,8 +58,8 @@ impl Rule for SsrfRule {
         IssueType::Vulnerability
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Untrusted user input reaches an outbound HTTP request (fetch/axios/http client), which can lead to Server-Side Request Forgery. Validate the destination against an allowlist of hosts before requesting it.".into(),
             tags: vec!["security".into(), "owasp-a10".into(), "cwe".into(), "ssrf".into()],
             cwe: Some(918),
@@ -88,14 +88,14 @@ impl Rule for SsrfRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         SsrfRule::new().check(&file, &ast)

@@ -7,7 +7,7 @@
 //! registered language, so the roster below is grown from the grammars
 //! actually vendored in `parsers/treesitter-*`, not guessed.
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 /// Grammar node kinds that denote a class-like type definition (class,
 /// struct, interface, enum, trait...) across the registered language roster.
@@ -169,7 +169,7 @@ fn walk(node: &AstNode, depth: usize, counts: &mut StructuralCounts) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::Span;
+    use vord_ast::Span;
 
     fn leaf(kind: NodeKind, text: &str) -> AstNode {
         AstNode::new(kind, Span::new(1, 1, 1, 1), text, vec![])

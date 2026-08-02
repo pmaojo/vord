@@ -23,7 +23,7 @@ fi
 
 # Whatever is currently on disk (this fixed script) becomes the canonical
 # replacement for every historical copy found during the rewrite below.
-cp "$0" /tmp/yunq_new_script.sh
+cp "$0" /tmp/vord_new_script.sh
 
 python3 - <<'PYEOF'
 import pathlib
@@ -71,8 +71,8 @@ new = '''    #[test]
         assert_eq!(findings.len(), 4);
     }'''
 
-pathlib.Path("/tmp/yunq_old_block.txt").write_text(old)
-pathlib.Path("/tmp/yunq_new_block.txt").write_text(new)
+pathlib.Path("/tmp/vord_old_block.txt").write_text(old)
+pathlib.Path("/tmp/vord_new_block.txt").write_text(new)
 PYEOF
 
 FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --tree-filter '
@@ -82,13 +82,13 @@ import pathlib, shutil
 rust_file = pathlib.Path("rulesets/owasp/src/hardcoded_secret.rs")
 if rust_file.exists():
     content = rust_file.read_text()
-    old = pathlib.Path("/tmp/yunq_old_block.txt").read_text()
-    new = pathlib.Path("/tmp/yunq_new_block.txt").read_text()
+    old = pathlib.Path("/tmp/vord_old_block.txt").read_text()
+    new = pathlib.Path("/tmp/vord_new_block.txt").read_text()
     if old in content:
         rust_file.write_text(content.replace(old, new))
 
 script_file = pathlib.Path("scripts/fix-secret-in-history.sh")
-canonical = pathlib.Path("/tmp/yunq_new_script.sh")
+canonical = pathlib.Path("/tmp/vord_new_script.sh")
 if script_file.exists() and canonical.exists():
     shutil.copyfile(canonical, script_file)
 PYEOF

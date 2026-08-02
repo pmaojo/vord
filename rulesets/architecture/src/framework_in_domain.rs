@@ -12,15 +12,15 @@
 //! Per-file (`Rule`): a file's own import list and its own path are all this
 //! needs.
 //!
-//! The module roster itself now lives in `yunq_import_graph::infra_roster` —
+//! The module roster itself now lives in `vord_import_graph::infra_roster` —
 //! curated, not inferred, and shared with `ddd:bdd-step-reaches-infra`, which
 //! needs the identical "does this code reach outside the process" vocabulary
 //! at call sites inside a Gherkin step implementation rather than at a file's
 //! own import list.
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_import_graph::{HexLayer, imported_modules, infra_roster, layer_of, matches_module};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_import_graph::{HexLayer, imported_modules, infra_roster, layer_of, matches_module};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// The rings that must stay pure. Adapters and infrastructure are *supposed*
 /// to import frameworks — that is their entire job.
@@ -85,7 +85,7 @@ impl Rule for FrameworkInDomainRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         let layer = layer_of(file.path());
@@ -115,20 +115,20 @@ impl Rule for FrameworkInDomainRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast: AstNode = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         FrameworkInDomainRule::new().check(&file, &ast)
     }
@@ -275,7 +275,7 @@ mod tests {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         let findings = FrameworkInDomainRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("a database driver"));
@@ -289,7 +289,7 @@ mod tests {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         assert!(FrameworkInDomainRule::new().check(&file, &ast).is_empty());
     }
 }

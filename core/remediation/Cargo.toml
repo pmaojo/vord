@@ -1,18 +1,18 @@
 [package]
-name = "yunq-remediation"
+name = "vord-remediation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Verify-before-suggest AI remediation loop for yunq"
+description = "Verify-before-suggest AI remediation loop for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-rules-engine = { workspace = true }
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

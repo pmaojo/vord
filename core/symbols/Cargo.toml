@@ -1,21 +1,21 @@
 [package]
-name = "yunq-symbols"
+name = "vord-symbols"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Symbol resolution for yunq's cross-file analysis"
+description = "Symbol resolution for vord's cross-file analysis"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
+vord-ast = { workspace = true }
 
 [dev-dependencies]
-yunq-rules-engine = { workspace = true }
-yunq-parser-typescript = { workspace = true }
-yunq-parser-rust = { workspace = true }
-yunq-parser-python = { workspace = true }
-yunq-parser-go = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-parser-typescript = { workspace = true }
+vord-parser-rust = { workspace = true }
+vord-parser-python = { workspace = true }
+vord-parser-go = { workspace = true }

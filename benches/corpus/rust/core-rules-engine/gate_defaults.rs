@@ -1,16 +1,16 @@
 //! The built-in quality gate every project falls back to until an admin
 //! assigns one explicitly. Single source of truth for the conditions the
-//! CLI (`yunq_cli::default_quality_gate`) and the server (project → gate
+//! CLI (`vord_cli::default_quality_gate`) and the server (project → gate
 //! assignment, badge status) both evaluate against, so the two front ends
 //! never drift apart on what "the default gate" means.
 
-use yunq_profiles::{ComparisonOperator, Condition, MetricKey, QualityGate};
+use vord_profiles::{ComparisonOperator, Condition, MetricKey, QualityGate};
 
 /// No blocker or critical issues, every file must parse, and (when a
 /// coverage report was ingested) coverage stays at or above 80%.
 pub fn default_gate() -> QualityGate {
     let metric = |raw: &str| MetricKey::new(raw).expect("valid metric key");
-    QualityGate::new("yunq-default")
+    QualityGate::new("vord-default")
         .with_condition(Condition::new(metric("blocker_issues"), ComparisonOperator::GreaterThan, 0.0))
         .with_condition(Condition::new(metric("critical_issues"), ComparisonOperator::GreaterThan, 0.0))
         .with_condition(Condition::new(metric("parse_failures"), ComparisonOperator::GreaterThan, 0.0))
@@ -25,7 +25,7 @@ mod tests {
     #[test]
     fn default_gate_has_the_documented_conditions() {
         let gate = default_gate();
-        assert_eq!(gate.name(), "yunq-default");
+        assert_eq!(gate.name(), "vord-default");
         assert_eq!(gate.conditions().len(), 4);
     }
 

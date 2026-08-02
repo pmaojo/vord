@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const SUSPICIOUS_NAMES: &[&str] = &[
     "password",
@@ -82,8 +82,8 @@ impl Rule for HardcodedSecretRule {
         IssueType::Vulnerability
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Credentials must not be hardcoded: detects credential-named variables holding literals and well-known provider token formats (AWS, GitHub, Stripe, Slack, Google, private keys).".into(),
             tags: vec!["security".into(), "secrets".into(), "owasp-a07".into()],
             cwe: Some(798),
@@ -92,11 +92,11 @@ impl Rule for HardcodedSecretRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
-        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
-        let in_test = |line: u32| yunq_rules_engine::in_ranges(&test_ranges, line);
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+        let in_test = |line: u32| vord_rules_engine::in_ranges(&test_ranges, line);
 
         let mut findings = credential_assignment_findings(ast, &in_test);
         findings.extend(provider_signature_findings(ast, &in_test));
@@ -168,14 +168,14 @@ fn provider_signature_findings(ast: &AstNode, in_test: &impl Fn(u32) -> bool) ->
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         HardcodedSecretRule::new().check(&file, &ast)
@@ -183,7 +183,7 @@ mod tests {
 
     fn check_rust(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         HardcodedSecretRule::new().check(&file, &ast)
     }
 
@@ -222,16 +222,16 @@ mod tests {
     #[test]
     fn does_not_flag_a_lookup_key_passed_to_a_credential_named_variable() {
         // The string literal here is `localStorage`'s lookup key, not the
-        // token's actual value — yunq's own dogfood scan flagged exactly
+        // token's actual value — vord's own dogfood scan flagged exactly
         // this shape in frontend/src/lib/api.ts before this fix.
-        assert!(check_ts("const token = localStorage.getItem('yunq_session_token');\n").is_empty());
+        assert!(check_ts("const token = localStorage.getItem('vord_session_token');\n").is_empty());
     }
 
     #[test]
     fn does_not_flag_an_env_var_name_read_into_a_credential_named_variable() {
-        // `"YUNQ_LLM_API_KEY"` is the environment variable's *name*, not a
+        // `"VORD_LLM_API_KEY"` is the environment variable's *name*, not a
         // hardcoded secret value (infra/llm/src/lib.rs's real shape).
-        assert!(check_rust("fn f() {\n    let api_key = std::env::var(\"YUNQ_LLM_API_KEY\").unwrap_or_default();\n}\n").is_empty());
+        assert!(check_rust("fn f() {\n    let api_key = std::env::var(\"VORD_LLM_API_KEY\").unwrap_or_default();\n}\n").is_empty());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Filesystem and process adapter for `yunq_agent::Workspace`: the tree the
+//! Filesystem and process adapter for `vord_agent::Workspace`: the tree the
 //! agent actually edits.
 //!
 //! Two properties matter more here than anywhere else in this crate.
@@ -6,7 +6,7 @@
 //! **Nothing escapes the root.** Every path from the model is resolved
 //! lexically against the repository root and rejected if it lands outside —
 //! before the file is opened, because a `..`-traversal that only fails when
-//! the target happens not to exist is not a control. `yunq-policy.toml`'s
+//! the target happens not to exist is not a control. `vord-policy.toml`'s
 //! `protected_path` globs are written against repository-relative paths, so a
 //! write that escapes the root escapes the policy with it.
 //!
@@ -18,7 +18,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use yunq_agent::runtime::{CommandOutput, Workspace, WorkspaceError};
+use vord_agent::runtime::{CommandOutput, Workspace, WorkspaceError};
 
 /// How long a `run` command may take before it is killed.
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
@@ -206,7 +206,7 @@ mod tests {
 
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "yunq-agent-workspace-{name}-{}",
+            "vord-agent-workspace-{name}-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&root);

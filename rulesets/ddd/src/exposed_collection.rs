@@ -19,9 +19,9 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry};
 
 use crate::common::{
     AccessorKind, accessor_of, field_names, is_constructor, is_domain_path, is_public,
@@ -195,7 +195,7 @@ impl CrossFileRule for ExposedCollectionRule {
         let views: Vec<(&str, &AstNode)> = files
             .iter()
             .filter(|(file, _)| is_domain_path(file.path()))
-            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .map(|(file, ast)| (file.path(), ast))
             .collect();
         if views.is_empty() {
@@ -244,20 +244,20 @@ impl CrossFileRule for ExposedCollectionRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         ExposedCollectionRule::new()
             .check(&[(file, ast)])

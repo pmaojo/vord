@@ -7,7 +7,7 @@
 //! exist. `AnyLlmProvider` is the usual workaround: an enum over the
 //! concrete adapters, dispatching to whichever one is active.
 
-use yunq_remediation::{FixPrompt, FixProposal, LlmError, LlmProvider};
+use vord_remediation::{FixPrompt, FixProposal, LlmError, LlmProvider};
 
 use crate::{AnthropicAdapter, OpenAiCompatibleAdapter};
 
@@ -59,7 +59,7 @@ impl LlmProviderConfig {
     /// the behavior before per-project BYOK existed, and the fallback for
     /// any project that hasn't configured its own provider.
     pub fn from_env() -> Self {
-        let kind = std::env::var("YUNQ_LLM_PROVIDER")
+        let kind = std::env::var("VORD_LLM_PROVIDER")
             .ok()
             .and_then(|raw| LlmProviderKind::parse(&raw))
             .unwrap_or(LlmProviderKind::OpenAiCompatible);

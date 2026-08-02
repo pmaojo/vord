@@ -27,7 +27,7 @@ pub use sql_injection_concat::SqlInjectionConcatRule;
 pub use unchecked_type_assertion::UncheckedTypeAssertionRule;
 pub use weak_random_token::WeakRandomTokenRule;
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

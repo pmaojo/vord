@@ -1,8 +1,8 @@
 //! Rule: flags deserialization of untrusted data via unsafe APIs
 //! (Python pickle/PyYAML, Java ObjectInputStream, Ruby Marshal, PHP unserialize).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const UNSAFE_MARKERS: &[&str] = &[
     "pickle.loads",
@@ -66,7 +66,7 @@ impl Rule for InsecureDeserializationRule {
                     format!(
                         "Deserializing untrusted data via '{marker}' can execute arbitrary code; use a safe/restricted deserializer"
                     ),
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
                 continue;
             }
@@ -74,7 +74,7 @@ impl Rule for InsecureDeserializationRule {
             if line.contains("yaml.load(") && !line.contains("Loader=") && !line.contains("safe_load") {
                 findings.push(Finding::new(
                     "yaml.load() without a restricted Loader can execute arbitrary code; use yaml.safe_load() or Loader=yaml.SafeLoader",
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
             }
         }
@@ -90,7 +90,7 @@ mod tests {
     fn flags_python_pickle_loads() {
         let code = "data = pickle.loads(request.body)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let findings = InsecureDeserializationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -99,7 +99,7 @@ mod tests {
     fn flags_unsafe_yaml_load() {
         let code = "cfg = yaml.load(stream)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let findings = InsecureDeserializationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -108,7 +108,7 @@ mod tests {
     fn allows_safe_yaml_load() {
         let code = "cfg = yaml.safe_load(stream)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let findings = InsecureDeserializationRule::new().check(&file, &ast);
         assert!(findings.is_empty());
     }
@@ -117,7 +117,7 @@ mod tests {
     fn flags_java_object_input_stream() {
         let code = "Object o = new ObjectInputStream(in).readObject();\n";
         let file = SourceFile::new("App.java", code, LanguageIdentifier::java()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let findings = InsecureDeserializationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }

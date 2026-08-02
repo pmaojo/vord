@@ -1,16 +1,16 @@
 //! User-configurable secret pattern: lets teams describe a private or
 //! self-hosted service's token/credential format as a regex, without
-//! touching yunq source code — the same extensibility point the OWASP
+//! touching vord source code — the same extensibility point the OWASP
 //! ruleset already offers for generic patterns
-//! (`yunq_rules_owasp::CustomPatternRule`), specialized here for secrets so
+//! (`vord_rules_owasp::CustomPatternRule`), specialized here for secrets so
 //! findings carry the right tags/CWE and severity default.
 
 use regex::Regex;
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// A secret-detection rule built from a user-supplied regex pattern. Wire
-/// this up from `yunq.toml`/quality-profile parameters (one instance per
+/// this up from `vord.toml`/quality-profile parameters (one instance per
 /// configured pattern) to detect private-service credentials the built-in
 /// provider rules don't know about.
 pub struct CustomSecretPatternRule {
@@ -104,14 +104,14 @@ impl Rule for CustomSecretPatternRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check_ts(rule: &CustomSecretPatternRule, code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         rule.check(&file, &ast)

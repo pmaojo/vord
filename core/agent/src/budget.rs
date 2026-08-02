@@ -4,11 +4,11 @@
 //! A runtime that can burn an unbounded budget against the same wall is not
 //! shippable, so exhaustion is a *verdict* here, not an error — the caller
 //! must be able to tell "the analyzer disagreed" from "we ran out of money
-//! before finding out", and both from "yunq itself broke".
+//! before finding out", and both from "vord itself broke".
 
 use crate::session::TokenUsage;
 
-/// The ceilings one `yunq agent` run may not cross.
+/// The ceilings one `vord agent` run may not cross.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Budget {
     pub max_turns: u32,
@@ -93,7 +93,7 @@ impl Ledger {
 /// the analyzer's verdict never changes, and the run would otherwise spend
 /// its whole budget rewriting one file with the same bytes.
 ///
-/// Session-scoped and in-memory, unlike `yunq hook`'s persisted loop guard:
+/// Session-scoped and in-memory, unlike `vord hook`'s persisted loop guard:
 /// a hook invocation is a fresh process and has to remember across them,
 /// whereas a run is one process and its own history is right here.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

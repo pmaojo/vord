@@ -63,9 +63,9 @@ fn kickoff_react_bulletproof(base: &Path) -> Result<(), KickoffError> {
     fs::write(&auth_index, auth_index_content)
         .map_err(|e| KickoffError::WriteFileFailed(auth_index.display().to_string(), e))?;
 
-    let yunq_toml = base.join("yunq.toml");
-    if !yunq_toml.exists() {
-        let default_config = r#"# yunq configuration for Bulletproof React project
+    let vord_toml = base.join("vord.toml");
+    if !vord_toml.exists() {
+        let default_config = r#"# vord configuration for Bulletproof React project
 [profile]
 name = "recommended"
 
@@ -77,8 +77,8 @@ name = "recommended"
 "naming:component-pascal-case" = "minor"
 "naming:event-handler-prefix" = "minor"
 "#;
-        fs::write(&yunq_toml, default_config)
-            .map_err(|e| KickoffError::WriteFileFailed(yunq_toml.display().to_string(), e))?;
+        fs::write(&vord_toml, default_config)
+            .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
     println!("Successfully initialized Bulletproof React template at {:?}", base);
@@ -97,9 +97,9 @@ fn kickoff_rust_clean(base: &Path) -> Result<(), KickoffError> {
     fs::write(&lib_rs, "//! Pure domain core\n")
         .map_err(|e| KickoffError::WriteFileFailed(lib_rs.display().to_string(), e))?;
 
-    let yunq_toml = base.join("yunq.toml");
-    if !yunq_toml.exists() {
-        let default_config = r#"# yunq configuration for clean Rust project
+    let vord_toml = base.join("vord.toml");
+    if !vord_toml.exists() {
+        let default_config = r#"# vord configuration for clean Rust project
 [profile]
 name = "recommended"
 
@@ -108,8 +108,8 @@ name = "recommended"
 "rust:disallow-panic-macros" = "major"
 "naming:rust-convention" = "minor"
 "#;
-        fs::write(&yunq_toml, default_config)
-            .map_err(|e| KickoffError::WriteFileFailed(yunq_toml.display().to_string(), e))?;
+        fs::write(&vord_toml, default_config)
+            .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
     println!("Successfully initialized clean Rust template at {:?}", base);
@@ -127,9 +127,9 @@ fn kickoff_python_clean(base: &Path) -> Result<(), KickoffError> {
             .map_err(|e| KickoffError::WriteFileFailed(init_file.display().to_string(), e))?;
     }
 
-    let yunq_toml = base.join("yunq.toml");
-    if !yunq_toml.exists() {
-        let default_config = r#"# yunq configuration for clean Python project
+    let vord_toml = base.join("vord.toml");
+    if !vord_toml.exists() {
+        let default_config = r#"# vord configuration for clean Python project
 [profile]
 name = "recommended"
 
@@ -138,8 +138,8 @@ name = "recommended"
 "python:unclosed-open-file" = "major"
 "python:modern-type-syntax" = "minor"
 "#;
-        fs::write(&yunq_toml, default_config)
-            .map_err(|e| KickoffError::WriteFileFailed(yunq_toml.display().to_string(), e))?;
+        fs::write(&vord_toml, default_config)
+            .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
     println!("Successfully initialized clean Python template at {:?}", base);
@@ -154,9 +154,9 @@ fn kickoff_typescript_clean(base: &Path) -> Result<(), KickoffError> {
         fs::create_dir_all(&p).map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
     }
 
-    let yunq_toml = base.join("yunq.toml");
-    if !yunq_toml.exists() {
-        let default_config = r#"# yunq configuration for clean TypeScript project
+    let vord_toml = base.join("vord.toml");
+    if !vord_toml.exists() {
+        let default_config = r#"# vord configuration for clean TypeScript project
 [profile]
 name = "recommended"
 
@@ -164,8 +164,8 @@ name = "recommended"
 "naming:boolean-prefix" = "minor"
 "ai-agent:no-wildcard-reexports" = "major"
 "#;
-        fs::write(&yunq_toml, default_config)
-            .map_err(|e| KickoffError::WriteFileFailed(yunq_toml.display().to_string(), e))?;
+        fs::write(&vord_toml, default_config)
+            .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
     println!("Successfully initialized clean TypeScript template at {:?}", base);
@@ -205,9 +205,9 @@ nodes:
             .map_err(|e| KickoffError::WriteFileFailed(spec_yaml.display().to_string(), e))?;
     }
 
-    let yunq_toml = base.join("yunq.toml");
-    if !yunq_toml.exists() {
-        let default_config = r#"# yunq configuration for Fullstack Hexagonal project
+    let vord_toml = base.join("vord.toml");
+    if !vord_toml.exists() {
+        let default_config = r#"# vord configuration for Fullstack Hexagonal project
 [profile]
 name = "recommended"
 
@@ -216,8 +216,8 @@ name = "recommended"
 "architecture:graph-circular-dependency" = "blocking"
 "rust:typeshare-dto-sync" = "major"
 "#;
-        fs::write(&yunq_toml, default_config)
-            .map_err(|e| KickoffError::WriteFileFailed(yunq_toml.display().to_string(), e))?;
+        fs::write(&vord_toml, default_config)
+            .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
     println!("Successfully initialized Fullstack Hexagonal template at {:?}", base);

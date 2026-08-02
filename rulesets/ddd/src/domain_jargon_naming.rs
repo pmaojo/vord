@@ -18,8 +18,8 @@
 //!   and `AttendanceRecord` are legitimate domain nouns in the domains that use
 //!   them, and a suffix rule with no prefix requirement would flag both.
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{declared_types, is_domain_path};
 
@@ -90,7 +90,7 @@ impl Rule for DomainJargonNamingRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if !is_domain_path(file.path()) || yunq_rules_engine::is_test_only_path(file.path()) {
+        if !is_domain_path(file.path()) || vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         declared_types(ast)
@@ -111,22 +111,22 @@ impl Rule for DomainJargonNamingRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::go() {
-            yunq_parser_go::GoParser::new().parse(&file).unwrap()
+            vord_parser_go::GoParser::new().parse(&file).unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         DomainJargonNamingRule::new().check(&file, &ast)
     }

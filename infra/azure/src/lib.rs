@@ -2,7 +2,7 @@
 
 use reqwest::Client;
 use serde::Serialize;
-use yunq_rules_engine::{
+use vord_rules_engine::{
     AlmError, AlmPullRequestReporter, AlmStatusReporter, CommitSha, CommitStatus,
     CommitStatusState, Issue, PullRequestNumber,
 };
@@ -69,7 +69,7 @@ impl AlmStatusReporter for AzureDevOpsAdapter {
             description: &status.description,
             context: AzureContext {
                 name: &status.context,
-                genre: "yunq",
+                genre: "vord",
             },
         };
 
@@ -116,7 +116,7 @@ impl AlmPullRequestReporter for AzureDevOpsAdapter {
         new_issues: &[Issue],
         gate_summary: &str,
     ) -> Result<(), AlmError> {
-        let mut content = String::from("## 🛡️ yunq MR Analysis Summary\n\n");
+        let mut content = String::from("## 🛡️ vord MR Analysis Summary\n\n");
         content.push_str(&format!("**Quality Gate**: {}\n\n", gate_summary));
 
         if !new_issues.is_empty() {

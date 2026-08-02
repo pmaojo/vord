@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# yunq installer.
+# vord installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/pmaojo/yunq/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/pmaojo/vord/main/scripts/install.sh | sh
 #
 # Downloads the release binary for this platform, verifies its published
 # SHA-256, and installs it. POSIX sh on purpose: this is the first thing a
@@ -9,14 +9,14 @@
 # than half-install.
 #
 # Environment:
-#   YUNQ_VERSION  tag to install (default: latest)
-#   YUNQ_BIN_DIR  install directory (default: /usr/local/bin, else ~/.local/bin)
-#   YUNQ_LSP      set to 1 to also install the language server
+#   VORD_VERSION  tag to install (default: latest)
+#   VORD_BIN_DIR  install directory (default: /usr/local/bin, else ~/.local/bin)
+#   VORD_LSP      set to 1 to also install the language server
 
 set -eu
 
-REPO="pmaojo/yunq"
-VERSION="${YUNQ_VERSION:-latest}"
+REPO="pmaojo/vord"
+VERSION="${VORD_VERSION:-latest}"
 
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
@@ -41,7 +41,7 @@ case "$os" in
   Linux)  os_part="unknown-linux-musl" ;;
   Darwin) os_part="apple-darwin" ;;
   MINGW*|MSYS*|CYGWIN*)
-    die "Windows: download yunq-x86_64-pc-windows-msvc.exe from https://github.com/$REPO/releases/latest" ;;
+    die "Windows: download vord-x86_64-pc-windows-msvc.exe from https://github.com/$REPO/releases/latest" ;;
   *) die "unsupported OS: $os" ;;
 esac
 
@@ -54,15 +54,15 @@ esac
 target="${arch_part}-${os_part}"
 
 # --- install directory ----------------------------------------------------
-if [ -n "${YUNQ_BIN_DIR:-}" ]; then
-  bin_dir="$YUNQ_BIN_DIR"
+if [ -n "${VORD_BIN_DIR:-}" ]; then
+  bin_dir="$VORD_BIN_DIR"
 elif [ -w /usr/local/bin ] 2>/dev/null; then
   bin_dir="/usr/local/bin"
 else
   bin_dir="$HOME/.local/bin"
 fi
 mkdir -p "$bin_dir" || die "cannot create $bin_dir"
-[ -w "$bin_dir" ] || die "$bin_dir is not writable — set YUNQ_BIN_DIR or re-run with sudo"
+[ -w "$bin_dir" ] || die "$bin_dir is not writable — set VORD_BIN_DIR or re-run with sudo"
 
 if [ "$VERSION" = "latest" ]; then
   base="https://github.com/$REPO/releases/latest/download"
@@ -76,7 +76,7 @@ trap "rm -rf '$tmp'" EXIT INT TERM
 
 # --- download + verify ----------------------------------------------------
 install_one() {
-  name="$1"          # yunq | yunq-lsp
+  name="$1"          # vord | vord-lsp
   asset="$2"         # release asset filename
 
   info "Downloading $asset"
@@ -107,12 +107,12 @@ install_one() {
   info "Installed $bin_dir/$name"
 }
 
-install_one yunq "yunq-${target}"
-[ "${YUNQ_LSP:-0}" = "1" ] && install_one yunq-lsp "yunq-lsp-${target}"
+install_one vord "vord-${target}"
+[ "${VORD_LSP:-0}" = "1" ] && install_one vord-lsp "vord-lsp-${target}"
 
 # --- report ---------------------------------------------------------------
 printf '\n'
-"$bin_dir/yunq" --version || die "the installed binary does not run on this machine"
+"$bin_dir/vord" --version || die "the installed binary does not run on this machine"
 
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
@@ -122,9 +122,9 @@ esac
 cat <<'EOF'
 
 Next steps:
-  yunq scan .              analyze this repository
-  yunq hook install        gate an AI agent's writes before they reach disk
-  yunq init                add the CI workflow
+  vord scan .              analyze this repository
+  vord hook install        gate an AI agent's writes before they reach disk
+  vord init                add the CI workflow
 
-Docs: https://github.com/pmaojo/yunq
+Docs: https://github.com/pmaojo/vord
 EOF

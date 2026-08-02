@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""Correlate yunq's instant AST mutation gap findings with the output of a
+"""Correlate vord's instant AST mutation gap findings with the output of a
 traditional mutation-testing engine (StrykerJS/Stryker.NET/Infection, or PIT
 converted to the same "Mutation Testing Elements" JSON schema).
 
-The point (research gap #2): yunq's mutation rules are static O(N) gap
+The point (research gap #2): vord's mutation rules are static O(N) gap
 analysis — they say *where* a mutant would exist, not whether it survives.
-Correlating them with a real engine's verdicts tells you how often a yunq
+Correlating them with a real engine's verdicts tells you how often a vord
 flagged site is a genuinely surviving mutant (high-value, test gap) versus a
 killed one (already covered, low value).
 
 Usage:
-  yunq scan . --format json --no-cache > yunq.json
+  vord scan . --format json --no-cache > vord.json
   stryker run  # produces reports/mutation-report.json (Stryker JSON schema)
-  python3 scripts/correlate-mutation.py --yunq yunq.json --mutation reports/mutation-report.json
-  python3 scripts/correlate-mutation.py --yunq yunq.json --mutation pit.json --out overlap.csv
+  python3 scripts/correlate-mutation.py --vord vord.json --mutation reports/mutation-report.json
+  python3 scripts/correlate-mutation.py --vord vord.json --mutation pit.json --out overlap.csv
 
 Output: per-rule and per-file tables:
-  * sites          — yunq mutation-rule findings
+  * sites          — vord mutation-rule findings
   * mutants        — total mutants the engine generated
-  * matched        — yunq sites whose line range contains >= 1 mutant
+  * matched        — vord sites whose line range contains >= 1 mutant
   * killed / survived / no_coverage — engine verdicts at matched sites
   * survival_rate  — survived / (killed + survived + no_coverage)
 """
@@ -30,8 +30,8 @@ import sys
 from collections import defaultdict
 
 
-def load_yunq_findings(path: str):
-    """yunq scan --format json -> list of (rule, file, line)."""
+def load_vord_findings(path: str):
+    """vord scan --format json -> list of (rule, file, line)."""
     with open(path, "r", encoding="utf-8") as fh:
         data = json.load(fh)
     issues = data.get("issues", data if isinstance(data, list) else [])
@@ -80,7 +80,7 @@ def line_overlap(a_start, a_end, b_start, b_end) -> bool:
 
 
 def correlate(sites, mutants, tolerance: int):
-    """For each yunq site, does any mutant land on its line (within
+    """For each vord site, does any mutant land on its line (within
     `tolerance` lines)? Returns per-rule and per-file stats."""
     by_file_mutants = defaultdict(list)
     for m in mutants:
@@ -124,14 +124,14 @@ def render(rule_stats, file_stats, matched_sites, out_csv):
     total_survived = sum(s["survived"] for s in rule_stats.values())
     total_nocov = sum(s["no_coverage"] for s in rule_stats.values())
     print("=" * 78)
-    print("yunq mutation findings vs. mutation-engine verdicts")
+    print("vord mutation findings vs. mutation-engine verdicts")
     print("=" * 78)
-    print(f"  yunq mutation sites:        {total_sites}")
+    print(f"  vord mutation sites:        {total_sites}")
     print(f"  sites with >= 1 real mutant:{total_matched}  ({100.0 * total_matched / max(total_sites, 1):.1f}% coverage)")
     print(f"  mutants at matched sites:   killed={total_killed} survived={total_survived} no_coverage={total_nocov}")
     survival = total_survived / max(total_killed + total_survived + total_nocov, 1)
     print(f"  survival rate at sites:     {100.0 * survival:.1f}%  "
-          f"(share of yunq sites where the mutant actually survives -> real test gap)")
+          f"(share of vord sites where the mutant actually survives -> real test gap)")
     print()
     print("  per rule:")
     print(f"  {'rule':<45} {'sites':>6} {'matched':>8} {'killed':>7} {'survived':>9} {'noCov':>6}")
@@ -151,22 +151,22 @@ def render(rule_stats, file_stats, matched_sites, out_csv):
     print()
     print("  interpretation: a site with killed mutants is already covered;")
     print("  one with only survived/no_coverage mutants is a live test gap —")
-    print("  the exact set to prioritize for `yunq fix` / new tests.")
+    print("  the exact set to prioritize for `vord fix` / new tests.")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--yunq", required=True, help="yunq scan --format json output")
+    ap.add_argument("--vord", required=True, help="vord scan --format json output")
     ap.add_argument("--mutation", required=True, help="Stryker/PIT mutation report JSON")
     ap.add_argument("--out", default=None, help="optional CSV output")
     ap.add_argument("--tolerance", type=int, default=0,
                     help="line tolerance when matching a site to a mutant (default 0)")
     args = ap.parse_args()
 
-    sites = load_yunq_findings(args.yunq)
+    sites = load_vord_findings(args.vord)
     mutants = load_mutation_report(args.mutation)
     if not sites:
-        print("no mutation:* findings in the yunq output — did the scan run the mutation ruleset?", file=sys.stderr)
+        print("no mutation:* findings in the vord output — did the scan run the mutation ruleset?", file=sys.stderr)
     if not mutants:
         print("no mutants parsed from the mutation report — is it the Stryker Mutation Testing Elements schema?", file=sys.stderr)
     rule_stats, file_stats, matched = correlate(sites, mutants, args.tolerance)

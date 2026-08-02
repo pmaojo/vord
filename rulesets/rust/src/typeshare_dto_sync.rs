@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::is_other;
 
@@ -26,8 +26,8 @@ impl Rule for TypeshareDtoSyncRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: r#"Detects Rust structs annotated with `#[typeshare]` or `#[derive(..., Typeshare)]` that are missing `#[serde(rename_all = "...")]` attribute to ensure predictable field casing across language boundaries."#
                 .into(),
             tags: vec!["rust".into(), "serialization".into(), "typeshare".into()],
@@ -108,14 +108,14 @@ fn is_serde_rename_all_attr(attr: &AstNode) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         TypeshareDtoSyncRule::new().check(&file, &ast)
     }
 

@@ -1,7 +1,7 @@
-//! Composition root: an LSP server exposing yunq's analyzers to any
+//! Composition root: an LSP server exposing vord's analyzers to any
 //! LSP-capable editor, in place of a per-IDE plugin.
 //! `main` only wires transport + handlers; all analysis logic lives in
-//! [`analysis`], reused unchanged from `yunq-cli`'s composition.
+//! [`analysis`], reused unchanged from `vord-cli`'s composition.
 
 mod analysis;
 mod connected;
@@ -38,7 +38,7 @@ impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> RpcResult<InitializeResult> {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
-                name: "yunq-lsp".into(),
+                name: "vord-lsp".into(),
                 version: Some(env!("CARGO_PKG_VERSION").into()),
             }),
             capabilities: ServerCapabilities {
@@ -52,7 +52,7 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "yunq-lsp ready")
+            .log_message(MessageType::INFO, "vord-lsp ready")
             .await;
     }
 

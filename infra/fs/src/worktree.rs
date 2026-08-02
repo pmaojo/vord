@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use yunq_remediation::{FixProposal, RemediationError, Sandbox};
+use vord_remediation::{FixProposal, RemediationError, Sandbox};
 
 /// Filesystem adapter for a pre-created Git worktree. It never follows a
 /// proposal path outside `root` and remembers original contents for rollback.
@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn applies_reads_and_rolls_back_inside_the_worktree() {
         let root = std::env::temp_dir().join(format!(
-            "yunq-worktree-sandbox-{}",
+            "vord-worktree-sandbox-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

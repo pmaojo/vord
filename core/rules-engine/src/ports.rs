@@ -6,8 +6,8 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_profiles::{GateStatus, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_profiles::{GateStatus, RuleId, Severity};
 
 use crate::domain::{
     BlameLineInfo, BulkOutcome, ChangelogEntry, CoverageSummary, FileBlame, FileCoverage,
@@ -26,23 +26,23 @@ pub trait AstParser: Send + Sync {
     /// Per-line, normalized tokens for copy-paste detection: `(1-based line
     /// number, normalized token text)`, omitting insignificant lines. The
     /// default falls back to treating each trimmed non-blank line as its own
-    /// single token (`yunq_cpd::fallback_tokenize`); adapters backed by a
+    /// single token (`vord_cpd::fallback_tokenize`); adapters backed by a
     /// real tokenizer (tree-sitter leaf walk collapsing literals to a shared
-    /// placeholder and dropping comments — `yunq-treesitter-tokens`)
+    /// placeholder and dropping comments — `vord-treesitter-tokens`)
     /// override this so duplication matching is token-accurate rather than
     /// sensitive to literal values and incidental whitespace.
     /// Per-line normalized tokens for copy-paste detection. `normalization`
     /// decides which clone kinds are visible (see
-    /// [`yunq_cpd::TokenNormalization`]); a parser that cannot honor it
+    /// [`vord_cpd::TokenNormalization`]); a parser that cannot honor it
     /// still returns usable Type-1 tokens rather than nothing.
     fn tokenize_for_duplication(
         &self,
         file: &SourceFile,
-        normalization: yunq_cpd::TokenNormalization,
-    ) -> yunq_cpd::TokenizedSource {
+        normalization: vord_cpd::TokenNormalization,
+    ) -> vord_cpd::TokenizedSource {
         let _ = normalization;
-        yunq_cpd::TokenizedSource {
-            lines: yunq_cpd::fallback_tokenize(file),
+        vord_cpd::TokenizedSource {
+            lines: vord_cpd::fallback_tokenize(file),
             declaration_lines: Vec::new(),
         }
     }
@@ -61,7 +61,7 @@ pub enum ParseError {
 /// callers (the CLI, the LSP, remediation's verify-before-suggest loop) run
 /// against `InMemoryIssueStorage` and never resolve a project at all, so
 /// they use `IssueScope::default()` (via the unscoped `analyze_files`).
-/// The composition root that actually persists to Postgres (`yunq-worker`)
+/// The composition root that actually persists to Postgres (`vord-worker`)
 /// is the only layer that knows about projects/analyses, so it's the only
 /// one that ever constructs a non-default scope — the pure engine stays
 /// agnostic of what a "project" is.

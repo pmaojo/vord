@@ -1,18 +1,18 @@
 [package]
-name = "yunq-agent"
+name = "vord-agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "yunq agent runtime core — the session/tool loop, the in-process policy gate, and the analyzer-as-done verdict, with no I/O"
+description = "vord agent runtime core — the session/tool loop, the in-process policy gate, and the analyzer-as-done verdict, with no I/O"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-profiles = { workspace = true }
-yunq-agent-policy = { workspace = true }
+vord-profiles = { workspace = true }
+vord-agent-policy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

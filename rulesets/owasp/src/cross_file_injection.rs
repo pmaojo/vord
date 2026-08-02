@@ -1,6 +1,6 @@
-use yunq_ast::{AstNode, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_taint::{CrossFileTaint, TaintConfig};
+use vord_ast::{AstNode, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_taint::{CrossFileTaint, TaintConfig};
 
 /// Inter-procedural, cross-file injection detection: user input passed into
 /// a function — possibly defined in another file — whose parameter reaches a
@@ -88,8 +88,8 @@ impl CrossFileRule for CrossFileInjectionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
@@ -108,7 +108,7 @@ mod tests {
         )
         .unwrap();
 
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (lib.clone(), parser.parse(&lib).unwrap()),
             (main.clone(), parser.parse(&main).unwrap()),
@@ -138,7 +138,7 @@ mod tests {
         )
         .unwrap();
 
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (lib.clone(), parser.parse(&lib).unwrap()),
             (main.clone(), parser.parse(&main).unwrap()),
@@ -161,7 +161,7 @@ mod tests {
         )
         .unwrap();
 
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (lib.clone(), parser.parse(&lib).unwrap()),
             (main.clone(), parser.parse(&main).unwrap()),

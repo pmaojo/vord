@@ -3,8 +3,8 @@
 //! handle back to the origin tab and can navigate it elsewhere — reverse
 //! tabnabbing (CWE-1022).
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{attribute_value, find_attribute, tag_name};
 
@@ -79,12 +79,12 @@ impl Rule for UnsafeTargetBlankRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         UnsafeTargetBlankRule::new().check(&file, &ast)

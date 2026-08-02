@@ -1,4 +1,4 @@
-# Releasing yunq
+# Releasing vord
 
 Every distribution channel resolves binaries from the GitHub release assets,
 so a tag is the only thing that has to happen by hand.
@@ -7,12 +7,12 @@ so a tag is the only thing that has to happen by hand.
 tag v0.1.1
    └── .github/workflows/release.yml
          ├── binaries  → 5 targets + .sha256 → GitHub Release
-         ├── docker    → ghcr.io/pmaojo/yunq:0.1.1, :0.1, :latest
+         ├── docker    → ghcr.io/pmaojo/vord:0.1.1, :0.1, :latest
          ├── npm       → npm publish (needs NPM_TOKEN)
          └── homebrew  → pmaojo/homebrew-tap (needs HOMEBREW_TAP_TOKEN)
 
 install.sh · action.yml · ci-templates/ · npm/install.js · the Homebrew
-formula  →  all read releases/<tag>/download/yunq-<target>
+formula  →  all read releases/<tag>/download/vord-<target>
 ```
 
 **Renaming a release asset breaks every one of those at once.** The asset
@@ -30,7 +30,7 @@ names are the public contract, more so than any API in the codebase.
    — and a path dependency with no version cannot be published at all, so
    they cannot simply be dropped. Editing `[workspace.package]` alone
    produces crates at the new version declaring dependencies on the old one.
-   The script also rewrites `Cargo.lock`, `yunq.toml` and
+   The script also rewrites `Cargo.lock`, `vord.toml` and
    `.claude-plugin/plugin.json`, and refuses to finish if any of them is left
    behind. `npm/package.json` stays at `0.0.0` by design — the release job
    sets it from the tag.
@@ -43,8 +43,8 @@ names are the public contract, more so than any API in the codebase.
    release with the other four — re-run that job rather than re-tagging.
 5. Verify the result actually installs, from a clean machine or container:
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/pmaojo/yunq/main/scripts/install.sh | sh
-   yunq --version
+   curl -fsSL https://raw.githubusercontent.com/pmaojo/vord/main/scripts/install.sh | sh
+   vord --version
    ```
 
 `workflow_dispatch` builds an existing tag and publishes nothing — use it to
@@ -62,7 +62,7 @@ A missing optional secret must never fail the release — a red X on a run that
 produced good binaries teaches people to ignore red Xs.
 
 The Homebrew channel also needs a `pmaojo/homebrew-tap` repository to exist,
-containing a `Formula/` directory. The workflow commits `Formula/yunq.rb` into
+containing a `Formula/` directory. The workflow commits `Formula/vord.rb` into
 it on every tag.
 
 ## crates.io
@@ -90,11 +90,11 @@ These stay broken until a release exists, then start working with no further
 change — they are already written and pointed at the right URLs:
 
 - `ci-templates/github-actions.yml` (curls the musl binary)
-- `action.yml` / `uses: pmaojo/yunq@v0`
+- `action.yml` / `uses: pmaojo/vord@v0`
 - `scripts/install.sh`
 - `npm/install.js`
 
-For `uses: pmaojo/yunq@v0` to resolve, push a moving major tag after the
+For `uses: pmaojo/vord@v0` to resolve, push a moving major tag after the
 release:
 
 ```sh

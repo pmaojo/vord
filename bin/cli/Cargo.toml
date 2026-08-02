@@ -1,80 +1,80 @@
 [package]
-name = "yunq-cli"
+name = "vord-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "yunq — ultraperformant static analysis, quality gates, and a guardrail that judges an AI agent's write before it reaches disk"
+description = "vord — ultraperformant static analysis, quality gates, and a guardrail that judges an AI agent's write before it reaches disk"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-# The crate is `yunq-cli` (matches every other workspace member's
-# `yunq-<thing>` naming), but the compiled binary is the bare `yunq` every
-# doc, hook command (`yunq hook claude-code`) and policy template assumes is
+# The crate is `vord-cli` (matches every other workspace member's
+# `vord-<thing>` naming), but the compiled binary is the bare `vord` every
+# doc, hook command (`vord hook claude-code`) and policy template assumes is
 # on PATH. Without this, `cargo install --path bin/cli` — the only install
 # path for anyone not using a prebuilt release artifact — silently produces
-# a binary named `yunq-cli`, and every hook wired via `hook install` fails to
+# a binary named `vord-cli`, and every hook wired via `hook install` fails to
 # resolve its own command.
 [[bin]]
-name = "yunq"
+name = "vord"
 path = "src/main.rs"
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-rules-engine = { workspace = true }
-yunq-taint = { workspace = true }
-yunq-parser-typescript = { workspace = true }
-yunq-parser-rust = { workspace = true }
-yunq-parser-python = { workspace = true }
-yunq-parser-go = { workspace = true }
-yunq-parser-java = { workspace = true }
-yunq-parser-c = { workspace = true }
-yunq-parser-cpp = { workspace = true }
-yunq-parser-php = { workspace = true }
-yunq-parser-dockerfile = { workspace = true }
-yunq-parser-csharp = { workspace = true }
-yunq-parser-ruby = { workspace = true }
-yunq-parser-kotlin = { workspace = true }
-yunq-parser-swift = { workspace = true }
-yunq-parser-scala = { workspace = true }
-yunq-parser-html = { workspace = true }
-yunq-parser-css = { workspace = true }
-yunq-parser-xml = { workspace = true }
-yunq-parser-json = { workspace = true }
-yunq-parser-yaml = { workspace = true }
-yunq-parser-hcl = { workspace = true }
-yunq-parser-bash = { workspace = true }
-yunq-parser-groovy = { workspace = true }
-yunq-parser-lua = { workspace = true }
-yunq-parser-elixir = { workspace = true }
-yunq-rules-owasp = { workspace = true }
-yunq-rules-smells = { workspace = true }
-yunq-rules-ai-agent = { workspace = true }
-yunq-rules-iac = { workspace = true }
-yunq-rules-a11y = { workspace = true }
-yunq-rules-react = { workspace = true }
-yunq-rules-secrets = { workspace = true }
-yunq-rules-rust = { workspace = true }
-yunq-rules-python = { workspace = true }
-yunq-rules-architecture = { workspace = true }
-yunq-rules-ddd = { workspace = true }
-yunq-import-graph = { workspace = true }
-yunq-rules-reactive = { workspace = true }
-yunq-rules-mutation = { workspace = true }
-yunq-rules-typescript = { workspace = true }
-yunq-rules-php = { workspace = true }
-yunq-rules-go = { workspace = true }
-yunq-agent-policy = { workspace = true }
-yunq-agent = { workspace = true }
-yunq-swarm = { workspace = true }
-yunq-infra-memory = { workspace = true }
-yunq-infra-fs = { workspace = true }
-yunq-infra-github = { workspace = true }
-yunq-remediation = { workspace = true }
-yunq-infra-llm = { workspace = true }
-yunq-infra-pdf = { workspace = true }
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-taint = { workspace = true }
+vord-parser-typescript = { workspace = true }
+vord-parser-rust = { workspace = true }
+vord-parser-python = { workspace = true }
+vord-parser-go = { workspace = true }
+vord-parser-java = { workspace = true }
+vord-parser-c = { workspace = true }
+vord-parser-cpp = { workspace = true }
+vord-parser-php = { workspace = true }
+vord-parser-dockerfile = { workspace = true }
+vord-parser-csharp = { workspace = true }
+vord-parser-ruby = { workspace = true }
+vord-parser-kotlin = { workspace = true }
+vord-parser-swift = { workspace = true }
+vord-parser-scala = { workspace = true }
+vord-parser-html = { workspace = true }
+vord-parser-css = { workspace = true }
+vord-parser-xml = { workspace = true }
+vord-parser-json = { workspace = true }
+vord-parser-yaml = { workspace = true }
+vord-parser-hcl = { workspace = true }
+vord-parser-bash = { workspace = true }
+vord-parser-groovy = { workspace = true }
+vord-parser-lua = { workspace = true }
+vord-parser-elixir = { workspace = true }
+vord-rules-owasp = { workspace = true }
+vord-rules-smells = { workspace = true }
+vord-rules-ai-agent = { workspace = true }
+vord-rules-iac = { workspace = true }
+vord-rules-a11y = { workspace = true }
+vord-rules-react = { workspace = true }
+vord-rules-secrets = { workspace = true }
+vord-rules-rust = { workspace = true }
+vord-rules-python = { workspace = true }
+vord-rules-architecture = { workspace = true }
+vord-rules-ddd = { workspace = true }
+vord-import-graph = { workspace = true }
+vord-rules-reactive = { workspace = true }
+vord-rules-mutation = { workspace = true }
+vord-rules-typescript = { workspace = true }
+vord-rules-php = { workspace = true }
+vord-rules-go = { workspace = true }
+vord-agent-policy = { workspace = true }
+vord-agent = { workspace = true }
+vord-swarm = { workspace = true }
+vord-infra-memory = { workspace = true }
+vord-infra-fs = { workspace = true }
+vord-infra-github = { workspace = true }
+vord-remediation = { workspace = true }
+vord-infra-llm = { workspace = true }
+vord-infra-pdf = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }

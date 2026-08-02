@@ -28,7 +28,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use yunq_ast::{AstNode, NodeKind, Span};
+use vord_ast::{AstNode, NodeKind, Span};
 
 use crate::module_graph::{self, FunctionKey, ModuleImports};
 use crate::TaintConfig;
@@ -691,11 +691,11 @@ mod tests {
 
     // --- Real import/export module graph (parsed TypeScript) ---
 
-    fn parse_ts(path: &'static str, code: &str) -> (yunq_ast::SourceFile, AstNode) {
-        use yunq_ast::{LanguageIdentifier, SourceFile};
-        use yunq_rules_engine::AstParser;
+    fn parse_ts(path: &'static str, code: &str) -> (vord_ast::SourceFile, AstNode) {
+        use vord_ast::{LanguageIdentifier, SourceFile};
+        use vord_rules_engine::AstParser;
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
         (file, ast)
     }
 

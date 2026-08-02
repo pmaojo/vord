@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# yunq pre-commit hook — blocks commits when the health score
-# drops below the configured minimum (yunq.toml `[gate] min_health_score`,
+# vord pre-commit hook — blocks commits when the health score
+# drops below the configured minimum (vord.toml `[gate] min_health_score`,
 # defaulting to 96) or the quality gate fails.
 #
 # Install:  cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
@@ -8,26 +8,26 @@
 
 set -euo pipefail
 
-# Resolve the yunq binary: prefer local builds so `cargo build` users always
+# Resolve the vord binary: prefer local builds so `cargo build` users always
 # run the latest code, falling back to PATH for installed releases.
-YUNQ=
-if [ -x ./target/debug/yunq ]; then
-  YUNQ=./target/debug/yunq
-elif [ -x ./target/release/yunq ]; then
-  YUNQ=./target/release/yunq
-elif command -v yunq &>/dev/null; then
-  YUNQ=yunq
+VORD=
+if [ -x ./target/debug/vord ]; then
+  VORD=./target/debug/vord
+elif [ -x ./target/release/vord ]; then
+  VORD=./target/release/vord
+elif command -v vord &>/dev/null; then
+  VORD=vord
 fi
 
-if [ -z "$YUNQ" ]; then
-  echo "⚠️  yunq: yunq binary not found (checked ./target/debug/yunq, ./target/release/yunq, PATH)"
-  echo "    Skipping pre-commit scan. Build yunq or install it on PATH to enable the gate."
+if [ -z "$VORD" ]; then
+  echo "⚠️  vord: vord binary not found (checked ./target/debug/vord, ./target/release/vord, PATH)"
+  echo "    Skipping pre-commit scan. Build vord or install it on PATH to enable the gate."
   exit 0
 fi
 
-echo "🔍 yunq: scanning for issues before commit..."
+echo "🔍 vord: scanning for issues before commit..."
 
-# Only scan if there are staged changes relevant to yunq.
+# Only scan if there are staged changes relevant to vord.
 STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(rs|ts|tsx|js|jsx|py|go|java|rb|php|swift|kt|scala|lua|cs|css|html|yaml|yml|json|tf|hcl|sh|bash|dockerfile)$' || true)
 
 if [ -z "$STAGED" ]; then
@@ -36,13 +36,13 @@ if [ -z "$STAGED" ]; then
 fi
 
 # Run the scan. --enforce-gate makes it exit 3 when the gate fails.
-# The health score minimum is read from yunq.toml's [gate] min_health_score.
+# The health score minimum is read from vord.toml's [gate] min_health_score.
 # Use --format text for human-readable output (visible on failure).
-if ! "$YUNQ" scan . --enforce-gate --format text; then
+if ! "$VORD" scan . --enforce-gate --format text; then
   EXIT_CODE=$?
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "❌ yunq gate failed — commit blocked."
+  echo "❌ vord gate failed — commit blocked."
   echo ""
   echo "   Fix the issues above, or if this is intentional:"
   echo "     git commit --no-verify"
@@ -50,5 +50,5 @@ if ! "$YUNQ" scan . --enforce-gate --format text; then
   exit $EXIT_CODE
 fi
 
-echo "✅ yunq: gate passed — commit allowed."
+echo "✅ vord: gate passed — commit allowed."
 exit 0

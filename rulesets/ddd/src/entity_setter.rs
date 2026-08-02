@@ -14,9 +14,9 @@
 //! the entity's own behavior is an implementation detail, not a hole in the
 //! aggregate boundary.
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::ClassRegistry;
+use vord_ast::{AstNode, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::ClassRegistry;
 
 use crate::common::{AccessorKind, accessor_of, declared_methods, field_names, is_domain_path};
 
@@ -94,7 +94,7 @@ impl CrossFileRule for PublicEntitySetterRule {
         let domain: Vec<&(SourceFile, AstNode)> = files
             .iter()
             .filter(|(file, _)| is_domain_path(file.path()))
-            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .collect();
         if domain.is_empty() {
             return Vec::new();
@@ -142,21 +142,21 @@ impl CrossFileRule for PublicEntitySetterRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         PublicEntitySetterRule::new()
             .check(&[(file, ast)])

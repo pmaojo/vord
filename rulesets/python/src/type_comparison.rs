@@ -3,8 +3,8 @@
 //! succeed, so code guarded this way silently takes the wrong branch for
 //! any subclass instance.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -64,8 +64,8 @@ impl Rule for TypeComparisonRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Comparing type(x) to a class with == rejects subclasses that isinstance() would correctly accept; use isinstance(x, SomeType) unless an exact-type check is truly intended.".into(),
             tags: vec!["bug".into(), "python-idiom".into()],
             cwe: Some(697),
@@ -84,13 +84,13 @@ impl Rule for TypeComparisonRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         TypeComparisonRule::new().check(&file, &ast)

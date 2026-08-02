@@ -5,9 +5,9 @@
 //! at-rules, blocks) falls through to `Other`.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     CssParser,
     LanguageIdentifier::css(),
     tree_sitter_css::LANGUAGE,
@@ -22,15 +22,15 @@ fn map_kind(kind: &str) -> NodeKind {
         "identifier" => NodeKind::Identifier,
         "declaration" => NodeKind::Assignment,
         "comment" | "js_comment" => NodeKind::Comment,
-        other => NodeKind::Other(yunq_ast::intern(other)),
+        other => NodeKind::Other(vord_ast::intern(other)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("test.css", code, LanguageIdentifier::css()).unwrap();

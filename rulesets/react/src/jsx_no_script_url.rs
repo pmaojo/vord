@@ -1,7 +1,7 @@
 //! Rule: Flags `javascript:` URLs in JSX attributes (href, src, etc.) to prevent XSS vulnerabilities.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 pub struct JsxNoScriptUrlRule {
     id: RuleId,
@@ -72,7 +72,7 @@ impl Rule for JsxNoScriptUrlRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::Span;
+    use vord_ast::Span;
 
     #[test]
     fn flags_script_url_in_jsx() {

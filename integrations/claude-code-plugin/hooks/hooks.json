@@ -6,10 +6,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "yunq",
+            "command": "vord",
             "args": ["hook", "claude-code"],
             "timeout": 30,
-            "statusMessage": "yunq guardrail"
+            "statusMessage": "vord guardrail"
           }
         ]
       }
@@ -20,10 +20,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "yunq",
+            "command": "vord",
             "args": ["hook", "claude-code"],
             "timeout": 30,
-            "statusMessage": "yunq guardrail"
+            "statusMessage": "vord guardrail"
           }
         ]
       }

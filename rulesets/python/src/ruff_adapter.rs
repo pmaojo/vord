@@ -1,6 +1,6 @@
 use ruff_python_parser::{parse, Mode};
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
 
 declare_rule_id!(RuffAdapterRule, "python:ruff-analyzer");
 
@@ -63,7 +63,7 @@ mod tests {
         let code = "def foo():\n    syntax error ::::\n";
         let file = SourceFile::new("test.py", code, LanguageIdentifier::python()).unwrap();
         let ast = AstNode::new(
-            yunq_ast::NodeKind::SourceUnit,
+            vord_ast::NodeKind::SourceUnit,
             Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],

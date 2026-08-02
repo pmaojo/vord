@@ -1,7 +1,7 @@
 //! Rule: flags SQL string literals using `SELECT *` instead of naming columns.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn contains_select_star(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
@@ -40,14 +40,14 @@ impl Rule for SelectStarRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
-        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::StringLiteral)
-            .filter(|literal| !yunq_rules_engine::in_ranges(&test_ranges, literal.span().start_line))
+            .filter(|literal| !vord_rules_engine::in_ranges(&test_ranges, literal.span().start_line))
             .filter(|literal| contains_select_star(literal.text()))
             .map(|literal| {
                 Finding::new(
@@ -64,7 +64,7 @@ mod tests {
     use super::*;
 
     fn string_literal(text: &str) -> AstNode {
-        AstNode::new(NodeKind::StringLiteral, yunq_ast::Span::new(1, 1, 1, text.len() as u32), text, vec![])
+        AstNode::new(NodeKind::StringLiteral, vord_ast::Span::new(1, 1, 1, text.len() as u32), text, vec![])
     }
 
     #[test]

@@ -1,19 +1,19 @@
 [package]
-name = "yunq-rules-typescript"
+name = "vord-rules-typescript"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "TypeScript-specific ruleset for the yunq analysis engine"
+description = "TypeScript-specific ruleset for the vord analysis engine"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-rules-engine = { workspace = true }
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
 oxc = "0.45.0"
 
 [dev-dependencies]
-yunq-parser-typescript = { workspace = true }
+vord-parser-typescript = { workspace = true }

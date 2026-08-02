@@ -106,7 +106,7 @@ fn compute_post_dominance_frontiers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, NodeKind, Span};
+    use vord_ast::{AstNode, NodeKind, Span};
 
     #[test]
     fn builds_control_dependence_graph() {

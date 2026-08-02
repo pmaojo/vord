@@ -1,5 +1,5 @@
 [package]
-name = "yunq-crap"
+name = "vord-crap"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,4 +11,4 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
+vord-ast = { workspace = true }

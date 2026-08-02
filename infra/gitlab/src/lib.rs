@@ -2,7 +2,7 @@
 
 use reqwest::Client;
 use serde::Serialize;
-use yunq_rules_engine::{
+use vord_rules_engine::{
     AlmError, AlmPullRequestReporter, AlmStatusReporter, AnalysisReport, CommitSha, CommitStatus,
     CommitStatusState, Issue, PullRequestNumber,
 };
@@ -111,7 +111,7 @@ impl AlmPullRequestReporter for GitLabAlmAdapter {
         new_issues: &[Issue],
         gate_summary: &str,
     ) -> Result<(), AlmError> {
-        let mut comment = String::from("## 🛡️ yunq MR Analysis Summary\n\n");
+        let mut comment = String::from("## 🛡️ vord MR Analysis Summary\n\n");
         comment.push_str(&format!("**Quality Gate**: {}\n\n", gate_summary));
 
         if !new_issues.is_empty() {
@@ -132,7 +132,7 @@ impl AlmPullRequestReporter for GitLabAlmAdapter {
 }
 
 pub fn generate_mr_decoration_comment(report: &AnalysisReport) -> String {
-    let mut comment = String::from("## 🛡️ yunq Code Analysis Summary\n\n");
+    let mut comment = String::from("## 🛡️ vord Code Analysis Summary\n\n");
     comment.push_str(&format!("* **Issues Found**: {}\n", report.issues().len()));
     comment.push_str(&format!(
         "* **Security Hotspots**: {}\n\n",
@@ -158,12 +158,12 @@ pub fn generate_mr_decoration_comment(report: &AnalysisReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::Metrics;
+    use vord_rules_engine::Metrics;
 
     #[test]
     fn generates_mr_comment() {
         let report = AnalysisReport::new(vec![], vec![], Metrics::default());
         let comment = generate_mr_decoration_comment(&report);
-        assert!(comment.contains("yunq Code Analysis Summary"));
+        assert!(comment.contains("vord Code Analysis Summary"));
     }
 }

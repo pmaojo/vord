@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# yunq coverage auto-detection (research gap #5)
+# vord coverage auto-detection (research gap #5)
 # ==============================================================================
 # Instead of requiring the user to locate and pass LCOV/Cobertura/JaCoCo/
 # llvm-cov/Istanbul reports by hand, detect the project's coverage tooling and
-# existing report files, and print the exact `yunq scan` invocation that
+# existing report files, and print the exact `vord scan` invocation that
 # ingests them.
 #
 # Usage:
 #   scripts/detect-coverage.sh [path]          # print detected reports
-#   scripts/detect-coverage.sh [path] --scan   # run yunq with the detected report
-#   YUNQ_BIN=./target/release/yunq scripts/detect-coverage.sh --scan
+#   scripts/detect-coverage.sh [path] --scan   # run vord with the detected report
+#   VORD_BIN=./target/release/vord scripts/detect-coverage.sh --scan
 # ==============================================================================
 
 set -uo pipefail
@@ -24,7 +24,7 @@ elif [[ "${2}" == "--scan" ]]; then
   SCAN="--scan"
 fi
 ROOT="$(cd "${ROOT}" && pwd)"
-YUNQ_BIN="${YUNQ_BIN:-yunq}"
+VORD_BIN="${VORD_BIN:-vord}"
 
 declare -A REPORT_FORMAT
 found=()
@@ -53,7 +53,7 @@ if [[ -f "${ROOT}/.coverage" ]]; then
   echo "# .coverage (coverage.py) found — convert with: coverage lcov -o lcov.info" >&2
 fi
 
-# Java: JaCoCo (jacoco.xml — the CSV export is not parseable by yunq's
+# Java: JaCoCo (jacoco.xml — the CSV export is not parseable by vord's
 # XML importer; point users at the report goal instead), Cobertura
 for f in target/site/jacoco/jacoco.xml build/reports/jacoco/test/jacocoTestReport.xml; do
   if [[ -f "${ROOT}/${f}" ]]; then
@@ -62,7 +62,7 @@ for f in target/site/jacoco/jacoco.xml build/reports/jacoco/test/jacocoTestRepor
   fi
 done
 if [[ -f "${ROOT}/target/site/jacoco/jacoco.csv" ]]; then
-  echo "# jacoco.csv found — yunq's JaCoCo importer reads XML; regenerate with 'mvn jacoco:report'" >&2
+  echo "# jacoco.csv found — vord's JaCoCo importer reads XML; regenerate with 'mvn jacoco:report'" >&2
 fi
 for f in target/site/cobertura/coverage.xml build/reports/cobertura/coverage.xml; do
   if [[ -f "${ROOT}/${f}" ]]; then REPORT_FORMAT["${ROOT}/${f}"]="cobertura"; found+=("${ROOT}/${f}"); fi
@@ -92,8 +92,8 @@ fi
 if [[ "${SCAN}" == "--scan" ]]; then
   for report in "${found[@]}"; do
     fmt="${REPORT_FORMAT["${report}"]}"
-    echo "==> yunq scan ${ROOT} --coverage-report ${report} --coverage-format ${fmt}"
-    "${YUNQ_BIN}" scan "${ROOT}" --coverage-report "${report}" --coverage-format "${fmt}"
+    echo "==> vord scan ${ROOT} --coverage-report ${report} --coverage-format ${fmt}"
+    "${VORD_BIN}" scan "${ROOT}" --coverage-report "${report}" --coverage-format "${fmt}"
   done
 else
   echo "# detected coverage report(s):"
@@ -101,8 +101,8 @@ else
     echo "  ${report}  (${REPORT_FORMAT["${report}"]})"
   done
   echo ""
-  echo "# run yunq with them:"
+  echo "# run vord with them:"
   for report in "${found[@]}"; do
-    echo "  yunq scan ${ROOT} --coverage-report ${report} --coverage-format ${REPORT_FORMAT["${report}"]}"
+    echo "  vord scan ${ROOT} --coverage-report ${report} --coverage-format ${REPORT_FORMAT["${report}"]}"
   done
 fi

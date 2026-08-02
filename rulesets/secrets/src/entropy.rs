@@ -4,8 +4,8 @@
 //! newly-issued provider formats we haven't special-cased yet, and one-off
 //! random secrets.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// Shannon entropy of `s`, in bits per character, computed from the
 /// character-frequency distribution within `s` itself (not a fixed
@@ -316,10 +316,10 @@ impl Rule for HighEntropyStringRule {
         {
             return Vec::new();
         }
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
-        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
 
@@ -327,7 +327,7 @@ impl Rule for HighEntropyStringRule {
             .descendants()
             .filter(|n| *n.kind() == NodeKind::StringLiteral)
         {
-            if yunq_rules_engine::in_ranges(&test_ranges, literal.span().start_line) {
+            if vord_rules_engine::in_ranges(&test_ranges, literal.span().start_line) {
                 continue;
             }
             let value = unescape_common(strip_quotes(literal.text()));
@@ -369,14 +369,14 @@ impl Rule for HighEntropyStringRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         HighEntropyStringRule::new().check(&file, &ast)
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn ignores_snake_case_identifier_style_text() {
-        assert!(check_ts("const m = \"yunq_process_uptime_seconds\";\n").is_empty());
+        assert!(check_ts("const m = \"vord_process_uptime_seconds\";\n").is_empty());
     }
 
     #[test]
@@ -497,7 +497,7 @@ mod tests {
         assert!(
             check_ts("const url = \"{public_url}/api/auth/oauth/github/callback\";\n").is_empty()
         );
-        assert!(check_ts("const metric = \"yunq_http_requests_total{{method=\\\"{}\\\",route=\\\"{}\\\"}}\";\n").is_empty());
+        assert!(check_ts("const metric = \"vord_http_requests_total{{method=\\\"{}\\\",route=\\\"{}\\\"}}\";\n").is_empty());
     }
 
     #[test]
@@ -525,7 +525,7 @@ mod tests {
         let token = ["aG3n7Zq9L", "m2XpW5vB", "t8FhKc1RdSy"].concat();
         let code = format!("const apiToken = \"{token}\";\n");
         let file = SourceFile::new("t.ts", &*code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let strict_rule = HighEntropyStringRule::with_threshold(5.9, 20);
@@ -539,25 +539,25 @@ mod tests {
 
         let file =
             SourceFile::new("pnpm-lock.yaml", &*code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
 
         let file = SourceFile::new("Cargo.lock", &*code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
 
         let file = SourceFile::new("some.yaml", &*code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());
 
         let file = SourceFile::new("other.yml", &*code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(HighEntropyStringRule::new().check(&file, &ast).is_empty());

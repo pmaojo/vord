@@ -21,9 +21,9 @@
 //! split across `impl` blocks in other files, exactly the case
 //! `ClassRegistry::build_cross_file` exists for.
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::ClassRegistry;
+use vord_ast::{AstNode, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::ClassRegistry;
 
 use crate::common::{accessor_of, declared_methods, field_names, is_domain_path, wire_dto_names};
 
@@ -81,7 +81,7 @@ impl CrossFileRule for AnemicDomainModelRule {
         let views: Vec<(&str, &AstNode)> = files
             .iter()
             .filter(|(file, _)| is_domain_path(file.path()))
-            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .map(|(file, ast)| (file.path(), ast))
             .collect();
         if views.is_empty() {
@@ -133,21 +133,21 @@ impl CrossFileRule for AnemicDomainModelRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         AnemicDomainModelRule::default()
             .check(&[(file, ast)])

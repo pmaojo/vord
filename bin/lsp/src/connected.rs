@@ -2,7 +2,7 @@
 //!
 //! In standalone mode the LSP server only diagnoses the documents the user
 //! has open. In connected mode it additionally streams every finding back
-//! to the yunq server so analysis is centralized: multiple developers see
+//! to the vord server so analysis is centralized: multiple developers see
 //! the same findings even when only one of them has the file open.
 //!
 //! The mode is opt-in via `--connect=<url> --token=<bearer>` in the LSP
@@ -32,7 +32,7 @@ use url::Url;
 /// Configuration for connected mode.
 #[derive(Debug, Clone)]
 pub struct ConnectedConfig {
-    /// Base URL of the yunq server (no trailing slash).
+    /// Base URL of the vord server (no trailing slash).
     pub server_url: Url,
     /// Bearer token for `Authorization: Bearer <token>`.
     pub bearer_token: String,
@@ -268,7 +268,7 @@ mod tests {
 
     fn config() -> ConnectedConfig {
         ConnectedConfig::sane_defaults(
-            Url::parse("https://yunq.example.com").unwrap(),
+            Url::parse("https://vord.example.com").unwrap(),
             "secret".into(),
         )
     }

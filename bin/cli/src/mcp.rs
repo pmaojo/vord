@@ -41,7 +41,7 @@ fn handle_rpc_request(req: &Value) -> Option<Value> {
                     "tools": {}
                 },
                 "serverInfo": {
-                    "name": "yunq-mcp",
+                    "name": "vord-mcp",
                     "version": env!("CARGO_PKG_VERSION")
                 }
             }
@@ -52,7 +52,7 @@ fn handle_rpc_request(req: &Value) -> Option<Value> {
             "result": {
                 "tools": [
                     {
-                        "name": "yunq_scan",
+                        "name": "vord_scan",
                         "description": "Run ultra-fast static analysis scan on workspace (<30ms)",
                         "inputSchema": {
                             "type": "object",
@@ -62,7 +62,7 @@ fn handle_rpc_request(req: &Value) -> Option<Value> {
                         }
                     },
                     {
-                        "name": "yunq_fix",
+                        "name": "vord_fix",
                         "description": "Apply automated rule fixes to workspace",
                         "inputSchema": {
                             "type": "object",
@@ -72,7 +72,7 @@ fn handle_rpc_request(req: &Value) -> Option<Value> {
                         }
                     },
                     {
-                        "name": "yunq_swarm_roles",
+                        "name": "vord_swarm_roles",
                         "description": "View swarm role topology and policy scopes",
                         "inputSchema": {
                             "type": "object",
@@ -80,7 +80,7 @@ fn handle_rpc_request(req: &Value) -> Option<Value> {
                         }
                     },
                     {
-                        "name": "yunq_swarm_handoff",
+                        "name": "vord_swarm_handoff",
                         "description": "Queue or deliver swarm handoffs between roles",
                         "inputSchema": {
                             "type": "object",
@@ -93,8 +93,8 @@ fn handle_rpc_request(req: &Value) -> Option<Value> {
                         }
                     },
                     {
-                        "name": "yunq_kickoff",
-                        "description": "Scaffold a new project using yunq starter templates",
+                        "name": "vord_kickoff",
+                        "description": "Scaffold a new project using vord starter templates",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
@@ -111,11 +111,11 @@ fn handle_rpc_request(req: &Value) -> Option<Value> {
             let params = req.get("params")?;
             let name = params.get("name")?.as_str()?;
             let result_content = match name {
-                "yunq_scan" => "yunq_scan executed successfully. 0 blocking issues found.",
-                "yunq_fix" => "yunq_fix executed successfully. All autofixable findings repaired.",
-                "yunq_swarm_roles" => "Swarm topology active: architect -> coder -> cleaner -> qa",
-                "yunq_swarm_handoff" => "Swarm handoff processed successfully.",
-                "yunq_kickoff" => "Project template scaffolded successfully.",
+                "vord_scan" => "vord_scan executed successfully. 0 blocking issues found.",
+                "vord_fix" => "vord_fix executed successfully. All autofixable findings repaired.",
+                "vord_swarm_roles" => "Swarm topology active: architect -> coder -> cleaner -> qa",
+                "vord_swarm_handoff" => "Swarm handoff processed successfully.",
+                "vord_kickoff" => "Project template scaffolded successfully.",
                 _ => "Unknown tool",
             };
 
@@ -156,7 +156,7 @@ mod tests {
         });
 
         let resp = handle_rpc_request(&req).unwrap();
-        assert_eq!(resp["result"]["serverInfo"]["name"], "yunq-mcp");
+        assert_eq!(resp["result"]["serverInfo"]["name"], "vord-mcp");
     }
 
     #[test]
@@ -169,7 +169,7 @@ mod tests {
 
         let resp = handle_rpc_request(&req).unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert!(tools.iter().any(|t| t["name"] == "yunq_scan"));
-        assert!(tools.iter().any(|t| t["name"] == "yunq_kickoff"));
+        assert!(tools.iter().any(|t| t["name"] == "vord_scan"));
+        assert!(tools.iter().any(|t| t["name"] == "vord_kickoff"));
     }
 }

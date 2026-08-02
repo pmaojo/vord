@@ -21,7 +21,7 @@
 //!   a fourth recognizer here would be guessing rather than reading a
 //!   convention.
 //! - **Does it reach infrastructure**, reusing
-//!   `yunq_import_graph::infra_roster` — the identical curated module list
+//!   `vord_import_graph::infra_roster` — the identical curated module list
 //!   `architecture:framework-in-domain` checks against a file's imports,
 //!   applied instead to call sites inside the step body: a call whose callee
 //!   resolves to a bare identifier matching one of the roster's single-word
@@ -31,9 +31,9 @@
 //!   (`fs.readFile(..)`, not `node:fs.readFile(..)`), so keeping them in would
 //!   only ever miss, never over-match.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_import_graph::{InfraModule, infra_roster};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_import_graph::{InfraModule, infra_roster};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -257,20 +257,20 @@ impl Rule for BddStepReachesInfraRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         BddStepReachesInfraRule::new().check(&file, &ast)
     }

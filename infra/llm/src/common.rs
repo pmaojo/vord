@@ -5,9 +5,9 @@
 
 use serde::Deserialize;
 use std::path::Path;
-use yunq_remediation::{FixPrompt, FixProposal, LlmError};
+use vord_remediation::{FixPrompt, FixProposal, LlmError};
 
-pub(crate) const SYSTEM_PROMPT: &str = "You are yunq's automated Remediation Agent. Your job is to fix code analysis findings accurately.\n\
+pub(crate) const SYSTEM_PROMPT: &str = "You are vord's automated Remediation Agent. Your job is to fix code analysis findings accurately.\n\
     Return ONLY a valid JSON object matching this exact schema, with no markdown code blocks:\n\
     {\n  \"explanation\": \"short rationale\",\n  \"original_snippet\": \"exact lines to replace\",\n  \"replacement_snippet\": \"new lines\"\n}";
 

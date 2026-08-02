@@ -1,9 +1,9 @@
-//! Rule: Non-Lexical Lifetimes (NLL) borrow checking rule utilizing `yunq_taint::PoloniusEngine`.
+//! Rule: Non-Lexical Lifetimes (NLL) borrow checking rule utilizing `vord_taint::PoloniusEngine`.
 
 use std::collections::{HashMap, HashSet};
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
-use yunq_taint::{BorrowCheckFacts, Loan, Origin, PoloniusEngine};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_taint::{BorrowCheckFacts, Loan, Origin, PoloniusEngine};
 
 pub struct NllBorrowCheckRule {
     id: RuleId,

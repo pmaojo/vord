@@ -1,11 +1,11 @@
 //! Rule: an import cycle — module A imports B imports C imports A (directly
 //! or transitively) — across the whole analyzed file set. A whole-program
 //! rule by nature (`CrossFileRule`, same plugin model as
-//! `owasp:cross-file-injection`), built on `yunq_import_graph::ImportGraph`.
+//! `owasp:cross-file-injection`), built on `vord_import_graph::ImportGraph`.
 
-use yunq_ast::{AstNode, SourceFile, Span};
-use yunq_import_graph::ImportGraph;
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, SourceFile, Span};
+use vord_import_graph::ImportGraph;
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct DependencyCycleRule {
     id: RuleId,
@@ -82,8 +82,8 @@ impl CrossFileRule for DependencyCycleRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     #[test]
     fn flags_a_two_file_ts_import_cycle() {
@@ -99,7 +99,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (a.clone(), parser.parse(&a).unwrap()),
             (b.clone(), parser.parse(&b).unwrap()),
@@ -128,7 +128,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (a.clone(), parser.parse(&a).unwrap()),
             (b.clone(), parser.parse(&b).unwrap()),
@@ -151,7 +151,7 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let parser = yunq_parser_python::PythonParser::new();
+        let parser = vord_parser_python::PythonParser::new();
         let files = vec![
             (a.clone(), parser.parse(&a).unwrap()),
             (b.clone(), parser.parse(&b).unwrap()),
@@ -169,7 +169,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![(a.clone(), parser.parse(&a).unwrap())];
 
         assert!(DependencyCycleRule::new().check(&files).is_empty());

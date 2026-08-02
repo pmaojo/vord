@@ -17,9 +17,9 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry};
+use vord_ast::{AstNode, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry};
 
 /// The chain of ancestors above `class`, nearest first, stopping at the first
 /// name the registry cannot resolve (a framework base class outside the
@@ -95,7 +95,7 @@ impl CrossFileRule for DeepInheritanceRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> = files
             .iter()
-            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .map(|(file, ast)| (file.path(), ast))
             .collect();
         let registry = ClassRegistry::build_cross_file(&views);
@@ -129,8 +129,8 @@ impl CrossFileRule for DeepInheritanceRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     /// `C0` at the root, each `C{n}` extending `C{n-1}`.
     fn ts_chain(levels: usize) -> String {
@@ -143,7 +143,7 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn resolves_ancestors_declared_in_other_files() {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let base = SourceFile::new(
             "base.ts",
             "export class C0 {}\nexport class C1 extends C0 {}\nexport class C2 extends C1 {}\n",
@@ -225,7 +225,7 @@ mod tests {
             code.push_str(&format!("class C{level}(C{}):\n    pass\n", level - 1));
         }
         let file = SourceFile::new("t.py", code.as_str(), LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         let findings = DeepInheritanceRule::default().check(&[(file, ast)]);
@@ -241,7 +241,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];

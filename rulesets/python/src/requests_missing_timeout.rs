@@ -3,8 +3,8 @@
 //! or hung dependency into an unbounded hang (and, at scale, an easy
 //! resource-exhaustion vector) in the calling service.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::other_kind_name;
 
@@ -75,8 +75,8 @@ impl Rule for RequestsMissingTimeoutRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "A requests call with no timeout blocks forever if the remote host never responds; pass timeout= so a hung dependency fails fast instead of hanging the caller.".into(),
             tags: vec!["reliability".into(), "cwe".into()],
             cwe: Some(400),
@@ -99,13 +99,13 @@ impl Rule for RequestsMissingTimeoutRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         RequestsMissingTimeoutRule::new().check(&file, &ast)

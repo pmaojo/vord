@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Empirically calibrate the yunq Health Score penalty weights (research
+"""Empirically calibrate the vord Health Score penalty weights (research
 gap #3: "the Health Score weights are heuristic, not derived from data").
 
 The engine currently uses (core/rules-engine/src/domain/report.rs,

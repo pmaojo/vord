@@ -82,7 +82,7 @@ impl CommitStatus {
         Self {
             state,
             description: description.into(),
-            context: "yunq".to_string(),
+            context: "vord".to_string(),
             target_url: None,
         }
     }
@@ -139,9 +139,9 @@ mod tests {
     }
 
     #[test]
-    fn status_builder_defaults_context_to_yunq() {
+    fn status_builder_defaults_context_to_vord() {
         let status = CommitStatus::new(CommitStatusState::Success, "gate passed");
-        assert_eq!(status.context, "yunq");
+        assert_eq!(status.context, "vord");
         assert_eq!(status.state.as_str(), "success");
         assert!(status.target_url.is_none());
     }

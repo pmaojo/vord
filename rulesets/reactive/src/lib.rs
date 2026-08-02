@@ -10,7 +10,7 @@ mod subject_never_completed;
 pub use missing_unsubscribe::MissingUnsubscribeRule;
 pub use subject_never_completed::SubjectNeverCompletedRule;
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

@@ -1,9 +1,9 @@
 //! Inbound adapter: Groovy → neutral AST via tree-sitter.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     GroovyParser,
     LanguageIdentifier::groovy(),
     tree_sitter_groovy::LANGUAGE,
@@ -24,15 +24,15 @@ fn map_kind(kind: &str) -> NodeKind {
         "local_variable_declaration" | "assignment_expression" => NodeKind::Assignment,
         "field_access" => NodeKind::MemberAccess,
         "line_comment" | "block_comment" => NodeKind::Comment,
-        other => NodeKind::Other(yunq_ast::intern(other)),
+        other => NodeKind::Other(vord_ast::intern(other)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("Test.groovy", code, LanguageIdentifier::groovy()).unwrap();

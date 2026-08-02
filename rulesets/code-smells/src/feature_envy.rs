@@ -4,7 +4,7 @@
 //! probably belongs there instead). This is the rule the symbol table
 //! exists for: telling "a member access on a parameter whose type is some
 //! *other known class*" apart from "a member access on anything else"
-//! needs the declared-type resolution `yunq_symbols` provides — a plain
+//! needs the declared-type resolution `vord_symbols` provides — a plain
 //! AST-shape rule can't tell a foreign-class access from an access on an
 //! unrelated plain object or a primitive-typed parameter.
 //!
@@ -14,9 +14,9 @@
 
 use std::collections::HashMap;
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::ClassRegistry;
+use vord_ast::{AstNode, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::ClassRegistry;
 
 /// Member accesses on `self`/`this` (own-class access) and on `base_name`
 /// (a specific foreign-typed parameter), counted in one pass over the
@@ -150,12 +150,12 @@ impl CrossFileRule for FeatureEnvyRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -208,7 +208,7 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -235,7 +235,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (address_file.clone(), parser.parse(&address_file).unwrap()),
             (invoice_file.clone(), parser.parse(&invoice_file).unwrap()),

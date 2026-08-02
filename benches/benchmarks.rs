@@ -1,10 +1,10 @@
-//! Criterion benchmark suite for yunq static analysis performance
+//! Criterion benchmark suite for vord static analysis performance
 //! verification — the ULTRA-performance pillar's ground truth
 //! (`ROADMAP.md`'s target: >=100k LOC/s per core, sub-second incremental
 //! re-analysis).
 //!
 //! `bench_full_pipeline_corpus` is the one that matters: it drives
-//! `yunq_cli::scan`, the exact entry point the real CLI uses (every
+//! `vord_cli::scan`, the exact entry point the real CLI uses (every
 //! registered parser, every registered rule, CPD, cross-file taint), over
 //! a vendored ~12k-line real-world corpus (`benches/corpus/rust/` — this
 //! repo's own `core`/`rulesets` sources, chosen because they're real,
@@ -17,9 +17,9 @@
 use std::path::{Path, PathBuf};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use yunq_ast::{LanguageIdentifier, SourceFile};
-use yunq_parser_rust::RustParser;
-use yunq_rules_engine::AstParser;
+use vord_ast::{LanguageIdentifier, SourceFile};
+use vord_parser_rust::RustParser;
+use vord_rules_engine::AstParser;
 
 fn corpus_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/rust")
@@ -41,7 +41,7 @@ fn rust_files_under(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Independent of anything `yunq_cli::scan` counts internally — a plain
+/// Independent of anything `vord_cli::scan` counts internally — a plain
 /// newline count over the vendored files, so the throughput denominator
 /// can't drift with engine changes (e.g. a future exclusion rule skipping
 /// a file would still show up as a throughput drop, not silently shrink
@@ -98,7 +98,7 @@ fn bench_full_pipeline_corpus(c: &mut Criterion) {
     group.sample_size(20);
     group.bench_function("scan_corpus_rust_only", |b| {
         b.iter(|| {
-            futures::executor::block_on(yunq_cli::scan(&corpus)).expect("corpus scan succeeds");
+            futures::executor::block_on(vord_cli::scan(&corpus)).expect("corpus scan succeeds");
         })
     });
     group.finish();

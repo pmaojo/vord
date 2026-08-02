@@ -1,9 +1,9 @@
-//! `yunq hook install` — wires the guardrail into a repository.
+//! `vord hook install` — wires the guardrail into a repository.
 //!
 //! Two artifacts, both committed to the repository rather than kept in a
 //! developer's home directory: `.claude/settings.json` (so every agent run
 //! in this repository is gated, on every teammate's machine and in CI) and
-//! `yunq-policy.toml` (so the rules the agent is held to are reviewable in
+//! `vord-policy.toml` (so the rules the agent is held to are reviewable in
 //! the same pull request as the code they govern).
 //!
 //! The settings merge is the delicate part. `.claude/settings.json` is a
@@ -15,27 +15,27 @@ use std::path::Path;
 
 use serde_json::{Map, Value, json};
 
-/// The command the hooks invoke. Deliberately a bare `yunq` rather than an
+/// The command the hooks invoke. Deliberately a bare `vord` rather than an
 /// absolute path: this file gets committed and shared, and an absolute path
 /// from the installing developer's machine is wrong on everyone else's.
-pub const DEFAULT_HOOK_COMMAND: &str = "yunq hook claude-code";
+pub const DEFAULT_HOOK_COMMAND: &str = "vord hook claude-code";
 
 /// The policy shipped on install.
 ///
-/// Unlike [`yunq_agent_policy::AgentPolicy::default`] — which has no
+/// Unlike [`vord_agent_policy::AgentPolicy::default`] — which has no
 /// protected paths, because an invisible default that silently refuses
 /// edits is hostile — this template turns path protection *on* with concrete
 /// entries. The difference is visibility: this text lands in the user's own
 /// repository where they can read, edit or delete it in the same commit that
 /// installed it.
-pub const POLICY_TEMPLATE: &str = r#"# yunq Agent Permission Policy
+pub const POLICY_TEMPLATE: &str = r#"# vord Agent Permission Policy
 #
 # Governs what an autonomous coding agent (Claude Code, and any host wired to
-# `yunq hook check`) is allowed to write. This is not the quality gate: the
+# `vord hook check`) is allowed to write. This is not the quality gate: the
 # gate asks "is this project releasable?", this asks "may this one write
 # land?" — and answers before the bytes reach disk.
 #
-# Verify any change here with:  yunq hook check <file>
+# Verify any change here with:  vord hook check <file>
 
 [agent]
 enabled = true
@@ -72,15 +72,15 @@ blocking_rules = [
 advisory_rules = []
 
 # Rules that block like `blocking_rules`, but a human can lift the block for
-# one specific write with `yunq hook approve <token>` (the token is printed
+# one specific write with `vord hook approve <token>` (the token is printed
 # in the denial). Use this for findings that are too risky to let an agent
 # resolve unsupervised but are not always wrong — a blanket block would just
 # get the policy edited to remove the rule.
 escalate_rules = []
 
-# Stricter threshold for a path yunq has already seen an agent write to (or
+# Stricter threshold for a path vord has already seen an agent write to (or
 # attempt to write to) before — tracked automatically in
-# .yunq-provenance.json, no manual "mark this file as AI-generated" step
+# .vord-provenance.json, no manual "mark this file as AI-generated" step
 # required. Only the threshold tightens here; blocking_rules/escalate_rules/
 # advisory_rules above apply the same regardless of a path's provenance.
 [agent.ai_touched]
@@ -98,16 +98,16 @@ pattern = "**/*.tf"
 reason = "Terraform changes can rewrite IAM and networking; human review required."
 
 [[protected_path]]
-pattern = "yunq-policy.toml"
+pattern = "vord-policy.toml"
 reason = "This is the rulebook an agent is judged against; an agent that can edit its own referee is not governed by one."
 
 [[protected_path]]
-pattern = "yunq.toml"
+pattern = "vord.toml"
 reason = "Quality-gate thresholds and exclusions live here; loosening them is a quieter way to make a gate pass than fixing the code it flags."
 
 # Requires at least one Gherkin scenario tagged `@covers(<glob>)` somewhere
 # in the repository's .feature files before an agent may write to a matching
-# path — yunq scans for the tag, it does not run the scenario. Commented out
+# path — vord scans for the tag, it does not run the scenario. Commented out
 # by default: unlike protected_path, turning this on immediately denies every
 # matching write until real .feature coverage exists, so it needs the
 # repository to already have (or be ready to add) BDD scenarios, not just a
@@ -118,7 +118,7 @@ reason = "Quality-gate thresholds and exclusions live here; loosening them is a 
 # reason = "Domain logic changes must be described by a Gherkin scenario before an agent may land them."
 "#;
 
-/// Merges yunq's hooks into an existing `.claude/settings.json` value.
+/// Merges vord's hooks into an existing `.claude/settings.json` value.
 ///
 /// Pure so the merge can be tested against real-world settings shapes
 /// without touching a filesystem. Returns the updated value and whether
@@ -158,7 +158,7 @@ pub fn merge_hooks(mut settings: Value, command: &str) -> (Value, bool) {
                 // Bounded so a wedged analysis cannot hang the agent
                 // indefinitely; a single-file scan is far under this.
                 "timeout": 30,
-                "statusMessage": "yunq guardrail",
+                "statusMessage": "vord guardrail",
             }],
         }));
         changed = true;
@@ -186,7 +186,7 @@ fn already_installed(matchers: &[Value], command: &str) -> bool {
 
 /// Writes both artifacts into `root`, reporting what it did.
 pub fn install(root: &Path, command: &str) -> anyhow::Result<()> {
-    let policy_path = root.join(yunq_cli::hook::POLICY_FILE);
+    let policy_path = root.join(vord_cli::hook::POLICY_FILE);
     if policy_path.exists() {
         println!(
             "✅ {} already exists — left untouched",
@@ -243,7 +243,7 @@ pub fn install(root: &Path, command: &str) -> anyhow::Result<()> {
 
     println!(
         "\nThe guardrail is active for agents run in this repository.\n\
-         `{command}` must be on PATH. Verify with:  yunq hook check <file>"
+         `{command}` must be on PATH. Verify with:  vord hook check <file>"
     );
     Ok(())
 }
@@ -325,7 +325,7 @@ mod tests {
             "PostToolUse is still missing, so something does change"
         );
         let pre = merged["hooks"]["PreToolUse"].as_array().expect("array");
-        assert_eq!(pre.len(), 1, "PreToolUse must not gain a second yunq hook");
+        assert_eq!(pre.len(), 1, "PreToolUse must not gain a second vord hook");
         assert_eq!(pre[0]["matcher"], "Write");
     }
 
@@ -339,16 +339,16 @@ mod tests {
     #[test]
     fn the_shipped_policy_template_parses_and_protects_paths() {
         let policy =
-            yunq_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
+            vord_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
         assert!(policy.enabled());
         assert!(policy.evaluate(".github/workflows/ci.yml", &[]).is_denied());
         assert!(policy.evaluate("infra/main.tf", &[]).is_denied());
         assert!(
-            policy.evaluate("yunq-policy.toml", &[]).is_denied(),
+            policy.evaluate("vord-policy.toml", &[]).is_denied(),
             "the policy must protect its own rulebook"
         );
         assert!(
-            policy.evaluate("yunq.toml", &[]).is_denied(),
+            policy.evaluate("vord.toml", &[]).is_denied(),
             "the gate config must protect its own thresholds"
         );
         assert!(!policy.evaluate("src/app.ts", &[]).is_denied());
@@ -360,22 +360,22 @@ mod tests {
 
     #[test]
     fn the_shipped_policy_template_turns_on_a_stricter_ai_touched_threshold() {
-        use yunq_agent_policy::{Finding, Provenance};
+        use vord_agent_policy::{Finding, Provenance};
 
         let policy =
-            yunq_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
+            vord_agent_policy::AgentPolicy::parse(POLICY_TEMPLATE).expect("template must be valid");
         assert_eq!(
             policy.block_at_or_above(),
-            yunq_rules_engine::Severity::Critical
+            vord_rules_engine::Severity::Critical
         );
         assert_eq!(
             policy.block_at_or_above_for(Provenance::AiTouched),
-            yunq_rules_engine::Severity::Major
+            vord_rules_engine::Severity::Major
         );
 
         let major_finding = [Finding {
-            rule: yunq_rules_engine::RuleId::new("smells:long-method").expect("valid rule id"),
-            severity: yunq_rules_engine::Severity::Major,
+            rule: vord_rules_engine::RuleId::new("smells:long-method").expect("valid rule id"),
+            severity: vord_rules_engine::Severity::Major,
             message: "boom".to_string(),
             line: 1,
         }];

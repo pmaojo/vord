@@ -1,4 +1,4 @@
-//! Tool-calling chat adapters: `yunq_agent::ChatModel` over the Anthropic
+//! Tool-calling chat adapters: `vord_agent::ChatModel` over the Anthropic
 //! Messages API and over OpenAI-compatible Chat Completions.
 //!
 //! Separate from [`crate::anthropic`] / [`crate::openai_compatible`], which
@@ -17,13 +17,13 @@
 //! failing assertion here is worth a great deal more than one there.
 
 use serde_json::{Value, json};
-use yunq_agent::runtime::{ChatModel, ModelError};
-use yunq_agent::session::{AssistantTurn, Message, TokenUsage, ToolCall, ToolResult, Transcript};
-use yunq_agent::tools::ToolSpec;
+use vord_agent::runtime::{ChatModel, ModelError};
+use vord_agent::session::{AssistantTurn, Message, TokenUsage, ToolCall, ToolResult, Transcript};
+use vord_agent::tools::ToolSpec;
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// Generous enough for a multi-file edit in one turn; the agent's own token
-/// budget (`yunq_agent::Budget`) is what actually bounds a run.
+/// budget (`vord_agent::Budget`) is what actually bounds a run.
 const MAX_TOKENS: u32 = 8192;
 
 // ---------------------------------------------------------------------------
@@ -416,7 +416,7 @@ impl crate::LlmProviderConfig {
 
 #[cfg(test)]
 mod tests {
-    use yunq_agent::tools::tool_specs;
+    use vord_agent::tools::tool_specs;
 
     use super::*;
 

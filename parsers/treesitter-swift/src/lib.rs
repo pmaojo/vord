@@ -1,9 +1,9 @@
 //! Inbound adapter: Swift → neutral AST via tree-sitter.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     SwiftParser,
     LanguageIdentifier::swift(),
     tree_sitter_swift::LANGUAGE,
@@ -26,14 +26,14 @@ const KIND_TABLE: &[(&str, NodeKind)] = &[
 ];
 
 fn map_kind(kind: &str) -> NodeKind {
-    yunq_ast::lookup_kind(KIND_TABLE, kind)
+    vord_ast::lookup_kind(KIND_TABLE, kind)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("test.swift", code, LanguageIdentifier::swift()).unwrap();

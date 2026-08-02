@@ -4,8 +4,8 @@
 //! `None`/`True`/`False`/enum-member identity checks are meant to use
 //! `is`. Equality (`==`) is what the author almost always means.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -64,8 +64,8 @@ impl Rule for LiteralIdentityComparisonRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`is` against an int/float/string literal relies on CPython's small-int and string interning, an implementation detail that can differ between runs; use `==` unless an identity check against None/True/False/a singleton is genuinely intended.".into(),
             tags: vec!["bug".into(), "python-idiom".into()],
             cwe: Some(697),
@@ -84,13 +84,13 @@ impl Rule for LiteralIdentityComparisonRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         LiteralIdentityComparisonRule::new().check(&file, &ast)

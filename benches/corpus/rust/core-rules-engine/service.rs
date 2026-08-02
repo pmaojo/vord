@@ -3,8 +3,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use yunq_ast::{LanguageIdentifier, SourceFile};
-use yunq_profiles::{IssueType, QualityProfile, RuleId};
+use vord_ast::{LanguageIdentifier, SourceFile};
+use vord_profiles::{IssueType, QualityProfile, RuleId};
 
 use crate::domain::{AnalysisReport, Hotspot, Issue, Metrics};
 use crate::ports::{
@@ -12,7 +12,7 @@ use crate::ports::{
     MetricsTracker, StorageError,
 };
 use crate::rule::{CrossFileRule, FindingKind, Rule};
-use yunq_ast::AstNode;
+use vord_ast::AstNode;
 
 /// Orchestrates one analysis run: parse each file with the registered parser
 /// for its language, run every applicable active rule, persist the resulting
@@ -32,7 +32,7 @@ where
     storage: S,
     metrics: M,
     cache: Option<Arc<dyn AnalysisCache>>,
-    duplication: yunq_cpd::DuplicationConfig,
+    duplication: vord_cpd::DuplicationConfig,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -106,11 +106,11 @@ where
             storage,
             metrics,
             cache: None,
-            duplication: yunq_cpd::DuplicationConfig::default(),
+            duplication: vord_cpd::DuplicationConfig::default(),
         }
     }
 
-    pub fn with_duplication_config(mut self, config: yunq_cpd::DuplicationConfig) -> Self {
+    pub fn with_duplication_config(mut self, config: vord_cpd::DuplicationConfig) -> Self {
         self.duplication = config;
         self
     }
@@ -149,19 +149,19 @@ where
     /// Copy-paste detection over the whole file set. Each file's registered
     /// parser (if any) supplies real per-language tokens; files with no
     /// registered parser fall back to trimmed lines.
-    fn detect_duplication(&self, files: &[SourceFile]) -> yunq_cpd::DuplicationReport {
-        let tokenized: Vec<yunq_cpd::TokenizedFile> = files
+    fn detect_duplication(&self, files: &[SourceFile]) -> vord_cpd::DuplicationReport {
+        let tokenized: Vec<vord_cpd::TokenizedFile> = files
             .iter()
             .map(|file| {
                 let lines = self
                     .parsers
                     .get(file.language())
                     .map(|parser| parser.tokenize_for_duplication(file))
-                    .unwrap_or_else(|| yunq_cpd::fallback_tokenize(file));
-                yunq_cpd::TokenizedFile { path: file.path().to_string(), lines }
+                    .unwrap_or_else(|| vord_cpd::fallback_tokenize(file));
+                vord_cpd::TokenizedFile { path: file.path().to_string(), lines }
             })
             .collect();
-        yunq_cpd::find_duplicates(&tokenized, self.duplication)
+        vord_cpd::find_duplicates(&tokenized, self.duplication)
     }
 
     /// Cross-file rules (e.g. inter-procedural taint) need every AST at
@@ -214,7 +214,7 @@ where
 
     /// Same as [`Self::analyze_files`], but scopes the newly-persisted
     /// issues/hotspots to a project and (if already known) an analysis —
-    /// used by the `yunq-worker` composition root, the only caller that
+    /// used by the `vord-worker` composition root, the only caller that
     /// resolves a project before/while running a scan.
     pub async fn analyze_files_scoped(
         &self,
@@ -434,13 +434,13 @@ enum FileOutcome {
 mod tests {
     use std::sync::Mutex;
 
-    use yunq_ast::{AstNode, NodeKind, Span};
-    use yunq_profiles::{RuleId, Severity};
+    use vord_ast::{AstNode, NodeKind, Span};
+    use vord_profiles::{RuleId, Severity};
 
     use super::*;
     use crate::ports::{MetricsTracker, ParseError};
     use crate::rule::Finding;
-    use yunq_profiles::Rating;
+    use vord_profiles::Rating;
 
     struct FakeParser {
         language: LanguageIdentifier,
@@ -779,7 +779,7 @@ mod tests {
         assert_eq!(effort.by_rule[&bug_rule], 25);
         assert_eq!(effort.by_component["a.rs"], 25 + 10); // bug (25) + default smell effort (10)
 
-        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let key = |raw: &str| vord_profiles::MetricKey::new(raw).unwrap();
         assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
         assert_eq!(report.measure(&key("security_rating")), Some(1.0));
     }

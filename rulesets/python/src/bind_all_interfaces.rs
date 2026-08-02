@@ -5,8 +5,8 @@
 //! container where 0.0.0.0 is required) rather than an accidental
 //! widening from `127.0.0.1`.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const BIND_ALL: &str = "0.0.0.0";
 
@@ -78,8 +78,8 @@ impl Rule for BindAllInterfacesRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Binding to 0.0.0.0 exposes the service on every network interface, not just the intended one; confirm that's actually this deployment's intent.".into(),
             tags: vec!["security".into(), "cwe".into()],
             cwe: Some(605),
@@ -88,7 +88,7 @@ impl Rule for BindAllInterfacesRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         ast.descendants()
@@ -113,13 +113,13 @@ impl Rule for BindAllInterfacesRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::{AstParser, FindingKind};
+    use vord_rules_engine::{AstParser, FindingKind};
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         BindAllInterfacesRule::new().check(&file, &ast)

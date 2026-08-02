@@ -1,10 +1,10 @@
 [package]
-name = "yunq-profiles"
+name = "vord-profiles"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Quality profiles, gates, severities and ratings for yunq"
+description = "Quality profiles, gates, severities and ratings for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true

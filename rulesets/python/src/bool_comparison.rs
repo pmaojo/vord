@@ -3,8 +3,8 @@
 //! check — and, like any `==` against a singleton, additionally invokes
 //! `__eq__` instead of testing truthiness directly.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -59,8 +59,8 @@ impl Rule for BoolComparisonRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Comparing a value to True/False with ==/!= is redundant with testing truthiness directly (`if x:` / `if not x:`) and additionally invokes __eq__ instead of bool().".into(),
             tags: vec!["python-idiom".into()],
             cwe: None,
@@ -79,13 +79,13 @@ impl Rule for BoolComparisonRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         BoolComparisonRule::new().check(&file, &ast)

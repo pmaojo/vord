@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const TS_SINKS: &[&str] = &["exec", "execSync", "spawn", "spawnSync"];
 
@@ -43,8 +43,8 @@ impl Rule for CommandExecHotspotRule {
         15
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Constructing OS commands is security-sensitive; a reviewer must confirm the command and its arguments are safe.".into(),
             tags: vec!["security".into(), "owasp-a03".into()],
             cwe: Some(78),
@@ -91,8 +91,8 @@ impl Rule for CommandExecHotspotRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::{AstParser, FindingKind};
+    use vord_ast::SourceFile;
+    use vord_rules_engine::{AstParser, FindingKind};
 
     use super::*;
 
@@ -104,7 +104,7 @@ mod tests {
             LanguageIdentifier::rust(),
         )
         .unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         let findings = CommandExecHotspotRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].kind, FindingKind::Hotspot);
@@ -118,7 +118,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
         let findings = CommandExecHotspotRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 2);
     }

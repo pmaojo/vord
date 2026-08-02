@@ -2,7 +2,7 @@
 //! These DTOs are the CLI's own edge representation of the domain.
 
 use serde::Serialize;
-use yunq_rules_engine::{
+use vord_rules_engine::{
     AnalysisReport, CloneSet, ConditionStatus, CoverageSummary, CrapFinding, GateEvaluation,
     GateStatus, Hotspot, Issue, Metrics, MutationSummary, NewCodeAnalysis,
     RemediationEffortSummary, Severity, TestReportSummary,
@@ -10,7 +10,7 @@ use yunq_rules_engine::{
 
 /// True when `rule_id` starts with `mutation:` — mutation-gap rules
 /// are informational hints about untested code paths, not quality defects.
-/// They are written to a separate `.yunq-mutation-gaps.json` file and
+/// They are written to a separate `.vord-mutation-gaps.json` file and
 /// excluded from the main text/JSON/SARIF output and agent prompt.
 pub fn is_mutation_rule(rule_id: &str) -> bool {
     rule_id.starts_with("mutation:")
@@ -50,7 +50,7 @@ pub struct ReportDto {
     pub context: ScanContextDto,
     /// How many mutation-gap sites (info-level hints from rules starting
     /// with `mutation:`) this scan found. The per-site details are written
-    /// to `.yunq-mutation-gaps.json` and excluded from the main output so
+    /// to `.vord-mutation-gaps.json` and excluded from the main output so
     /// AI agents don't burn context on informational noise.
     pub mutation_gaps_count: usize,
 }
@@ -727,7 +727,7 @@ pub fn render_text(
         .count();
     if mutation_gaps > 0 {
         out.push_str(&format!(
-            "Mutation gap analysis: {mutation_gaps} site(s) → .yunq-mutation-gaps.json\n"
+            "Mutation gap analysis: {mutation_gaps} site(s) → .vord-mutation-gaps.json\n"
         ));
     }
     render_duplications_text(&mut out, report);
@@ -774,7 +774,7 @@ fn render_agent_prompt_issue_list(out: &mut String, issues: &[&Issue], scan_path
     }
     if issues.len() > MAX_PROMPT_LISTED_ISSUES {
         out.push_str(&format!(
-            "... and {} more issue(s) — re-run `yunq scan {scan_path} --format json` for the full list.\n",
+            "... and {} more issue(s) — re-run `vord scan {scan_path} --format json` for the full list.\n",
             issues.len() - MAX_PROMPT_LISTED_ISSUES,
         ));
     }
@@ -818,32 +818,32 @@ pub fn render_agent_prompt(
         .collect();
 
     let mut out = String::new();
-    out.push_str("---- yunq agent prompt (copy everything below into your AI coding agent) ----\n");
+    out.push_str("---- vord agent prompt (copy everything below into your AI coding agent) ----\n");
 
     if visible.is_empty() && mutation_gaps == 0 {
         out.push_str(&format!(
-            "yunq analyzed {scan_path} and found no issues. Quality gate: {}. Nothing to fix.\n",
+            "vord analyzed {scan_path} and found no issues. Quality gate: {}. Nothing to fix.\n",
             gate.status(),
         ));
-        out.push_str("---- end of yunq agent prompt ----\n");
+        out.push_str("---- end of vord agent prompt ----\n");
         return out;
     }
 
     if visible.is_empty() {
         out.push_str(&format!(
-            "yunq analyzed {scan_path} and found no actionable issues. Quality gate: {}.\n",
+            "vord analyzed {scan_path} and found no actionable issues. Quality gate: {}.\n",
             gate.status(),
         ));
         out.push_str(&format!(
-            "Mutation gap analysis: {mutation_gaps} site(s) → .yunq-mutation-gaps.json\n",
+            "Mutation gap analysis: {mutation_gaps} site(s) → .vord-mutation-gaps.json\n",
         ));
-        out.push_str("---- end of yunq agent prompt ----\n");
+        out.push_str("---- end of vord agent prompt ----\n");
         return out;
     }
 
     out.push_str(&format!(
-        "yunq analyzed {scan_path} and found {} issue(s) (quality gate: {}). Fix them one at a time, \
-         make the smallest change that resolves each one, and re-run `yunq scan {scan_path}` after \
+        "vord analyzed {scan_path} and found {} issue(s) (quality gate: {}). Fix them one at a time, \
+         make the smallest change that resolves each one, and re-run `vord scan {scan_path}` after \
          every fix to confirm the issue is gone and no new one appeared.\n\n",
         visible.len(),
         gate.status(),
@@ -851,14 +851,14 @@ pub fn render_agent_prompt(
 
     if mutation_gaps > 0 {
         out.push_str(&format!(
-            "Mutation gap analysis: {mutation_gaps} site(s) → .yunq-mutation-gaps.json\n",
+            "Mutation gap analysis: {mutation_gaps} site(s) → .vord-mutation-gaps.json\n",
         ));
     }
 
     render_agent_prompt_issue_list(&mut out, &visible, scan_path);
     render_agent_prompt_gate_conditions(&mut out, gate);
 
-    out.push_str("---- end of yunq agent prompt ----\n");
+    out.push_str("---- end of vord agent prompt ----\n");
     out
 }
 
@@ -984,7 +984,7 @@ pub fn render_sarif(report: &AnalysisReport) -> serde_json::Result<String> {
         runs: vec![SarifRunDto {
             tool: SarifToolDto {
                 driver: SarifDriverDto {
-                    name: "yunq",
+                    name: "vord",
                     semantic_version: env!("CARGO_PKG_VERSION"),
                 },
             },

@@ -1,12 +1,12 @@
-//! `--monorepo` scan mode: discovers every `yunq.toml` under the scan root
-//! (`yunq_infra_fs::discover_projects`) and runs the existing per-project
+//! `--monorepo` scan mode: discovers every `vord.toml` under the scan root
+//! (`vord_infra_fs::discover_projects`) and runs the existing per-project
 //! scan pipeline once per discovered project, keeping each project's
 //! results distinct in the rendered output rather than merging every
 //! project's issues into one undifferentiated report.
 
 use std::path::{Path, PathBuf};
 
-use yunq_rules_engine::{GateStatus, NewCodeAnalysis, Severity};
+use vord_rules_engine::{GateStatus, NewCodeAnalysis, Severity};
 
 use crate::output;
 
@@ -14,8 +14,8 @@ use crate::output;
 pub struct ProjectScanResult {
     pub project_path: PathBuf,
     pub project_key: Option<String>,
-    pub report: yunq_rules_engine::AnalysisReport,
-    pub gate: yunq_rules_engine::GateEvaluation,
+    pub report: vord_rules_engine::AnalysisReport,
+    pub gate: vord_rules_engine::GateEvaluation,
     pub new_code: Option<NewCodeAnalysis>,
 }
 
@@ -31,10 +31,10 @@ impl ProjectScanResult {
     }
 }
 
-/// `--monorepo`: discovers every yunq.toml-configured project under
-/// `args.path` (`yunq_infra_fs::discover_projects`) and scans each
+/// `--monorepo`: discovers every vord.toml-configured project under
+/// `args.path` (`vord_infra_fs::discover_projects`) and scans each
 /// independently, reusing the same scan/baseline/gate machinery a
-/// single-project `yunq scan` uses — just looped per project directory —
+/// single-project `vord scan` uses — just looped per project directory —
 /// rather than flattening every project's issues into one incoherent
 /// report. Coverage/JUnit/SARIF ingestion is intentionally out of scope
 /// here: a single coverage/test/analysis report rarely maps cleanly onto
@@ -42,10 +42,10 @@ impl ProjectScanResult {
 /// single-project-only feature for now.
 pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCode> {
     let root = &args.path;
-    let projects = yunq_infra_fs::discover_projects(root);
+    let projects = vord_infra_fs::discover_projects(root);
     if projects.is_empty() {
         anyhow::bail!(
-            "--monorepo: no yunq.toml found under {} (each project needs its own yunq.toml to be discovered)",
+            "--monorepo: no vord.toml found under {} (each project needs its own vord.toml to be discovered)",
             root.display()
         );
     }
@@ -55,19 +55,19 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
 
     let mut results = Vec::with_capacity(projects.len());
     for project_dir in &projects {
-        let config = yunq_infra_fs::YunqConfig::load_from_dir(project_dir).unwrap_or_default();
+        let config = vord_infra_fs::VordConfig::load_from_dir(project_dir).unwrap_or_default();
         let source_dirs = config.analysis.sources.clone().unwrap_or_default();
         let exclusions = config.analysis.exclusions.clone().unwrap_or_default();
 
         let cache = (!args.no_cache).then(|| {
-            std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(
-                project_dir.join(".yunq-cache.json"),
+            std::sync::Arc::new(vord_infra_fs::FileAnalysisCache::open(
+                project_dir.join(".vord-cache.json"),
             ))
         });
         // Each project's own `[duplication]` settings, so a monorepo can
         // hold packages with different tolerances rather than one blanket
         // policy imposed by the root.
-        let report = yunq_cli::scan_with_project_config(
+        let report = vord_cli::scan_with_project_config(
             project_dir,
             cache.clone(),
             &source_dirs,
@@ -86,7 +86,7 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
         }
 
         let new_code = crate::classify_new_code(project_dir, args.no_baseline, &report);
-        let gate = yunq_cli::default_quality_gate().evaluate(|key| {
+        let gate = vord_cli::default_quality_gate().evaluate(|key| {
             new_code
                 .as_ref()
                 .and_then(|nc| nc.measure(key))
@@ -121,19 +121,19 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
 }
 
 /// Posts one aggregate commit status for the whole monorepo scan — a commit
-/// gets exactly one "yunq" status regardless of how many projects it
+/// gets exactly one "vord" status regardless of how many projects it
 /// contains, so per-project statuses would just clobber each other.
 async fn report_monorepo_status(
     args: &crate::ScanArgs,
     context: &crate::ResolvedContext,
     results: &[ProjectScanResult],
 ) {
-    use yunq_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
+    use vord_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
 
     let Some(sha_str) = &context.commit_sha else {
         return;
     };
-    let Ok(sha) = yunq_rules_engine::CommitSha::new(sha_str) else {
+    let Ok(sha) = vord_rules_engine::CommitSha::new(sha_str) else {
         return;
     };
     let Some(reporter) = crate::github_reporter(args, context) else {
@@ -161,7 +161,7 @@ async fn report_monorepo_status(
     }
 }
 
-/// Whether any project's result should fail the overall `yunq scan`
+/// Whether any project's result should fail the overall `vord scan`
 /// invocation — the same severity-threshold / gate-enforcement rules
 /// `exit_code` applies to a single-project scan, OR'd across every project.
 pub fn any_project_failed(
@@ -261,15 +261,15 @@ pub fn render_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
-    use yunq_rules_engine::{
+    use vord_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
+    use vord_rules_engine::{
         AnalyzerService, ComparisonOperator, Condition, MetricKey, QualityGate,
     };
 
-    fn empty_report() -> yunq_rules_engine::AnalysisReport {
+    fn empty_report() -> vord_rules_engine::AnalysisReport {
         futures::executor::block_on(async {
             let service = AnalyzerService::new(
-                yunq_rules_engine::QualityProfile::from_activations("empty", std::iter::empty()),
+                vord_rules_engine::QualityProfile::from_activations("empty", std::iter::empty()),
                 InMemoryIssueStorage::new(),
                 InMemoryMetricsTracker::new(),
             );
@@ -277,7 +277,7 @@ mod tests {
         })
     }
 
-    fn passing_gate() -> yunq_rules_engine::GateEvaluation {
+    fn passing_gate() -> vord_rules_engine::GateEvaluation {
         let metric = MetricKey::new("blocker_issues").unwrap();
         QualityGate::new("test")
             .with_condition(Condition::new(metric, ComparisonOperator::GreaterThan, 0.0))

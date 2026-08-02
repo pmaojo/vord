@@ -28,7 +28,7 @@
 //!
 //! The "statement" unit is one source line's worth of tokens, normalized by
 //! whichever `AstParser` is registered for that file's language (leaf-level
-//! tree-sitter walk in `yunq-treesitter-tokens`: literal values collapsed
+//! tree-sitter walk in `vord-treesitter-tokens`: literal values collapsed
 //! to placeholders, comments dropped, intra-line whitespace insignificant —
 //! see `parsers/treesitter-tokens`). [`TokenNormalization`] additionally
 //! decides whether identifiers survive, which is what separates Type-1
@@ -39,7 +39,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use yunq_ast::SourceFile;
+use vord_ast::SourceFile;
 
 const PRIME_BASE: u64 = 31;
 
@@ -601,7 +601,7 @@ pub fn find_duplicates(files: &[TokenizedFile], config: DuplicationConfig) -> Du
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::LanguageIdentifier;
+    use vord_ast::LanguageIdentifier;
 
     use super::*;
 
@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn tokenized_input_matches_statements_that_differ_only_in_literal_values() {
-        // Simulates what a real per-language tokenizer (yunq-treesitter-tokens)
+        // Simulates what a real per-language tokenizer (vord-treesitter-tokens)
         // produces: literal values collapsed to a shared placeholder, so two
         // statements differing only in a literal are the same "statement" for
         // duplication purposes — the fallback line-trim tokenizer cannot do

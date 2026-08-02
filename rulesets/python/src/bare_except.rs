@@ -2,8 +2,8 @@
 //! including `SystemExit` and `KeyboardInterrupt`, silently intercepting
 //! signals the program should normally propagate (Ctrl-C, `sys.exit`).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn is_except_clause(node: &AstNode) -> bool {
     matches!(node.kind(), NodeKind::Other(name) if name.as_ref() == "except_clause")
@@ -54,8 +54,8 @@ impl Rule for BareExceptRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "A bare `except:` also catches `SystemExit` and `KeyboardInterrupt`; name the exception types you actually intend to handle, or use `except Exception:`.".into(),
             tags: vec!["bug".into(), "error-handling".into()],
             cwe: Some(396),
@@ -74,13 +74,13 @@ impl Rule for BareExceptRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         BareExceptRule::new().check(&file, &ast)

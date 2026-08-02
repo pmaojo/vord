@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::{impl_trait_is, is_other};
 
@@ -45,8 +45,8 @@ impl Rule for FromOverIntoRule {
         IssueType::CodeSmell
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Implement `From` instead of `Into`: `impl From<A> for B` gives you \
                 `Into<B> for A` for free via the standard library's blanket impl, but a manual \
                 `Into` impl doesn't give you `From` back and won't satisfy the far more common \
@@ -77,14 +77,14 @@ impl Rule for FromOverIntoRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         FromOverIntoRule::new().check(&file, &ast)
     }
 

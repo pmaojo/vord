@@ -1,5 +1,5 @@
 //! Gherkin `.feature` file scanning for the agent-evidence gate (inbound
-//! adapter) — extracts `@covers(<glob>)` tags so `yunq hook` can tell
+//! adapter) — extracts `@covers(<glob>)` tags so `vord hook` can tell
 //! whether a path already has at least one BDD scenario claiming to
 //! exercise it, before denying an agent's write to a path the repository's
 //! `[[gherkin_required]]` policy opted into requiring evidence for.
@@ -10,7 +10,7 @@
 //! tokens and nothing else, always immediately preceding a
 //! `Feature:`/`Scenario:`/`Scenario Outline:`/`Examples:` line (or another
 //! tag line). Every other line is a description, a step or a table row,
-//! none of which yunq needs to read to answer "is this path covered". A tag
+//! none of which vord needs to read to answer "is this path covered". A tag
 //! anywhere in a `.feature` file counts — feature-level or scenario-level —
 //! since the gate only needs "does at least one scenario in the repository
 //! claim this path", not which specific scenario.
@@ -233,7 +233,7 @@ Feature: Orders
 
     #[test]
     fn build_from_repo_finds_a_feature_file_and_matches_its_covers_tag() {
-        let dir = std::env::temp_dir().join(format!("yunq-gherkin-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-gherkin-test-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("features")).expect("mkdir");
         std::fs::write(
             dir.join("features/orders.feature"),
@@ -251,7 +251,7 @@ Feature: Orders
     #[test]
     fn build_from_repo_with_no_feature_files_covers_nothing() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-gherkin-empty-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-gherkin-empty-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         std::fs::write(dir.join("main.rs"), "fn main() {}\n").expect("write");
 

@@ -1,9 +1,9 @@
 //! Shared AST helpers for React/JSX rules: hook-call recognition and JSX
 //! element/attribute inspection. `NodeKind` has no dedicated JSX variants
-//! (see `yunq_ast::NodeKind`), so every JSX concept here is matched by its
+//! (see `vord_ast::NodeKind`), so every JSX concept here is matched by its
 //! raw tree-sitter-typescript grammar name via `NodeKind::Other`.
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 pub(crate) fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -149,12 +149,12 @@ pub(crate) fn hook_call_name(node: &AstNode) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     pub(crate) fn parse_tsx(code: &str) -> AstNode {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
+        vord_parser_typescript::TypeScriptParser::new().parse(&file).unwrap()
     }
 
     #[test]

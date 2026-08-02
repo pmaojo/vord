@@ -64,11 +64,11 @@ pub use suppression::is_suppressed;
 pub use test_code::{LineRange, in_ranges, is_test_only_path, rust_test_module_ranges};
 
 // Re-export duplication vocabulary so consumers depend on one facade.
-pub use yunq_cpd::{BlockRef, DuplicateBlock, DuplicationConfig};
+pub use vord_cpd::{BlockRef, DuplicateBlock, DuplicationConfig};
 pub use service::{AnalyzeError, AnalyzerService};
 
 // Re-export the quality model so consumers depend on one facade.
-pub use yunq_profiles::{
+pub use vord_profiles::{
     backup, compare, copy_profile, default_impact, restore, default_profile, default_profile_for_language,
     ComparisonOperator, Condition, ConditionResult, ConditionStatus, GateEvaluation, GateStatus,
     ImpactSeverity, InvalidMetricKeyError, InvalidRuleIdError, IssueType, MetricKey, ProfileBackup,

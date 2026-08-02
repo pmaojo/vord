@@ -1,8 +1,8 @@
 //! Rule: flags inline object/array literal default parameters in React component
 //! parameter destructuring (e.g. `function Component({ items = [] })` or `({ config = {} })`).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{is_jsx_kind, is_other};
 
@@ -128,11 +128,11 @@ fn is_object_or_array_literal(node: &AstNode) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         NoUnstableDefaultPropsRule::new().check(&file, &ast)

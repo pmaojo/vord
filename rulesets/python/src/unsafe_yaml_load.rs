@@ -3,8 +3,8 @@
 //! the document, so loading untrusted YAML with it is equivalent to
 //! deserializing an untrusted pickle.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::other_kind_name;
 
@@ -64,8 +64,8 @@ impl Rule for UnsafeYamlLoadRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "yaml.load without an explicit Loader uses PyYAML's full loader, which can construct arbitrary Python objects from the document; use yaml.safe_load or pass Loader=yaml.SafeLoader.".into(),
             tags: vec!["security".into(), "deserialization".into(), "cwe".into()],
             cwe: Some(502),
@@ -88,13 +88,13 @@ impl Rule for UnsafeYamlLoadRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         UnsafeYamlLoadRule::new().check(&file, &ast)

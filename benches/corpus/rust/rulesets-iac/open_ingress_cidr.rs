@@ -1,8 +1,8 @@
 //! Rule: flags network ingress/security-group rules opened to the entire
 //! internet (`0.0.0.0/0`) in Terraform or Kubernetes/CloudFormation YAML.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 const OPEN_CIDR: &str = "0.0.0.0/0";
 
@@ -67,7 +67,7 @@ impl Rule for OpenIngressCidrRule {
             if lower.contains(OPEN_CIDR) && (lower.contains("cidr") || lower.contains("ingress")) {
                 findings.push(Finding::new(
                     "Ingress rule open to 0.0.0.0/0 (the entire internet); scope the CIDR to trusted ranges",
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
             }
         }
@@ -80,7 +80,7 @@ mod tests {
     use super::*;
 
     fn source_unit(code: &str) -> AstNode {
-        AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![])
+        AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![])
     }
 
     #[test]

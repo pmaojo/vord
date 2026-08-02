@@ -1,13 +1,13 @@
 {
-  "name": "yunq",
-  "owner": { "name": "yunq" },
+  "name": "vord",
+  "owner": { "name": "vord" },
   "plugins": [
     {
-      "name": "yunq-guardrail",
+      "name": "vord-guardrail",
       "source": "./integrations/claude-code-plugin",
-      "description": "Gates every Edit/Write in this session against yunq's Agent Permission Policy before the bytes reach disk.",
+      "description": "Gates every Edit/Write in this session against vord's Agent Permission Policy before the bytes reach disk.",
       "version": "0.1.1",
-      "author": { "name": "yunq" }
+      "author": { "name": "vord" }
     }
   ]
 }

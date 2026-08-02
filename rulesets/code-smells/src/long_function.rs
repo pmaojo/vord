@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 /// Default line threshold for non-JSX files.
 const DEFAULT_MAX_LINES: u32 = 50;
@@ -51,7 +51,7 @@ impl Rule for LongFunctionRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         let file_is_jsx = file.path().ends_with(".tsx") || file.path().ends_with(".jsx");
@@ -142,8 +142,8 @@ fn is_statement_kind(kind: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
@@ -152,7 +152,7 @@ mod tests {
         let body: String = (0..10).map(|i| format!("    let x{i} = {i};\n")).collect();
         let code = format!("fn long() {{\n{body}}}\n\nfn short() {{}}\n");
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
 
         let findings = LongFunctionRule::new(5).check(&file, &ast);
         assert_eq!(findings.len(), 1);
@@ -164,7 +164,7 @@ mod tests {
         let body: String = (0..10).map(|i| format!("    let x{i} = {i};\n")).collect();
         let code = format!("fn long() {{\n{body}}}\n");
         let file = SourceFile::new("tests/e2e.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
 
         assert!(LongFunctionRule::new(5).check(&file, &ast).is_empty());
     }
@@ -178,7 +178,7 @@ mod tests {
         let body = body_lines.join("\n");
         let code = format!("function Comp() {{\n  return (\n{body}\n  );\n}}\n");
         let file = SourceFile::new("Comp.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
 
@@ -195,7 +195,7 @@ mod tests {
         let body: String = (0..53).map(|i| format!("  const x{i} = {i};\n")).collect();
         let code = format!("function compute() {{\n{body}}}\n");
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
 
@@ -207,7 +207,7 @@ mod tests {
     fn jsx_return_detection_finds_jsx_element() {
         let code = "function Comp() {\n  return <div>hello</div>;\n}\n";
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let func = ast
@@ -221,7 +221,7 @@ mod tests {
     fn non_jsx_return_not_detected() {
         let code = "function compute() {\n  return 42;\n}\n";
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let func = ast

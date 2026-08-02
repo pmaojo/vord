@@ -39,7 +39,7 @@ echo "  Cargo.toml: $expected occurrences (1 workspace.package + internal deps)"
 [ "$expected" -ge 2 ] || { echo "!! expected the workspace version plus internal deps" >&2; exit 1; }
 
 sed -i.bak "s/version = \"$OLD\"/version = \"$NEW\"/g" Cargo.toml && rm -f Cargo.toml.bak
-sed -i.bak "s/^version = \"$OLD\"/version = \"$NEW\"/" yunq.toml && rm -f yunq.toml.bak
+sed -i.bak "s/^version = \"$OLD\"/version = \"$NEW\"/" vord.toml && rm -f vord.toml.bak
 sed -i.bak "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" .claude-plugin/plugin.json \
   && rm -f .claude-plugin/plugin.json.bak
 
@@ -57,12 +57,12 @@ cargo update --workspace --quiet
 # crate that happens to sit at this version would make a bare grep pass while
 # the lock is still stale.
 locked="$(awk -v v="$NEW" '
-  /^name = "yunq-/ { pending = 1; next }
+  /^name = "vord-/ { pending = 1; next }
   pending && $0 == "version = \"" v "\"" { n++ }
   { pending = 0 }
   END { print n + 0 }
 ' Cargo.lock)"
-members="$(cargo metadata --no-deps --format-version 1 | grep -o '"name":"yunq-[^"]*"' | sort -u | wc -l)"
+members="$(cargo metadata --no-deps --format-version 1 | grep -o '"name":"vord-[^"]*"' | sort -u | wc -l)"
 [ "$locked" -eq "$members" ] || {
   echo "!! Cargo.lock has $locked/$members workspace crates at $NEW — the lock is stale" >&2
   exit 1
@@ -70,7 +70,7 @@ members="$(cargo metadata --no-deps --format-version 1 | grep -o '"name":"yunq-[
 
 echo
 echo "Updated:"
-grep -n "version = \"$NEW\"" yunq.toml
+grep -n "version = \"$NEW\"" vord.toml
 grep -n "\"version\": \"$NEW\"" .claude-plugin/plugin.json
 echo "  Cargo.toml: $(grep -c "version = \"$NEW\"" Cargo.toml) occurrences"
 echo "  Cargo.lock: $locked/$members workspace crates"

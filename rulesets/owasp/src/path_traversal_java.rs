@@ -8,8 +8,8 @@
 //! traversal sink, since user input may flow into it across lines (the
 //! benchmark separates extraction and file operations).
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 /// Java file I/O constructors/classes that accept a path argument.
 const FILE_IO_MARKERS: &[&str] = &[
@@ -67,8 +67,8 @@ impl Rule for PathTraversalJavaRule {
         IssueType::Vulnerability
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Untrusted user input reaches a file I/O API, which can lead to Path Traversal (LFI) vulnerabilities. Ensure file paths are validated against a whitelist or sanitized before opening files.".into(),
             tags: vec!["security".into(), "owasp-a01".into(), "cwe".into(), "path-traversal".into(), "java".into()],
             cwe: Some(22),
@@ -94,7 +94,7 @@ impl Rule for PathTraversalJavaRule {
             if FILE_IO_MARKERS.iter().any(|m| line.contains(m)) {
                 findings.push(Finding::new(
                     "user input from a servlet request reaches a file I/O API without path sanitization — this is a Path Traversal vulnerability",
-                    yunq_ast::Span::new(
+                    vord_ast::Span::new(
                         (idx + 1) as u32, 1,
                         (idx + 1) as u32,
                         line.len().max(1) as u32,
@@ -109,7 +109,7 @@ impl Rule for PathTraversalJavaRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::NodeKind;
+    use vord_ast::NodeKind;
 
     #[test]
     fn flags_file_input_stream_in_servlet_with_user_input() {
@@ -120,7 +120,7 @@ java.io.FileInputStream fis = new java.io.FileInputStream(new java.io.File(fileN
         let file = SourceFile::new("Test.java", code, LanguageIdentifier::java()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 2, code.len() as u32),
+            vord_ast::Span::new(1, 1, 2, code.len() as u32),
             code, vec![],
         );
         let findings = PathTraversalJavaRule::new().check(&file, &ast);
@@ -135,7 +135,7 @@ new java.io.FileReader(param);
         let file = SourceFile::new("Test.java", code, LanguageIdentifier::java()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 2, code.len() as u32),
+            vord_ast::Span::new(1, 1, 2, code.len() as u32),
             code, vec![],
         );
         let findings = PathTraversalJavaRule::new().check(&file, &ast);
@@ -148,7 +148,7 @@ new java.io.FileReader(param);
         let file = SourceFile::new("Utility.java", code, LanguageIdentifier::java()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code, vec![],
         );
         assert!(PathTraversalJavaRule::new().check(&file, &ast).is_empty());
@@ -162,7 +162,7 @@ System.out.println("done");
         let file = SourceFile::new("Utility.java", code, LanguageIdentifier::java()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 2, code.len() as u32),
+            vord_ast::Span::new(1, 1, 2, code.len() as u32),
             code, vec![],
         );
         assert!(PathTraversalJavaRule::new().check(&file, &ast).is_empty());

@@ -1,6 +1,6 @@
 //! Same-file (and, via [`classes::ClassRegistry::build_cross_file`],
 //! cross-file) symbol/type resolution over the neutral AST
-//! (`yunq_ast::AstNode`). This is a *lint-support* symbol table, not a
+//! (`vord_ast::AstNode`). This is a *lint-support* symbol table, not a
 //! type-checker: it answers narrow questions rules actually need —
 //! "is this identifier locally bound or captured from an outer scope",
 //! "what's this variable/parameter/field's declared type", and "which
@@ -8,7 +8,7 @@
 //! type inference, generics, overload resolution, or anything a real
 //! compiler's resolver would need.
 //!
-//! Pure: no I/O, no framework dependencies, `yunq-ast` only.
+//! Pure: no I/O, no framework dependencies, `vord-ast` only.
 
 pub mod classes;
 pub mod pointer_analysis;

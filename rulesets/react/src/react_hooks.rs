@@ -3,8 +3,8 @@
 //! using scope tree resolution and compares them against the literal array AST node.
 
 use std::collections::BTreeSet;
-use yunq_ast::{AstNode, NodeKind};
-use yunq_symbols::{free_identifiers, own_bindings};
+use vord_ast::{AstNode, NodeKind};
+use vord_symbols::{free_identifiers, own_bindings};
 
 #[derive(Debug, Clone)]
 pub struct HookDepAnalysis {
@@ -84,7 +84,7 @@ fn is_react_hook_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::Span;
+    use vord_ast::Span;
 
     #[test]
     fn analyzes_missing_and_declared_hook_dependencies() {

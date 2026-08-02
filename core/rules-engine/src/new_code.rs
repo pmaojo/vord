@@ -4,7 +4,7 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use yunq_profiles::{MetricKey, Severity};
+use vord_profiles::{MetricKey, Severity};
 
 use crate::domain::{AnalysisReport, Issue};
 
@@ -255,8 +255,8 @@ impl NewCodeAnalysis {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::Span;
-    use yunq_profiles::RuleId;
+    use vord_ast::Span;
+    use vord_profiles::RuleId;
 
     use crate::domain::Metrics;
 

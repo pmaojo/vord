@@ -3,8 +3,8 @@
 //! nested loop packed onto one line — past the first, a plain nested
 //! `for` loop communicates the same computation more clearly.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 const COMPREHENSION_KINDS: &[&str] = &[
     "list_comprehension",
@@ -63,8 +63,8 @@ impl Rule for NestedComprehensionRule {
         15
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "A comprehension with more than one `for` clause packs a nested loop onto one line; past the first clause, a plain nested for loop communicates the same computation more clearly.".into(),
             tags: vec!["maintainability".into()],
             cwe: None,
@@ -83,13 +83,13 @@ impl Rule for NestedComprehensionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         NestedComprehensionRule::new().check(&file, &ast)

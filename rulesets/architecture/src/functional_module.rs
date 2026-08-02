@@ -11,8 +11,8 @@
 //! treating *top-level functions* as the module's units: too many unrelated
 //! ones in a single file means the file has more than one responsibility.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct FunctionalModuleRule {
     id: RuleId,
@@ -138,8 +138,8 @@ impl Rule for FunctionalModuleRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_parser_typescript::TypeScriptParser;
-    use yunq_rules_engine::AstParser;
+    use vord_parser_typescript::TypeScriptParser;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str, max: usize) -> Vec<Finding> {
         let file = SourceFile::new(
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn flags_a_rust_file_with_too_many_top_level_functions() {
-        use yunq_parser_rust::RustParser;
+        use vord_parser_rust::RustParser;
         let mut code = String::new();
         for i in 0..30 {
             code.push_str(&format!("pub fn fn{i}() -> i32 {{ {i} }}\n"));
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn flags_a_python_module_with_too_many_top_level_functions() {
-        use yunq_parser_python::PythonParser;
+        use vord_parser_python::PythonParser;
         let mut code = String::new();
         for i in 0..30 {
             code.push_str(&format!("def fn{i}():\n    return {i}\n"));

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates .yunq-health.json from a yunq scan so the README badge
+# Regenerates .vord-health.json from a vord scan so the README badge
 # stays current. Run this in CI after every scan, or locally after
 # significant changes to watch the score trend.
 #
@@ -7,23 +7,23 @@
 #   { "schemaVersion": 1, "label": "health", "message": "96/100", "color": "brightgreen" }
 #
 # shields.io renders it as a badge via the dynamic JSON endpoint:
-#   https://img.shields.io/badge/dynamic/json?url=<raw-github-url>/.yunq-health.json&query=$.message&label=health
+#   https://img.shields.io/badge/dynamic/json?url=<raw-github-url>/.vord-health.json&query=$.message&label=health
 
 set -euo pipefail
 
-YUNQ="${1:-./target/debug/yunq}"
+VORD="${1:-./target/debug/vord}"
 SCAN_PATH="${2:-.}"
 
-if [ ! -x "$YUNQ" ] && ! command -v "$YUNQ" &>/dev/null; then
-  echo "yunq binary not found at $YUNQ and not on PATH" >&2
+if [ ! -x "$VORD" ] && ! command -v "$VORD" &>/dev/null; then
+  echo "vord binary not found at $VORD and not on PATH" >&2
   exit 1
 fi
 
-JSON=$("$YUNQ" scan "$SCAN_PATH" --format json 2>/dev/null || true)
+JSON=$("$VORD" scan "$SCAN_PATH" --format json 2>/dev/null || true)
 
 if [ -z "$JSON" ]; then
-  echo "yunq scan produced no output — writing unknown badge" >&2
-  cat > .yunq-health.json <<'JSONEOF'
+  echo "vord scan produced no output — writing unknown badge" >&2
+  cat > .vord-health.json <<'JSONEOF'
 {"schemaVersion":1,"label":"health","message":"unknown","color":"lightgrey"}
 JSONEOF
   exit 0
@@ -52,8 +52,8 @@ else
   fi
 fi
 
-cat > .yunq-health.json <<JSONEOF
+cat > .vord-health.json <<JSONEOF
 {"schemaVersion":1,"label":"health","message":"$MESSAGE","color":"$COLOR"}
 JSONEOF
 
-echo "yunq health badge: $MESSAGE ($COLOR)"
+echo "vord health badge: $MESSAGE ($COLOR)"

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-yunq SAST Precision Evaluation: OWASP Benchmark v1.2
+vord SAST Precision Evaluation: OWASP Benchmark v1.2
 =====================================================
-Runs yunq against the OWASP Benchmark v1.2 (2,740 labeled Java test cases)
+Runs vord against the OWASP Benchmark v1.2 (2,740 labeled Java test cases)
 and computes per-category Confusion Matrices (TP/FP/TN/FN) plus aggregate
 Precision, Recall, F1, and False Positive Rate.
 
 Ground truth is parsed from `expectedresults-1.2.csv`, which ships with the
 benchmark and maps each test case number to the expected result for every
-tool that has been run against it.  yunq findings are mapped back to test
+tool that has been run against it.  vord findings are mapped back to test
 cases by parsing `BenchmarkTestXXXXX.java` from the finding's file path.
 
 Output:
@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-YUNQ_BIN = PROJECT_ROOT / "target" / "debug" / "yunq"
+VORD_BIN = PROJECT_ROOT / "target" / "debug" / "vord"
 CORPORA_DIR = PROJECT_ROOT / ".benchmark-corpora"
 RESULTS_DIR = PROJECT_ROOT / ".benchmark-results"
 OWASP_DIR = CORPORA_DIR / "owasp"
@@ -77,26 +77,26 @@ def parse_expected_results(csv_path: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# yunq scan
+# vord scan
 # ---------------------------------------------------------------------------
 
-def ensure_yunq():
-    if not YUNQ_BIN.exists():
-        print(f"==> Building yunq release binary at {YUNQ_BIN} ...")
-        subprocess.run(["cargo", "build", "--release", "--bin", "yunq"],
+def ensure_vord():
+    if not VORD_BIN.exists():
+        print(f"==> Building vord release binary at {VORD_BIN} ...")
+        subprocess.run(["cargo", "build", "--release", "--bin", "vord"],
                        cwd=PROJECT_ROOT, check=True)
 
 
-def run_yunq_scan(target_dir: Path) -> tuple[dict, float]:
-    """Run yunq scan --format json on target_dir. Returns (parsed JSON, duration_seconds)."""
-    cmd = [str(YUNQ_BIN), "scan", str(target_dir), "--format", "json", "--no-cache"]
+def run_vord_scan(target_dir: Path) -> tuple[dict, float]:
+    """Run vord scan --format json on target_dir. Returns (parsed JSON, duration_seconds)."""
+    cmd = [str(VORD_BIN), "scan", str(target_dir), "--format", "json", "--no-cache"]
     start = time.time()
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     duration = time.time() - start
     try:
         data = json.loads(res.stdout)
     except json.JSONDecodeError:
-        print(f"Error parsing yunq JSON. Stderr: {res.stderr[:500]}")
+        print(f"Error parsing vord JSON. Stderr: {res.stderr[:500]}")
         data = {"issues": []}
     return data, duration
 
@@ -115,7 +115,7 @@ def extract_test_case(file_path: str) -> Optional[int]:
 
 
 def map_findings_to_test_cases(issues: list) -> dict:
-    """Group yunq findings by OWASP test case number."""
+    """Group vord findings by OWASP test case number."""
     by_tc: dict[int, list[dict]] = defaultdict(list)
     for issue in issues:
         tc = extract_test_case(issue.get("file", ""))
@@ -128,7 +128,7 @@ def map_findings_to_test_cases(issues: list) -> dict:
 # Evaluation
 # ---------------------------------------------------------------------------
 
-def evaluate(ground_truth: dict, yunq_findings: dict[int, list[dict]]):
+def evaluate(ground_truth: dict, vord_findings: dict[int, list[dict]]):
     """
     Compute confusion matrix per category and globally.
     Returns a dict suitable for JSON serialization.
@@ -144,18 +144,18 @@ def evaluate(ground_truth: dict, yunq_findings: dict[int, list[dict]]):
     for tc, label in ground_truth.items():
         category = label["category"] or "unknown"
         is_vuln = label["is_vulnerable"]
-        is_flagged = tc in yunq_findings
+        is_flagged = tc in vord_findings
 
         stats = cat_stats[category]
         stats["total"] += 1
 
         if is_vuln and is_flagged:
             stats["TP"] += 1
-            for finding in yunq_findings[tc]:
+            for finding in vord_findings[tc]:
                 rule_hits[finding.get("rule", "unknown")].append(tc)
         elif not is_vuln and is_flagged:
             stats["FP"] += 1
-            for finding in yunq_findings[tc]:
+            for finding in vord_findings[tc]:
                 rule_hits[finding.get("rule", "unknown")].append(tc)
         elif not is_vuln and not is_flagged:
             stats["TN"] += 1
@@ -164,11 +164,11 @@ def evaluate(ground_truth: dict, yunq_findings: dict[int, list[dict]]):
 
     # Findings that couldn't be mapped to any test case
     all_tcs_in_findings = set()
-    for tc in yunq_findings:
+    for tc in vord_findings:
         all_tcs_in_findings.add(tc)
     for tc in all_tcs_in_findings:
         if tc not in ground_truth:
-            for finding in yunq_findings[tc]:
+            for finding in vord_findings[tc]:
                 unmatched_findings.append(finding)
 
     # Compute metrics per category
@@ -222,7 +222,7 @@ def evaluate(ground_truth: dict, yunq_findings: dict[int, list[dict]]):
         "rules": rule_summary,
         "unmatched_findings_count": len(unmatched_findings),
         "test_cases_in_ground_truth": len(ground_truth),
-        "test_cases_found_by_yunq": len(yunq_findings),
+        "test_cases_found_by_vord": len(vord_findings),
     }
 
 
@@ -255,11 +255,11 @@ def capture_hardware() -> dict:
     except Exception:
         pass
     try:
-        info["yunq_version"] = subprocess.check_output(
-            [str(YUNQ_BIN), "--version"], text=True
+        info["vord_version"] = subprocess.check_output(
+            [str(VORD_BIN), "--version"], text=True
         ).strip()
     except Exception:
-        info["yunq_version"] = "unknown"
+        info["vord_version"] = "unknown"
     return info
 
 
@@ -272,7 +272,7 @@ def generate_markdown(results: dict, hardware: dict, duration: float, loc: int) 
     cm = g["confusion_matrix"]
 
     lines = [
-        "# yunq Precision Evaluation: OWASP Benchmark v1.2",
+        "# vord Precision Evaluation: OWASP Benchmark v1.2",
         "",
         "## Environment",
         "```",
@@ -280,7 +280,7 @@ def generate_markdown(results: dict, hardware: dict, duration: float, loc: int) 
         f"CPU:      {hardware.get('cpu', 'unknown')}",
         f"Cores:    {hardware.get('cores', 'unknown')}",
         f"RAM:      {hardware.get('ram_gb', 'unknown')} GB",
-        f"yunq:     {hardware.get('yunq_version', 'unknown')}",
+        f"vord:     {hardware.get('vord_version', 'unknown')}",
         "```",
         "",
         "## Corpus",
@@ -340,10 +340,10 @@ def generate_markdown(results: dict, hardware: dict, duration: float, loc: int) 
 
 def main():
     print("=" * 70)
-    print("yunq SAST Precision Evaluation: OWASP Benchmark v1.2")
+    print("vord SAST Precision Evaluation: OWASP Benchmark v1.2")
     print("=" * 70)
 
-    ensure_yunq()
+    ensure_vord()
 
     if not TESTCODE_DIR.exists():
         print(f"\n✗ OWASP Benchmark not found at {TESTCODE_DIR}")
@@ -368,18 +368,18 @@ def main():
         print("✗ No ground truth found. Check expectedresults-1.2.csv")
         sys.exit(1)
 
-    # Run yunq
-    print(f"\nRunning yunq scan on {TESTCODE_DIR} ...")
-    yunq_output, duration = run_yunq_scan(TESTCODE_DIR)
-    issues = yunq_output.get("issues", [])
+    # Run vord
+    print(f"\nRunning vord scan on {TESTCODE_DIR} ...")
+    vord_output, duration = run_vord_scan(TESTCODE_DIR)
+    issues = vord_output.get("issues", [])
     print(f"Scan complete: {len(issues)} findings in {duration:.1f}s")
 
     # Map findings to test cases
-    yunq_findings = map_findings_to_test_cases(issues)
-    print(f"Mapped to {len(yunq_findings)} test cases")
+    vord_findings = map_findings_to_test_cases(issues)
+    print(f"Mapped to {len(vord_findings)} test cases")
 
     # Evaluate
-    results = evaluate(ground_truth, yunq_findings)
+    results = evaluate(ground_truth, vord_findings)
     hardware = capture_hardware()
 
     # Print summary

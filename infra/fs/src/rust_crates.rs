@@ -5,10 +5,10 @@
 //! a Rust `use other_crate::Thing;` names a *crate identifier*
 //! (hyphens replaced with underscores), which has no fixed relationship to
 //! that crate's directory — `rulesets/architecture`'s package is
-//! `yunq-rules-architecture`, not `yunq-rulesets-architecture`. Reading
+//! `vord-rules-architecture`, not `vord-rulesets-architecture`. Reading
 //! manifests to recover that mapping is I/O, so it lives here, not in the
 //! pure `core/import-graph` crate — the same split `discover_projects`
-//! draws for `yunq.toml`.
+//! draws for `vord.toml`.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -16,7 +16,7 @@ use std::path::Path;
 use ignore::WalkBuilder;
 
 /// Rust identifier (crate name, hyphens replaced with underscores — the
-/// form every `use`/path expression writes it in, e.g. `"yunq_infra_fs"`)
+/// form every `use`/path expression writes it in, e.g. `"vord_infra_fs"`)
 /// -> that crate's directory relative to `root` (empty string for a
 /// `Cargo.toml` at `root` itself). Only manifests with a `[package]` table
 /// count: a workspace root's own manifest is typically `[workspace]`-only
@@ -67,7 +67,7 @@ mod tests {
 
     fn scratch_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "yunq-rust-crates-test-{name}-{}",
+            "vord-rust-crates-test-{name}-{}",
             std::process::id()
         ));
         std::fs::remove_dir_all(&dir).ok();
@@ -80,12 +80,12 @@ mod tests {
         let root = scratch_dir("nested");
         write(
             &root.join("core/rules-engine/Cargo.toml"),
-            "[package]\nname = \"yunq-rules-engine\"\nversion = \"0.1.0\"\n",
+            "[package]\nname = \"vord-rules-engine\"\nversion = \"0.1.0\"\n",
         );
 
         let crates = discover_rust_crates(&root);
         assert_eq!(
-            crates.get("yunq_rules_engine").map(String::as_str),
+            crates.get("vord_rules_engine").map(String::as_str),
             Some("core/rules-engine")
         );
     }
@@ -99,12 +99,12 @@ mod tests {
         );
         write(
             &root.join("core/rules-engine/Cargo.toml"),
-            "[package]\nname = \"yunq-rules-engine\"\nversion = \"0.1.0\"\n",
+            "[package]\nname = \"vord-rules-engine\"\nversion = \"0.1.0\"\n",
         );
 
         let crates = discover_rust_crates(&root);
         assert_eq!(crates.len(), 1);
-        assert!(crates.contains_key("yunq_rules_engine"));
+        assert!(crates.contains_key("vord_rules_engine"));
     }
 
     #[test]

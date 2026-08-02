@@ -1,18 +1,18 @@
-# yunq static analysis — GitLab CI
+# vord static analysis — GitLab CI
 #
-# Copy the `yunq` job below into your `.gitlab-ci.yml` (or `include:` this
+# Copy the `vord` job below into your `.gitlab-ci.yml` (or `include:` this
 # file directly).
 #
-# yunq auto-detects `--commit-sha`/`--branch`/`--pr` from GitLab CI's own
+# vord auto-detects `--commit-sha`/`--branch`/`--pr` from GitLab CI's own
 # predefined variables — CI_COMMIT_SHA, and CI_MERGE_REQUEST_SOURCE_BRANCH_
 # NAME/CI_MERGE_REQUEST_IID on a merge-request pipeline, falling back to
 # CI_COMMIT_BRANCH on a branch pipeline — so none of those flags are
 # required here. `--github-repo`/`--github-token` only matter if this
 # project also mirrors its status checks to a GitHub mirror; leave them out
-# otherwise (yunq's GitLab ALM status reporting is env-detected the same
+# otherwise (vord's GitLab ALM status reporting is env-detected the same
 # way, and simply has nothing to report to without GitHub credentials).
 
-yunq:
+vord:
   stage: test
   image: debian:bookworm-slim
   variables:
@@ -21,14 +21,14 @@ yunq:
     GIT_DEPTH: "0"
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
-    - curl -fsSL "https://github.com/pmaojo/yunq/releases/latest/download/yunq-x86_64-unknown-linux-musl" -o /usr/local/bin/yunq
-    - chmod +x /usr/local/bin/yunq
+    - curl -fsSL "https://github.com/pmaojo/vord/releases/latest/download/vord-x86_64-unknown-linux-musl" -o /usr/local/bin/vord
+    - chmod +x /usr/local/bin/vord
   script:
-    - yunq scan . --format json --enforce-gate --blame-output yunq-blame.json
+    - vord scan . --format json --enforce-gate --blame-output vord-blame.json
   artifacts:
     when: always
     paths:
-      - yunq-blame.json
+      - vord-blame.json
     expire_in: 1 week
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -36,14 +36,14 @@ yunq:
 
 # ---------------------------------------------------------------------------
 # Monorepo variant: replace the `script:` above with this to scan every
-# yunq.toml-configured project under the repo root independently
+# vord.toml-configured project under the repo root independently
 # (per-project issues/gate in the output, instead of one merged report):
 #
 #   script:
-#     - yunq scan . --monorepo --format json --enforce-gate
+#     - vord scan . --monorepo --format json --enforce-gate
 #
 # Explicit identity, if you'd rather not rely on auto-detection:
 #
 #   script:
-#     - yunq scan . --project my-service --branch "$CI_COMMIT_REF_NAME" --enforce-gate
+#     - vord scan . --project my-service --branch "$CI_COMMIT_REF_NAME" --enforce-gate
 # ---------------------------------------------------------------------------

@@ -5,15 +5,15 @@
 //! The schema carries a content hash per issue (`line_hash`) alongside the
 //! legacy `(rule, file, message)` fingerprint, so `NewCodeAnalysis` can run
 //! the content-hash-first tracking cascade instead of only the
-//! message-fingerprint fallback. Baseline files written by older yunq
+//! message-fingerprint fallback. Baseline files written by older vord
 //! versions (a bare `Vec<u64>` of fingerprints) are still read — the load
 //! path tries the current schema first and falls back to the legacy one,
-//! so upgrading yunq doesn't invalidate an existing baseline.
+//! so upgrading vord doesn't invalidate an existing baseline.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use yunq_rules_engine::Baseline;
+use vord_rules_engine::Baseline;
 
 #[derive(Serialize, Deserialize)]
 struct StoredEntry {
@@ -69,7 +69,7 @@ mod tests {
 
     #[test]
     fn roundtrips_and_fails_open() {
-        let dir = std::env::temp_dir().join(format!("yunq-baseline-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-baseline-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = BaselineStore::new(dir.join("baseline.json"));
 
@@ -84,10 +84,10 @@ mod tests {
     #[test]
     fn reads_a_legacy_bare_fingerprint_file() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-baseline-legacy-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-baseline-legacy-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("baseline.json");
-        // What a pre-content-hash yunq version wrote: a bare u64 array.
+        // What a pre-content-hash vord version wrote: a bare u64 array.
         std::fs::write(&path, "[7,9,42]").unwrap();
 
         let store = BaselineStore::new(&path);

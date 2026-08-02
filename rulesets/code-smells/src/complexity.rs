@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
 
 /// Flags functions whose cyclomatic complexity exceeds a threshold.
 /// Complexity = 1 + decision points in the function body, excluding nested
@@ -51,7 +51,7 @@ impl Rule for ComplexityRule {
     }
 
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        yunq_rules_engine::function_complexities(ast)
+        vord_rules_engine::function_complexities(ast)
             .into_iter()
             .filter(|fc| fc.cyclomatic > self.max)
             .map(|fc| {
@@ -69,14 +69,14 @@ impl Rule for ComplexityRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check_rust(code: &str, max: u32) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         ComplexityRule::new(max).check(&file, &ast)
     }
 

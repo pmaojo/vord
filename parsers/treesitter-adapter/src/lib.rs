@@ -6,7 +6,7 @@
 //! [`NodeKind`]* — and nothing else. Everything around those two answers
 //! (driving the parser, converting the tree, computing spans, falling back
 //! when a grammar fails to load) is mechanical and was copied into all 23
-//! crates: yunq's own duplication detector reported one 26-line block
+//! crates: vord's own duplication detector reported one 26-line block
 //! shared by 22 of them, its single largest finding.
 //!
 //! Copied code is not just redundant, it drifts. The `parse` bodies here
@@ -21,9 +21,9 @@
 
 use std::sync::Arc;
 
-use yunq_ast::{AstNode, NodeKind, SourceFile, Span};
-use yunq_cpd::{TokenNormalization, TokenizedSource};
-use yunq_rules_engine::ParseError;
+use vord_ast::{AstNode, NodeKind, SourceFile, Span};
+use vord_cpd::{TokenNormalization, TokenizedSource};
+use vord_rules_engine::ParseError;
 
 /// Maps one grammar's node-kind name onto the neutral AST. The only piece
 /// of a conversion that is language-specific.
@@ -81,7 +81,7 @@ pub fn parse_with(
 
 /// Per-line normalized tokens for copy-paste detection.
 ///
-/// Degrades to [`yunq_cpd::fallback_tokenize`] rather than failing: a
+/// Degrades to [`vord_cpd::fallback_tokenize`] rather than failing: a
 /// grammar that will not load should cost precision, not silently drop the
 /// file out of duplication detection entirely.
 pub fn tokenize_with(
@@ -90,7 +90,7 @@ pub fn tokenize_with(
     normalization: TokenNormalization,
 ) -> TokenizedSource {
     let degraded = || TokenizedSource {
-        lines: yunq_cpd::fallback_tokenize(file),
+        lines: vord_cpd::fallback_tokenize(file),
         declaration_lines: Vec::new(),
     };
     let mut parser = tree_sitter::Parser::new();
@@ -100,7 +100,7 @@ pub fn tokenize_with(
     let Some(tree) = parser.parse(file.content(), None) else {
         return degraded();
     };
-    yunq_treesitter_tokens::tokenize(&tree, file.content(), normalization)
+    vord_treesitter_tokens::tokenize(&tree, file.content(), normalization)
 }
 
 /// Declares a whole `AstParser` adapter from the two things that actually
@@ -157,7 +157,7 @@ macro_rules! declare_parser {
 /// in scope rather than the right set of `use` lines.
 #[doc(hidden)]
 pub mod __reexport {
-    pub use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-    pub use yunq_cpd::{TokenNormalization, TokenizedSource};
-    pub use yunq_rules_engine::{AstParser, ParseError};
+    pub use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+    pub use vord_cpd::{TokenNormalization, TokenizedSource};
+    pub use vord_rules_engine::{AstParser, ParseError};
 }

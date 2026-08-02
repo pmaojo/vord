@@ -1,27 +1,27 @@
 //! Policy as the referee, in-process (roadmap A2).
 //!
-//! `yunq hook` pays a process start per write because a third-party host has
+//! `vord hook` pays a process start per write because a third-party host has
 //! no other way in. This runtime has no such excuse: the same
 //! `AgentPolicy::evaluate` runs between the model proposing bytes and the
 //! `write` syscall, in the same process, against the same
-//! `yunq-policy.toml`. The evaluation itself is `yunq-agent-policy`'s job and
+//! `vord-policy.toml`. The evaluation itself is `vord-agent-policy`'s job and
 //! is not re-implemented here — what lives in this module is the *wording* of
 //! the refusal handed back to the model, and the shape of the stop.
 //!
 //! The wording matters as much as the verdict. A model told "that didn't work"
 //! retries the identical write; a model told "this write did not reach disk,
 //! here is the rule, here is the line" fixes it or asks. Every line of the
-//! text below is built from [`yunq_agent_policy::Violation::describe`], so the
+//! text below is built from [`vord_agent_policy::Violation::describe`], so the
 //! agent reads exactly the sentences the guardrail already gives Claude Code
 //! — one policy, one vocabulary.
 
-use yunq_agent_policy::Evaluation;
-use yunq_profiles::RuleId;
+use vord_agent_policy::Evaluation;
+use vord_profiles::RuleId;
 
 /// The refusal, as the agent reads it.
 pub fn denial_feedback(path: &str, evaluation: &Evaluation) -> String {
     let mut out = format!(
-        "yunq policy DENIED this write to `{path}`. Nothing was written — the file on disk is unchanged.\n\n"
+        "vord policy DENIED this write to `{path}`. Nothing was written — the file on disk is unchanged.\n\n"
     );
     for (index, violation) in evaluation.denials().enumerate() {
         out.push_str(&format!("  {}. {}\n", index + 1, violation.describe()));
@@ -41,7 +41,7 @@ pub fn advisory_note(evaluation: &Evaluation) -> String {
     if warnings.peek().is_none() {
         return String::new();
     }
-    let mut out = String::from("\n\nyunq allowed this write with advisories:\n");
+    let mut out = String::from("\n\nvord allowed this write with advisories:\n");
     for violation in warnings {
         out.push_str(&format!("  - {}\n", violation.describe()));
     }
@@ -57,14 +57,14 @@ pub fn circuit_breaker_stop(rules: &[RuleId]) -> String {
         "circuit breaker tripped on {} — the agent could not resolve it in {} consecutive attempts. \
          Review the denial, then clear the breaker before running again.",
         names.join(", "),
-        yunq_agent_policy::CircuitBreakerState::TRIP_THRESHOLD
+        vord_agent_policy::CircuitBreakerState::TRIP_THRESHOLD
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use yunq_agent_policy::{AgentPolicy, Finding};
-    use yunq_profiles::Severity;
+    use vord_agent_policy::{AgentPolicy, Finding};
+    use vord_profiles::Severity;
 
     use super::*;
 

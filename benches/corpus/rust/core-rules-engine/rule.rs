@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
-use yunq_profiles::{default_impact, IssueType, RuleId, Severity, SoftwareQualityImpact};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
+use vord_profiles::{default_impact, IssueType, RuleId, Severity, SoftwareQualityImpact};
 
 /// Whether a detection is a definite problem (issue) or security-sensitive
 /// code that needs human review (hotspot).

@@ -18,12 +18,12 @@ use std::collections::{HashMap, HashSet};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
-use yunq_profiles::{RuleId, Severity};
+use vord_profiles::{RuleId, Severity};
 
 /// A finding handed to the policy for judgement.
 ///
-/// Intentionally not `yunq_rules_engine::Issue`: keeping this crate's
-/// dependency surface at `yunq-profiles` alone means a policy can equally
+/// Intentionally not `vord_rules_engine::Issue`: keeping this crate's
+/// dependency surface at `vord-profiles` alone means a policy can equally
 /// judge findings that never came from the engine (an imported SARIF result,
 /// a future remote-analysis response) without this crate learning about the
 /// engine's whole domain.
@@ -45,7 +45,7 @@ pub enum Cause {
     /// A finding at or above `block_at_or_above`.
     SeverityThreshold { threshold: Severity },
     /// A rule listed in `escalate_rules`: blocked until a human explicitly
-    /// approves this exact write (see `yunq hook approve` in `bin/cli`,
+    /// approves this exact write (see `vord hook approve` in `bin/cli`,
     /// which owns the approval-token workflow this cause exists to drive —
     /// this crate only ever produces the verdict, never the approval).
     Escalation,
@@ -168,11 +168,11 @@ impl Evaluation {
 /// AI-authored history.
 ///
 /// This crate has no I/O, so it never determines this itself — the caller
-/// (`bin/cli`'s per-repo touch ledger, keyed on every path a `yunq hook`
+/// (`bin/cli`'s per-repo touch ledger, keyed on every path a `vord hook`
 /// write has ever targeted) supplies it per evaluation, the same way it
 /// supplies `Finding`s. This is the automatic, per-path analogue of the
 /// "flag this project as AI-generated" setting incumbent tools require a
-/// human to set by hand: once yunq has seen an agent write to a path, that
+/// human to set by hand: once vord has seen an agent write to a path, that
 /// path carries the flag from then on with no configuration step.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Provenance {
@@ -189,7 +189,7 @@ pub enum Provenance {
 ///
 /// Distinguishes a real, fixable finding — which usually clears within a retry or two — from an
 /// agent stuck relitigating a false positive or a vulnerability it cannot resolve, which would
-/// otherwise burn the agent's tokens (and the human's patience) indefinitely. Each `yunq hook`
+/// otherwise burn the agent's tokens (and the human's patience) indefinitely. Each `vord hook`
 /// invocation is a fresh process, so this type only knows how to fold one evaluation into a
 /// running count; persisting that count between invocations is the caller's concern (see
 /// `bin/cli`'s circuit-breaker store), which is why this stays as I/O-free as the rest of the crate.
@@ -273,7 +273,7 @@ pub enum PolicyError {
     },
 }
 
-/// The wire shape of `yunq-policy.toml`. Every field defaults to the same
+/// The wire shape of `vord-policy.toml`. Every field defaults to the same
 /// value [`AgentPolicy::default`] uses, so an empty `[agent]` table and a
 /// missing file describe the same policy — a present key is always an
 /// override, never a reset.
@@ -328,8 +328,8 @@ impl Default for AgentSection {
 /// Absent (or with `block_at_or_above` unset) means "same as the base
 /// policy" — this section only ever tightens, and follows the same
 /// opt-in-until-configured convention `protected_path` uses: a default that
-/// silently denies more of an agent's writes the moment yunq is installed
-/// gets yunq uninstalled. `yunq hook install`'s generated policy turns it on
+/// silently denies more of an agent's writes the moment vord is installed
+/// gets vord uninstalled. `vord hook install`'s generated policy turns it on
 /// with a concrete value, visible and editable like every other opinionated
 /// default in that template.
 #[derive(Debug, Default, Deserialize)]
@@ -349,7 +349,7 @@ struct ProtectedPathSection {
 /// tagged Gherkin scenario to already exist somewhere in the repository's
 /// `.feature` files (`bin/cli` scans for these — this crate has no I/O).
 /// Off by default, same reasoning as `protected_path`: a bar this crate
-/// cannot itself verify is met should never silently deny the moment yunq is
+/// cannot itself verify is met should never silently deny the moment vord is
 /// installed.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -405,7 +405,7 @@ pub struct AgentPolicy {
 }
 
 impl Default for AgentPolicy {
-    /// The policy in force when a repository has no `yunq-policy.toml`:
+    /// The policy in force when a repository has no `vord-policy.toml`:
     /// deny critical-and-above findings and the hard-blocked rule list, with
     /// **no** protected paths.
     ///
@@ -413,7 +413,7 @@ impl Default for AgentPolicy {
     /// silently refuses an agent's legitimate edit the moment it is
     /// installed gets uninstalled; path rules are the one part of this
     /// policy with no finding to justify themselves to the agent, so they
-    /// stay opt-in. `yunq hook install` writes a policy file with concrete
+    /// stay opt-in. `vord hook install` writes a policy file with concrete
     /// examples enabled and visible in the repository, which is where that
     /// choice belongs — in the user's own file, not in a default they
     /// cannot see.
@@ -423,7 +423,7 @@ impl Default for AgentPolicy {
 }
 
 impl AgentPolicy {
-    /// Parses `yunq-policy.toml`. An empty string yields the default policy.
+    /// Parses `vord-policy.toml`. An empty string yields the default policy.
     pub fn parse(raw: &str) -> Result<Self, PolicyError> {
         let file: PolicyFile = toml::from_str(raw)?;
 
@@ -521,7 +521,7 @@ impl AgentPolicy {
     /// either way (see [`AiTouchedSection`]'s doc comment for why).
     ///
     /// A disabled policy returns no violations at all rather than
-    /// downgrading them to warnings: `enabled = false` means "yunq is not in
+    /// downgrading them to warnings: `enabled = false` means "vord is not in
     /// this agent's loop", and emitting advisory noise would contradict that.
     pub fn evaluate_with_provenance(
         &self,
@@ -633,7 +633,7 @@ impl AgentPolicy {
     }
 
     /// Layers a swarm role's [`RoleScope`] on top of this policy (roadmap
-    /// B3), without re-parsing `yunq-policy.toml`. Every field on
+    /// B3), without re-parsing `vord-policy.toml`. Every field on
     /// `RoleScope` only *adds* restriction — there is deliberately no way to
     /// narrow `blocking_rules` or drop a `protected_path` here, because a
     /// role config an agent could edit to widen its own permissions would be
@@ -697,7 +697,7 @@ impl AgentPolicy {
 }
 
 /// One swarm role's additional access restriction, on top of whatever the
-/// repository's base `yunq-policy.toml` already forbids (roadmap B3).
+/// repository's base `vord-policy.toml` already forbids (roadmap B3).
 ///
 /// `protected_path` already expresses "this path is off-limits to agents" —
 /// the swarm just needs to resolve that per role instead of globally, so a

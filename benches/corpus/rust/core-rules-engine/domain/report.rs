@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
-use yunq_cpd::DuplicateBlock;
-use yunq_profiles::{IssueType, MetricKey, Rating, RemediationEffortSummary, RuleId, Severity};
+use vord_cpd::DuplicateBlock;
+use vord_profiles::{IssueType, MetricKey, Rating, RemediationEffortSummary, RuleId, Severity};
 
 use super::hotspot::{Hotspot, HotspotStatus};
 use super::issue::Issue;
@@ -561,7 +561,7 @@ impl AnalysisReport {
     ///
     /// Imported issues never touch `lines_of_code`: the scan's own file walk
     /// is the single source of truth for size, and an external report may
-    /// well cover files yunq did not scan. That keeps the debt *ratio*
+    /// well cover files vord did not scan. That keeps the debt *ratio*
     /// (and so the maintainability rating) honest when an importer does
     /// supply a non-zero effort.
     pub fn add_external_issues(&mut self, imported: Vec<ExternalIssue>) {
@@ -625,10 +625,10 @@ impl AnalysisReport {
     /// Maintainability rating (A–E) from the technical debt ratio, not
     /// from the worst severity present.
     pub fn rating(&self) -> Rating {
-        let ratio = yunq_profiles::debt_ratio(
+        let ratio = vord_profiles::debt_ratio(
             self.metrics.debt_minutes() as f64,
             self.metrics.lines_of_code() as f64,
-            yunq_profiles::DEFAULT_DEV_COST_MINUTES_PER_LINE,
+            vord_profiles::DEFAULT_DEV_COST_MINUTES_PER_LINE,
         );
         Rating::from_debt_ratio(ratio)
     }
@@ -772,7 +772,7 @@ mod tests {
             "test_execution_time",
             "test_success_density",
         ] {
-            assert_eq!(report.measure(&yunq_profiles::MetricKey::new(key).unwrap()), None);
+            assert_eq!(report.measure(&vord_profiles::MetricKey::new(key).unwrap()), None);
         }
     }
 
@@ -797,7 +797,7 @@ mod tests {
             }],
         });
 
-        let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
+        let measure = |key: &str| report.measure(&vord_profiles::MetricKey::new(key).unwrap());
         assert_eq!(measure("tests"), Some(10.0));
         assert_eq!(measure("tests_passed"), Some(6.0));
         assert_eq!(measure("test_failures"), Some(2.0));
@@ -816,7 +816,7 @@ mod tests {
     #[test]
     fn branch_coverage_measure_is_absent_until_branches_are_added() {
         let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
-        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let key = |raw: &str| vord_profiles::MetricKey::new(raw).unwrap();
         assert_eq!(report.measure(&key("branch_coverage")), None);
 
         let mut summary = CoverageSummary::default();
@@ -958,21 +958,21 @@ mod tests {
                 Severity::Blocker,
                 "boom",
                 "src/a.rs",
-                yunq_ast::Span::new(1, 0, 1, 1),
+                vord_ast::Span::new(1, 0, 1, 1),
             ),
             Issue::new(
                 RuleId::new("owasp:sql-injection").unwrap(),
                 Severity::Blocker,
                 "boom again",
                 "src/a.rs",
-                yunq_ast::Span::new(2, 0, 2, 1),
+                vord_ast::Span::new(2, 0, 2, 1),
             ),
             Issue::new(
                 RuleId::new("smells:x").unwrap(),
                 Severity::Minor,
                 "smell",
                 "src/b.rs",
-                yunq_ast::Span::new(1, 0, 1, 1),
+                vord_ast::Span::new(1, 0, 1, 1),
             ),
         ];
         let report = AnalysisReport::new(issues, Vec::new(), Metrics::new());
@@ -1005,7 +1005,7 @@ mod tests {
 
         assert_eq!(report.reliability_rating(), Rating::E);
         assert_eq!(report.security_rating(), Rating::B);
-        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let key = |raw: &str| vord_profiles::MetricKey::new(raw).unwrap();
         assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
         assert_eq!(report.measure(&key("security_rating")), Some(2.0));
         assert_eq!(report.measure(&key("maintainability_rating")), Some(1.0));
@@ -1013,9 +1013,9 @@ mod tests {
 
     #[test]
     fn external_issues_fold_into_severity_counts_debt_and_the_security_rating() {
-        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let key = |raw: &str| vord_profiles::MetricKey::new(raw).unwrap();
         let issue = |rule: &str, severity| {
-            Issue::new(RuleId::new(rule).unwrap(), severity, "imported", "src/app.py", yunq_ast::Span::new(1, 1, 1, 1))
+            Issue::new(RuleId::new(rule).unwrap(), severity, "imported", "src/app.py", vord_ast::Span::new(1, 1, 1, 1))
         };
 
         let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
@@ -1043,7 +1043,7 @@ mod tests {
         let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
         let rule = RuleId::new("gosec:g401").unwrap();
         report.add_external_issues(vec![ExternalIssue {
-            issue: Issue::new(rule.clone(), Severity::Major, "weak hash", "hash.go", yunq_ast::Span::new(3, 1, 3, 9)),
+            issue: Issue::new(rule.clone(), Severity::Major, "weak hash", "hash.go", vord_ast::Span::new(3, 1, 3, 9)),
             issue_type: IssueType::Vulnerability,
             remediation_effort_minutes: 15,
         }]);

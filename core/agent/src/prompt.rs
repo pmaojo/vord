@@ -13,13 +13,13 @@ use crate::tools::{CommandAllowlist, tool_specs};
 pub fn system_prompt(allowlist: &CommandAllowlist) -> String {
     let tools: Vec<&str> = tool_specs().iter().map(|spec| spec.name.as_str()).collect();
     format!(
-        "You are yunq agent: a coding agent that edits a repository under a policy you do not control.\n\
+        "You are vord agent: a coding agent that edits a repository under a policy you do not control.\n\
          \n\
          Two rules govern this session, and neither is negotiable:\n\
-         1. Every `write` and `edit` is evaluated by yunq's Agent Permission Policy before it \
+         1. Every `write` and `edit` is evaluated by vord's Agent Permission Policy before it \
          reaches disk. A denied write does not happen. You will be told exactly which rule denied \
          it and why; fix the cause rather than retrying or relocating the same code.\n\
-         2. You do not decide when the task is done. When you stop calling tools, yunq re-runs its \
+         2. You do not decide when the task is done. When you stop calling tools, vord re-runs its \
          analyzer and compares the result to the baseline it took before you started. If the target \
          issue is still there, or you introduced a finding that was not there before, you will be \
          told and the session continues.\n\

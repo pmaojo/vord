@@ -6,9 +6,9 @@
 //! the appropriate mapping; everything else falls through to `Other`.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     YamlParser,
     LanguageIdentifier::yaml(),
     tree_sitter_yaml::LANGUAGE,
@@ -20,15 +20,15 @@ fn map_kind(kind: &str) -> NodeKind {
         "stream" => NodeKind::SourceUnit,
         "string_scalar" | "double_quote_scalar" | "single_quote_scalar" => NodeKind::StringLiteral,
         "comment" => NodeKind::Comment,
-        other => NodeKind::Other(yunq_ast::intern(other)),
+        other => NodeKind::Other(vord_ast::intern(other)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("test.yaml", code, LanguageIdentifier::yaml()).unwrap();
@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn maps_core_concepts() {
-        let ast = parse("# TODO: refactor\nname: yunq\nlist:\n  - a\n  - \"b\"\n");
+        let ast = parse("# TODO: refactor\nname: vord\nlist:\n  - a\n  - \"b\"\n");
         assert_eq!(ast.kind(), &NodeKind::SourceUnit);
         assert_eq!(ast.find_all(&NodeKind::Comment).len(), 1);
         assert!(!ast.find_all(&NodeKind::StringLiteral).is_empty());
@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn kubernetes_manifest_shape_parses() {
         let ast = parse(
-            "apiVersion: v1\nkind: Pod\nmetadata:\n  name: yunq-pod\nspec:\n  containers:\n    - name: app\n      image: \"yunq:latest\"\n",
+            "apiVersion: v1\nkind: Pod\nmetadata:\n  name: vord-pod\nspec:\n  containers:\n    - name: app\n      image: \"vord:latest\"\n",
         );
         assert_eq!(ast.kind(), &NodeKind::SourceUnit);
         assert!(!ast.find_all(&NodeKind::StringLiteral).is_empty());

@@ -1,4 +1,4 @@
-//! Core domain for the yunq AI Remediation Agent.
+//! Core domain for the vord AI Remediation Agent.
 //!
 //! Provides the provider-agnostic `LlmProvider` port, `FixPrompt` / `FixProposal`
 //! domain entities, and the verify-before-suggest `RemediationEngine` loop that
@@ -10,8 +10,8 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use yunq_ast::{LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{AnalyzerService, HotspotStorage, Issue, IssueStorage, MetricsTracker};
+use vord_ast::{LanguageIdentifier, SourceFile};
+use vord_rules_engine::{AnalyzerService, HotspotStorage, Issue, IssueStorage, MetricsTracker};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FixPrompt {
@@ -119,7 +119,7 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
     fn decide_verdict(
         &self,
         issue: &Issue,
-        report: &yunq_rules_engine::AnalysisReport,
+        report: &vord_rules_engine::AnalysisReport,
         proposal: FixProposal,
     ) -> RemediationVerdict {
         let target_rule_still_fails = report.issues().iter().any(|i| i.rule() == issue.rule());
@@ -191,8 +191,8 @@ impl<P: LlmProvider, S: Sandbox> RemediationEngine<P, S> {
 mod tests {
     use std::sync::Mutex;
 
-    use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, Span};
-    use yunq_rules_engine::{
+    use vord_ast::{AstNode, LanguageIdentifier, NodeKind, Span};
+    use vord_rules_engine::{
         AstParser, Finding, ParseError, QualityProfile, Rule, RuleId, RuleMetadata, Severity,
         StorageError,
     };
@@ -229,7 +229,7 @@ mod tests {
             }
         }
 
-        fn check(&self, file: &yunq_ast::SourceFile, _ast: &AstNode) -> Vec<Finding> {
+        fn check(&self, file: &vord_ast::SourceFile, _ast: &AstNode) -> Vec<Finding> {
             if file.content().contains(self.marker) {
                 vec![Finding::new(
                     format!("found {}", self.marker),
@@ -250,7 +250,7 @@ mod tests {
             LanguageIdentifier::rust()
         }
 
-        fn parse(&self, file: &yunq_ast::SourceFile) -> Result<AstNode, ParseError> {
+        fn parse(&self, file: &vord_ast::SourceFile) -> Result<AstNode, ParseError> {
             Ok(AstNode::new(
                 NodeKind::Other("root".into()),
                 Span::new(1, 1, 1, 1),
@@ -263,21 +263,21 @@ mod tests {
     #[derive(Default)]
     struct NoopStorage;
 
-    impl yunq_rules_engine::IssueStorage for NoopStorage {
+    impl vord_rules_engine::IssueStorage for NoopStorage {
         async fn save_issues(
             &self,
             _issues: &[Issue],
-            _scope: yunq_rules_engine::IssueScope,
+            _scope: vord_rules_engine::IssueScope,
         ) -> Result<(), StorageError> {
             Ok(())
         }
     }
 
-    impl yunq_rules_engine::HotspotStorage for NoopStorage {
+    impl vord_rules_engine::HotspotStorage for NoopStorage {
         async fn save_hotspots(
             &self,
-            _hotspots: &[yunq_rules_engine::Hotspot],
-            _scope: yunq_rules_engine::IssueScope,
+            _hotspots: &[vord_rules_engine::Hotspot],
+            _scope: vord_rules_engine::IssueScope,
         ) -> Result<(), StorageError> {
             Ok(())
         }
@@ -286,8 +286,8 @@ mod tests {
     #[derive(Default)]
     struct NoopMetrics;
 
-    impl yunq_rules_engine::MetricsTracker for NoopMetrics {
-        async fn record(&self, _metrics: &yunq_rules_engine::Metrics) -> Result<(), StorageError> {
+    impl vord_rules_engine::MetricsTracker for NoopMetrics {
+        async fn record(&self, _metrics: &vord_rules_engine::Metrics) -> Result<(), StorageError> {
             Ok(())
         }
     }

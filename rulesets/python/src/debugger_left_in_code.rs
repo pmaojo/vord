@@ -3,8 +3,8 @@
 //! by accident, it hangs the first request or job that reaches it in any
 //! non-interactive environment (a server, a CI job, a worker).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::is_test_file;
 
@@ -55,8 +55,8 @@ impl Rule for DebuggerLeftInCodeRule {
         2
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "pdb.set_trace()/breakpoint() suspends the process waiting on stdin; left in by accident it hangs the first request or job that reaches it in any non-interactive environment.".into(),
             tags: vec!["bug".into(), "cwe".into()],
             cwe: Some(489),
@@ -78,13 +78,13 @@ impl Rule for DebuggerLeftInCodeRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         DebuggerLeftInCodeRule::new().check(&file, &ast)

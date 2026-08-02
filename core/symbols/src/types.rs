@@ -16,7 +16,7 @@
 //! is out of scope here — see [`crate::classes`] for the narrow
 //! constructor-call inference OOP-smell rules use instead.
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -268,24 +268,24 @@ pub fn mentions_collaborator(declared: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse_ts(code: &str) -> AstNode {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new()
+        vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap()
     }
 
     fn parse_rust(code: &str) -> AstNode {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+        vord_parser_rust::RustParser::new().parse(&file).unwrap()
     }
 
     fn parse_py(code: &str) -> AstNode {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        yunq_parser_python::PythonParser::new()
+        vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap()
     }

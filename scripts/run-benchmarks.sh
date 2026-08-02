@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# yunq SAST & Performance Benchmark Suite
+# vord SAST & Performance Benchmark Suite
 # ==============================================================================
-# Clones, runs, and evaluates yunq against standard SAST benchmark targets,
+# Clones, runs, and evaluates vord against standard SAST benchmark targets,
 # vulnerable applications, and clean production repositories.
 # ==============================================================================
 
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TARGET_DIR="${PROJECT_ROOT}/.benchmark-targets"
 RESULTS_DIR="${PROJECT_ROOT}/.benchmark-results"
-YUNQ_BIN="${PROJECT_ROOT}/target/release/yunq"
+VORD_BIN="${PROJECT_ROOT}/target/release/vord"
 
 # Target definitions: "NAME|URL|CATEGORY|DESCRIPTION"
 ALL_TARGETS=(
@@ -76,12 +76,12 @@ done
 
 mkdir -p "${TARGET_DIR}" "${RESULTS_DIR}"
 
-# 1. Build yunq release binary
+# 1. Build vord release binary
 if [[ "${DO_BUILD}" == true ]]; then
-  echo "==> Building yunq release binary (cargo build --release --bin yunq)..."
-  cargo build --manifest-path "${PROJECT_ROOT}/Cargo.toml" --release --bin yunq
-elif [[ ! -f "${YUNQ_BIN}" ]]; then
-  echo "Error: ${YUNQ_BIN} does not exist. Please run without --no-build first."
+  echo "==> Building vord release binary (cargo build --release --bin vord)..."
+  cargo build --manifest-path "${PROJECT_ROOT}/Cargo.toml" --release --bin vord
+elif [[ ! -f "${VORD_BIN}" ]]; then
+  echo "Error: ${VORD_BIN} does not exist. Please run without --no-build first."
   exit 1
 fi
 
@@ -90,7 +90,7 @@ REPORT_FILE="${RESULTS_DIR}/benchmark_${TIMESTAMP}.md"
 LATEST_REPORT="${RESULTS_DIR}/latest_report.md"
 
 cat <<EOF > "${REPORT_FILE}"
-# yunq Benchmark Results (${TIMESTAMP})
+# vord Benchmark Results (${TIMESTAMP})
 
 | Target | Category | Files | Duration (s) | Throughput (files/s) | Total Issues | Blocker | Critical | Major | Minor | Info |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -98,9 +98,9 @@ EOF
 
 echo ""
 echo "======================================================================"
-echo "                   yunq BENCHMARK RUNNER                              "
+echo "                   vord BENCHMARK RUNNER                              "
 echo "======================================================================"
-echo "Binary: ${YUNQ_BIN}"
+echo "Binary: ${VORD_BIN}"
 echo "Targets Directory: ${TARGET_DIR}"
 echo "Results Directory: ${RESULTS_DIR}"
 echo "======================================================================"
@@ -154,14 +154,14 @@ for entry in "${RUN_TARGETS[@]}"; do
   file_count=$(cd "${repo_path}" && find . -type f -not -path '*/.*' | wc -l | tr -d ' ')
 
   # Clear cache to ensure fresh scan with current binary rules
-  rm -f "${PROJECT_ROOT}/.yunq-cache.json" "${repo_path}/.yunq-cache.json"
+  rm -f "${PROJECT_ROOT}/.vord-cache.json" "${repo_path}/.vord-cache.json"
 
-  echo "  Scanning ${file_count} files with yunq..."
+  echo "  Scanning ${file_count} files with vord..."
   raw_json_output="${RESULTS_DIR}/${name}_${TIMESTAMP}.json"
 
   start_time=$(python3 -c 'import time; print(time.time())')
   set +e
-  "${YUNQ_BIN}" scan "${repo_path}" --format json > "${raw_json_output}" 2>/dev/null
+  "${VORD_BIN}" scan "${repo_path}" --format json > "${raw_json_output}" 2>/dev/null
   scan_status=$?
   set -e
   end_time=$(python3 -c 'import time; print(time.time())')

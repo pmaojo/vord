@@ -1,5 +1,5 @@
 [package]
-name = "yunq-benchmarks"
+name = "vord-benchmarks"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,10 +7,10 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-cli = { workspace = true }
-yunq-rules-engine = { workspace = true }
-yunq-parser-rust = { workspace = true }
+vord-ast = { workspace = true }
+vord-cli = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-parser-rust = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

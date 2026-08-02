@@ -7,7 +7,7 @@ use std::path::Path;
 #[test]
 fn scans_fixtures_and_finds_every_rule_family() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
-    let report = futures::executor::block_on(yunq_cli::scan(&fixtures)).unwrap();
+    let report = futures::executor::block_on(vord_cli::scan(&fixtures)).unwrap();
 
     let fired: BTreeSet<String> = report
         .issues()
@@ -30,7 +30,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
         "react:unsafe-target-blank",
         "react:inline-prop-function-in-component",
         // The hexagon fixture: layering, purity and tactical-DDD families,
-        // proving the whole pipeline (composition root -> yunq way profile ->
+        // proving the whole pipeline (composition root -> vord way profile ->
         // rule) is wired for them, not just their unit tests.
         "architecture:hexagonal-layer-violation",
         "architecture:framework-in-domain",

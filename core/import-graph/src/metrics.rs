@@ -184,11 +184,11 @@ pub fn stability_violations(
 mod tests {
     use super::*;
     use crate::component_of;
-    use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn graph_of(files: &[(&str, &str)]) -> ImportGraph {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let parsed: Vec<(SourceFile, AstNode)> = files
             .iter()
             .map(|(path, code)| {

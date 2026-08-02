@@ -7,7 +7,7 @@
 //! gets, so the finding flows into the gate, SARIF export and PR decoration
 //! with no new plumbing.
 
-use yunq_rules_engine::{
+use vord_rules_engine::{
     AnalysisReport, CrapFinding, ExternalIssue, HIGH_RISK_THRESHOLD, Issue, IssueType, RuleId,
     Severity,
 };
@@ -55,8 +55,8 @@ pub fn apply(report: &mut AnalysisReport) -> Vec<CrapFinding> {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::Span;
-    use yunq_rules_engine::{CoverageReport, FileCoverage, FileFunctionComplexity, Metrics};
+    use vord_ast::Span;
+    use vord_rules_engine::{CoverageReport, FileCoverage, FileFunctionComplexity, Metrics};
 
     use super::*;
 

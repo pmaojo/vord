@@ -15,9 +15,9 @@
 //! literally named `message`/`response`/`completion` with a `.content`
 //! property.
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
-use yunq_taint::{TaintAnalysis, TaintConfig};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_taint::{TaintAnalysis, TaintConfig};
 
 pub struct LlmOutputInjectionRule {
     id: RuleId,
@@ -114,13 +114,13 @@ impl Rule for LlmOutputInjectionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         LlmOutputInjectionRule::new().check(&file, &ast)
@@ -128,7 +128,7 @@ mod tests {
 
     fn check_py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         LlmOutputInjectionRule::new().check(&file, &ast)

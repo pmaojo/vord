@@ -1,5 +1,5 @@
 {
-  "description": "Ground truth for yunq fixtures — rule IDs that SHOULD fire on each file",
+  "description": "Ground truth for vord fixtures — rule IDs that SHOULD fire on each file",
   "files": {
     "vulnerable.ts": {
       "is_vulnerable": true,
@@ -15,7 +15,7 @@
     },
     "smelly_owasp_nosql.ts": {
       "is_vulnerable": false,
-      "_comment": "known gap: NoSQL injection pattern not yet detected by yunq rules",
+      "_comment": "known gap: NoSQL injection pattern not yet detected by vord rules",
       "expected_rules": []
     },
     "smelly_react.tsx": {

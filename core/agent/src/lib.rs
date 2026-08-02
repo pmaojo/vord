@@ -1,15 +1,15 @@
-//! `yunq agent` — the runtime that writes code and cannot approve its own
+//! `vord agent` — the runtime that writes code and cannot approve its own
 //! work.
 //!
 //! Every coding agent on the market grades its own homework: the model
 //! proposes an edit, the model decides the edit is good, and the verification
-//! is a second prompt to the same weights. yunq is the one project where the
+//! is a second prompt to the same weights. vord is the one project where the
 //! judge already exists as a separate, deterministic artifact that predates
 //! the writer — so this runtime is built around two constraints it cannot
 //! talk its way out of:
 //!
 //! 1. **No edit reaches disk without passing `core/agent-policy`.** The same
-//!    `yunq-policy.toml` that gates a third-party agent through `yunq hook`
+//!    `vord-policy.toml` that gates a third-party agent through `vord hook`
 //!    gates this one, evaluated in-process on the proposed content before the
 //!    write syscall ([`gate`], enforced in [`runtime`]).
 //! 2. **No task is complete without the analyzer agreeing.** When the model

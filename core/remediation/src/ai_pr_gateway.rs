@@ -20,10 +20,10 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{FixProposal, RemediationError};
-use yunq_rules_engine::{
+use vord_rules_engine::{
     AlmGateway, AlmGatewayError, CheckConclusion, CheckRunReport, InlineComment, PrDecoration,
 };
-use yunq_rules_engine::{ProjectKey, RuleId, Severity};
+use vord_rules_engine::{ProjectKey, RuleId, Severity};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -49,8 +49,8 @@ pub struct IssueRef {
 /// touching call sites.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiAgent {
-    /// Yunq-native auto-fix agent.
-    YunqAutoFix,
+    /// Vord-native auto-fix agent.
+    VordAutoFix,
     /// Customer-supplied agent (e.g. via custom LLM proxy).
     Custom(String),
 }
@@ -201,7 +201,7 @@ impl<A: AlmGateway> AiPrGateway<A> {
                 body: proposal.replacement_snippet.clone(),
             }],
             check: Some(CheckRunReport {
-                name: "yunq-ai-fix".to_string(),
+                name: "vord-ai-fix".to_string(),
                 conclusion: CheckConclusion::Success,
                 title: "AI fix".to_string(),
                 summary: summary.clone(),
@@ -237,7 +237,7 @@ pub enum AiPrGatewayError {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
-    use yunq_rules_engine::DecorationReceipt;
+    use vord_rules_engine::DecorationReceipt;
 
     /// In-memory `AlmGateway` that records every decoration + check run.
     #[derive(Debug, Clone, Default)]
@@ -304,11 +304,11 @@ mod tests {
         let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let task = gateway
-            .assign_to_agent(&issue, AiAgent::YunqAutoFix)
+            .assign_to_agent(&issue, AiAgent::VordAutoFix)
             .await
             .unwrap();
         assert_eq!(task.issue, issue);
-        assert_eq!(task.agent, AiAgent::YunqAutoFix);
+        assert_eq!(task.agent, AiAgent::VordAutoFix);
         assert_eq!(task.id, AiAssignmentTaskId(task.id.0));
     }
 
@@ -318,7 +318,7 @@ mod tests {
         let gateway = AiPrGateway::new(alm.clone());
         let issue = sample_issue();
         let task = gateway
-            .assign_to_agent(&issue, AiAgent::YunqAutoFix)
+            .assign_to_agent(&issue, AiAgent::VordAutoFix)
             .await
             .unwrap();
         assert!(matches!(
@@ -395,7 +395,7 @@ mod tests {
         let decorations = alm.decorations.lock().unwrap();
         let decoration = decorations.first().unwrap();
         let check = decoration.check.as_ref().expect("a check run was attached");
-        assert_eq!(check.name, "yunq-ai-fix");
+        assert_eq!(check.name, "vord-ai-fix");
         assert_eq!(check.conclusion, CheckConclusion::Success);
     }
 
@@ -405,7 +405,7 @@ mod tests {
         let gateway = AiPrGateway::new(alm.clone());
         let issues: Vec<IssueRef> = (0..5).map(|_| sample_issue()).collect();
         let summary = gateway
-            .bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix)
+            .bulk_assign_to_agent(&issues, AiAgent::VordAutoFix)
             .await
             .unwrap();
         assert_eq!(summary.total, 5);
@@ -424,7 +424,7 @@ mod tests {
         let issues: Vec<IssueRef> = (0..6).map(|_| sample_issue()).collect();
         let started = Utc::now();
         let _summary = gateway
-            .bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix)
+            .bulk_assign_to_agent(&issues, AiAgent::VordAutoFix)
             .await
             .unwrap();
         let duration = Utc::now() - started;
@@ -440,7 +440,7 @@ mod tests {
         let gateway = AiPrGateway::new(alm.clone());
         let issues: Vec<IssueRef> = (0..3).map(|_| sample_issue()).collect();
         let summary = gateway
-            .bulk_assign_to_agent(&issues, AiAgent::YunqAutoFix)
+            .bulk_assign_to_agent(&issues, AiAgent::VordAutoFix)
             .await
             .unwrap();
         assert_eq!(summary.tasks.len(), 3);
@@ -458,7 +458,7 @@ mod tests {
         let agent = AiAgent::Custom("my-corp-proxy".into());
         match agent {
             AiAgent::Custom(name) => assert_eq!(name, "my-corp-proxy"),
-            AiAgent::YunqAutoFix => panic!("expected Custom variant"),
+            AiAgent::VordAutoFix => panic!("expected Custom variant"),
         }
     }
 

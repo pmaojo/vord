@@ -1,7 +1,7 @@
 //! CRAP (Change Risk Anti-Patterns) scoring: `CC² × (1 − coverage)³ + CC`,
 //! from [crap4clj](https://github.com/unclebob/crap4clj). Both inputs —
 //! cyclomatic complexity and per-line coverage — already exist elsewhere in
-//! yunq; this crate is only the formula and the join between them, kept as
+//! vord; this crate is only the formula and the join between them, kept as
 //! pure `std`-only logic (no tree-sitter, no coverage-ingest dependency) so
 //! it is trivially unit-testable and reusable from any composition root.
 //!
@@ -18,7 +18,7 @@
 
 use std::collections::BTreeMap;
 
-use yunq_ast::Span;
+use vord_ast::Span;
 
 /// Risk bands from crap4clj: 1-5 low risk (not worth reporting), 5-30 a
 /// refactor candidate, 30+ complex *and* untested.
@@ -34,7 +34,7 @@ pub fn crap_score(cyclomatic: u32, coverage_percent: f64) -> f64 {
 
 /// One function's coverage percentage, restricted to the lines its `span`
 /// covers. `lines` is a file's instrumented-line -> hit-count map (see
-/// `yunq_rules_engine::FileCoverage::lines`). Returns `None` when no line in
+/// `vord_rules_engine::FileCoverage::lines`). Returns `None` when no line in
 /// `span` was instrumented at all — absent coverage data must never be
 /// scored as 0%-covered, matching the fail-open convention the rest of the
 /// codebase uses when a measure has no input.

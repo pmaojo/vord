@@ -1,9 +1,9 @@
 //! Shared AST helpers for PHP rules.
 
-use yunq_ast::AstNode;
+use vord_ast::AstNode;
 
-pub(crate) fn is_other(kind: &yunq_ast::NodeKind, name: &str) -> bool {
-    matches!(kind, yunq_ast::NodeKind::Other(k) if k.as_ref() == name)
+pub(crate) fn is_other(kind: &vord_ast::NodeKind, name: &str) -> bool {
+    matches!(kind, vord_ast::NodeKind::Other(k) if k.as_ref() == name)
 }
 
 /// The superglobal arrays PHP populates from request data — anything that

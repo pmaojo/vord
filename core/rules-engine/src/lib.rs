@@ -67,13 +67,13 @@ pub use suppression::is_suppressed;
 pub use test_code::{LineRange, in_ranges, is_test_only_path, is_vendored_path, rust_test_module_ranges};
 
 // Re-export duplication vocabulary so consumers depend on one facade.
-pub use yunq_cpd::{CloneRegion, CloneSet, DuplicationConfig, TokenNormalization};
+pub use vord_cpd::{CloneRegion, CloneSet, DuplicationConfig, TokenNormalization};
 // Re-export CRAP vocabulary so consumers depend on one facade.
 pub use service::{AnalyzeError, AnalyzerService};
-pub use yunq_crap::{CrapFinding, HIGH_RISK_THRESHOLD, REFACTOR_CANDIDATE_THRESHOLD};
+pub use vord_crap::{CrapFinding, HIGH_RISK_THRESHOLD, REFACTOR_CANDIDATE_THRESHOLD};
 
 // Re-export the quality model so consumers depend on one facade.
-pub use yunq_profiles::{
+pub use vord_profiles::{
     ComparisonOperator, Condition, ConditionResult, ConditionStatus, DEFAULT_PROFILE_NAME,
     GateEvaluation, GateStatus, ImpactSeverity, InvalidMetricKeyError, InvalidRuleIdError,
     IssueType, MetricKey, ProfileBackup, ProfileDiff, QualityGate, QualityProfile, Rating,

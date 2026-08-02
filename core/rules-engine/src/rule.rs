@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
-use yunq_profiles::{IssueType, RuleId, Severity, SoftwareQualityImpact, default_impact};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
+use vord_profiles::{IssueType, RuleId, Severity, SoftwareQualityImpact, default_impact};
 
 /// Whether a detection is a definite problem (issue) or security-sensitive
 /// code that needs human review (hotspot).
@@ -107,8 +107,8 @@ pub trait Rule: Send + Sync {
 /// (a `macro_rules!` matcher standing in for what should be plain code).
 ///
 /// ```
-/// # use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
-/// # use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
+/// # use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+/// # use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
 /// declare_rule_id!(ExampleRule, "example:my-rule");
 ///
 /// impl Rule for ExampleRule {

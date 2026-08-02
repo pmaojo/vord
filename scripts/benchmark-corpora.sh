@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# yunq Standard-Corpus Benchmark Harness
+# vord Standard-Corpus Benchmark Harness
 # ==============================================================================
-# Runs yunq against standardized SAST corpora and publishes reproducible
+# Runs vord against standardized SAST corpora and publishes reproducible
 # precision + performance numbers:
 #
 #   * OWASP Benchmark v1.2beta   (~2,740 labeled Java test cases)
@@ -36,7 +36,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CORPORA_DIR="${PROJECT_ROOT}/.benchmark-corpora"
 RESULTS_DIR="${PROJECT_ROOT}/.benchmark-results"
-YUNQ_BIN="${PROJECT_ROOT}/target/release/yunq"
+VORD_BIN="${PROJECT_ROOT}/target/release/vord"
 
 # --- defaults ----------------------------------------------------------------
 CORPUS="all"
@@ -95,7 +95,7 @@ capture_hardware() {
   echo "CPU: ${cpu}"
   echo "Cores: ${cores}"
   echo "RAM: ${ram}"
-  echo "yunq version: $("${YUNQ_BIN}" --version 2>/dev/null || echo unknown)"
+  echo "vord version: $("${VORD_BIN}" --version 2>/dev/null || echo unknown)"
 }
 
 # --- corpus definitions -------------------------------------------------------
@@ -166,16 +166,16 @@ run_corpus() {
 
   # Warmup (cold caches, first parse of the tree).
   for _ in $(seq 1 "${WARMUP}"); do
-    "${YUNQ_BIN}" scan "${dir}" --format json --no-cache > /dev/null 2>&1 || true
+    "${VORD_BIN}" scan "${dir}" --format json --no-cache > /dev/null 2>&1 || true
   done
 
   local times=() locs=()
   for i in $(seq 1 "${REPETITIONS}"); do
-    # Clear yunq's own caches so every run is a clean, cold scan.
-    rm -f "${PROJECT_ROOT}/.yunq-cache.json" "${dir}/.yunq-cache.json"
+    # Clear vord's own caches so every run is a clean, cold scan.
+    rm -f "${PROJECT_ROOT}/.vord-cache.json" "${dir}/.vord-cache.json"
     local start end dur
     start="$(python3 -c 'import time; print(time.time())')"
-    "${YUNQ_BIN}" scan "${dir}" --format json --no-cache > "${RESULTS_DIR}/${name}_run${i}_${ts}.json" 2>/dev/null
+    "${VORD_BIN}" scan "${dir}" --format json --no-cache > "${RESULTS_DIR}/${name}_run${i}_${ts}.json" 2>/dev/null
     end="$(python3 -c 'import time; print(time.time())')"
     dur="$(python3 -c "print(${end} - ${start})")"
     times+=("${dur}")
@@ -185,7 +185,7 @@ run_corpus() {
     echo "  run ${i}: ${dur}s  (~${locs[${last_index}]} LOC/s)"
   done
 
-  "${YUNQ_BIN}" scan "${dir}" --format sarif --no-cache > "${RESULTS_DIR}/${name}_${ts}.sarif" 2>/dev/null || true
+  "${VORD_BIN}" scan "${dir}" --format sarif --no-cache > "${RESULTS_DIR}/${name}_${ts}.sarif" 2>/dev/null || true
 
   # Aggregate: median/min/max of durations and throughput.
   local median min max locrate
@@ -195,7 +195,7 @@ run_corpus() {
   locrate="$(python3 -c "import statistics; print(round(statistics.median([${locs[*]}])))")"
 
   {
-    echo "# yunq Benchmark: ${name} (${ts})"
+    echo "# vord Benchmark: ${name} (${ts})"
     echo ""
     echo "## Environment"
     echo '```'
@@ -227,10 +227,10 @@ run_corpus() {
 
 # --- build --------------------------------------------------------------------
 if [[ "${DO_BUILD}" == true ]]; then
-  echo "==> Building yunq release binary ..."
-  cargo build --manifest-path "${PROJECT_ROOT}/Cargo.toml" --release --bin yunq
-elif [[ ! -f "${YUNQ_BIN}" ]]; then
-  echo "Error: ${YUNQ_BIN} missing; run without --no-build first." >&2
+  echo "==> Building vord release binary ..."
+  cargo build --manifest-path "${PROJECT_ROOT}/Cargo.toml" --release --bin vord
+elif [[ ! -f "${VORD_BIN}" ]]; then
+  echo "Error: ${VORD_BIN} missing; run without --no-build first." >&2
   exit 1
 fi
 

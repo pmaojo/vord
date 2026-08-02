@@ -1,7 +1,7 @@
-//! User-defined custom pattern rule (Semgrep-style matching from `yunq.toml`).
+//! User-defined custom pattern rule (Semgrep-style matching from `vord.toml`).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct CustomPatternRule {
     id: RuleId,
@@ -51,7 +51,7 @@ impl Rule for CustomPatternRule {
             if line.contains(&self.pattern) {
                 findings.push(Finding::new(
                     &self.message,
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
             }
         }
@@ -67,7 +67,7 @@ mod tests {
     fn flags_custom_pattern() {
         let code = "console.log('hello world');\n";
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let rule = CustomPatternRule::new("custom:no-console-log", "Remove console.log", "console.log", Severity::Minor).unwrap();
 
         let findings = rule.check(&file, &ast);

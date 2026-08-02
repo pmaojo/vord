@@ -1,20 +1,20 @@
 [package]
-name = "yunq-rules-engine"
+name = "vord-rules-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rule traits, ports and the analysis service at the heart of yunq"
+description = "Rule traits, ports and the analysis service at the heart of vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-crap = { workspace = true }
-yunq-profiles = { workspace = true }
-yunq-cpd = { workspace = true }
+vord-ast = { workspace = true }
+vord-crap = { workspace = true }
+vord-profiles = { workspace = true }
+vord-cpd = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 

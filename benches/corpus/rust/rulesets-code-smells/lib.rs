@@ -22,7 +22,7 @@ pub use select_star::SelectStarRule;
 pub use todo_comment::TodoCommentRule;
 pub use unwrap_usage::UnwrapUsageRule;
 
-use yunq_rules_engine::{CrossFileRule, Rule};
+use vord_rules_engine::{CrossFileRule, Rule};
 
 /// Every per-file rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

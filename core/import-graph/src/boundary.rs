@@ -13,8 +13,8 @@ use std::collections::BTreeSet;
 
 use crate::ImportGraph;
 
-/// One declared dependency edge between components. The `yunq.toml`-facing
-/// shape (`yunq_infra_fs::DependencyEdgeConfig`) mirrors this 1:1; kept as a
+/// One declared dependency edge between components. The `vord.toml`-facing
+/// shape (`vord_infra_fs::DependencyEdgeConfig`) mirrors this 1:1; kept as a
 /// separate type here so this crate has no dependency on `infra/fs`.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DependencyEdge {
@@ -44,10 +44,10 @@ fn matches_component(pattern: &str, component: &str) -> bool {
     component == pattern || component.starts_with(&format!("{pattern}/"))
 }
 
-/// `[architecture]` in `yunq.toml`, engine-facing. Empty (the default,
+/// `[architecture]` in `vord.toml`, engine-facing. Empty (the default,
 /// `is_empty()` true) means no boundaries declared — `violations` then
 /// never fires, the same fail-open convention every other optional
-/// `yunq.toml` table follows (see `DuplicationSettings`).
+/// `vord.toml` table follows (see `DuplicationSettings`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ArchitectureConfig {
     pub allowed_dependencies: Vec<DependencyEdge>,
@@ -123,12 +123,12 @@ impl ArchitectureConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn graph_of(files: &[(&str, &str)]) -> ImportGraph {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
-        let parsed: Vec<(SourceFile, yunq_ast::AstNode)> = files
+        let parser = vord_parser_typescript::TypeScriptParser::new();
+        let parsed: Vec<(SourceFile, vord_ast::AstNode)> = files
             .iter()
             .map(|(path, code)| {
                 let file = SourceFile::new(*path, *code, LanguageIdentifier::typescript()).unwrap();
@@ -136,7 +136,7 @@ mod tests {
                 (file, ast)
             })
             .collect();
-        let views: Vec<(&str, &yunq_ast::AstNode)> =
+        let views: Vec<(&str, &vord_ast::AstNode)> =
             parsed.iter().map(|(f, a)| (f.path(), a)).collect();
         ImportGraph::build(&views)
     }
