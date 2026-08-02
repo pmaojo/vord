@@ -96,6 +96,9 @@ impl CrossFileRule for StableDependencyRule {
             // edge, so the finding points at code that can be changed —
             // the same choice `architecture:boundary-violation` makes.
             for edge in graph.edges() {
+                if vord_rules_engine::is_test_only_path(&edge.from) {
+                    continue;
+                }
                 if component_of(&edge.from) != violation.from
                     || component_of(&edge.to) != violation.to
                 {

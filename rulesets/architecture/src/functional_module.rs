@@ -120,6 +120,9 @@ impl Rule for FunctionalModuleRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        if vord_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
         let count = count_top_level_functions(file.path(), ast);
         if count <= self.max_exported_functions {
             return Vec::new();
@@ -218,5 +221,18 @@ mod tests {
         let ast = PythonParser::new().parse(&file).unwrap();
         let findings = FunctionalModuleRule::new(25).check(&file, &ast);
         assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn silent_in_test_only_paths() {
+        use vord_parser_python::PythonParser;
+        let mut code = String::new();
+        for i in 0..40 {
+            code.push_str(&format!("def test_fn{i}():\n    assert {i} == {i}\n"));
+        }
+        let file = SourceFile::new("tests/test_basic.py", code, LanguageIdentifier::python()).unwrap();
+        let ast = PythonParser::new().parse(&file).unwrap();
+        let findings = FunctionalModuleRule::new(25).check(&file, &ast);
+        assert!(findings.is_empty());
     }
 }
