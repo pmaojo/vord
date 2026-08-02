@@ -2,6 +2,8 @@
 
 [![Health Score](https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/pmaojo/vord/main/.vord-health.json&query=$.message&label=health)](https://github.com/pmaojo/vord/blob/main/.vord-health.json)
 
+<img src="./assets/banner.png" alt="vord" width="100%">
+
 A static analysis platform in Rust — a guardrail that judges an AI agent's
 write *before* it reaches disk, and a coding agent of its own that is judged
 by that same guardrail. One static binary, 24 languages, no JVM, no server
