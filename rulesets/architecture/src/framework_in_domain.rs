@@ -19,7 +19,7 @@
 //! own import list.
 
 use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
-use vord_import_graph::{HexLayer, imported_modules, infra_roster, layer_of, matches_module};
+use vord_import_graph::{HexLayer, LayerTaxonomy, imported_modules, infra_roster, matches_module};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// The rings that must stay pure. Adapters and infrastructure are *supposed*
@@ -33,12 +33,22 @@ fn is_inner_ring(layer: HexLayer) -> bool {
 
 pub struct FrameworkInDomainRule {
     id: RuleId,
+    taxonomy: LayerTaxonomy,
 }
 
 impl FrameworkInDomainRule {
     pub fn new() -> Self {
+        Self::with_taxonomy(LayerTaxonomy::default())
+    }
+
+    /// Same rule, classifying a file's path through a project's declared
+    /// `[[architecture.layer]]` taxonomy first — see
+    /// `HexagonalLayerRule::with_taxonomy` for why this is a strict
+    /// extension of [`Self::new`].
+    pub fn with_taxonomy(taxonomy: LayerTaxonomy) -> Self {
         Self {
             id: RuleId::new("architecture:framework-in-domain").expect("valid rule id"),
+            taxonomy,
         }
     }
 }
@@ -88,7 +98,7 @@ impl Rule for FrameworkInDomainRule {
         if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
-        let layer = layer_of(file.path());
+        let layer = self.taxonomy.classify(file.path());
         if !is_inner_ring(layer) {
             return Vec::new();
         }

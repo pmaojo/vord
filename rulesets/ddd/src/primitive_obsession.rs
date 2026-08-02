@@ -24,7 +24,8 @@ use vord_ast::{AstNode, NodeKind, SourceFile};
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use vord_symbols::{ClassRegistry, MemberInfo, MethodInfo, function_params, is_primitive_type};
 
-use crate::common::{is_constructor, is_domain_path, is_value_object, wire_dto_names};
+use crate::common::{is_constructor, is_value_object, wire_dto_names};
+use vord_import_graph::LayerTaxonomy;
 
 /// Every named function-like node in a file, with the name it is known by.
 ///
@@ -84,6 +85,7 @@ fn primitive_params(method: &MethodInfo<'_>) -> Vec<String> {
 pub struct PrimitiveObsessionRule {
     id: RuleId,
     max_primitives: usize,
+    taxonomy: LayerTaxonomy,
 }
 
 impl PrimitiveObsessionRule {
@@ -91,6 +93,19 @@ impl PrimitiveObsessionRule {
         Self {
             id: RuleId::new("ddd:primitive-obsession").expect("valid rule id"),
             max_primitives,
+            taxonomy: LayerTaxonomy::default(),
+        }
+    }
+
+    /// Same defaults as [`Default::default`], recognizing the domain layer
+    /// through a project's declared `[[architecture.layer]]` taxonomy as
+    /// well as the zero-config heuristic — see
+    /// `HexagonalLayerRule::with_taxonomy` for why this is a strict
+    /// extension.
+    pub fn with_taxonomy(taxonomy: LayerTaxonomy) -> Self {
+        Self {
+            taxonomy,
+            ..Self::default()
         }
     }
 }
@@ -132,7 +147,7 @@ impl CrossFileRule for PrimitiveObsessionRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> = files
             .iter()
-            .filter(|(file, _)| is_domain_path(file.path()))
+            .filter(|(file, _)| self.taxonomy.is_domain(file.path()))
             .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .map(|(file, ast)| (file.path(), ast))
             .collect();

@@ -34,7 +34,10 @@ use vord_ast::{AstNode, NodeKind, Span};
 pub use boundary::{ArchitectureConfig, BoundaryViolation, DependencyEdge, ViolationKind};
 pub use component::component_of;
 pub use infra::{ImportedModule, InfraModule, imported_modules, infra_roster, matches_module};
-pub use layer::{HexLayer, LayerViolation, inward_dependency_violations, layer_of};
+pub use layer::{
+    CustomLayerSpec, HexLayer, LayerTaxonomy, LayerTaxonomyError, LayerViolation,
+    inward_dependency_violations, inward_dependency_violations_with_taxonomy, layer_of,
+};
 pub use metrics::{
     ComponentMetrics, StabilityViolation, TypeCensus, component_metrics, stability_violations,
 };

@@ -140,6 +140,26 @@ where
         self
     }
 
+    /// Swaps out any rule already registered under `rule`'s own id, then
+    /// registers `rule` — for a composition root that builds the zero-config
+    /// rule set first and only later learns project config (e.g. a declared
+    /// `[[architecture.layer]]` taxonomy) a rule already in that default set
+    /// needs to be reconstructed with. A no-op replacement (no prior rule
+    /// under that id) is equivalent to [`Self::register_rule`].
+    pub fn replace_rule(mut self, rule: Box<dyn Rule>) -> Self {
+        self.rules.retain(|existing| existing.id() != rule.id());
+        self.rules.push(rule);
+        self
+    }
+
+    /// Same as [`Self::replace_rule`], for [`CrossFileRule`]s.
+    pub fn replace_cross_rule(mut self, rule: Box<dyn CrossFileRule>) -> Self {
+        self.cross_rules
+            .retain(|existing| existing.id() != rule.id());
+        self.cross_rules.push(rule);
+        self
+    }
+
     pub fn profile(&self) -> &QualityProfile {
         &self.profile
     }
@@ -707,6 +727,58 @@ mod tests {
             storage.saved_scope.lock().unwrap().as_slice(),
             [IssueScope::default(), IssueScope::default()]
         );
+    }
+
+    /// A rule that finds nothing — the "reconfigured" counterpart
+    /// `replace_rule` swaps `AlwaysFindsRule` for in the test below.
+    struct NeverFindsRule {
+        id: RuleId,
+        language: LanguageIdentifier,
+    }
+
+    impl Rule for NeverFindsRule {
+        fn id(&self) -> &RuleId {
+            &self.id
+        }
+
+        fn applies_to(&self, language: &LanguageIdentifier) -> bool {
+            *language == self.language
+        }
+
+        fn default_severity(&self) -> Severity {
+            Severity::Minor
+        }
+
+        fn check(&self, _file: &SourceFile, _ast: &AstNode) -> Vec<Finding> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn replace_rule_swaps_out_the_prior_rule_under_the_same_id_instead_of_duplicating_it() {
+        let rule_id = RuleId::new("test:always").unwrap();
+        let storage = CapturingStorage::default();
+        let metrics = CapturingMetrics::default();
+        let service = AnalyzerService::new(QualityProfile::new("test"), &storage, &metrics)
+            .register_parser(Box::new(FakeParser {
+                language: LanguageIdentifier::rust(),
+                fail: false,
+            }))
+            .register_rule(Box::new(AlwaysFindsRule {
+                id: rule_id.clone(),
+                language: LanguageIdentifier::rust(),
+            }))
+            .replace_rule(Box::new(NeverFindsRule {
+                id: rule_id.clone(),
+                language: LanguageIdentifier::rust(),
+            }));
+
+        let report =
+            futures::executor::block_on(service.analyze_files(&[rust_file("a.rs")])).unwrap();
+
+        // Only the replacement ran — a naive `register_rule` here would have
+        // left both registered, doubling every finding under this id.
+        assert!(report.issues().is_empty());
     }
 
     #[test]

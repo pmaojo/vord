@@ -30,7 +30,8 @@ use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 use vord_symbols::{ClassInfo, ClassRegistry, MethodInfo, type_identifiers};
 
-use crate::common::{accessed_field, declared_methods, field_declared_type, is_application_path};
+use crate::common::{accessed_field, declared_methods, field_declared_type};
+use vord_import_graph::LayerTaxonomy;
 
 const WRITE_METHODS: &[&str] = &[
     "save", "persist", "add", "update", "delete", "remove", "insert", "create", "store",
@@ -86,12 +87,22 @@ fn aggregates_written(
 
 pub struct OneAggregatePerTransactionRule {
     id: RuleId,
+    taxonomy: LayerTaxonomy,
 }
 
 impl OneAggregatePerTransactionRule {
     pub fn new() -> Self {
+        Self::with_taxonomy(LayerTaxonomy::default())
+    }
+
+    /// Same rule, recognizing the application layer through a project's
+    /// declared `[[architecture.layer]]` taxonomy as well as the
+    /// zero-config heuristic — see `HexagonalLayerRule::with_taxonomy` for
+    /// why this is a strict extension of [`Self::new`].
+    pub fn with_taxonomy(taxonomy: LayerTaxonomy) -> Self {
         Self {
             id: RuleId::new("ddd:one-aggregate-per-transaction").expect("valid rule id"),
+            taxonomy,
         }
     }
 }
@@ -133,7 +144,9 @@ impl Rule for OneAggregatePerTransactionRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if !is_application_path(file.path()) || vord_rules_engine::is_test_only_path(file.path()) {
+        if !self.taxonomy.is_application(file.path())
+            || vord_rules_engine::is_test_only_path(file.path())
+        {
             return Vec::new();
         }
         let registry = ClassRegistry::build(ast);

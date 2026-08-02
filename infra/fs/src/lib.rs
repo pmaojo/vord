@@ -28,8 +28,8 @@ pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura, parse_cobertura_report};
 pub use config::{
-    AgentSettings, ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings,
-    GateSettings, RoleProtectedPath, RoleSettings, SwarmSettings, VordConfig,
+    AgentSettings, ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings, GateSettings,
+    LayerConfig, RoleProtectedPath, RoleSettings, SwarmSettings, VordConfig,
 };
 pub use coverage::{
     CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report,

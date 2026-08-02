@@ -20,7 +20,6 @@
 use std::collections::BTreeSet;
 
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use vord_import_graph::{HexLayer, layer_of};
 use vord_symbols::{ClassInfo, MemberInfo, MethodInfo};
 
 /// Field names and type suffixes that mean "this type has identity" — the mark
@@ -63,28 +62,6 @@ pub fn is_constructor(method: &MethodInfo<'_>, class: &ClassInfo<'_>) -> bool {
 
 pub fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
-}
-
-/// Whether a path names code inside the model — the domain layer proper, where
-/// entities, aggregates and value objects live.
-///
-/// Deliberately narrower than `architecture:framework-in-domain`'s inner ring:
-/// tactical DDD patterns are claims about the *model*, and an application
-/// service being a thin orchestrator with no behavior of its own is correct
-/// design, not an anemic one.
-pub fn is_domain_path(path: &str) -> bool {
-    layer_of(path) == HexLayer::Domain
-}
-
-/// Whether a path names code in the application layer — where a use case
-/// orchestrates domain objects and opens transaction boundaries, but is not
-/// itself part of the model. `ddd:one-aggregate-per-transaction` is scoped
-/// here rather than to [`is_domain_path`]: a transaction boundary is an
-/// application-layer concern by construction (a well-formed aggregate holds
-/// no repository of its own to call in the first place), unlike every other
-/// rule in this crate, which asks whether the *model* is a model.
-pub fn is_application_path(path: &str) -> bool {
-    layer_of(path) == HexLayer::Application
 }
 
 /// A field's declared type, falling back to its constructor parameter of the
@@ -739,14 +716,5 @@ mod tests {
         let dtos = wire_dto_names(&ast);
         assert!(dtos.contains("OrderRequest"));
         assert!(!dtos.contains("Order"));
-    }
-
-    #[test]
-    fn domain_paths_are_the_model_only() {
-        assert!(is_domain_path("src/domain/order.ts"));
-        assert!(is_domain_path("src/entities/order.py"));
-        assert!(!is_domain_path("src/application/place_order.ts"));
-        assert!(!is_domain_path("src/infrastructure/orders.ts"));
-        assert!(!is_domain_path("src/lib/util.ts"));
     }
 }
