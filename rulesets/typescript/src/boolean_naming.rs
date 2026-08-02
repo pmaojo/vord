@@ -1,5 +1,5 @@
 use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(BooleanNamingRule, "naming:boolean-prefix");
 
@@ -29,7 +29,9 @@ impl Rule for BooleanNamingRule {
                 if let Some(id_node) = node.first_child() {
                     let name = id_node.text();
                     let text = node.text();
-                    if (text.contains(": boolean") || text.ends_with(" = true") || text.ends_with(" = false"))
+                    if (text.contains(": boolean")
+                        || text.ends_with(" = true")
+                        || text.ends_with(" = false"))
                         && !name.starts_with("is")
                         && !name.starts_with("has")
                         && !name.starts_with("should")
