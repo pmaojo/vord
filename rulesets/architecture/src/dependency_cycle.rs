@@ -54,7 +54,7 @@ impl CrossFileRule for DependencyCycleRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> =
             files.iter().map(|(file, ast)| (file.path(), ast)).collect();
-        let graph = ImportGraph::build(&views);
+        let graph = ImportGraph::build_with_rust_modules(&views);
         let mut findings = Vec::new();
         for cycle in graph.cycles() {
             let chain = cycle.join(" -> ");

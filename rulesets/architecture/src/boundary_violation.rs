@@ -80,6 +80,9 @@ impl CrossFileRule for BoundaryViolationRule {
             // developer sees the actual import line(s) responsible, not
             // just the component-level verdict.
             for edge in graph.edges() {
+                if vord_rules_engine::is_test_only_path(&edge.from) {
+                    continue;
+                }
                 if component_of(&edge.from) != violation.from
                     || component_of(&edge.to) != violation.to
                 {

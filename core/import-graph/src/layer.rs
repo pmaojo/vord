@@ -339,6 +339,9 @@ fn inward_dependency_violations_with(
         .edges()
         .iter()
         .filter_map(|edge| {
+            if vord_rules_engine::is_test_only_path(&edge.from) {
+                return None;
+            }
             let from_layer = classify(&edge.from);
             let to_layer = classify(&edge.to);
             let (from_depth, to_depth) = (from_layer.depth()?, to_layer.depth()?);
