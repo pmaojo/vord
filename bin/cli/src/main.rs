@@ -75,7 +75,7 @@ enum Command {
     },
     /// Kickoff a new project template for AI-driven development.
     Kickoff {
-        /// Template name (react-bulletproof, rust-clean, python-clean, typescript-clean).
+        /// Template name (react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal).
         #[arg(default_value = "react-bulletproof")]
         template: String,
         /// Target directory.
@@ -492,7 +492,11 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
 /// form. `--html` writes the interactive viewer *in addition to* the chosen
 /// format, mirroring how `--blame-output`/`--compliance-pdf` are byproducts
 /// of a scan rather than alternatives to it.
-fn run_arch(path: &std::path::Path, format: ArchFormat, html: Option<PathBuf>) -> anyhow::Result<ExitCode> {
+fn run_arch(
+    path: &std::path::Path,
+    format: ArchFormat,
+    html: Option<PathBuf>,
+) -> anyhow::Result<ExitCode> {
     let summary = arch::analyze(path)?;
     match format {
         ArchFormat::Text => print!("{}", arch::render_text(&summary)),
@@ -501,9 +505,15 @@ fn run_arch(path: &std::path::Path, format: ArchFormat, html: Option<PathBuf>) -
     }
     if let Some(html_path) = html {
         std::fs::write(&html_path, arch::render_html(&summary)?).map_err(|e| {
-            anyhow::anyhow!("cannot write architecture viewer to {}: {e}", html_path.display())
+            anyhow::anyhow!(
+                "cannot write architecture viewer to {}: {e}",
+                html_path.display()
+            )
         })?;
-        println!("🌐 Wrote interactive architecture viewer to {}", html_path.display());
+        println!(
+            "🌐 Wrote interactive architecture viewer to {}",
+            html_path.display()
+        );
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -1356,7 +1366,6 @@ fn write_compliance_reports(args: &ScanArgs, report: &yunq_rules_engine::Analysi
     }
 }
 
-
 /// Writes mutation-gap findings (rules starting with `mutation:`) to
 /// `.yunq-mutation-gaps.json` — a separate, explorable file so AI agents
 /// don't burn context on 9,000+ informational hints. The main output only
@@ -1427,8 +1436,8 @@ fn exit_code(
         .zip(report.max_severity())
         .is_some_and(|(threshold, max)| max >= threshold);
     let gate_failed = enforce_gate && gate.status() == yunq_rules_engine::GateStatus::Failed;
-    let health_below = enforce_gate
-        && min_health_score.is_some_and(|min| report.health_score() < min);
+    let health_below =
+        enforce_gate && min_health_score.is_some_and(|min| report.health_score() < min);
     if breached || gate_failed || health_below {
         if health_below {
             let min = min_health_score.unwrap_or(0);
@@ -1519,6 +1528,12 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         &context.to_dto(),
     )?;
 
-    Ok(exit_code(threshold, &report, args.enforce_gate, &gate, min_health_score))
+    Ok(exit_code(
+        threshold,
+        &report,
+        args.enforce_gate,
+        &gate,
+        min_health_score,
+    ))
 }
 // yunq pre-commit hook verified

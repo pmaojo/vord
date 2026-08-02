@@ -564,6 +564,42 @@ pattern = ".github/workflows/**"
 reason = "CI definitions need human review."
 ```
 
+## `yunq kickoff` — AI-driven project templates
+
+`yunq kickoff` scaffolds new project templates that are pre-configured with rules to enforce clean architecture and best practices from day one. Instead of fighting technical debt later, the templates ship with a `yunq.toml` configuration that holds AI agents and human developers to strict architectural boundaries.
+
+```sh
+yunq kickoff --template react-bulletproof .
+yunq kickoff --template rust-clean .
+yunq kickoff --template fullstack-hexagonal .
+```
+
+Supported templates:
+- `react-bulletproof` (or `react`): Enforces feature-directory isolation and prohibits default exports.
+- `rust-clean` (or `rust`): A clean domain core architecture, restricting `unwrap`/`expect` and panic macros.
+- `python-clean` (or `python`): Enforces modern type hints and strict resource management.
+- `typescript-clean` (or `ts`): Restricts wildcard re-exports and enforces naming conventions.
+- `fullstack-hexagonal` (or `hexagonal`): A complete backend/frontend setup with `architecture.yaml` and blocking rules for hexagonal layer violations and circular dependencies.
+
+## `yunq fix` — automated AI remediation
+
+`yunq fix` takes an issue ID and asks an LLM (via an Anthropic or OpenAI-compatible endpoint) to write a patch for it. The engine verifies the fix in a sandbox, rejecting patches that break tests or fail to resolve the issue.
+
+```sh
+yunq fix --issue python:unclosed-open-file src/scripts.py
+yunq fix --issue rust:disallow-unwrap-expect --model gpt-4o src/main.rs
+```
+
+## `yunq mcp` — Model Context Protocol
+
+`yunq mcp` starts a standard JSON-RPC stdio server implementing the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). This allows AI assistants like Claude Desktop or Cursor to query the static analysis engine directly, asking about component boundaries, dependency cycles, or requesting a local scan without leaving the chat interface.
+
+```sh
+# Usually configured in the AI assistant's settings, e.g.:
+# "yunq": { "command": "yunq", "args": ["mcp"] }
+yunq mcp
+```
+
 ## Importing another analyzer's findings (SARIF)
 
 `--sarif` merges a SARIF 2.x report into the scan. Every mainstream analyzer
