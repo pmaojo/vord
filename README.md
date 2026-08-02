@@ -884,32 +884,5 @@ basic rule coverage) additionally means adding an extractor to
 `core/symbols`' `EXTRACTORS` table and import-resolution support in
 `core/import-graph`, mirroring how Go was added.
 
-## What's left
-
-Everything documented above — the agent runtime, the swarm, CRAP risk
-scoring, declared architecture boundaries, gate-gaming detection, the
-mutation-testing gate, the `yunq arch` viewer, the CFG-derived cyclomatic
-complexity behind `maintainability-index`, the functional-module rule — is
-shipped, not planned. What's actually still open:
-
-- **Empirical validation on standard corpora.** Precision today is measured
-  on an internal 5-file fixture; the real numbers need a published run over
-  OWASP Benchmark v1.2 (~2,740 Java cases), NIST Juliet (64k+ cases) and the
-  SCA Java dataset (224k labeled warnings). `scripts/benchmark-corpora.sh`
-  is the harness — hardware metadata, warm-up + N clean repeated runs,
-  median/min/max wall time, LOC/s, and SARIF/JSON artifacts per corpus.
-- **True mutant-run correlation at scale.** The correlation script works on
-  whatever report an engine already produced; wiring `cargo-mutants`/PIT
-  into the harness so sites and verdicts are produced and correlated in one
-  command is next.
-- **Empirically calibrated Health Score weights.** The penalty weights are
-  heuristic today; `scripts/calibrate-health-weights.py` fits them to a
-  labeled project dataset (least squares, or a stdlib grid search).
-- **Coverage auto-detection.** `scripts/detect-coverage.sh` locates the
-  project's LCOV/Cobertura/JaCoCo/llvm-cov/Istanbul reports and prints (or
-  runs, with `--scan`) the exact ingestion command; folding that detection
-  into `yunq scan` itself so no flag is needed is still open.
-- **Closing the remaining ~30% gap to the ≥100k LOC/s performance target.**
-
 See [ROADMAP.md](ROADMAP.md) for the current plan and [DEVLOG.md](DEVLOG.md)
 for the full build history and design rationale.
