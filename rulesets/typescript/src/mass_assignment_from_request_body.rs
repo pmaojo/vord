@@ -5,8 +5,8 @@
 //! and on plain objects can set `__proto__`/`constructor.prototype` keys
 //! that pollute every object's prototype (prototype pollution).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{call_arguments, is_other};
 
@@ -107,14 +107,14 @@ impl Rule for MassAssignmentFromRequestBodyRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         MassAssignmentFromRequestBodyRule::new().check(&file, &ast)

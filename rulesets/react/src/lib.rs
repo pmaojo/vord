@@ -1,5 +1,5 @@
 //! React/JSX-aware rules. Each rule is an independent plugin implementing
-//! [`yunq_rules_engine::Rule`] over the TypeScript AST (JSX/TSX is parsed as
+//! [`vord_rules_engine::Rule`] over the TypeScript AST (JSX/TSX is parsed as
 //! TypeScript in this analyzer's language model — see
 //! `parsers/treesitter-typescript`); the engine never changes when rules are
 //! added (Open/Closed).
@@ -68,7 +68,7 @@ pub use unsafe_target_blank::UnsafeTargetBlankRule;
 pub use unused_state::UnusedStateRule;
 pub use zustand_fresh_selector::ZustandFreshSelectorRule;
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

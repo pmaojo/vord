@@ -2,8 +2,8 @@
 //! resources (Terraform `aws_iam_policy_document`, raw IAM JSON policies,
 //! Kubernetes `Role`/`ClusterRole` rules).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 const MARKERS: &[&str] = &[
     "\"action\": \"*\"",
@@ -83,7 +83,7 @@ impl Rule for IamWildcardPermissionRule {
             if let Some(marker) = MARKERS.iter().find(|m| lower.contains(*m)) {
                 findings.push(Finding::new(
                     format!("Wildcard permission grant via '{marker}'; scope actions/resources to least privilege"),
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
             }
         }
@@ -98,7 +98,7 @@ mod tests {
     fn source_unit(code: &str) -> AstNode {
         AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         )

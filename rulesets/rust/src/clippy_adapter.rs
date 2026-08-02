@@ -1,6 +1,6 @@
 use syn::visit::Visit;
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
 
 declare_rule_id!(RustClippyAdapterRule, "rust:clippy-analyzer");
 
@@ -71,7 +71,7 @@ mod tests {
         let code = "use std::io::*;\nfn main() {}\n";
         let file = SourceFile::new("main.rs", code, LanguageIdentifier::rust()).unwrap();
         let ast = AstNode::new(
-            yunq_ast::NodeKind::SourceUnit,
+            vord_ast::NodeKind::SourceUnit,
             Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],

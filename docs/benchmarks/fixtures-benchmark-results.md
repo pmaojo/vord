@@ -1,4 +1,4 @@
-# yunq Multi-Language Precision Benchmark
+# vord Multi-Language Precision Benchmark
 
 **Scan duration:** 0.1s | **Corpus:** fixtures/ (16 files)
 

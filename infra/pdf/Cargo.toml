@@ -1,17 +1,17 @@
 [package]
-name = "yunq-infra-pdf"
+name = "vord-infra-pdf"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Compliance and audit PDF report generation for yunq"
+description = "Compliance and audit PDF report generation for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-rules-engine = { workspace = true }
+vord-rules-engine = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

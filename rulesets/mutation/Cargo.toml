@@ -1,20 +1,20 @@
 [package]
-name = "yunq-rules-mutation"
+name = "vord-rules-mutation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Instant AST mutation testing and gap analysis ruleset for the yunq analysis engine"
+description = "Instant AST mutation testing and gap analysis ruleset for the vord analysis engine"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-rules-engine = { workspace = true }
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
 
 [dev-dependencies]
-yunq-parser-typescript = { workspace = true }
-yunq-parser-rust = { workspace = true }
-yunq-parser-python = { workspace = true }
+vord-parser-typescript = { workspace = true }
+vord-parser-rust = { workspace = true }
+vord-parser-python = { workspace = true }

@@ -6,8 +6,8 @@
 //! either mis-following the convention or, worse, a helper that only
 //! happens to work today because of how it's currently called.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{hook_call_name, is_hook_name, own_scope_descendants};
 
@@ -116,11 +116,11 @@ impl Rule for RulesOfHooksNamingRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
         RulesOfHooksNamingRule::new().check(&file, &ast)
     }
 

@@ -10,13 +10,13 @@
 //!   keys), each with its own rule id so profiles can tune them
 //!   independently.
 //! - [`CustomSecretPatternRule`]: a user-supplied regex pattern, for
-//!   private/internal service token formats yunq has no built-in rule for.
+//!   private/internal service token formats vord has no built-in rule for.
 //!   Not included in [`all_rules`] since it needs a pattern parameter —
 //!   construct it from configuration and add it to the rule set alongside
 //!   these.
 //!
 //! Each rule is an independent plugin implementing
-//! [`yunq_rules_engine::Rule`]; the engine never changes when rules are
+//! [`vord_rules_engine::Rule`]; the engine never changes when rules are
 //! added (Open/Closed) — same architecture as `rulesets/owasp`.
 
 mod custom_pattern;
@@ -27,7 +27,7 @@ pub use custom_pattern::CustomSecretPatternRule;
 pub use entropy::{HighEntropyStringRule, shannon_entropy};
 pub use provider_patterns::{RegexSecretRule, all_provider_rules};
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every built-in rule in this ruleset, for composition roots. Excludes
 /// [`CustomSecretPatternRule`], which requires a user-supplied pattern.

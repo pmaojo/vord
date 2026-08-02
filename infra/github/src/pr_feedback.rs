@@ -1,6 +1,6 @@
-//! Reads late pull-request feedback for `yunq agent watch-pr` (roadmap A5):
+//! Reads late pull-request feedback for `vord agent watch-pr` (roadmap A5):
 //! review comments, issue comments, reviews and check runs, normalised into
-//! `yunq_agent::feedback::FeedbackItem`.
+//! `vord_agent::feedback::FeedbackItem`.
 //!
 //! Every request is status-checked before its body is deserialised. This is
 //! not defensive habit — GitHub delivers a rate-limit page, a 404 and a 500
@@ -13,7 +13,7 @@
 //! nothing".
 
 use serde::Deserialize;
-use yunq_agent::feedback::{FeedbackItem, FeedbackSource, ItemVerdict, Poll};
+use vord_agent::feedback::{FeedbackItem, FeedbackSource, ItemVerdict, Poll};
 
 const DEFAULT_API_BASE: &str = "https://api.github.com";
 
@@ -47,7 +47,7 @@ impl PullRequestFeedbackReader {
         let repository = std::env::var("GITHUB_REPOSITORY").ok()?;
         let (owner, repo) = repository.split_once('/')?;
         Some(Self::new(token, owner, repo).with_api_base(
-            std::env::var("YUNQ_GITHUB_API_BASE").unwrap_or_else(|_| DEFAULT_API_BASE.to_string()),
+            std::env::var("VORD_GITHUB_API_BASE").unwrap_or_else(|_| DEFAULT_API_BASE.to_string()),
         ))
     }
 
@@ -108,7 +108,7 @@ impl PullRequestFeedbackReader {
             .get(&url)
             .bearer_auth(&self.token)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "yunq")
+            .header("User-Agent", "vord")
             .send()
             .await
             .map_err(|e| format!("GET {url} failed: {e}"))?;

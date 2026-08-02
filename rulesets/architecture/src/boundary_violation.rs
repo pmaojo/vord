@@ -1,18 +1,18 @@
 //! Rule: an import edge that crosses a declared architecture boundary
-//! (`[architecture]` in `yunq.toml`, parsed into
-//! `yunq_import_graph::ArchitectureConfig`). Unlike `DependencyCycleRule`,
+//! (`[architecture]` in `vord.toml`, parsed into
+//! `vord_import_graph::ArchitectureConfig`). Unlike `DependencyCycleRule`,
 //! this rule carries config — it isn't part of `all_cross_rules()`'s
 //! zero-config chain, and the composition root constructs and registers it
-//! once `yunq.toml` is in scope (mirroring how
+//! once `vord.toml` is in scope (mirroring how
 //! `AnalyzerService::with_duplication_config` is applied after
 //! `default_service` builds the zero-config rule set, not baked into the
 //! registry itself).
 
 use std::collections::HashMap;
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_import_graph::{ArchitectureConfig, ImportGraph, ViolationKind, component_of};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, SourceFile};
+use vord_import_graph::{ArchitectureConfig, ImportGraph, ViolationKind, component_of};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct BoundaryViolationRule {
     id: RuleId,
@@ -21,7 +21,7 @@ pub struct BoundaryViolationRule {
 }
 
 impl BoundaryViolationRule {
-    /// `rust_crates` is `yunq_infra_fs::discover_rust_crates`'s output
+    /// `rust_crates` is `vord_infra_fs::discover_rust_crates`'s output
     /// (crate identifier -> directory) — empty for a project with no Rust
     /// (or none discovered), in which case Rust files simply contribute no
     /// edges, same as any other unresolved specifier.
@@ -53,7 +53,7 @@ impl CrossFileRule for BoundaryViolationRule {
 
     fn metadata(&self) -> RuleMetadata {
         RuleMetadata {
-            description: "An import crosses a dependency edge this project has declared out of bounds in `[architecture]` (yunq.toml) — either explicitly forbidden, or, once `allowed_dependencies` is declared, simply never allow-listed.".into(),
+            description: "An import crosses a dependency edge this project has declared out of bounds in `[architecture]` (vord.toml) — either explicitly forbidden, or, once `allowed_dependencies` is declared, simply never allow-listed.".into(),
             tags: vec!["architecture".into(), "coupling".into(), "cross-file".into()],
             cwe: None,
             produces_hotspots: false,
@@ -108,12 +108,12 @@ impl CrossFileRule for BoundaryViolationRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_import_graph::DependencyEdge;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_import_graph::DependencyEdge;
+    use vord_rules_engine::AstParser;
 
     fn parsed(files: &[(&str, &str)]) -> Vec<(SourceFile, AstNode)> {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         files
             .iter()
             .map(|(path, code)| {
@@ -125,7 +125,7 @@ mod tests {
     }
 
     fn parsed_rust(files: &[(&str, &str)]) -> Vec<(SourceFile, AstNode)> {
-        let parser = yunq_parser_rust::RustParser::new();
+        let parser = vord_parser_rust::RustParser::new();
         files
             .iter()
             .map(|(path, code)| {
@@ -185,7 +185,7 @@ mod tests {
         let files = parsed_rust(&[
             (
                 "core/rules-engine/src/lib.rs",
-                "use yunq_infra_fs::Thing;\n",
+                "use vord_infra_fs::Thing;\n",
             ),
             ("infra/fs/src/lib.rs", "pub struct Thing;\n"),
         ]);
@@ -194,7 +194,7 @@ mod tests {
             ..Default::default()
         };
         let rust_crates: HashMap<String, String> =
-            HashMap::from([("yunq_infra_fs".to_string(), "infra/fs".to_string())]);
+            HashMap::from([("vord_infra_fs".to_string(), "infra/fs".to_string())]);
         let findings = BoundaryViolationRule::new(config, rust_crates).check(&files);
         assert_eq!(findings.len(), 1);
         assert!(
@@ -209,7 +209,7 @@ mod tests {
     fn silent_on_rust_use_with_no_matching_crate_index_entry() {
         let files = parsed_rust(&[(
             "core/rules-engine/src/lib.rs",
-            "use yunq_infra_fs::Thing;\n",
+            "use vord_infra_fs::Thing;\n",
         )]);
         let config = ArchitectureConfig {
             forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
@@ -228,14 +228,14 @@ mod tests {
         // `use` at all to reach another crate's items, unlike TS/Python.
         let files = parsed_rust(&[(
             "core/rules-engine/src/lib.rs",
-            "pub fn open() -> yunq_infra_fs::Thing {\n    yunq_infra_fs::Thing::new()\n}\n",
+            "pub fn open() -> vord_infra_fs::Thing {\n    vord_infra_fs::Thing::new()\n}\n",
         )]);
         let config = ArchitectureConfig {
             forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
             ..Default::default()
         };
         let rust_crates: HashMap<String, String> =
-            HashMap::from([("yunq_infra_fs".to_string(), "infra/fs".to_string())]);
+            HashMap::from([("vord_infra_fs".to_string(), "infra/fs".to_string())]);
         let findings = BoundaryViolationRule::new(config, rust_crates).check(&files);
         assert_eq!(findings.len(), 1);
         assert!(

@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use yunq_rules_engine::{CoverageReport, CoverageSummary, FileCoverage};
+use vord_rules_engine::{CoverageReport, CoverageSummary, FileCoverage};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoberturaError {

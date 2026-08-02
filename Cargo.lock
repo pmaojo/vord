@@ -3270,6 +3270,842 @@ dependencies = [
 ]
 
 [[package]]
+name = "vord-agent"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "vord-agent-policy",
+ "vord-profiles",
+]
+
+[[package]]
+name = "vord-agent-policy"
+version = "0.3.0"
+dependencies = [
+ "globset",
+ "serde",
+ "thiserror 2.0.19",
+ "toml",
+ "vord-profiles",
+]
+
+[[package]]
+name = "vord-ast"
+version = "0.3.0"
+dependencies = [
+ "regex",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "vord-benchmarks"
+version = "0.3.0"
+dependencies = [
+ "criterion",
+ "futures",
+ "serde",
+ "serde_json",
+ "vord-ast",
+ "vord-cli",
+ "vord-parser-rust",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-cfg"
+version = "0.3.0"
+dependencies = [
+ "thiserror 2.0.19",
+ "vord-ast",
+]
+
+[[package]]
+name = "vord-cli"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossterm 0.29.0",
+ "dialoguer",
+ "futures",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tokio",
+ "vord-agent",
+ "vord-agent-policy",
+ "vord-ast",
+ "vord-import-graph",
+ "vord-infra-fs",
+ "vord-infra-github",
+ "vord-infra-llm",
+ "vord-infra-memory",
+ "vord-infra-pdf",
+ "vord-parser-bash",
+ "vord-parser-c",
+ "vord-parser-cpp",
+ "vord-parser-csharp",
+ "vord-parser-css",
+ "vord-parser-dockerfile",
+ "vord-parser-elixir",
+ "vord-parser-go",
+ "vord-parser-groovy",
+ "vord-parser-hcl",
+ "vord-parser-html",
+ "vord-parser-java",
+ "vord-parser-json",
+ "vord-parser-kotlin",
+ "vord-parser-lua",
+ "vord-parser-php",
+ "vord-parser-python",
+ "vord-parser-ruby",
+ "vord-parser-rust",
+ "vord-parser-scala",
+ "vord-parser-swift",
+ "vord-parser-typescript",
+ "vord-parser-xml",
+ "vord-parser-yaml",
+ "vord-remediation",
+ "vord-rules-a11y",
+ "vord-rules-ai-agent",
+ "vord-rules-architecture",
+ "vord-rules-ddd",
+ "vord-rules-engine",
+ "vord-rules-go",
+ "vord-rules-iac",
+ "vord-rules-mutation",
+ "vord-rules-owasp",
+ "vord-rules-php",
+ "vord-rules-python",
+ "vord-rules-react",
+ "vord-rules-reactive",
+ "vord-rules-rust",
+ "vord-rules-secrets",
+ "vord-rules-smells",
+ "vord-rules-typescript",
+ "vord-swarm",
+ "vord-taint",
+]
+
+[[package]]
+name = "vord-cpd"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+]
+
+[[package]]
+name = "vord-crap"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+]
+
+[[package]]
+name = "vord-import-graph"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-go",
+ "vord-parser-python",
+ "vord-parser-rust",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-infra-azure"
+version = "0.3.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-infra-bitbucket"
+version = "0.3.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-infra-fs"
+version = "0.3.0"
+dependencies = [
+ "globset",
+ "ignore",
+ "quick-xml",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "toml",
+ "vord-agent",
+ "vord-ast",
+ "vord-remediation",
+ "vord-rules-engine",
+ "vord-swarm",
+]
+
+[[package]]
+name = "vord-infra-github"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "base64",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "vord-agent",
+ "vord-ast",
+ "vord-profiles",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-infra-gitlab"
+version = "0.3.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-infra-llm"
+version = "0.3.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "vord-agent",
+ "vord-remediation",
+]
+
+[[package]]
+name = "vord-infra-memory"
+version = "0.3.0"
+dependencies = [
+ "futures",
+ "vord-ast",
+ "vord-remediation",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-infra-pdf"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-lsp"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tower-lsp",
+ "url",
+ "vord-ast",
+ "vord-cli",
+ "vord-infra-memory",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-parser-bash"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-bash",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-c"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-c",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-cpp"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-cpp",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-csharp"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-c-sharp",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-css"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-css",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-dockerfile"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-parser-elixir"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-elixir",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-go"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-go",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-groovy"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-groovy",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-hcl"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-hcl",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-html"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-html",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-java"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-java",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-json"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-json",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-kotlin"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-kotlin-ng",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-lua"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-lua",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-php"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-php",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-python"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-python",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-ruby"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-ruby",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-rust"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-rust",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-scala"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-scala",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-swift"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-swift",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-typescript"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-typescript",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-xml"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-xml",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-parser-yaml"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-yaml",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-adapter",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-profiles"
+version = "0.3.0"
+dependencies = [
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "vord-remediation"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "uuid",
+ "vord-ast",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-a11y"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-ai-agent"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-python",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+ "vord-taint",
+]
+
+[[package]]
+name = "vord-rules-architecture"
+version = "0.3.0"
+dependencies = [
+ "serde_json",
+ "vord-ast",
+ "vord-import-graph",
+ "vord-parser-go",
+ "vord-parser-python",
+ "vord-parser-rust",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-ddd"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-import-graph",
+ "vord-parser-go",
+ "vord-parser-python",
+ "vord-parser-rust",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+ "vord-symbols",
+]
+
+[[package]]
+name = "vord-rules-engine"
+version = "0.3.0"
+dependencies = [
+ "futures",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "vord-ast",
+ "vord-cpd",
+ "vord-crap",
+ "vord-profiles",
+]
+
+[[package]]
+name = "vord-rules-go"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-go",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-iac"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-mutation"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-python",
+ "vord-parser-rust",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-owasp"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-go",
+ "vord-parser-java",
+ "vord-parser-python",
+ "vord-parser-rust",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+ "vord-taint",
+]
+
+[[package]]
+name = "vord-rules-php"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-php",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-python"
+version = "0.3.0"
+dependencies = [
+ "littrs-ruff-python-parser",
+ "vord-ast",
+ "vord-parser-python",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-react"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+ "vord-symbols",
+]
+
+[[package]]
+name = "vord-rules-reactive"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-rust"
+version = "0.3.0"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.119",
+ "vord-ast",
+ "vord-parser-rust",
+ "vord-rules-engine",
+ "vord-taint",
+]
+
+[[package]]
+name = "vord-rules-secrets"
+version = "0.3.0"
+dependencies = [
+ "regex",
+ "vord-ast",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-smells"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-cfg",
+ "vord-parser-go",
+ "vord-parser-php",
+ "vord-parser-python",
+ "vord-parser-rust",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+ "vord-symbols",
+]
+
+[[package]]
+name = "vord-rules-typescript"
+version = "0.3.0"
+dependencies = [
+ "oxc",
+ "vord-ast",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-swarm"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "vord-symbols"
+version = "0.3.0"
+dependencies = [
+ "vord-ast",
+ "vord-parser-go",
+ "vord-parser-python",
+ "vord-parser-rust",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-taint"
+version = "0.3.0"
+dependencies = [
+ "thiserror 2.0.19",
+ "vord-ast",
+ "vord-cfg",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-treesitter-adapter"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "vord-ast",
+ "vord-cpd",
+ "vord-rules-engine",
+ "vord-treesitter-tokens",
+]
+
+[[package]]
+name = "vord-treesitter-tokens"
+version = "0.3.0"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-python",
+ "vord-cpd",
+]
+
+[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3586,842 +4422,6 @@ dependencies = [
  "quote",
  "syn 2.0.119",
  "synstructure",
-]
-
-[[package]]
-name = "yunq-agent"
-version = "0.3.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "yunq-agent-policy",
- "yunq-profiles",
-]
-
-[[package]]
-name = "yunq-agent-policy"
-version = "0.3.0"
-dependencies = [
- "globset",
- "serde",
- "thiserror 2.0.19",
- "toml",
- "yunq-profiles",
-]
-
-[[package]]
-name = "yunq-ast"
-version = "0.3.0"
-dependencies = [
- "regex",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "yunq-benchmarks"
-version = "0.3.0"
-dependencies = [
- "criterion",
- "futures",
- "serde",
- "serde_json",
- "yunq-ast",
- "yunq-cli",
- "yunq-parser-rust",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-cfg"
-version = "0.3.0"
-dependencies = [
- "thiserror 2.0.19",
- "yunq-ast",
-]
-
-[[package]]
-name = "yunq-cli"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "crossterm 0.29.0",
- "dialoguer",
- "futures",
- "ratatui",
- "serde",
- "serde_json",
- "tokio",
- "yunq-agent",
- "yunq-agent-policy",
- "yunq-ast",
- "yunq-import-graph",
- "yunq-infra-fs",
- "yunq-infra-github",
- "yunq-infra-llm",
- "yunq-infra-memory",
- "yunq-infra-pdf",
- "yunq-parser-bash",
- "yunq-parser-c",
- "yunq-parser-cpp",
- "yunq-parser-csharp",
- "yunq-parser-css",
- "yunq-parser-dockerfile",
- "yunq-parser-elixir",
- "yunq-parser-go",
- "yunq-parser-groovy",
- "yunq-parser-hcl",
- "yunq-parser-html",
- "yunq-parser-java",
- "yunq-parser-json",
- "yunq-parser-kotlin",
- "yunq-parser-lua",
- "yunq-parser-php",
- "yunq-parser-python",
- "yunq-parser-ruby",
- "yunq-parser-rust",
- "yunq-parser-scala",
- "yunq-parser-swift",
- "yunq-parser-typescript",
- "yunq-parser-xml",
- "yunq-parser-yaml",
- "yunq-remediation",
- "yunq-rules-a11y",
- "yunq-rules-ai-agent",
- "yunq-rules-architecture",
- "yunq-rules-ddd",
- "yunq-rules-engine",
- "yunq-rules-go",
- "yunq-rules-iac",
- "yunq-rules-mutation",
- "yunq-rules-owasp",
- "yunq-rules-php",
- "yunq-rules-python",
- "yunq-rules-react",
- "yunq-rules-reactive",
- "yunq-rules-rust",
- "yunq-rules-secrets",
- "yunq-rules-smells",
- "yunq-rules-typescript",
- "yunq-swarm",
- "yunq-taint",
-]
-
-[[package]]
-name = "yunq-cpd"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
-]
-
-[[package]]
-name = "yunq-crap"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
-]
-
-[[package]]
-name = "yunq-import-graph"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-go",
- "yunq-parser-python",
- "yunq-parser-rust",
- "yunq-parser-typescript",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-infra-azure"
-version = "0.3.0"
-dependencies = [
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-infra-bitbucket"
-version = "0.3.0"
-dependencies = [
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-infra-fs"
-version = "0.3.0"
-dependencies = [
- "globset",
- "ignore",
- "quick-xml",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "toml",
- "yunq-agent",
- "yunq-ast",
- "yunq-remediation",
- "yunq-rules-engine",
- "yunq-swarm",
-]
-
-[[package]]
-name = "yunq-infra-github"
-version = "0.3.0"
-dependencies = [
- "axum",
- "base64",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "yunq-agent",
- "yunq-ast",
- "yunq-profiles",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-infra-gitlab"
-version = "0.3.0"
-dependencies = [
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-infra-llm"
-version = "0.3.0"
-dependencies = [
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "yunq-agent",
- "yunq-remediation",
-]
-
-[[package]]
-name = "yunq-infra-memory"
-version = "0.3.0"
-dependencies = [
- "futures",
- "yunq-ast",
- "yunq-remediation",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-infra-pdf"
-version = "0.3.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-lsp"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "tower-lsp",
- "url",
- "yunq-ast",
- "yunq-cli",
- "yunq-infra-memory",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-parser-bash"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-bash",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-c"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-c",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-cpp"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-cpp",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-csharp"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-c-sharp",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-css"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-css",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-dockerfile"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-parser-elixir"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-elixir",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-go"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-go",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-groovy"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-groovy",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-hcl"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-hcl",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-html"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-html",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-java"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-java",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-json"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-json",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-kotlin"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-kotlin-ng",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-lua"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-lua",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-php"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-php",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-python"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-python",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-ruby"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-ruby",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-rust"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-rust",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-scala"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-scala",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-swift"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-swift",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-typescript"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-typescript",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-xml"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-xml",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-parser-yaml"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-yaml",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-adapter",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-profiles"
-version = "0.3.0"
-dependencies = [
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "yunq-remediation"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "uuid",
- "yunq-ast",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-a11y"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-ai-agent"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-python",
- "yunq-parser-typescript",
- "yunq-rules-engine",
- "yunq-taint",
-]
-
-[[package]]
-name = "yunq-rules-architecture"
-version = "0.3.0"
-dependencies = [
- "serde_json",
- "yunq-ast",
- "yunq-import-graph",
- "yunq-parser-go",
- "yunq-parser-python",
- "yunq-parser-rust",
- "yunq-parser-typescript",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-ddd"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-import-graph",
- "yunq-parser-go",
- "yunq-parser-python",
- "yunq-parser-rust",
- "yunq-parser-typescript",
- "yunq-rules-engine",
- "yunq-symbols",
-]
-
-[[package]]
-name = "yunq-rules-engine"
-version = "0.3.0"
-dependencies = [
- "futures",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "yunq-ast",
- "yunq-cpd",
- "yunq-crap",
- "yunq-profiles",
-]
-
-[[package]]
-name = "yunq-rules-go"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-go",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-iac"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-mutation"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-python",
- "yunq-parser-rust",
- "yunq-parser-typescript",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-owasp"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-go",
- "yunq-parser-java",
- "yunq-parser-python",
- "yunq-parser-rust",
- "yunq-parser-typescript",
- "yunq-rules-engine",
- "yunq-taint",
-]
-
-[[package]]
-name = "yunq-rules-php"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-php",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-python"
-version = "0.3.0"
-dependencies = [
- "littrs-ruff-python-parser",
- "yunq-ast",
- "yunq-parser-python",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-react"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-typescript",
- "yunq-rules-engine",
- "yunq-symbols",
-]
-
-[[package]]
-name = "yunq-rules-reactive"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-typescript",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-rust"
-version = "0.3.0"
-dependencies = [
- "proc-macro2",
- "syn 2.0.119",
- "yunq-ast",
- "yunq-parser-rust",
- "yunq-rules-engine",
- "yunq-taint",
-]
-
-[[package]]
-name = "yunq-rules-secrets"
-version = "0.3.0"
-dependencies = [
- "regex",
- "yunq-ast",
- "yunq-parser-typescript",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-rules-smells"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-cfg",
- "yunq-parser-go",
- "yunq-parser-php",
- "yunq-parser-python",
- "yunq-parser-rust",
- "yunq-parser-typescript",
- "yunq-rules-engine",
- "yunq-symbols",
-]
-
-[[package]]
-name = "yunq-rules-typescript"
-version = "0.3.0"
-dependencies = [
- "oxc",
- "yunq-ast",
- "yunq-parser-typescript",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-swarm"
-version = "0.3.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "yunq-symbols"
-version = "0.3.0"
-dependencies = [
- "yunq-ast",
- "yunq-parser-go",
- "yunq-parser-python",
- "yunq-parser-rust",
- "yunq-parser-typescript",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-taint"
-version = "0.3.0"
-dependencies = [
- "thiserror 2.0.19",
- "yunq-ast",
- "yunq-cfg",
- "yunq-parser-typescript",
- "yunq-rules-engine",
-]
-
-[[package]]
-name = "yunq-treesitter-adapter"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "yunq-ast",
- "yunq-cpd",
- "yunq-rules-engine",
- "yunq-treesitter-tokens",
-]
-
-[[package]]
-name = "yunq-treesitter-tokens"
-version = "0.3.0"
-dependencies = [
- "tree-sitter",
- "tree-sitter-python",
- "yunq-cpd",
 ]
 
 [[package]]

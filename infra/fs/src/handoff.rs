@@ -1,6 +1,6 @@
-//! Durable handoff queue for `yunq swarm` (roadmap B2) — the I/O half of
-//! `yunq_swarm::handoff`, which only parses and validates one handoff's
-//! bytes. Four directories under `.yunq/handoffs/`, adapted from
+//! Durable handoff queue for `vord swarm` (roadmap B2) — the I/O half of
+//! `vord_swarm::handoff`, which only parses and validates one handoff's
+//! bytes. Four directories under `.vord/handoffs/`, adapted from
 //! swarm-forge's protocol:
 //!
 //! - `outbox/` — a sender has written a handoff, not yet delivered.
@@ -18,7 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use yunq_swarm::{Handoff, parse_handoff};
+use vord_swarm::{Handoff, parse_handoff};
 
 #[derive(Debug, thiserror::Error)]
 pub enum HandoffIoError {
@@ -38,7 +38,7 @@ fn io_err(path: &Path, source: std::io::Error) -> HandoffIoError {
 }
 
 fn queue_dir(root: &Path, name: &str) -> PathBuf {
-    root.join(".yunq").join("handoffs").join(name)
+    root.join(".vord").join("handoffs").join(name)
 }
 
 fn ensure_dir(dir: &Path) -> Result<(), HandoffIoError> {
@@ -77,7 +77,7 @@ fn list_files(dir: &Path) -> Result<Vec<PathBuf>, HandoffIoError> {
 
 /// Moves a malformed file's original bytes into `failed/` under its own
 /// filename — never rewritten, so whatever a human opens there is exactly
-/// what the sender wrote, not yunq's interpretation of it.
+/// what the sender wrote, not vord's interpretation of it.
 fn quarantine(root: &Path, path: &Path) -> Result<(), HandoffIoError> {
     let dir = queue_dir(root, "failed");
     ensure_dir(&dir)?;
@@ -149,7 +149,7 @@ mod tests {
 
     fn temp_root() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "yunq-handoff-{}-{}",
+            "vord-handoff-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

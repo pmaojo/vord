@@ -15,7 +15,7 @@
 //! vocabulary — `architecture::HexagonalLayerRule` is the thin adapter that
 //! turns a `Vec<LayerViolation>` into findings.
 
-use yunq_ast::Span;
+use vord_ast::Span;
 
 use crate::ImportGraph;
 
@@ -73,7 +73,7 @@ impl HexLayer {
 }
 
 /// `core` is included: it is the most common name for "the pure inside" in
-/// codebases that don't literally spell `domain` (yunq's own workspace is
+/// codebases that don't literally spell `domain` (vord's own workspace is
 /// one — `core/` is documented as "PURE LOGIC — no I/O").
 const DOMAIN_SEGMENTS: &[&str] = &[
     "domain",
@@ -219,11 +219,11 @@ pub fn inward_dependency_violations(graph: &ImportGraph) -> Vec<LayerViolation> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn graph_of(files: &[(&str, &str)]) -> ImportGraph {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let parsed: Vec<(SourceFile, AstNode)> = files
             .iter()
             .map(|(path, code)| {
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn flags_a_python_domain_package_importing_infrastructure() {
-        let parser = yunq_parser_python::PythonParser::new();
+        let parser = vord_parser_python::PythonParser::new();
         let files = [
             (
                 "src/domain/order.py",

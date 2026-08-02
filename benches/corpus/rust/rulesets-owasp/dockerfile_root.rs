@@ -1,7 +1,7 @@
 //! Rule: flags Dockerfiles that run as root (missing USER instruction).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct DockerfileRootUserRule {
     id: RuleId,
@@ -67,7 +67,7 @@ mod tests {
     fn flags_dockerfile_without_user() {
         let code = "FROM alpine:3.18\nRUN echo hi\n";
         let file = SourceFile::new("Dockerfile", code, LanguageIdentifier::dockerfile()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 3, 1), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 3, 1), code, vec![]);
         let rule = DockerfileRootUserRule::new();
 
         let findings = rule.check(&file, &ast);

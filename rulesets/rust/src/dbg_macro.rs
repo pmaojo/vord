@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 /// `dbg!` is a debugging tool by design: it prints the file, line, and
 /// value to stderr on every call and moves-then-returns its argument. Left
@@ -44,8 +44,8 @@ impl Rule for DbgMacroRule {
         2
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`dbg!` prints to stderr with file/line on every call — a debugging \
                 aid, not something to ship. Remove it or replace it with a real logging call."
                 .into(),
@@ -75,14 +75,14 @@ impl Rule for DbgMacroRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         DbgMacroRule::new().check(&file, &ast)
     }
 

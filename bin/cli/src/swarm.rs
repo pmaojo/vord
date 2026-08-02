@@ -1,28 +1,28 @@
-//! Composition root for `yunq swarm` (roadmap B) — worktree-per-agent
+//! Composition root for `vord swarm` (roadmap B) — worktree-per-agent
 //! isolation, per-role policy scoping and durable handoffs.
 //!
 //! This module is deliberately thin: every decision lives in `core/swarm`
 //! (worktree/handoff schemas) or `core/agent-policy` (`RoleScope`); what's
 //! here is the same kind of bridging `bin/cli::architecture_config` already
-//! does for `[architecture]` — turning `yunq.toml`'s serde-facing
+//! does for `[architecture]` — turning `vord.toml`'s serde-facing
 //! `RoleSettings` into the engine-facing types those crates actually take.
 
 use std::path::Path;
 
-use yunq_agent::runtime::RunOutcome;
-use yunq_agent_policy::{AgentPolicy, RoleScope};
-use yunq_infra_fs::{RoleSettings, WorktreeStatus, YunqConfig};
-use yunq_rules_engine::RuleId;
-use yunq_swarm::{Handoff, RoleWorktreeConfig, WorktreePlan};
+use vord_agent::runtime::RunOutcome;
+use vord_agent_policy::{AgentPolicy, RoleScope};
+use vord_infra_fs::{RoleSettings, WorktreeStatus, VordConfig};
+use vord_rules_engine::RuleId;
+use vord_swarm::{Handoff, RoleWorktreeConfig, WorktreePlan};
 
 use crate::agent::{self, AgentArgs};
 use crate::hook;
 
 /// The roles configured under `[[swarm.role]]`, or none when the repository
-/// has no `yunq.toml` / no `[swarm]` table — the same fail-open convention
-/// every other optional `yunq.toml` table follows.
+/// has no `vord.toml` / no `[swarm]` table — the same fail-open convention
+/// every other optional `vord.toml` table follows.
 pub fn configured_roles(root: &Path) -> Vec<RoleSettings> {
-    YunqConfig::load_from_dir(root)
+    VordConfig::load_from_dir(root)
         .map(|c| c.swarm.roles)
         .unwrap_or_default()
 }
@@ -33,7 +33,7 @@ fn find_role(roles: &[RoleSettings], name: &str) -> anyhow::Result<RoleSettings>
         .find(|role| role.name == name)
         .cloned()
         .ok_or_else(|| {
-            anyhow::anyhow!("no role named {name:?} — add a [[swarm.role]] entry to yunq.toml")
+            anyhow::anyhow!("no role named {name:?} — add a [[swarm.role]] entry to vord.toml")
         })
 }
 
@@ -47,7 +47,7 @@ fn worktree_config(role: &RoleSettings) -> RoleWorktreeConfig {
 
 /// A role's [`RoleScope`] — every rule id validated up front, the same way
 /// `bin/cli::agent::run_config` validates `--rule` before it ever reaches
-/// the policy, so a typo in `yunq.toml` is reported as a config error rather
+/// the policy, so a typo in `vord.toml` is reported as a config error rather
 /// than silently matching nothing.
 fn role_scope(role: &RoleSettings) -> anyhow::Result<RoleScope> {
     let parse_rules = |raw: &[String]| -> anyhow::Result<Vec<RuleId>> {
@@ -73,14 +73,14 @@ fn role_scope(role: &RoleSettings) -> anyhow::Result<RoleScope> {
 /// `[swarm] worktree_root` (or the built-in default when unset).
 pub fn worktree_plan(
     root: &Path,
-    config: Option<&YunqConfig>,
+    config: Option<&VordConfig>,
     role: &RoleSettings,
 ) -> WorktreePlan {
     let worktree_root = config.and_then(|c| c.swarm.worktree_root.as_deref());
-    yunq_swarm::plan_worktree(root, worktree_root, &worktree_config(role))
+    vord_swarm::plan_worktree(root, worktree_root, &worktree_config(role))
 }
 
-/// The base repository policy (same file `yunq hook` enforces), narrowed by
+/// The base repository policy (same file `vord hook` enforces), narrowed by
 /// this role's own [`RoleScope`] — never the other way around, since a role
 /// can only add restriction (see `AgentPolicy::with_role_scope`'s docs).
 pub fn scoped_policy(root: &Path, role: &RoleSettings) -> anyhow::Result<AgentPolicy> {
@@ -90,7 +90,7 @@ pub fn scoped_policy(root: &Path, role: &RoleSettings) -> anyhow::Result<AgentPo
         .map_err(|e| anyhow::anyhow!("role {:?}: {e}", role.name))
 }
 
-/// One line of `yunq swarm roles` output: the resolved worktree plan plus a
+/// One line of `vord swarm roles` output: the resolved worktree plan plus a
 /// count of what this role adds on top of the base policy, so a reviewer can
 /// see the scope narrowing without diffing the whole compiled policy.
 pub struct RoleReport {
@@ -102,7 +102,7 @@ pub struct RoleReport {
 }
 
 pub fn list_roles(root: &Path) -> anyhow::Result<Vec<RoleReport>> {
-    let config = YunqConfig::load_from_dir(root);
+    let config = VordConfig::load_from_dir(root);
     let roles = config
         .as_ref()
         .map(|c| c.swarm.roles.clone())
@@ -111,7 +111,7 @@ pub fn list_roles(root: &Path) -> anyhow::Result<Vec<RoleReport>> {
         .iter()
         .map(|role| {
             // Validated here (not just planned) so a typo'd rule id in one
-            // role's scope is reported by `yunq swarm roles` instead of
+            // role's scope is reported by `vord swarm roles` instead of
             // surfacing only when that role's worktree first gets used.
             role_scope(role)?;
             Ok(RoleReport {
@@ -130,7 +130,7 @@ pub fn list_roles(root: &Path) -> anyhow::Result<Vec<RoleReport>> {
 /// error the same way an undefined role or an invalid rule id already are,
 /// rather than silently running nothing.
 pub fn topology_order(root: &Path) -> anyhow::Result<Vec<String>> {
-    let config = YunqConfig::load_from_dir(root);
+    let config = VordConfig::load_from_dir(root);
     let roles = config
         .as_ref()
         .map(|c| c.swarm.roles.clone())
@@ -138,12 +138,12 @@ pub fn topology_order(root: &Path) -> anyhow::Result<Vec<String>> {
     let role_names: Vec<String> = roles.iter().map(|r| r.name.clone()).collect();
     let preset = config.as_ref().and_then(|c| c.swarm.topology.clone());
     let pipeline = config.as_ref().and_then(|c| c.swarm.pipeline.clone());
-    yunq_swarm::resolve_topology(preset.as_deref(), pipeline.as_deref(), &role_names)
+    vord_swarm::resolve_topology(preset.as_deref(), pipeline.as_deref(), &role_names)
         .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// One role's headless run inside a topology (roadmap B4): which role it
-/// was, and the same [`RunOutcome`] `yunq agent run` reports for a solo
+/// was, and the same [`RunOutcome`] `vord agent run` reports for a solo
 /// session, so a caller can branch on `outcome.exit_code()` exactly as it
 /// would for one.
 pub struct RoleRunOutcome {
@@ -151,7 +151,7 @@ pub struct RoleRunOutcome {
     pub outcome: RunOutcome,
 }
 
-/// Drives every role in the configured topology through one headless `yunq
+/// Drives every role in the configured topology through one headless `vord
 /// agent` run apiece, in order: create (or attach to) the role's worktree,
 /// fold in whatever the previous role handed off, run the task under this
 /// role's own scoped policy, then queue a handoff summarizing the outcome for
@@ -162,7 +162,7 @@ pub struct RoleRunOutcome {
 pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRunOutcome>> {
     let order = topology_order(root)?;
     let roles = configured_roles(root);
-    let config = YunqConfig::load_from_dir(root);
+    let config = VordConfig::load_from_dir(root);
 
     let mut results = Vec::new();
     for (position, role_name) in order.iter().enumerate() {
@@ -191,7 +191,7 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
         let outcome = match agent::run_with_policy(&plan.path, args, policy).await {
             Ok(res) => res,
             Err(err) => {
-                eprintln!("\nyunq swarm: LLM provider unavailable for role [{role_name}]: {err}");
+                eprintln!("\nvord swarm: LLM provider unavailable for role [{role_name}]: {err}");
                 eprintln!(">>> SWARM ASSISTANT HANDOFF PROMPT (role: {role_name}) <<<");
                 eprintln!("Worktree: {}", plan.path.display());
                 eprintln!("Task: {}", task_desc);
@@ -203,7 +203,7 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
 
         let completed = matches!(outcome, RunOutcome::Completed { .. });
         if !completed {
-            eprintln!("\nyunq swarm: LLM provider unavailable/failed for role [{role_name}]: {}", outcome.describe());
+            eprintln!("\nvord swarm: LLM provider unavailable/failed for role [{role_name}]: {}", outcome.describe());
             eprintln!(">>> SWARM ASSISTANT HANDOFF PROMPT (role: {role_name}) <<<");
             eprintln!("Worktree: {}", plan.path.display());
             eprintln!("Task: {}", task_desc);
@@ -226,23 +226,23 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
     Ok(results)
 }
 
-/// Creates this role's worktree if it doesn't already have one — `yunq swarm
+/// Creates this role's worktree if it doesn't already have one — `vord swarm
 /// worktree-create` stays the explicit, one-role-at-a-time entry point;
 /// this is what lets `topology_run` re-drive the same pipeline on a later
 /// run without failing on "worktree already exists".
 fn ensure_worktree(root: &Path, plan: &WorktreePlan) -> anyhow::Result<()> {
-    let existing = yunq_infra_fs::list_worktrees(root)?;
+    let existing = vord_infra_fs::list_worktrees(root)?;
     let already_there = existing.iter().any(|w| Path::new(&w.path) == plan.path);
     if already_there {
         return Ok(());
     }
-    yunq_infra_fs::create_worktree(root, plan, "HEAD")?;
+    vord_infra_fs::create_worktree(root, plan, "HEAD")?;
     Ok(())
 }
 
 /// Delivers the outbox, then drains and acknowledges everything waiting for
 /// this role — a topology step's task should see a handoff exactly once,
-/// same as `yunq swarm handoff-inbox` followed by `handoff-ack` would give an
+/// same as `vord swarm handoff-inbox` followed by `handoff-ack` would give an
 /// operator driving the pipeline by hand.
 fn take_inbox(root: &Path, role_name: &str) -> anyhow::Result<Vec<Handoff>> {
     handoff_deliver(root)?;
@@ -260,28 +260,28 @@ pub fn worktree_create(
 ) -> anyhow::Result<WorktreePlan> {
     let roles = configured_roles(root);
     let role = find_role(&roles, role_name)?;
-    let config = YunqConfig::load_from_dir(root);
+    let config = VordConfig::load_from_dir(root);
     let plan = worktree_plan(root, config.as_ref(), &role);
-    yunq_infra_fs::create_worktree(root, &plan, base_ref)?;
+    vord_infra_fs::create_worktree(root, &plan, base_ref)?;
     Ok(plan)
 }
 
 pub fn worktree_remove(root: &Path, role_name: &str, force: bool) -> anyhow::Result<WorktreePlan> {
     let roles = configured_roles(root);
     let role = find_role(&roles, role_name)?;
-    let config = YunqConfig::load_from_dir(root);
+    let config = VordConfig::load_from_dir(root);
     let plan = worktree_plan(root, config.as_ref(), &role);
-    yunq_infra_fs::remove_worktree(root, &plan, force)?;
+    vord_infra_fs::remove_worktree(root, &plan, force)?;
     Ok(plan)
 }
 
 pub fn worktree_list(root: &Path) -> anyhow::Result<Vec<WorktreeStatus>> {
-    Ok(yunq_infra_fs::list_worktrees(root)?)
+    Ok(vord_infra_fs::list_worktrees(root)?)
 }
 
 /// Generates a handoff id unique enough for one repository's queue: a sender
 /// retrying the identical logical handoff should reuse an id it already
-/// has (see `yunq_infra_fs::send`'s overwrite-not-duplicate contract) rather
+/// has (see `vord_infra_fs::send`'s overwrite-not-duplicate contract) rather
 /// than call this again.
 fn generate_handoff_id(from_role: &str, to_role: &str) -> String {
     let nanos = std::time::SystemTime::now()
@@ -305,20 +305,20 @@ pub fn handoff_send(
         summary,
         chrono::Utc::now().timestamp(),
     );
-    yunq_infra_fs::send_handoff(root, &handoff)?;
+    vord_infra_fs::send_handoff(root, &handoff)?;
     Ok(handoff)
 }
 
 pub fn handoff_deliver(root: &Path) -> anyhow::Result<Vec<Handoff>> {
-    Ok(yunq_infra_fs::deliver(root)?)
+    Ok(vord_infra_fs::deliver(root)?)
 }
 
 pub fn handoff_inbox(root: &Path, role_name: &str) -> anyhow::Result<Vec<Handoff>> {
-    Ok(yunq_infra_fs::inbox(root, role_name)?)
+    Ok(vord_infra_fs::inbox(root, role_name)?)
 }
 
 pub fn handoff_ack(root: &Path, role_name: &str, id: &str) -> anyhow::Result<()> {
-    Ok(yunq_infra_fs::ack(root, role_name, id)?)
+    Ok(vord_infra_fs::ack(root, role_name, id)?)
 }
 
 pub fn run_swarm_tui(root: &Path) -> anyhow::Result<()> {
@@ -354,7 +354,7 @@ pub fn run_swarm_tui(root: &Path) -> anyhow::Result<()> {
                     .split(f.area());
 
                 let header = Paragraph::new(Line::from(vec![
-                    Span::styled("yunq swarm ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled("vord swarm ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::raw("— Interactive Spec-Driven Swarm & Worktree Dashboard (Offline / LLM-less)"),
                 ]))
                 .block(Block::default().borders(Borders::ALL).title(" Topology "));
@@ -441,7 +441,7 @@ mod tests {
 
     fn temp_root() -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "yunq-cli-swarm-{}-{}",
+            "vord-cli-swarm-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn a_repository_with_no_yunq_toml_has_no_configured_roles() {
+    fn a_repository_with_no_vord_toml_has_no_configured_roles() {
         let root = temp_root();
         assert!(configured_roles(&root).is_empty());
         assert!(list_roles(&root).unwrap().is_empty());
@@ -464,7 +464,7 @@ mod tests {
     fn a_configured_role_resolves_a_worktree_plan_and_scope_counts() {
         let root = temp_root();
         std::fs::write(
-            root.join("yunq.toml"),
+            root.join("vord.toml"),
             r#"
 [[swarm.role]]
 name = "qa"
@@ -480,7 +480,7 @@ reason = "QA is read-only"
         let roles = list_roles(&root).unwrap();
         assert_eq!(roles.len(), 1);
         assert_eq!(roles[0].name, "qa");
-        assert_eq!(roles[0].plan.branch, "yunq/swarm/qa");
+        assert_eq!(roles[0].plan.branch, "vord/swarm/qa");
         assert_eq!(roles[0].extra_protected_paths, 1);
         assert_eq!(roles[0].extra_blocking_rules, 1);
 
@@ -498,7 +498,7 @@ reason = "QA is read-only"
     fn scoped_policy_denies_what_the_role_adds_on_top_of_the_base() {
         let root = temp_root();
         std::fs::write(
-            root.join("yunq.toml"),
+            root.join("vord.toml"),
             "[[swarm.role]]\nname = \"qa\"\nblocking_rules = [\"smells:long-method\"]\n",
         )
         .unwrap();
@@ -506,9 +506,9 @@ reason = "QA is read-only"
         let role = find_role(&roles, "qa").unwrap();
 
         let policy = scoped_policy(&root, &role).unwrap();
-        let finding = yunq_agent_policy::Finding {
+        let finding = vord_agent_policy::Finding {
             rule: RuleId::new("smells:long-method").unwrap(),
-            severity: yunq_rules_engine::Severity::Minor,
+            severity: vord_rules_engine::Severity::Minor,
             message: "too long".to_string(),
             line: 1,
         };
@@ -528,7 +528,7 @@ reason = "QA is read-only"
     fn topology_order_resolves_a_named_preset_against_configured_roles() {
         let root = temp_root();
         std::fs::write(
-            root.join("yunq.toml"),
+            root.join("vord.toml"),
             r#"
 [swarm]
 topology = "two-pack"
@@ -550,7 +550,7 @@ name = "reviewer"
     fn topology_order_reports_a_preset_role_that_was_never_configured() {
         let root = temp_root();
         std::fs::write(
-            root.join("yunq.toml"),
+            root.join("vord.toml"),
             "[swarm]\ntopology = \"two-pack\"\n\n[[swarm.role]]\nname = \"coder\"\n",
         )
         .unwrap();
@@ -564,7 +564,7 @@ name = "reviewer"
     fn an_explicit_pipeline_outranks_a_named_topology_preset() {
         let root = temp_root();
         std::fs::write(
-            root.join("yunq.toml"),
+            root.join("vord.toml"),
             r#"
 [swarm]
 topology = "two-pack"

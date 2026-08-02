@@ -1,5 +1,5 @@
 //! Per-component type census: how many types a component declares, and how
-//! many of those are abstractions. The input `yunq_import_graph::metrics`
+//! many of those are abstractions. The input `vord_import_graph::metrics`
 //! needs for Martin's `A` (abstractness) that the import graph cannot
 //! provide on its own.
 //!
@@ -11,8 +11,8 @@
 
 use std::collections::BTreeMap;
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_import_graph::{TypeCensus, component_of};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_import_graph::{TypeCensus, component_of};
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -114,13 +114,13 @@ fn rust_census(ast: &AstNode) -> TypeCensus {
 }
 
 /// The census of every component in `files`, keyed the way
-/// `yunq_import_graph::component_of` keys them — the contract
+/// `vord_import_graph::component_of` keys them — the contract
 /// `component_metrics` expects. Test-only paths contribute nothing: a test
 /// double is not part of the abstractness of the component it exercises.
 pub fn component_census(files: &[(SourceFile, AstNode)]) -> BTreeMap<String, TypeCensus> {
     let mut per_component: BTreeMap<String, TypeCensus> = BTreeMap::new();
     for (file, ast) in files {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             continue;
         }
         per_component
@@ -134,11 +134,11 @@ pub fn component_census(files: &[(SourceFile, AstNode)]) -> BTreeMap<String, Typ
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn ts(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         (file, ast)
@@ -146,7 +146,7 @@ mod tests {
 
     fn py(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         (file, ast)
@@ -154,7 +154,7 @@ mod tests {
 
     fn rs(path: &str, code: &str) -> (SourceFile, AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         (file, ast)
     }
 
@@ -193,7 +193,7 @@ mod tests {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         assert_eq!(file_census(&file, &ast), TypeCensus::new(2, 1));
     }
 

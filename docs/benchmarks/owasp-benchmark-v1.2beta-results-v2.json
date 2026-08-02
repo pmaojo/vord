@@ -7,7 +7,7 @@
     "cpu": "Apple M2 Pro",
     "cores": 10,
     "ram_gb": 16.0,
-    "yunq_version": "yunq 0.2.1"
+    "vord_version": "vord 0.2.1"
   },
   "duration_seconds": 95.1,
   "loc_scanned": 252966,
@@ -253,5 +253,5 @@
   },
   "unmatched_findings_count": 0,
   "test_cases_in_ground_truth": 2740,
-  "test_cases_found_by_yunq": 1879
+  "test_cases_found_by_vord": 1879
 }

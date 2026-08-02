@@ -4,8 +4,8 @@
 //! Python 3.12 introduced a `filter='data'` argument to mitigate this, and it will become
 //! the default in 3.14.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -70,8 +70,8 @@ impl Rule for TarfileUnsafeExtractionRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "tarfile.extractall and tarfile.extract are vulnerable to path traversal (Zip Slip) when processing untrusted archives. Use filter='data' (introduced in Python 3.12) to prevent this.".into(),
             tags: vec!["security".into(), "path-traversal".into(), "cwe".into()],
             cwe: Some(22),
@@ -80,7 +80,7 @@ impl Rule for TarfileUnsafeExtractionRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
 
@@ -110,13 +110,13 @@ impl Rule for TarfileUnsafeExtractionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         TarfileUnsafeExtractionRule::new().check(&file, &ast)

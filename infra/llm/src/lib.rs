@@ -6,7 +6,7 @@
 //! - `AnthropicAdapter`: native Anthropic Messages API (`/v1/messages`).
 //! - `MockLlmAdapter`: deterministic offline testing.
 //! - `AnthropicChatModel` / `OpenAiChatModel` (`chat` module): the
-//!   tool-calling `yunq_agent::ChatModel` port, for `yunq agent`'s session
+//!   tool-calling `vord_agent::ChatModel` port, for `vord agent`'s session
 //!   loop rather than the Remediation Agent's one-shot fix prompt.
 //! - `LlmProviderConfig` / `AnyLlmProvider` (`provider` module): picks
 //!   between the two at runtime, so callers (and per-project BYOK config)
@@ -23,7 +23,7 @@ pub use chat::{AnthropicChatModel, AnyChatModel, OpenAiChatModel};
 pub use openai_compatible::OpenAiCompatibleAdapter;
 pub use provider::{AnyLlmProvider, LlmProviderConfig, LlmProviderKind};
 
-use yunq_remediation::{FixPrompt, FixProposal, LlmError, LlmProvider};
+use vord_remediation::{FixPrompt, FixProposal, LlmError, LlmProvider};
 
 /// Deterministic Mock LLM Provider for unit tests and offline evaluation.
 pub struct MockLlmAdapter {

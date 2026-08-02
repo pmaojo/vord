@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct UnverifiedJwtRule {
     id: RuleId,
@@ -36,8 +36,8 @@ impl Rule for UnverifiedJwtRule {
         IssueType::Vulnerability
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Decoding or verifying a JWT with signature verification disabled (or using the 'none' algorithm) allows attackers to bypass authentication and forge tokens.".into(),
             tags: vec!["security".into(), "owasp-a07".into(), "cwe".into(), "jwt".into()],
             cwe: Some(287), // Improper Authentication
@@ -46,7 +46,7 @@ impl Rule for UnverifiedJwtRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
 
@@ -110,16 +110,16 @@ impl Rule for UnverifiedJwtRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str, lang: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new("app.test", code, lang.clone()).unwrap();
         let ast = if lang == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         };

@@ -1,16 +1,16 @@
-//! `yunq agent tui` — a live view onto a headless `yunq agent run` (roadmap
-//! A6, deliberately last: "a headless `yunq agent run --task` that is
+//! `vord agent tui` — a live view onto a headless `vord agent run` (roadmap
+//! A6, deliberately last: "a headless `vord agent run --task` that is
 //! scriptable and CI-usable is worth more than a chat interface, and it is
 //! what the swarm in workstream B drives").
 //!
 //! This module renders; it never decides. It attaches an
-//! [`yunq_agent::Observer`] to the same [`yunq_cli::agent::run_with_observer`]
-//! headless entry point `yunq agent run` uses, so watching a run can never
+//! [`vord_agent::Observer`] to the same [`vord_cli::agent::run_with_observer`]
+//! headless entry point `vord agent run` uses, so watching a run can never
 //! change what it does — the type signature of
-//! [`yunq_agent::observer::Observer::on_event`] returns nothing for the loop
+//! [`vord_agent::observer::Observer::on_event`] returns nothing for the loop
 //! to branch on, and this file adds no second path to disk. Quitting the TUI
 //! (`q`/`Esc`/`Ctrl-C`) detaches rather than cancels: the run keeps going
-//! headless and reports through the same `yunq agent: ...` line a
+//! headless and reports through the same `vord agent: ...` line a
 //! non-interactive run would, because a spectator leaving the room must not
 //! stop the game.
 
@@ -30,8 +30,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use tokio::sync::mpsc;
 
-use yunq_agent::RunOutcome;
-use yunq_agent::observer::{AgentEvent, Observer};
+use vord_agent::RunOutcome;
+use vord_agent::observer::{AgentEvent, Observer};
 
 /// Forwards every event across a channel — the only thing standing between
 /// the async runtime loop and the render loop, both of which need to keep
@@ -186,7 +186,7 @@ impl Drop for TerminalGuard {
 }
 
 /// Runs the session with a live terminal view attached. `run` builds the
-/// runtime exactly as headless `yunq agent run` does — this only supplies an
+/// runtime exactly as headless `vord agent run` does — this only supplies an
 /// observer and a render loop around it.
 ///
 /// Returns the final [`RunOutcome`] whether the user watched it happen or
@@ -194,14 +194,14 @@ impl Drop for TerminalGuard {
 /// docs).
 pub async fn run(
     root: &std::path::Path,
-    args: yunq_cli::agent::AgentArgs,
+    args: vord_cli::agent::AgentArgs,
 ) -> anyhow::Result<RunOutcome> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let task = args.task.clone();
     let scope = args.scope.clone();
     let root = root.to_path_buf();
     let handle = tokio::spawn(async move {
-        yunq_cli::agent::run_with_observer(&root, args, ChannelObserver { tx }).await
+        vord_cli::agent::run_with_observer(&root, args, ChannelObserver { tx }).await
     });
 
     let mut state = UiState::new(&task, &scope);
@@ -261,7 +261,7 @@ pub async fn run(
     drop(guard);
 
     if detached {
-        println!("yunq agent tui: detached — the run continues headless.");
+        println!("vord agent tui: detached — the run continues headless.");
     }
     handle
         .await
@@ -296,7 +296,7 @@ fn draw_header(frame: &mut ratatui::Frame, area: Rect, state: &UiState) {
         Span::raw(state.turn.to_string()),
     ])];
     frame.render_widget(
-        Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("yunq agent")),
+        Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("vord agent")),
         area,
     );
 }
@@ -342,9 +342,9 @@ fn draw_footer(frame: &mut ratatui::Frame, area: Rect, state: &UiState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_agent::budget::Exhaustion;
-    use yunq_agent::completion::Completion;
-    use yunq_agent::session::{AssistantTurn, TokenUsage, ToolCall, ToolResult};
+    use vord_agent::budget::Exhaustion;
+    use vord_agent::completion::Completion;
+    use vord_agent::session::{AssistantTurn, TokenUsage, ToolCall, ToolResult};
 
     #[test]
     fn truncate_collapses_whitespace_and_leaves_short_text_alone() {

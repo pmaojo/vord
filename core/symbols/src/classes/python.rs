@@ -2,7 +2,7 @@
 //! `super::EXTRACTORS` dispatches to; nothing outside this file knows how
 //! Python spells a type.
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 use super::{ClassInfo, MemberInfo, MethodInfo, first_identifier, function_params, is_other};
 pub(super) fn build<'a>(node: &'a AstNode, file: &str) -> Option<ClassInfo<'a>> {

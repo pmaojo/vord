@@ -9,8 +9,8 @@
 //! file as a potential XSS sink, since user input may flow into it across
 //! lines (the benchmark separates extraction and writing).
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 /// Servlet `HttpServletResponse.getWriter()` writer methods that write
 /// content straight into the HTTP response body.
@@ -70,8 +70,8 @@ impl Rule for XssJavaRule {
         IssueType::Vulnerability
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Untrusted user input reaches a servlet response writer, which can lead to Cross-Site Scripting (XSS). Ensure all user-controlled values written to the HTTP response are properly HTML-encoded (e.g. using ESAPI.encoder().encodeForHTML(...)).".into(),
             tags: vec!["security".into(), "owasp-a03".into(), "xss".into(), "java".into()],
             cwe: Some(79),
@@ -97,7 +97,7 @@ impl Rule for XssJavaRule {
             if RESPONSE_WRITER_METHODS.iter().any(|m| line.contains(m)) {
                 findings.push(Finding::new(
                     "user input from a servlet request reaches response.getWriter() without HTML-encoding — this is a reflected XSS vulnerability",
-                    yunq_ast::Span::new(
+                    vord_ast::Span::new(
                         (idx + 1) as u32, 1,
                         (idx + 1) as u32,
                         line.len().max(1) as u32,
@@ -112,7 +112,7 @@ impl Rule for XssJavaRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::NodeKind;
+    use vord_ast::NodeKind;
 
     #[test]
     fn flags_response_writer_in_servlet_with_user_input() {
@@ -123,7 +123,7 @@ response.getWriter().format(param, new Object[] {});
         let file = SourceFile::new("Test.java", code, LanguageIdentifier::java()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 2, code.len() as u32),
+            vord_ast::Span::new(1, 1, 2, code.len() as u32),
             code, vec![],
         );
         let findings = XssJavaRule::new().check(&file, &ast);
@@ -138,7 +138,7 @@ response.getWriter().write(param);
         let file = SourceFile::new("Test.java", code, LanguageIdentifier::java()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 2, code.len() as u32),
+            vord_ast::Span::new(1, 1, 2, code.len() as u32),
             code, vec![],
         );
         let findings = XssJavaRule::new().check(&file, &ast);
@@ -151,7 +151,7 @@ response.getWriter().write(param);
         let file = SourceFile::new("Test.java", code, LanguageIdentifier::java()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code, vec![],
         );
         assert!(XssJavaRule::new().check(&file, &ast).is_empty());
@@ -163,7 +163,7 @@ response.getWriter().write(param);
         let file = SourceFile::new("Utility.java", code, LanguageIdentifier::java()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code, vec![],
         );
         assert!(XssJavaRule::new().check(&file, &ast).is_empty());

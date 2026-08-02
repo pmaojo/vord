@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use yunq_ast::Span;
-use yunq_profiles::{RuleId, Severity};
+use vord_ast::Span;
+use vord_profiles::{RuleId, Severity};
 
 /// Workflow state of a tracked issue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

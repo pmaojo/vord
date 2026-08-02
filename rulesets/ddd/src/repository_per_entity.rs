@@ -3,8 +3,8 @@
 //! never for individual child entities. Accessing child entities directly via
 //! a repository breaches the aggregate boundary and consistency guarantee.
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(RepositoryPerEntityRule, "ddd:repository-per-entity");
 
@@ -36,7 +36,7 @@ impl Rule for RepositoryPerEntityRule {
         fn is_type_declaration(node: &AstNode) -> bool {
             matches!(
                 node.kind(),
-                yunq_ast::NodeKind::Other(k)
+                vord_ast::NodeKind::Other(k)
                     if matches!(
                         k.as_ref(),
                         "struct_item"
@@ -76,8 +76,8 @@ impl Rule for RepositoryPerEntityRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_parser_typescript::TypeScriptParser;
-    use yunq_rules_engine::AstParser;
+    use vord_parser_typescript::TypeScriptParser;
+    use vord_rules_engine::AstParser;
 
     #[test]
     fn test_flags_child_entity_repository() {

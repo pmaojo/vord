@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 /// Tracks postponed-work comment markers so they stay visible.
 pub struct TodoCommentRule {
@@ -51,8 +51,8 @@ impl Rule for TodoCommentRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
@@ -64,7 +64,7 @@ mod tests {
             LanguageIdentifier::rust(),
         )
         .unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         let findings = TodoCommentRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 2);
     }

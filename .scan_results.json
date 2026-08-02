@@ -19430,7 +19430,7 @@
       "file": "rulesets/ddd/src/repository_per_entity.rs",
       "line": 64,
       "column": 1,
-      "message": "DDD Boundary Breach: Repository `mod tests {\n    use super::*;\n    use yunq_parser_typescript::TypeScriptParser;\n    use yunq_rules_engine::AstParser;\n\n    #[test]\n    fn test_flags_child_entity_repository() {\n        let code = r#\"\n        interface OrderItemRepository {\n            save(item: OrderItem): void;\n        }\n        \"#;\n        let file = SourceFile::new(\"src/order.ts\", code, LanguageIdentifier::typescript()).unwrap();\n        let ast = TypeScriptParser::new().parse(&file).unwrap();\n        let findings = RepositoryPerEntityRule::new().check(&file, &ast);\n        assert!(!findings.is_empty());\n        assert!(findings[0].message.contains(\"DDD Boundary Breach\"));\n    }\n}` declared for a child entity. Repositories must exist ONLY for Aggregate Roots (e.g. OrderRepository), loading and persisting child entities through the Aggregate Root."
+      "message": "DDD Boundary Breach: Repository `mod tests {\n    use super::*;\n    use vord_parser_typescript::TypeScriptParser;\n    use vord_rules_engine::AstParser;\n\n    #[test]\n    fn test_flags_child_entity_repository() {\n        let code = r#\"\n        interface OrderItemRepository {\n            save(item: OrderItem): void;\n        }\n        \"#;\n        let file = SourceFile::new(\"src/order.ts\", code, LanguageIdentifier::typescript()).unwrap();\n        let ast = TypeScriptParser::new().parse(&file).unwrap();\n        let findings = RepositoryPerEntityRule::new().check(&file, &ast);\n        assert!(!findings.is_empty());\n        assert!(findings[0].message.contains(\"DDD Boundary Breach\"));\n    }\n}` declared for a child entity. Repositories must exist ONLY for Aggregate Roots (e.g. OrderRepository), loading and persisting child entities through the Aggregate Root."
     },
     {
       "rule": "ddd:repository-per-entity",
@@ -19438,7 +19438,7 @@
       "file": "rulesets/ddd/src/repository_per_entity.rs",
       "line": 64,
       "column": 11,
-      "message": "DDD Boundary Breach: Repository `{\n    use super::*;\n    use yunq_parser_typescript::TypeScriptParser;\n    use yunq_rules_engine::AstParser;\n\n    #[test]\n    fn test_flags_child_entity_repository() {\n        let code = r#\"\n        interface OrderItemRepository {\n            save(item: OrderItem): void;\n        }\n        \"#;\n        let file = SourceFile::new(\"src/order.ts\", code, LanguageIdentifier::typescript()).unwrap();\n        let ast = TypeScriptParser::new().parse(&file).unwrap();\n        let findings = RepositoryPerEntityRule::new().check(&file, &ast);\n        assert!(!findings.is_empty());\n        assert!(findings[0].message.contains(\"DDD Boundary Breach\"));\n    }\n}` declared for a child entity. Repositories must exist ONLY for Aggregate Roots (e.g. OrderRepository), loading and persisting child entities through the Aggregate Root."
+      "message": "DDD Boundary Breach: Repository `{\n    use super::*;\n    use vord_parser_typescript::TypeScriptParser;\n    use vord_rules_engine::AstParser;\n\n    #[test]\n    fn test_flags_child_entity_repository() {\n        let code = r#\"\n        interface OrderItemRepository {\n            save(item: OrderItem): void;\n        }\n        \"#;\n        let file = SourceFile::new(\"src/order.ts\", code, LanguageIdentifier::typescript()).unwrap();\n        let ast = TypeScriptParser::new().parse(&file).unwrap();\n        let findings = RepositoryPerEntityRule::new().check(&file, &ast);\n        assert!(!findings.is_empty());\n        assert!(findings[0].message.contains(\"DDD Boundary Breach\"));\n    }\n}` declared for a child entity. Repositories must exist ONLY for Aggregate Roots (e.g. OrderRepository), loading and persisting child entities through the Aggregate Root."
     },
     {
       "rule": "ddd:repository-per-entity",
@@ -36191,7 +36191,7 @@
   "mutation": null,
   "coverage_new_code": null,
   "context": {
-    "project": "yunq-core-platform",
+    "project": "vord-core-platform",
     "branch": null,
     "pull_request": null
   }

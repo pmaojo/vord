@@ -5,8 +5,8 @@
 //! callback is recreated every render, which defeats the memoization these
 //! hooks exist for — there's no valid reason to call either without one.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{call_arguments, callee_name};
 
@@ -86,11 +86,11 @@ impl Rule for HookMissingDepsArrayRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         HookMissingDepsArrayRule::new().check(&file, &ast)

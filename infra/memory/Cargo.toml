@@ -1,19 +1,19 @@
 [package]
-name = "yunq-infra-memory"
+name = "vord-infra-memory"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "In-memory storage and metrics adapters for yunq"
+description = "In-memory storage and metrics adapters for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-rules-engine = { workspace = true }
-yunq-remediation = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-remediation = { workspace = true }
 
 [dev-dependencies]
-yunq-ast = { workspace = true }
+vord-ast = { workspace = true }
 futures = { workspace = true }

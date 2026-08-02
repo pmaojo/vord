@@ -9,7 +9,7 @@
 //! Heuristic: the first two directory segments of a path
 //! (`core/rules-engine/src/lib.rs` -> `"core/rules-engine"`). Deep enough to
 //! separate `core/rules-engine` from `core/crap` — the crate/package tier
-//! most monorepos (and yunq's own workspace) organize around — shallow
+//! most monorepos (and vord's own workspace) organize around — shallow
 //! enough that a `src/`-nested file still resolves to its crate, not one
 //! component per subdirectory.
 

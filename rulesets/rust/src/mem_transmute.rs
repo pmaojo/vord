@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn is_transmute_path(callee_text: &str) -> bool {
     let base = callee_text.split("::<").next().unwrap_or(callee_text);
@@ -51,8 +51,8 @@ impl Rule for MemTransmuteRule {
         20
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`mem::transmute` reinterprets bits as another type with no layout or \
                 validity check; a mismatch is undefined behavior. Confirm a safe conversion \
                 (`as`, `try_into`, a typed constructor) can't replace it."
@@ -81,14 +81,14 @@ impl Rule for MemTransmuteRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         MemTransmuteRule::new().check(&file, &ast)
     }
 

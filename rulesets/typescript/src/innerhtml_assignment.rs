@@ -7,8 +7,8 @@
 //! literal assignment can't be told apart here from one built from a
 //! template that embeds external data.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 fn flagged_assignment(node: &AstNode) -> Option<&AstNode> {
     if *node.kind() != NodeKind::Assignment {
@@ -76,14 +76,14 @@ impl Rule for InnerHtmlAssignmentRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         InnerHtmlAssignmentRule::new().check(&file, &ast)

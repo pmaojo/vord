@@ -1,7 +1,7 @@
 //! Rule: flags SQL queries constructed via string concatenation or template literals.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 fn is_sql_concat_or_template(line: &str) -> bool {
     let upper = line.to_uppercase();
@@ -134,17 +134,17 @@ impl Rule for SqlInjectionConcatRule {
         if ast.kind() != &NodeKind::SourceUnit {
             return Vec::new();
         }
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
-        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         let content = file.content();
 
         for (idx, line) in content.lines().enumerate() {
             let line_no = (idx + 1) as u32;
-            if yunq_rules_engine::in_ranges(&test_ranges, line_no) {
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
                 continue;
             }
             let trimmed = line.trim();
@@ -155,7 +155,7 @@ impl Rule for SqlInjectionConcatRule {
             if is_sql_concat_or_template(line) {
                 findings.push(Finding::new(
                     "SQL query constructed via string concatenation or template literal; use parameterized queries instead",
-                    yunq_ast::Span::new(line_no, 1, line_no, line.len().max(1) as u32),
+                    vord_ast::Span::new(line_no, 1, line_no, line.len().max(1) as u32),
                 ));
             }
         }
@@ -174,7 +174,7 @@ mod tests {
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -189,7 +189,7 @@ mod tests {
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -204,7 +204,7 @@ mod tests {
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -219,7 +219,7 @@ mod tests {
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -234,7 +234,7 @@ mod tests {
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );

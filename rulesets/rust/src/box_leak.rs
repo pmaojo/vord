@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 fn is_box_leak_path(callee_text: &str) -> bool {
     callee_text.ends_with("Box::leak")
@@ -51,8 +51,8 @@ impl Rule for BoxLeakRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`Box::leak` intentionally skips freeing its allocation to hand back a \
                 `'static` reference; confirm the leak is a bounded, one-time cost (e.g. \
                 initializing a global) rather than something that runs repeatedly."
@@ -81,14 +81,14 @@ impl Rule for BoxLeakRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         BoxLeakRule::new().check(&file, &ast)
     }
 

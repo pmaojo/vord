@@ -1,7 +1,7 @@
 //! Rule: flags code that disables TLS/SSL certificate validation.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const MARKERS: &[&str] = &[
     "rejectUnauthorized: false",
@@ -69,12 +69,12 @@ impl Rule for DisabledCertValidationRule {
             if let Some(marker) = matched_marker {
                 findings.push(Finding::new(
                     format!("Certificate validation disabled via '{marker}'; this allows man-in-the-middle attacks"),
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
             } else if matched_verify_false {
                 findings.push(Finding::new(
                     "Certificate validation disabled via 'verify=False'; this allows man-in-the-middle attacks",
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
             }
         }
@@ -92,7 +92,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -106,7 +106,7 @@ mod tests {
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -121,7 +121,7 @@ mod tests {
         let file = SourceFile::new("main.go", code, LanguageIdentifier::go()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -135,7 +135,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );

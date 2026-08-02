@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::is_other;
 
@@ -59,8 +59,8 @@ impl Rule for DropOnReferenceRule {
         IssueType::Bug
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`drop(&x)`/`drop(&mut x)` drops the reference, not the value it \
                 points to; the referenced value keeps living until its own scope ends. Drop the \
                 owned value instead, or remove the call if it isn't needed."
@@ -94,14 +94,14 @@ impl Rule for DropOnReferenceRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         DropOnReferenceRule::new().check(&file, &ast)
     }
 

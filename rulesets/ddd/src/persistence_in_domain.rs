@@ -17,8 +17,8 @@
 //! `javascript/sequelize`, `typescript/nestjs`) — a fixed list of the mapping
 //! markers each ORM actually uses.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{is_domain_path, is_other};
 
@@ -87,7 +87,7 @@ const RUST_MARKERS: &[&str] = &[
 ];
 
 /// Every persistence marker in this file: (marker text, span).
-fn markers(file: &SourceFile, ast: &AstNode) -> Vec<(String, yunq_ast::Span)> {
+fn markers(file: &SourceFile, ast: &AstNode) -> Vec<(String, vord_ast::Span)> {
     let language = file.language();
     if *language == LanguageIdentifier::typescript() {
         return ast
@@ -227,7 +227,7 @@ impl Rule for PersistenceInDomainRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if !is_domain_path(file.path()) || yunq_rules_engine::is_test_only_path(file.path()) {
+        if !is_domain_path(file.path()) || vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         markers(file, ast)
@@ -247,22 +247,22 @@ impl Rule for PersistenceInDomainRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::go() {
-            yunq_parser_go::GoParser::new().parse(&file).unwrap()
+            vord_parser_go::GoParser::new().parse(&file).unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         PersistenceInDomainRule::new().check(&file, &ast)
     }

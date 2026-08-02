@@ -1,7 +1,7 @@
 //! Rule: flags code that disables TLS/SSL certificate validation.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const MARKERS: &[&str] = &[
     "rejectUnauthorized: false",
@@ -66,12 +66,12 @@ impl Rule for DisabledCertValidationRule {
             if let Some(marker) = matched_marker {
                 findings.push(Finding::new(
                     format!("Certificate validation disabled via '{marker}'; this allows man-in-the-middle attacks"),
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
             } else if matched_verify_false {
                 findings.push(Finding::new(
                     "Certificate validation disabled via 'verify=False'; this allows man-in-the-middle attacks",
-                    yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                 ));
             }
         }
@@ -87,7 +87,7 @@ mod tests {
     fn flags_node_reject_unauthorized_false() {
         let code = "https.request({ rejectUnauthorized: false }, cb);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let findings = DisabledCertValidationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -96,7 +96,7 @@ mod tests {
     fn flags_python_requests_verify_false() {
         let code = "resp = requests.get(url, verify=False)\n";
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let findings = DisabledCertValidationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -105,7 +105,7 @@ mod tests {
     fn flags_go_insecure_skip_verify() {
         let code = "tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}\n";
         let file = SourceFile::new("main.go", code, LanguageIdentifier::go()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let findings = DisabledCertValidationRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1);
     }
@@ -114,7 +114,7 @@ mod tests {
     fn allows_default_validation() {
         let code = "https.request({ rejectUnauthorized: true }, cb);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = AstNode::new(NodeKind::SourceUnit, yunq_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
+        let ast = AstNode::new(NodeKind::SourceUnit, vord_ast::Span::new(1, 1, 1, code.len() as u32), code, vec![]);
         let findings = DisabledCertValidationRule::new().check(&file, &ast);
         assert!(findings.is_empty());
     }

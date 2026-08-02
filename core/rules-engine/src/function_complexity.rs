@@ -1,11 +1,11 @@
 //! Per-function cyclomatic complexity, computed once per parsed file
-//! alongside `structural_metrics` so CRAP (`yunq-crap`, joined with per-line
+//! alongside `structural_metrics` so CRAP (`vord-crap`, joined with per-line
 //! coverage at the composition root once both exist on an `AnalysisReport`)
 //! never needs a second parse of the same AST. Extracted from
 //! `rulesets/code-smells::ComplexityRule`, which now calls [`compute`]
 //! instead of keeping its own copy of the walk.
 
-use yunq_ast::{AstNode, NodeKind, Span};
+use vord_ast::{AstNode, NodeKind, Span};
 
 /// Grammar node kinds (per tree-sitter grammar) that add a decision point.
 const BRANCH_KINDS: &[&str] = &[

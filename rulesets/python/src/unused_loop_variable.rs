@@ -3,8 +3,8 @@
 //! naming it `_` says so; a real name that goes unused reads as if the
 //! body forgot to use it.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -54,8 +54,8 @@ impl Rule for UnusedLoopVariableRule {
         2
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "A for-loop target that's never referenced in the body reads as if the value was forgotten; name it `_` if the value genuinely doesn't matter.".into(),
             tags: vec!["maintainability".into(), "python-idiom".into()],
             cwe: None,
@@ -80,13 +80,13 @@ impl Rule for UnusedLoopVariableRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         UnusedLoopVariableRule::new().check(&file, &ast)

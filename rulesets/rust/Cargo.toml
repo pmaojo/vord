@@ -1,21 +1,21 @@
 [package]
-name = "yunq-rules-rust"
+name = "vord-rules-rust"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Rust-specific ruleset for the yunq analysis engine"
+description = "Rust-specific ruleset for the vord analysis engine"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-rules-engine = { workspace = true }
-yunq-taint = { workspace = true }
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-taint = { workspace = true }
 syn = { version = "2.0", features = ["full", "extra-traits", "visit"] }
 proc-macro2 = "1.0"
 
 [dev-dependencies]
-yunq-parser-rust = { workspace = true }
+vord-parser-rust = { workspace = true }

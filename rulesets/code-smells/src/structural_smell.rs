@@ -1,7 +1,7 @@
 //! Structural Anti-Pattern Rule utilizing the Tree-sitter S-Expression Pattern Matching Engine.
 
-use yunq_ast::{AstNode, Pattern, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, Pattern, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 pub struct StructuralSmellRule {
     id: RuleId,
@@ -47,7 +47,7 @@ impl Rule for StructuralSmellRule {
         Severity::Major
     }
 
-    fn applies_to(&self, _lang: &yunq_ast::LanguageIdentifier) -> bool {
+    fn applies_to(&self, _lang: &vord_ast::LanguageIdentifier) -> bool {
         true
     }
 
@@ -66,7 +66,7 @@ impl Rule for StructuralSmellRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, NodeKind, Span};
+    use vord_ast::{LanguageIdentifier, NodeKind, Span};
 
     #[test]
     fn detects_structural_smell_pattern() {

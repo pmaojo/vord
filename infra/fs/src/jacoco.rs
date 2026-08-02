@@ -12,7 +12,7 @@
 
 use std::collections::BTreeMap;
 
-use yunq_rules_engine::{CoverageReport, CoverageSummary, FileCoverage};
+use vord_rules_engine::{CoverageReport, CoverageSummary, FileCoverage};
 
 #[derive(Debug, thiserror::Error)]
 pub enum JacocoError {
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn parses_jacoco_counter_tags() {
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<report name="yunq">
+<report name="vord">
   <package name="com/example">
     <class name="com/example/Service">
       <counter type="INSTRUCTION" missed="20" covered="80"/>
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn parses_branch_counter_tags() {
-        let xml = r#"<report name="yunq">
+        let xml = r#"<report name="vord">
   <package name="com/example">
     <class name="com/example/Service">
       <counter type="LINE" missed="5" covered="15"/>
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn no_branch_data_leaves_branch_percent_none() {
-        let xml = r#"<report name="yunq">
+        let xml = r#"<report name="vord">
   <counter type="LINE" missed="0" covered="10"/>
 </report>"#;
         let summary = parse_jacoco(xml).unwrap();
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn report_exposes_per_file_line_detail_for_new_code() {
-        let xml = r#"<report name="yunq">
+        let xml = r#"<report name="vord">
   <package name="com/example">
     <sourcefile name="Service.java">
       <line nr="1" mi="0" ci="2" mb="0" cb="0"/>

@@ -4,8 +4,8 @@
 //! — and unlike `len(x) == 0`, it also works on objects that define
 //! `__bool__` without `__len__`.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -74,8 +74,8 @@ impl Rule for LenAsConditionRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "A sized container is already truthy/falsy by its length; `if x:` / `if not x:` says the same thing as `len(x) == 0`/`> 0` more directly.".into(),
             tags: vec!["python-idiom".into()],
             cwe: None,
@@ -94,13 +94,13 @@ impl Rule for LenAsConditionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         LenAsConditionRule::new().check(&file, &ast)

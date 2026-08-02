@@ -6,8 +6,8 @@
 //! interface/trait's own member count needs nothing beyond its own
 //! declaration.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -166,7 +166,7 @@ impl Rule for FatInterfaceRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn method_signatures(n: usize) -> String {
         (0..n).map(|i| format!("  m{i}(): void;\n")).collect()
@@ -174,7 +174,7 @@ mod tests {
 
     fn check_ts(code: &str, max_methods: usize) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         FatInterfaceRule::new(max_methods).check(&file, &ast)
@@ -207,7 +207,7 @@ mod tests {
         let code =
             "trait Big {\n  fn a(&self);\n  fn b(&self);\n  fn c(&self);\n  fn d(&self) {}\n}\n";
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         let findings = FatInterfaceRule::new(3).check(&file, &ast);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("Big"));
@@ -218,7 +218,7 @@ mod tests {
     fn allows_rust_trait_within_threshold() {
         let code = "trait Small {\n  fn a(&self);\n  fn b(&self);\n}\n";
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         assert!(FatInterfaceRule::new(8).check(&file, &ast).is_empty());
     }
 

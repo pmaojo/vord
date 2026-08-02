@@ -4,8 +4,8 @@
 //! batching. Purely syntactic (matches on the call's method name, no type
 //! resolution), so it applies across TypeScript, Python and PHP alike.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -145,8 +145,8 @@ impl Rule for DbCallInLoopRule {
         20
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "A query/ORM call inside a loop body issues one round-trip per iteration (N+1); batch it into a single query outside the loop.".into(),
             tags: vec!["performance".into(), "n-plus-one".into()],
             cwe: None,
@@ -155,7 +155,7 @@ impl Rule for DbCallInLoopRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         ast.descendants()
@@ -178,13 +178,13 @@ impl Rule for DbCallInLoopRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         DbCallInLoopRule::new().check(&file, &ast)
@@ -192,7 +192,7 @@ mod tests {
 
     fn findings_py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         DbCallInLoopRule::new().check(&file, &ast)
@@ -200,7 +200,7 @@ mod tests {
 
     fn findings_php(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.php", code, LanguageIdentifier::php()).unwrap();
-        let ast = yunq_parser_php::PhpParser::new().parse(&file).unwrap();
+        let ast = vord_parser_php::PhpParser::new().parse(&file).unwrap();
         DbCallInLoopRule::new().check(&file, &ast)
     }
 

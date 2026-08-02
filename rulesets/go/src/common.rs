@@ -1,6 +1,6 @@
 //! Shared AST helpers for Go rules.
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 pub(crate) fn is_other(kind: &NodeKind, name: &str) -> bool {
     matches!(kind, NodeKind::Other(k) if k.as_ref() == name)

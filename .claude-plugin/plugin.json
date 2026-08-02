@@ -1,10 +1,10 @@
 {
-  "name": "yunq-guardrail",
+  "name": "vord-guardrail",
   "version": "0.3.0",
   "description": "Denies an agent's write before it reaches disk when it introduces a security finding or touches a protected path. Deterministic: the verdict comes from a static analyzer, not from a model asked to check its own work.",
   "license": "MIT",
-  "homepage": "https://github.com/pmaojo/yunq",
-  "repository": "https://github.com/pmaojo/yunq",
+  "homepage": "https://github.com/pmaojo/vord",
+  "repository": "https://github.com/pmaojo/vord",
   "author": {
     "name": "pmaojo"
   },

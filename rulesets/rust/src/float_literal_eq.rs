@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::{is_other, operator_between};
 
@@ -46,8 +46,8 @@ impl Rule for FloatLiteralEqRule {
         IssueType::Bug
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Comparing a floating-point value to a literal with `==`/`!=` is \
                 fragile: rounding from prior arithmetic often makes mathematically-equal values \
                 compare unequal. Use an epsilon-based comparison instead."
@@ -87,14 +87,14 @@ impl Rule for FloatLiteralEqRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         FloatLiteralEqRule::new().check(&file, &ast)
     }
 

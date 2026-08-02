@@ -5,9 +5,9 @@
 //! names) are mapped.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     HtmlParser,
     LanguageIdentifier::html(),
     tree_sitter_html::LANGUAGE,
@@ -20,15 +20,15 @@ fn map_kind(kind: &str) -> NodeKind {
         "attribute_value" | "quoted_attribute_value" => NodeKind::StringLiteral,
         "tag_name" => NodeKind::Identifier,
         "comment" => NodeKind::Comment,
-        other => NodeKind::Other(yunq_ast::intern(other)),
+        other => NodeKind::Other(vord_ast::intern(other)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("test.html", code, LanguageIdentifier::html()).unwrap();

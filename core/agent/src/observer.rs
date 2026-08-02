@@ -1,4 +1,4 @@
-//! Live progress reporting (roadmap A6) — the port `yunq agent tui` renders
+//! Live progress reporting (roadmap A6) — the port `vord agent tui` renders
 //! against, and nothing else.
 //!
 //! An [`Observer`] is purely downstream: it is told what already happened
@@ -12,7 +12,7 @@
 use crate::completion::Completion;
 use crate::runtime::RunOutcome;
 use crate::session::{AssistantTurn, ToolCall, ToolResult};
-use yunq_agent_policy::Evaluation;
+use vord_agent_policy::Evaluation;
 
 /// Something worth showing a human (or a test spy) about a run in progress.
 /// Carries owned data rather than references so an observer may buffer,

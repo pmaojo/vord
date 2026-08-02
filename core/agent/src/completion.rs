@@ -22,9 +22,9 @@
 
 use std::collections::HashMap;
 
-use yunq_profiles::{RuleId, Severity};
+use vord_profiles::{RuleId, Severity};
 
-/// A finding with the file it was found in. `yunq_agent_policy::Finding`
+/// A finding with the file it was found in. `vord_agent_policy::Finding`
 /// deliberately has no path (a policy judges one file at a time and already
 /// knows which); a task-scope comparison spans files and needs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,7 +127,7 @@ fn introduced(baseline: &[LocatedFinding], current: &[LocatedFinding]) -> Vec<Lo
 /// Judges the task complete.
 ///
 /// `target` is the rule the task set out to remove, when the task named one
-/// (`yunq agent run --fix <rule>`); a free-form task passes `None` and is
+/// (`vord agent run --fix <rule>`); a free-form task passes `None` and is
 /// then judged on regressions alone. Regressions are checked *after* the
 /// target, because an agent that removed the target by introducing something
 /// worse should be told about the thing it introduced, and an agent that

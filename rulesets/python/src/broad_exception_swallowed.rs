@@ -3,8 +3,8 @@
 //! discarded, with no logging, re-raise, or recovery. This hides real
 //! failures instead of handling them.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const BROAD_TYPES: &[&str] = &["Exception", "BaseException"];
 
@@ -69,8 +69,8 @@ impl Rule for BroadExceptionSwallowedRule {
         15
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Catching a broad exception and doing nothing with it hides real failures; at minimum log the exception, or narrow the caught type.".into(),
             tags: vec!["bug".into(), "error-handling".into()],
             cwe: Some(390),
@@ -92,13 +92,13 @@ impl Rule for BroadExceptionSwallowedRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         BroadExceptionSwallowedRule::new().check(&file, &ast)

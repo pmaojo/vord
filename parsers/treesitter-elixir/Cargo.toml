@@ -1,19 +1,19 @@
 [package]
-name = "yunq-parser-elixir"
+name = "vord-parser-elixir"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Elixir parser adapter (tree-sitter) for the yunq analysis engine"
+description = "Elixir parser adapter (tree-sitter) for the vord analysis engine"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-rules-engine = { workspace = true }
-yunq-cpd = { workspace = true }
-yunq-treesitter-tokens = { workspace = true }
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-cpd = { workspace = true }
+vord-treesitter-tokens = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-elixir = "0.3.5"

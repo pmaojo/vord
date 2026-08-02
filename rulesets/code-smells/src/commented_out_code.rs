@@ -1,8 +1,8 @@
 //! Rule: flags comments whose content looks like commented-out code rather
 //! than prose documentation.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 const CODE_KEYWORDS: &[&str] = &[
     "if ",
@@ -104,7 +104,7 @@ mod tests {
     fn comment(text: &str) -> AstNode {
         AstNode::new(
             NodeKind::Comment,
-            yunq_ast::Span::new(1, 1, 1, text.len() as u32),
+            vord_ast::Span::new(1, 1, 1, text.len() as u32),
             text,
             vec![],
         )

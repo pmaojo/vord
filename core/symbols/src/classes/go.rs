@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 use super::{ClassInfo, MemberInfo, MethodInfo, first_identifier, function_params, is_other};
 use crate::types::declared_type;

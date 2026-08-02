@@ -1,4 +1,4 @@
-//! Pure glue between yunq's domain (`Issue`, `Severity`, `Span`) and the LSP
+//! Pure glue between vord's domain (`Issue`, `Severity`, `Span`) and the LSP
 //! wire types (`Diagnostic`, `DiagnosticSeverity`, `Range`). Kept free of any
 //! transport/runtime concerns so it is unit-testable without a live client.
 //!
@@ -9,7 +9,7 @@
 //! they are exercised by the CLI/server today and are future connected-mode
 //! work here, not silently approximated.
 //!
-//! Position mapping uses byte/char offsets like the rest of yunq (tree-sitter
+//! Position mapping uses byte/char offsets like the rest of vord (tree-sitter
 //! columns are byte offsets, not UTF-16 code units). This matches LSP for
 //! ASCII source; it under/overshoots on lines with multi-byte characters —
 //! a known simplification, not a claim of full UTF-16 compliance.
@@ -17,11 +17,11 @@
 use std::path::Path;
 
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range, Url};
-use yunq_ast::LanguageIdentifier;
-use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
-use yunq_rules_engine::{Issue, Severity};
+use vord_ast::LanguageIdentifier;
+use vord_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
+use vord_rules_engine::{Issue, Severity};
 
-/// The language for a document URI, if yunq has a parser for it.
+/// The language for a document URI, if vord has a parser for it.
 pub fn language_for(uri: &Url) -> Option<LanguageIdentifier> {
     let path = uri.path();
     let extension = Path::new(path).extension()?.to_str()?;
@@ -39,7 +39,7 @@ pub async fn diagnose(uri: &Url, text: &str) -> Vec<Diagnostic> {
         .and_then(|n| n.to_str())
         .unwrap_or("document")
         .to_string();
-    let Ok(file) = yunq_ast::SourceFile::new(relative_path, text.to_string(), language) else {
+    let Ok(file) = vord_ast::SourceFile::new(relative_path, text.to_string(), language) else {
         return Vec::new();
     };
 
@@ -47,7 +47,7 @@ pub async fn diagnose(uri: &Url, text: &str) -> Vec<Diagnostic> {
     // keystrokes, and this avoids the in-memory storage growing unbounded
     // over a long editing session.
     let service =
-        yunq_cli::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
+        vord_cli::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
     let Ok(report) = service.analyze_files(std::slice::from_ref(&file)).await else {
         return Vec::new();
     };
@@ -66,7 +66,7 @@ fn issue_to_diagnostic(issue: &Issue) -> Diagnostic {
             issue.rule().to_string(),
         )),
         code_description: None,
-        source: Some("yunq".to_string()),
+        source: Some("vord".to_string()),
         message: issue.message().to_string(),
         related_information: None,
         tags: None,
@@ -74,8 +74,8 @@ fn issue_to_diagnostic(issue: &Issue) -> Diagnostic {
     }
 }
 
-fn span_to_range(span: yunq_ast::Span) -> Range {
-    // yunq spans are 1-based; LSP positions are 0-based.
+fn span_to_range(span: vord_ast::Span) -> Range {
+    // vord spans are 1-based; LSP positions are 0-based.
     Range {
         start: Position {
             line: span.start_line.saturating_sub(1),
@@ -110,9 +110,9 @@ mod tests {
         let diagnostics = diagnose(&uri("a.ts"), "const dbPassword = \"hunter2\";\n").await;
         assert_eq!(diagnostics.len(), 1);
         let d = &diagnostics[0];
-        assert_eq!(d.source.as_deref(), Some("yunq"));
+        assert_eq!(d.source.as_deref(), Some("vord"));
         assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-        // 1-based col 20 in yunq -> 0-based character 19 in LSP.
+        // 1-based col 20 in vord -> 0-based character 19 in LSP.
         assert_eq!(
             d.range.start,
             Position {

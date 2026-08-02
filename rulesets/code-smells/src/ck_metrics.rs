@@ -1,10 +1,10 @@
 //! Rule: Chidamber & Kemerer (CK) Object-Oriented Quality Metrics Suite.
 //! Measures WMC (Weighted Methods per Class) and CBO (Coupling Between Objects).
-//! Part of the SQuaD 725-metric taxonomy alignment for yunq.
+//! Part of the SQuaD 725-metric taxonomy alignment for vord.
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::ClassRegistry;
+use vord_ast::{AstNode, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::ClassRegistry;
 
 pub struct CkMetricsRule {
     id: RuleId,
@@ -111,8 +111,8 @@ impl CrossFileRule for CkMetricsRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     #[test]
     fn test_ck_metrics_rule_flags_high_wmc() {
@@ -126,7 +126,7 @@ mod tests {
         }
         "#;
         let file = SourceFile::new("test.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];

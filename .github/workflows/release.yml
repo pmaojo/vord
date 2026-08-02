@@ -2,7 +2,7 @@ name: Release
 
 # Every distribution channel hangs off a tag: the GitHub Action, the install
 # script, the npm wrapper, the Homebrew formula and the CI templates all
-# resolve binaries from `releases/latest/download/yunq-<target>`. Renaming an
+# resolve binaries from `releases/latest/download/vord-<target>`. Renaming an
 # asset here breaks all of them at once.
 
 on:
@@ -56,7 +56,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }} -p yunq-cli -p yunq-lsp
+        run: cargo build --release --locked --target ${{ matrix.target }} -p vord-cli -p vord-lsp
 
       - name: Stage artifacts
         shell: bash
@@ -64,11 +64,11 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           bin="target/${{ matrix.target }}/release"
-          cp "$bin/yunq${{ matrix.ext }}"  "dist/yunq-${{ matrix.target }}${{ matrix.ext }}"
-          cp "$bin/yunq-lsp${{ matrix.ext }}"  "dist/yunq-lsp-${{ matrix.target }}${{ matrix.ext }}"
+          cp "$bin/vord${{ matrix.ext }}"  "dist/vord-${{ matrix.target }}${{ matrix.ext }}"
+          cp "$bin/vord-lsp${{ matrix.ext }}"  "dist/vord-lsp-${{ matrix.target }}${{ matrix.ext }}"
           cd dist
           # Homebrew and install.sh both verify against these.
-          for f in yunq-*; do
+          for f in vord-*; do
             if command -v sha256sum >/dev/null; then sha256sum "$f" >> "$f.sha256"
             else shasum -a 256 "$f" >> "$f.sha256"; fi
           done
@@ -79,7 +79,7 @@ jobs:
         # a cross-built artifact runs here.
         if: matrix.target != 'aarch64-unknown-linux-musl' || runner.arch == 'ARM64'
         shell: bash
-        run: ./dist/yunq-${{ matrix.target }}${{ matrix.ext }} --version
+        run: ./dist/vord-${{ matrix.target }}${{ matrix.ext }} --version
 
       - uses: actions/upload-artifact@v4
         with:
@@ -166,8 +166,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}" \
-          bash packaging/homebrew/render-formula.sh artifacts > yunq.rb
-          cat yunq.rb
+          bash packaging/homebrew/render-formula.sh artifacts > vord.rb
+          cat vord.rb
       - name: Push to the tap
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -178,14 +178,14 @@ jobs:
           fi
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap
           mkdir -p tap/Formula
-          cp yunq.rb tap/Formula/yunq.rb
+          cp vord.rb tap/Formula/vord.rb
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/yunq.rb
-          git commit -m "yunq ${GITHUB_REF_NAME}" || { echo "formula unchanged"; exit 0; }
+          git add Formula/vord.rb
+          git commit -m "vord ${GITHUB_REF_NAME}" || { echo "formula unchanged"; exit 0; }
           git push
       - uses: actions/upload-artifact@v4
         with:
           name: homebrew-formula
-          path: yunq.rb
+          path: vord.rb

@@ -21,8 +21,8 @@
 //! enums and trait objects), so a three-link ladder is already a design
 //! choice rather than a language limitation.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
@@ -240,7 +240,7 @@ impl Rule for TypeCheckChainRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         let nested = nested_else_if_spans(ast);
@@ -270,11 +270,11 @@ impl Rule for TypeCheckChainRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         TypeCheckChainRule::default().check(&file, &ast)
@@ -282,7 +282,7 @@ mod tests {
 
     fn py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         TypeCheckChainRule::default().check(&file, &ast)
@@ -290,7 +290,7 @@ mod tests {
 
     fn rs(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         TypeCheckChainRule::default().check(&file, &ast)
     }
 
@@ -389,7 +389,7 @@ func describe(s interface{}) string {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         let findings = TypeCheckChainRule::default().check(&file, &ast);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("3 runtime type tests"));
@@ -421,7 +421,7 @@ func describe(s interface{}) string {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(TypeCheckChainRule::default().check(&file, &ast).is_empty());

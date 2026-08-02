@@ -6,9 +6,9 @@
 //!
 //! Zero-config by design, and that is the point of it next to
 //! `architecture:boundary-violation`: that rule enforces the components *you*
-//! declared in `yunq.toml`, so it can say nothing at all until someone writes
+//! declared in `vord.toml`, so it can say nothing at all until someone writes
 //! the table. This one reads the layering vocabulary the industry already
-//! shares off the path topology (`yunq_import_graph::layer_of`) and fails a
+//! shares off the path topology (`vord_import_graph::layer_of`) and fails a
 //! build on the first inversion — no config, first scan.
 //!
 //! Whole-program (`CrossFileRule`), built on
@@ -16,9 +16,9 @@
 //! (`src/domain`, `src/infrastructure`) is covered without a workspace crate
 //! index, alongside TypeScript and Python relative/absolute imports.
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_import_graph::{ImportGraph, inward_dependency_violations};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, SourceFile};
+use vord_import_graph::{ImportGraph, inward_dependency_violations};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct HexagonalLayerRule {
     id: RuleId,
@@ -100,11 +100,11 @@ impl CrossFileRule for HexagonalLayerRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn parsed_ts(files: &[(&str, &str)]) -> Vec<(SourceFile, AstNode)> {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         files
             .iter()
             .map(|(path, code)| {
@@ -116,7 +116,7 @@ mod tests {
     }
 
     fn parsed_rust(files: &[(&str, &str)]) -> Vec<(SourceFile, AstNode)> {
-        let parser = yunq_parser_rust::RustParser::new();
+        let parser = vord_parser_rust::RustParser::new();
         files
             .iter()
             .map(|(path, code)| {
@@ -128,7 +128,7 @@ mod tests {
     }
 
     fn parsed_python(files: &[(&str, &str)]) -> Vec<(SourceFile, AstNode)> {
-        let parser = yunq_parser_python::PythonParser::new();
+        let parser = vord_parser_python::PythonParser::new();
         files
             .iter()
             .map(|(path, code)| {

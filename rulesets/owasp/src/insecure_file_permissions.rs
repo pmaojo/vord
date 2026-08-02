@@ -1,7 +1,7 @@
 //! Rule: flags setting overly permissive file permissions (e.g., world-writable).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct InsecureFilePermissionsRule {
     id: RuleId,
@@ -40,8 +40,8 @@ impl Rule for InsecureFilePermissionsRule {
         IssueType::Vulnerability
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Setting excessively permissive file permissions (e.g., world-writable) allows unauthorized users to read, modify, or execute files.".into(),
             tags: vec!["security".into(), "owasp-a01".into(), "cwe-732".into()],
             cwe: Some(732),
@@ -50,7 +50,7 @@ impl Rule for InsecureFilePermissionsRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
 
@@ -112,11 +112,11 @@ impl Rule for InsecureFilePermissionsRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         InsecureFilePermissionsRule::new().check(&file, &ast)
@@ -124,7 +124,7 @@ mod tests {
 
     fn check_py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         InsecureFilePermissionsRule::new().check(&file, &ast)
@@ -132,7 +132,7 @@ mod tests {
 
     fn check_go(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("app.go", code, LanguageIdentifier::go()).unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         InsecureFilePermissionsRule::new().check(&file, &ast)
     }
 

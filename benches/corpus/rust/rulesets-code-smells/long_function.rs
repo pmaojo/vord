@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 /// Flags functions longer than a configurable number of lines. Skips
 /// `tests/*.rs` integration test files — a single long, sequential,
@@ -36,7 +36,7 @@ impl Rule for LongFunctionRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         ast.descendants()
@@ -58,8 +58,8 @@ impl Rule for LongFunctionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
@@ -68,7 +68,7 @@ mod tests {
         let body: String = (0..10).map(|i| format!("    let x{i} = {i};\n")).collect();
         let code = format!("fn long() {{\n{body}}}\n\nfn short() {{}}\n");
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
 
         let findings = LongFunctionRule::new(5).check(&file, &ast);
         assert_eq!(findings.len(), 1);
@@ -80,7 +80,7 @@ mod tests {
         let body: String = (0..10).map(|i| format!("    let x{i} = {i};\n")).collect();
         let code = format!("fn long() {{\n{body}}}\n");
         let file = SourceFile::new("tests/e2e.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
 
         assert!(LongFunctionRule::new(5).check(&file, &ast).is_empty());
     }

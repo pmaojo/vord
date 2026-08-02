@@ -1,10 +1,10 @@
-//! `yunq swarm` — multi-agent orchestration (roadmap B).
+//! `vord swarm` — multi-agent orchestration (roadmap B).
 //!
 //! Adapted from Uncle Bob's swarm-forge: the protocol, not the
 //! implementation. Worktree-per-agent isolation and durable file-based
 //! handoffs are the load-bearing ideas; swarm-forge coordinates them through
 //! tmux and a shared `scripts/` directory, which is a shell-level answer to a
-//! problem yunq can solve in-process and in-binary.
+//! problem vord can solve in-process and in-binary.
 //!
 //! Pure by construction, like every other `core/` crate: no filesystem, no
 //! process spawning, no clock. [`worktree::plan_worktree`] only computes
@@ -16,7 +16,7 @@
 //! (`AgentPolicy::with_role_scope`) rather than here, since it needs direct
 //! access to that crate's compiled `GlobSet`. [`topology::resolve_topology`]
 //! (roadmap B4) is the last pure decision a pipeline run needs: which roles,
-//! in what order — driving them (creating worktrees, running `yunq agent`,
+//! in what order — driving them (creating worktrees, running `vord agent`,
 //! moving handoffs) is I/O and lives in `bin/cli::swarm`.
 
 pub mod handoff;

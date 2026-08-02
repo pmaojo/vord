@@ -1,17 +1,17 @@
 [package]
-name = "yunq-infra-azure"
+name = "vord-infra-azure"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Azure DevOps adapter for yunq"
+description = "Azure DevOps adapter for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-rules-engine = { workspace = true }
+vord-rules-engine = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

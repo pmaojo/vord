@@ -38,7 +38,7 @@ pub use sensitive_data_in_web_storage::SensitiveDataInWebStorageRule;
 pub use swallowed_exception::SwallowedExceptionRule;
 pub use var_declaration::VarDeclarationRule;
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

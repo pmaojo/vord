@@ -1,4 +1,4 @@
-name: 'yunq Static Analysis'
+name: 'vord Static Analysis'
 description: 'Fast, language-agnostic static analysis with a Clean as You Code quality model and an agent guardrail'
 author: 'pmaojo'
 branding:
@@ -6,13 +6,13 @@ branding:
   color: 'purple'
 
 # Downloads the released binary rather than building from source. The previous
-# version ran `cargo run --bin yunq`, which could never work: a composite
-# action executes inside the *consumer's* checkout, where yunq's sources — and
-# usually Cargo itself — do not exist, and the bin target is `yunq-cli` anyway.
+# version ran `cargo run --bin vord`, which could never work: a composite
+# action executes inside the *consumer's* checkout, where vord's sources — and
+# usually Cargo itself — do not exist, and the bin target is `vord-cli` anyway.
 
 inputs:
   version:
-    description: 'yunq release tag to use, or "latest"'
+    description: 'vord release tag to use, or "latest"'
     required: false
     default: 'latest'
   path:
@@ -20,7 +20,7 @@ inputs:
     required: false
     default: '.'
   args:
-    description: 'Extra arguments appended to `yunq scan` (e.g. --monorepo --coverage lcov.info)'
+    description: 'Extra arguments appended to `vord scan` (e.g. --monorepo --coverage lcov.info)'
     required: false
     default: ''
   format:
@@ -52,7 +52,7 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Install yunq
+    - name: Install vord
       shell: bash
       run: |
         set -euo pipefail
@@ -64,23 +64,23 @@ runs:
           *) echo "::error::unsupported runner: $(uname -s)/$(uname -m)"; exit 1 ;;
         esac
         if [ "${{ inputs.version }}" = "latest" ]; then
-          base="https://github.com/pmaojo/yunq/releases/latest/download"
+          base="https://github.com/pmaojo/vord/releases/latest/download"
         else
-          base="https://github.com/pmaojo/yunq/releases/download/${{ inputs.version }}"
+          base="https://github.com/pmaojo/vord/releases/download/${{ inputs.version }}"
         fi
-        dir="${RUNNER_TEMP}/yunq-bin"
+        dir="${RUNNER_TEMP}/vord-bin"
         mkdir -p "$dir"
-        curl -fsSL "$base/yunq-${target}" -o "$dir/yunq"
-        if curl -fsSL "$base/yunq-${target}.sha256" -o "$dir/sum"; then
-          echo "$(awk '{print $1}' "$dir/sum")  $dir/yunq" | sha256sum -c - \
-            || { echo "::error::yunq checksum mismatch — refusing to run"; exit 1; }
+        curl -fsSL "$base/vord-${target}" -o "$dir/vord"
+        if curl -fsSL "$base/vord-${target}.sha256" -o "$dir/sum"; then
+          echo "$(awk '{print $1}' "$dir/sum")  $dir/vord" | sha256sum -c - \
+            || { echo "::error::vord checksum mismatch — refusing to run"; exit 1; }
         else
-          echo "::warning::no published checksum for yunq-${target} — not verified"
+          echo "::warning::no published checksum for vord-${target} — not verified"
         fi
-        chmod +x "$dir/yunq"
+        chmod +x "$dir/vord"
         echo "$dir" >> "$GITHUB_PATH"
 
-    - name: Run yunq scan
+    - name: Run vord scan
       id: scan
       shell: bash
       env:
@@ -96,7 +96,7 @@ runs:
         read -r -a extra <<< "${{ inputs.args }}"
         [ ${#extra[@]} -gt 0 ] && args+=("${extra[@]}")
 
-        yunq "${args[@]}"
+        vord "${args[@]}"
         code=$?
         echo "exit-code=$code" >> "$GITHUB_OUTPUT"
         exit $code

@@ -1,9 +1,9 @@
 //! Inbound adapter: C → neutral AST via tree-sitter.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     CParser,
     LanguageIdentifier::c(),
     tree_sitter_c::LANGUAGE,
@@ -20,15 +20,15 @@ fn map_kind(kind: &str) -> NodeKind {
         "declaration" | "assignment_expression" => NodeKind::Assignment,
         "field_expression" | "pointer_expression" => NodeKind::MemberAccess,
         "comment" => NodeKind::Comment,
-        other => NodeKind::Other(yunq_ast::intern(other)),
+        other => NodeKind::Other(vord_ast::intern(other)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("test.c", code, LanguageIdentifier::c()).unwrap();

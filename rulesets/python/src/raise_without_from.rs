@@ -5,8 +5,8 @@
 //! chain — `from e` (or `from None` to deliberately suppress it) says
 //! which one was intended.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -57,8 +57,8 @@ impl Rule for RaiseWithoutFromRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Raising a new exception inside an except block with no `from` clause leaves the causal chain implicit; use `raise NewError(...) from e` (or `from None` to deliberately suppress the original) to make it explicit.".into(),
             tags: vec!["maintainability".into(), "error-handling".into()],
             cwe: None,
@@ -79,13 +79,13 @@ impl Rule for RaiseWithoutFromRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         RaiseWithoutFromRule::new().check(&file, &ast)

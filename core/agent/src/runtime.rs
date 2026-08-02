@@ -13,8 +13,8 @@
 
 use std::future::Future;
 
-use yunq_agent_policy::{CircuitBreakerState, Evaluation};
-use yunq_profiles::RuleId;
+use vord_agent_policy::{CircuitBreakerState, Evaluation};
+use vord_profiles::RuleId;
 
 use crate::budget::{Budget, Exhaustion, Ledger, RepeatGuard};
 use crate::completion::{self, Completion, LocatedFinding};
@@ -86,7 +86,7 @@ pub trait Workspace: Send + Sync {
 }
 
 /// Outbound port: the Agent Permission Policy, evaluated on proposed content
-/// that has not been written. The adapter is `yunq hook`'s own judgement path
+/// that has not been written. The adapter is `vord hook`'s own judgement path
 /// — same policy file, same provenance ledger, same Gherkin evidence, same
 /// approvals — so this runtime cannot drift from the guardrail it ships.
 pub trait WriteJudge: Send + Sync {
@@ -138,7 +138,7 @@ impl RunConfig {
 
 /// How a run ended. Six variants, not two: an operator (and workstream B's
 /// orchestrator) has to be able to tell "the analyzer disagreed" from "we ran
-/// out of budget" from "yunq itself failed", and collapsing them into a
+/// out of budget" from "vord itself failed", and collapsing them into a
 /// boolean is how a fail-open guardrail becomes a fail-blind one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunOutcome {
@@ -168,7 +168,7 @@ pub enum RunOutcome {
         turns: u32,
         path: String,
     },
-    /// yunq, the model or the workspace failed. Never conflated with a
+    /// vord, the model or the workspace failed. Never conflated with a
     /// verdict — "we could not look" is not "we looked and saw nothing".
     Failed {
         turns: u32,
@@ -178,8 +178,8 @@ pub enum RunOutcome {
 
 impl RunOutcome {
     /// Distinct exit codes, so a CI step or a swarm supervisor can branch on
-    /// the outcome without parsing prose. `1` stays "yunq broke", matching
-    /// `yunq hook check`'s convention.
+    /// the outcome without parsing prose. `1` stays "vord broke", matching
+    /// `vord hook check`'s convention.
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::Completed { .. } => 0,
@@ -266,7 +266,7 @@ where
         }
     }
 
-    /// Swaps in an observer that watches this run — `yunq agent tui`
+    /// Swaps in an observer that watches this run — `vord agent tui`
     /// (roadmap A6) is the first caller, but any `Observer` (a log line, a
     /// test spy) works identically.
     pub fn with_observer(mut self, observer: impl Observer + 'static) -> Self {

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
-use yunq_cpd::{CloneSet, DuplicationReport};
-use yunq_profiles::{IssueType, MetricKey, Rating, RemediationEffortSummary, RuleId, Severity};
+use vord_cpd::{CloneSet, DuplicationReport};
+use vord_profiles::{IssueType, MetricKey, Rating, RemediationEffortSummary, RuleId, Severity};
 
 use super::hotspot::{Hotspot, HotspotStatus};
 use super::issue::Issue;
@@ -359,7 +359,7 @@ impl FileCoverage {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileFunctionComplexity {
     pub path: String,
-    pub span: yunq_ast::Span,
+    pub span: vord_ast::Span,
     pub cyclomatic: u32,
 }
 
@@ -536,7 +536,7 @@ impl TestReportSummary {
 /// Per-status mutant counts ingested from an external mutation-testing
 /// report (the Stryker "Mutation Testing Elements" JSON schema — StrykerJS,
 /// Stryker.NET, and Infection via its Stryker-format exporter all emit it).
-/// yunq runs no mutants itself; this only aggregates another tool's
+/// vord runs no mutants itself; this only aggregates another tool's
 /// verdicts, the same relationship [`CoverageReport`] has to LCOV/Cobertura.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MutationSummary {
@@ -686,7 +686,7 @@ impl AnalysisReport {
     ///
     /// Imported issues never touch `lines_of_code`: the scan's own file walk
     /// is the single source of truth for size, and an external report may
-    /// well cover files yunq did not scan. That keeps the debt *ratio*
+    /// well cover files vord did not scan. That keeps the debt *ratio*
     /// (and so the maintainability rating) honest when an importer does
     /// supply a non-zero effort.
     pub fn add_external_issues(&mut self, imported: Vec<ExternalIssue>) {
@@ -768,13 +768,13 @@ impl AnalysisReport {
     }
 
     /// Joins `function_complexities` with `coverage_report` into CRAP
-    /// (`CC² × (1−coverage)³ + CC`, `yunq_crap::crap_score`) findings.
+    /// (`CC² × (1−coverage)³ + CC`, `vord_crap::crap_score`) findings.
     /// `None` when no coverage report has been ingested at all — matching
     /// the "absent means not computed" convention every other
     /// coverage-derived measure on this report already uses. A function
     /// with no instrumented line of its own is silently skipped rather than
-    /// scored as 0%-covered (`yunq_crap::score_function`'s own contract).
-    pub fn compute_crap_findings(&self) -> Option<Vec<yunq_crap::CrapFinding>> {
+    /// scored as 0%-covered (`vord_crap::score_function`'s own contract).
+    pub fn compute_crap_findings(&self) -> Option<Vec<vord_crap::CrapFinding>> {
         let coverage_report = self.coverage_report.as_ref()?;
         let files_by_path: BTreeMap<&str, &FileCoverage> = coverage_report
             .files()
@@ -786,7 +786,7 @@ impl AnalysisReport {
                 .iter()
                 .filter_map(|fc| {
                     let file_coverage = files_by_path.get(fc.path.as_str())?;
-                    yunq_crap::score_function(
+                    vord_crap::score_function(
                         &fc.path,
                         fc.span,
                         fc.cyclomatic,
@@ -808,7 +808,7 @@ impl AnalysisReport {
     /// is. Empty when no coverage report has been ingested — the same "absent
     /// means not computed" convention every other coverage-derived measure
     /// uses.
-    pub fn crap_findings(&self) -> Vec<yunq_crap::CrapFinding> {
+    pub fn crap_findings(&self) -> Vec<vord_crap::CrapFinding> {
         self.compute_crap_findings().unwrap_or_default()
     }
 
@@ -823,10 +823,10 @@ impl AnalysisReport {
     /// Maintainability rating (A–E) from the technical debt ratio, not
     /// from the worst severity present.
     pub fn rating(&self) -> Rating {
-        let ratio = yunq_profiles::debt_ratio(
+        let ratio = vord_profiles::debt_ratio(
             self.metrics.debt_minutes() as f64,
             self.metrics.lines_of_code() as f64,
-            yunq_profiles::DEFAULT_DEV_COST_MINUTES_PER_LINE,
+            vord_profiles::DEFAULT_DEV_COST_MINUTES_PER_LINE,
         );
         Rating::from_debt_ratio(ratio)
     }
@@ -1068,7 +1068,7 @@ const MEASURE_TABLE: &[(&str, MeasureFn)] = &[
         Some(
             r.crap_findings()
                 .iter()
-                .filter(|f| f.score > yunq_crap::HIGH_RISK_THRESHOLD)
+                .filter(|f| f.score > vord_crap::HIGH_RISK_THRESHOLD)
                 .count() as f64,
         )
     }),
@@ -1097,7 +1097,7 @@ mod tests {
             "mutation_score",
         ] {
             assert_eq!(
-                report.measure(&yunq_profiles::MetricKey::new(key).unwrap()),
+                report.measure(&vord_profiles::MetricKey::new(key).unwrap()),
                 None
             );
         }
@@ -1117,7 +1117,7 @@ mod tests {
             pending_mutants: 0,
         });
 
-        let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
+        let measure = |key: &str| report.measure(&vord_profiles::MetricKey::new(key).unwrap());
         assert_eq!(measure("mutants"), Some(12.0));
         assert_eq!(measure("mutants_killed"), Some(6.0));
         assert_eq!(measure("mutants_survived"), Some(2.0));
@@ -1142,11 +1142,11 @@ mod tests {
         let report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new())
             .with_function_complexities(vec![FileFunctionComplexity {
                 path: "a.rs".into(),
-                span: yunq_ast::Span::new(1, 1, 5, 1),
+                span: vord_ast::Span::new(1, 1, 5, 1),
                 cyclomatic: 20,
             }]);
         assert_eq!(report.compute_crap_findings(), None);
-        let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
+        let measure = |key: &str| report.measure(&vord_profiles::MetricKey::new(key).unwrap());
         assert_eq!(measure("crap_worst_score"), None);
         assert_eq!(measure("crap_high_risk_functions"), None);
     }
@@ -1157,12 +1157,12 @@ mod tests {
             .with_function_complexities(vec![
                 FileFunctionComplexity {
                     path: "a.rs".into(),
-                    span: yunq_ast::Span::new(2, 1, 2, 1),
+                    span: vord_ast::Span::new(2, 1, 2, 1),
                     cyclomatic: 10, // line 2 alone is 0% covered -> 100 + 10 = 110, high risk.
                 },
                 FileFunctionComplexity {
                     path: "a.rs".into(),
-                    span: yunq_ast::Span::new(1, 1, 1, 1),
+                    span: vord_ast::Span::new(1, 1, 1, 1),
                     cyclomatic: 1, // line 1 alone is fully covered -> score 1, below the refactor band.
                 },
             ]);
@@ -1181,9 +1181,9 @@ mod tests {
         );
         assert_eq!(findings[0].cyclomatic, 10);
 
-        let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
+        let measure = |key: &str| report.measure(&vord_profiles::MetricKey::new(key).unwrap());
         assert_eq!(measure("crap_high_risk_functions"), Some(1.0));
-        assert!(measure("crap_worst_score").unwrap() > yunq_crap::HIGH_RISK_THRESHOLD);
+        assert!(measure("crap_worst_score").unwrap() > vord_crap::HIGH_RISK_THRESHOLD);
     }
 
     #[test]
@@ -1207,7 +1207,7 @@ mod tests {
             }],
         });
 
-        let measure = |key: &str| report.measure(&yunq_profiles::MetricKey::new(key).unwrap());
+        let measure = |key: &str| report.measure(&vord_profiles::MetricKey::new(key).unwrap());
         assert_eq!(measure("tests"), Some(10.0));
         assert_eq!(measure("tests_passed"), Some(6.0));
         assert_eq!(measure("test_failures"), Some(2.0));
@@ -1226,7 +1226,7 @@ mod tests {
     #[test]
     fn branch_coverage_measure_is_absent_until_branches_are_added() {
         let mut report = AnalysisReport::new(Vec::new(), Vec::new(), Metrics::new());
-        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let key = |raw: &str| vord_profiles::MetricKey::new(raw).unwrap();
         assert_eq!(report.measure(&key("branch_coverage")), None);
 
         let mut summary = CoverageSummary::default();
@@ -1410,21 +1410,21 @@ mod tests {
                 Severity::Blocker,
                 "boom",
                 "src/a.rs",
-                yunq_ast::Span::new(1, 0, 1, 1),
+                vord_ast::Span::new(1, 0, 1, 1),
             ),
             Issue::new(
                 RuleId::new("owasp:sql-injection").unwrap(),
                 Severity::Blocker,
                 "boom again",
                 "src/a.rs",
-                yunq_ast::Span::new(2, 0, 2, 1),
+                vord_ast::Span::new(2, 0, 2, 1),
             ),
             Issue::new(
                 RuleId::new("smells:x").unwrap(),
                 Severity::Minor,
                 "smell",
                 "src/b.rs",
-                yunq_ast::Span::new(1, 0, 1, 1),
+                vord_ast::Span::new(1, 0, 1, 1),
             ),
         ];
         let report = AnalysisReport::new(issues, Vec::new(), Metrics::new());
@@ -1469,7 +1469,7 @@ mod tests {
 
         assert_eq!(report.reliability_rating(), Rating::E);
         assert_eq!(report.security_rating(), Rating::B);
-        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let key = |raw: &str| vord_profiles::MetricKey::new(raw).unwrap();
         assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
         assert_eq!(report.measure(&key("security_rating")), Some(2.0));
         assert_eq!(report.measure(&key("maintainability_rating")), Some(1.0));
@@ -1498,7 +1498,7 @@ mod tests {
         // penalty at its 50-point maximum. The detector reports grouped
         // occurrences and a distinct line count; both must survive the
         // trip into `Metrics`.
-        use yunq_cpd::CloneRegion;
+        use vord_cpd::CloneRegion;
         let region = |file: &str| CloneRegion {
             file: file.into(),
             start_line: 1,
@@ -1535,7 +1535,7 @@ mod tests {
         // fixed 100-point budget saturates to 0 for any codebase past a few
         // hundred/thousand issues, regardless of how sparse those issues
         // actually are relative to the code. 44 major issues in 60k lines
-        // (yunq's own size when this was found) is a healthy ~0.7 per
+        // (vord's own size when this was found) is a healthy ~0.7 per
         // KLOC — nowhere near the two letter-grade ratings' worst-severity
         // algorithm would call risky, and the score must reflect that.
         let mut metrics = Metrics::new();
@@ -1571,14 +1571,14 @@ mod tests {
 
     #[test]
     fn external_issues_fold_into_severity_counts_debt_and_the_security_rating() {
-        let key = |raw: &str| yunq_profiles::MetricKey::new(raw).unwrap();
+        let key = |raw: &str| vord_profiles::MetricKey::new(raw).unwrap();
         let issue = |rule: &str, severity| {
             Issue::new(
                 RuleId::new(rule).unwrap(),
                 severity,
                 "imported",
                 "src/app.py",
-                yunq_ast::Span::new(1, 1, 1, 1),
+                vord_ast::Span::new(1, 1, 1, 1),
             )
         };
 
@@ -1618,7 +1618,7 @@ mod tests {
                 Severity::Major,
                 "weak hash",
                 "hash.go",
-                yunq_ast::Span::new(3, 1, 3, 9),
+                vord_ast::Span::new(3, 1, 3, 9),
             ),
             issue_type: IssueType::Vulnerability,
             remediation_effort_minutes: 15,

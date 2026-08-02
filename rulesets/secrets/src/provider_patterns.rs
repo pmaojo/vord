@@ -7,23 +7,23 @@
 //! language, which matters for provider keys that leak outside source code.
 
 use regex::Regex;
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 #[rustfmt::skip]
 const PROVIDER_SPECS: &[(&str, &str, &str)] = &[
-    ("secrets:aws-access-key-id", "AWS access key id", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), // yunq-ignore
-    ("secrets:aws-secret-access-key", "AWS secret access key assigned to an `aws_secret_access_key`-named field", r#"(?i)aws_secret_access_key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}['"]?"#), // yunq-ignore
-    ("secrets:gcp-api-key", "Google Cloud API key", r"\bAIza[0-9A-Za-z_\-]{35}\b"), // yunq-ignore
-    ("secrets:gcp-service-account-key", "Google Cloud service account private key (JSON key file)", r#""private_key"\s*:\s*"-----BEGIN (RSA )?PRIVATE KEY"#), // yunq-ignore
-    ("secrets:azure-storage-connection-string", "Azure Storage account connection string account key", r"AccountKey=[A-Za-z0-9+/]{40,}={0,2}"), // yunq-ignore
-    ("secrets:azure-sas-token", "Azure shared access signature (SAS) token", r"[?&]sv=\d{4}-\d{2}-\d{2}[^\s\x22\x27]*[?&]sig=[A-Za-z0-9%]{20,}"), // yunq-ignore
-    ("secrets:stripe-live-key", "Stripe live secret/publishable/restricted key", r"\b(?:sk|pk|rk)_live_[0-9a-zA-Z]{24,}\b"), // yunq-ignore
-    ("secrets:private-key-block", "PEM-encoded private key material", r"-----BEGIN ((RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY-----"), // yunq-ignore
-    ("secrets:github-token", "GitHub personal access / OAuth / app / refresh token", r"\bgh[oprsu]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b"), // yunq-ignore
-    ("secrets:slack-token", "Slack API token", r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"), // yunq-ignore
-    ("secrets:npm-token", "npm registry access token", r"\bnpm_[A-Za-z0-9]{36,}\b"), // yunq-ignore
-    ("secrets:jwt-like-token", "JWT-shaped token (base64url header.payload.signature)", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), // yunq-ignore
+    ("secrets:aws-access-key-id", "AWS access key id", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), // vord-ignore
+    ("secrets:aws-secret-access-key", "AWS secret access key assigned to an `aws_secret_access_key`-named field", r#"(?i)aws_secret_access_key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}['"]?"#), // vord-ignore
+    ("secrets:gcp-api-key", "Google Cloud API key", r"\bAIza[0-9A-Za-z_\-]{35}\b"), // vord-ignore
+    ("secrets:gcp-service-account-key", "Google Cloud service account private key (JSON key file)", r#""private_key"\s*:\s*"-----BEGIN (RSA )?PRIVATE KEY"#), // vord-ignore
+    ("secrets:azure-storage-connection-string", "Azure Storage account connection string account key", r"AccountKey=[A-Za-z0-9+/]{40,}={0,2}"), // vord-ignore
+    ("secrets:azure-sas-token", "Azure shared access signature (SAS) token", r"[?&]sv=\d{4}-\d{2}-\d{2}[^\s\x22\x27]*[?&]sig=[A-Za-z0-9%]{20,}"), // vord-ignore
+    ("secrets:stripe-live-key", "Stripe live secret/publishable/restricted key", r"\b(?:sk|pk|rk)_live_[0-9a-zA-Z]{24,}\b"), // vord-ignore
+    ("secrets:private-key-block", "PEM-encoded private key material", r"-----BEGIN ((RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY-----"), // vord-ignore
+    ("secrets:github-token", "GitHub personal access / OAuth / app / refresh token", r"\bgh[oprsu]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b"), // vord-ignore
+    ("secrets:slack-token", "Slack API token", r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"), // vord-ignore
+    ("secrets:npm-token", "npm registry access token", r"\bnpm_[A-Za-z0-9]{36,}\b"), // vord-ignore
+    ("secrets:jwt-like-token", "JWT-shaped token (base64url header.payload.signature)", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), // vord-ignore
 ];
 
 /// A single provider-signature rule: a compiled regex checked against every
@@ -77,15 +77,15 @@ impl Rule for RegexSecretRule {
         if *ast.kind() != NodeKind::SourceUnit {
             return Vec::new();
         }
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
-        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
             let line_no = (idx + 1) as u32;
-            if yunq_rules_engine::in_ranges(&test_ranges, line_no) {
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
                 continue;
             }
             if self.pattern.is_match(line) {
@@ -109,8 +109,8 @@ pub fn all_provider_rules() -> Vec<Box<dyn Rule>> {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
@@ -121,7 +121,7 @@ mod tests {
             .unwrap_or_else(|| panic!("no such spec: {id}"));
         let rule = RegexSecretRule::from_spec(spec);
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         rule.check(&file, &ast)

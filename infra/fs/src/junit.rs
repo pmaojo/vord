@@ -13,7 +13,7 @@
 
 use quick_xml::Reader;
 use quick_xml::events::{BytesEnd, BytesStart, Event};
-use yunq_rules_engine::{TestReportSummary, TestSuiteSummary};
+use vord_rules_engine::{TestReportSummary, TestSuiteSummary};
 
 #[derive(Debug, thiserror::Error)]
 pub enum JunitError {

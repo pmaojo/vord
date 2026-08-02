@@ -2,7 +2,7 @@
 //! "Mutation Testing Elements" JSON report schema — the format StrykerJS,
 //! Stryker.NET and Infection (via its Stryker-format exporter) all emit —
 //! into a [`MutationSummary`]. One importer, same relationship SARIF has to
-//! static-analysis tools: yunq runs no mutants itself, it aggregates
+//! static-analysis tools: vord runs no mutants itself, it aggregates
 //! another tool's kill/survive verdicts into a measure the quality gate can
 //! act on.
 //!
@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
-use yunq_rules_engine::MutationSummary;
+use vord_rules_engine::MutationSummary;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MutationParseError {

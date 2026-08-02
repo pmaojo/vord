@@ -12,9 +12,9 @@
 
 use std::collections::HashMap;
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry};
+use vord_ast::{AstNode, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry};
 
 fn references_name(body: &AstNode, name: &str) -> bool {
     body.descendants()
@@ -109,12 +109,12 @@ impl CrossFileRule for OpenClosedViolationRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -172,7 +172,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (shape_file.clone(), parser.parse(&shape_file).unwrap()),
             (square_file.clone(), parser.parse(&square_file).unwrap()),
@@ -192,7 +192,7 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];

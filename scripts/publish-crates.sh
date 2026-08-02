@@ -22,34 +22,34 @@ DRY=""
 # Topological order: a crate may only be published after everything it depends
 # on is already on the registry. Leaves first, composition roots last.
 CRATES=(
-  yunq-ast
-  yunq-profiles
-  yunq-treesitter-tokens
-  yunq-symbols
-  yunq-import-graph
-  yunq-cpd
-  yunq-agent-policy
-  yunq-rules-engine
-  yunq-taint
-  yunq-remediation
+  vord-ast
+  vord-profiles
+  vord-treesitter-tokens
+  vord-symbols
+  vord-import-graph
+  vord-cpd
+  vord-agent-policy
+  vord-rules-engine
+  vord-taint
+  vord-remediation
 
-  yunq-parser-typescript yunq-parser-rust yunq-parser-python yunq-parser-go
-  yunq-parser-java yunq-parser-c yunq-parser-cpp yunq-parser-php
-  yunq-parser-dockerfile yunq-parser-csharp yunq-parser-ruby yunq-parser-kotlin
-  yunq-parser-swift yunq-parser-scala yunq-parser-html yunq-parser-css
-  yunq-parser-xml yunq-parser-json yunq-parser-yaml yunq-parser-hcl
-  yunq-parser-bash yunq-parser-groovy yunq-parser-lua yunq-parser-elixir
+  vord-parser-typescript vord-parser-rust vord-parser-python vord-parser-go
+  vord-parser-java vord-parser-c vord-parser-cpp vord-parser-php
+  vord-parser-dockerfile vord-parser-csharp vord-parser-ruby vord-parser-kotlin
+  vord-parser-swift vord-parser-scala vord-parser-html vord-parser-css
+  vord-parser-xml vord-parser-json vord-parser-yaml vord-parser-hcl
+  vord-parser-bash vord-parser-groovy vord-parser-lua vord-parser-elixir
 
-  yunq-rules-owasp yunq-rules-smells yunq-rules-iac yunq-rules-a11y
-  yunq-rules-react yunq-rules-secrets yunq-rules-rust yunq-rules-python
-  yunq-rules-architecture yunq-rules-reactive yunq-rules-typescript
-  yunq-rules-php yunq-rules-go yunq-rules-ai-agent
+  vord-rules-owasp vord-rules-smells vord-rules-iac vord-rules-a11y
+  vord-rules-react vord-rules-secrets vord-rules-rust vord-rules-python
+  vord-rules-architecture vord-rules-reactive vord-rules-typescript
+  vord-rules-php vord-rules-go vord-rules-ai-agent
 
-  yunq-infra-memory yunq-infra-fs yunq-infra-github yunq-infra-gitlab
-  yunq-infra-bitbucket yunq-infra-azure yunq-infra-pdf yunq-infra-llm
+  vord-infra-memory vord-infra-fs vord-infra-github vord-infra-gitlab
+  vord-infra-bitbucket vord-infra-azure vord-infra-pdf vord-infra-llm
 
-  yunq-cli
-  yunq-lsp
+  vord-cli
+  vord-lsp
 )
 
 echo "Publishing ${#CRATES[@]} crates${DRY:+ (dry run)}"

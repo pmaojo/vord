@@ -1,4 +1,4 @@
-//! Application wiring for the yunq CLI: composes the default parsers,
+//! Application wiring for the vord CLI: composes the default parsers,
 //! rulesets and profile into an `AnalyzerService` and exposes the scan
 //! use-case plus the output DTOs (serialization lives here, at the edge —
 //! never on domain types).
@@ -8,33 +8,33 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use yunq_infra_fs::FileAnalysisCache;
-use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
-use yunq_parser_bash::BashParser;
-use yunq_parser_c::CParser;
-use yunq_parser_cpp::CppParser;
-use yunq_parser_csharp::CSharpParser;
-use yunq_parser_css::CssParser;
-use yunq_parser_dockerfile::DockerfileParser;
-use yunq_parser_elixir::ElixirParser;
-use yunq_parser_go::GoParser;
-use yunq_parser_groovy::GroovyParser;
-use yunq_parser_hcl::HclParser;
-use yunq_parser_html::HtmlParser;
-use yunq_parser_java::JavaParser;
-use yunq_parser_json::JsonParser;
-use yunq_parser_kotlin::KotlinParser;
-use yunq_parser_lua::LuaParser;
-use yunq_parser_php::PhpParser;
-use yunq_parser_python::PythonParser;
-use yunq_parser_ruby::RubyParser;
-use yunq_parser_rust::RustParser;
-use yunq_parser_scala::ScalaParser;
-use yunq_parser_swift::SwiftParser;
-use yunq_parser_typescript::TypeScriptParser;
-use yunq_parser_xml::XmlParser;
-use yunq_parser_yaml::YamlParser;
-use yunq_rules_engine::{
+use vord_infra_fs::FileAnalysisCache;
+use vord_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
+use vord_parser_bash::BashParser;
+use vord_parser_c::CParser;
+use vord_parser_cpp::CppParser;
+use vord_parser_csharp::CSharpParser;
+use vord_parser_css::CssParser;
+use vord_parser_dockerfile::DockerfileParser;
+use vord_parser_elixir::ElixirParser;
+use vord_parser_go::GoParser;
+use vord_parser_groovy::GroovyParser;
+use vord_parser_hcl::HclParser;
+use vord_parser_html::HtmlParser;
+use vord_parser_java::JavaParser;
+use vord_parser_json::JsonParser;
+use vord_parser_kotlin::KotlinParser;
+use vord_parser_lua::LuaParser;
+use vord_parser_php::PhpParser;
+use vord_parser_python::PythonParser;
+use vord_parser_ruby::RubyParser;
+use vord_parser_rust::RustParser;
+use vord_parser_scala::ScalaParser;
+use vord_parser_swift::SwiftParser;
+use vord_parser_typescript::TypeScriptParser;
+use vord_parser_xml::XmlParser;
+use vord_parser_yaml::YamlParser;
+use vord_rules_engine::{
     AnalysisReport, AnalyzerService, ComparisonOperator, Condition, HotspotStorage, IssueStorage,
     MetricKey, MetricsTracker, QualityGate, Rule,
 };
@@ -47,7 +47,7 @@ pub mod swarm;
 /// Every parser the default service registers. Its own flat data literal
 /// (complexity 1) so `default_service` doesn't carry the whole fluent
 /// registration chain's line count.
-fn all_default_parsers() -> Vec<Box<dyn yunq_rules_engine::AstParser>> {
+fn all_default_parsers() -> Vec<Box<dyn vord_rules_engine::AstParser>> {
     vec![
         Box::new(TypeScriptParser::new()),
         Box::new(RustParser::new()),
@@ -77,45 +77,45 @@ fn all_default_parsers() -> Vec<Box<dyn yunq_rules_engine::AstParser>> {
 }
 
 /// Builds the default analyzer: both parsers, every shipped rule, and the
-/// built-in "yunq way" profile (`yunq_profiles::default_profile`) — a curated
+/// built-in "vord way" profile (`vord_profiles::default_profile`) — a curated
 /// per-language activation baseline, not merely "every registered rule at
 /// its default severity". This is what a project with no explicit profile
 /// assignment gets (see issue #22): there is currently no per-project
 /// profile assignment mechanism in this codebase (mirroring the note in
 /// `bin/server/src/ops.rs` that per-project *gate* assignment exists but
 /// per-project *profile* assignment is still "Fase 3 territory"), so the
-/// yunq way profile is the sole default every scan uses today.
+/// vord way profile is the sole default every scan uses today.
 pub fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
 where
     S: IssueStorage + HotspotStorage,
     M: MetricsTracker,
 {
-    let rules: Vec<Box<dyn Rule>> = yunq_rules_owasp::all_rules()
+    let rules: Vec<Box<dyn Rule>> = vord_rules_owasp::all_rules()
         .into_iter()
-        .chain(yunq_rules_smells::all_rules())
-        .chain(yunq_rules_iac::all_rules())
-        .chain(yunq_rules_a11y::all_rules())
-        .chain(yunq_rules_react::all_rules())
-        .chain(yunq_rules_secrets::all_rules())
-        .chain(yunq_rules_rust::all_rules())
-        .chain(yunq_rules_reactive::all_rules())
-        .chain(yunq_rules_python::all_rules())
-        .chain(yunq_rules_typescript::all_rules())
-        .chain(yunq_rules_php::all_rules())
-        .chain(yunq_rules_go::all_rules())
-        .chain(yunq_rules_ai_agent::all_rules())
-        .chain(yunq_rules_architecture::all_rules())
-        .chain(yunq_rules_ddd::all_rules())
-        .chain(yunq_rules_mutation::all_rules())
+        .chain(vord_rules_smells::all_rules())
+        .chain(vord_rules_iac::all_rules())
+        .chain(vord_rules_a11y::all_rules())
+        .chain(vord_rules_react::all_rules())
+        .chain(vord_rules_secrets::all_rules())
+        .chain(vord_rules_rust::all_rules())
+        .chain(vord_rules_reactive::all_rules())
+        .chain(vord_rules_python::all_rules())
+        .chain(vord_rules_typescript::all_rules())
+        .chain(vord_rules_php::all_rules())
+        .chain(vord_rules_go::all_rules())
+        .chain(vord_rules_ai_agent::all_rules())
+        .chain(vord_rules_architecture::all_rules())
+        .chain(vord_rules_ddd::all_rules())
+        .chain(vord_rules_mutation::all_rules())
         .collect();
-    let cross_rules: Vec<Box<dyn yunq_rules_engine::CrossFileRule>> =
-        yunq_rules_owasp::all_cross_rules()
+    let cross_rules: Vec<Box<dyn vord_rules_engine::CrossFileRule>> =
+        vord_rules_owasp::all_cross_rules()
             .into_iter()
-            .chain(yunq_rules_architecture::all_cross_rules())
-            .chain(yunq_rules_smells::all_cross_rules())
-            .chain(yunq_rules_ddd::all_cross_rules())
+            .chain(vord_rules_architecture::all_cross_rules())
+            .chain(vord_rules_smells::all_cross_rules())
+            .chain(vord_rules_ddd::all_cross_rules())
             .collect();
-    let profile = yunq_rules_engine::default_profile();
+    let profile = vord_rules_engine::default_profile();
 
     let mut service = AnalyzerService::new(profile, storage, metrics);
     for parser in all_default_parsers() {
@@ -135,7 +135,7 @@ where
 /// arrive with the server-side quality model.
 pub fn default_quality_gate() -> QualityGate {
     let metric = |raw: &str| MetricKey::new(raw).expect("valid metric key");
-    QualityGate::new("yunq-default")
+    QualityGate::new("vord-default")
         .with_condition(Condition::new(
             metric("blocker_issues"),
             ComparisonOperator::GreaterThan,
@@ -178,7 +178,7 @@ pub fn default_quality_gate() -> QualityGate {
 }
 
 /// Resolves an issue's `(file, line)` to that source line's content hash for
-/// the New Code tracking cascade (`yunq_rules_engine::new_code::line_hash`),
+/// the New Code tracking cascade (`vord_rules_engine::new_code::line_hash`),
 /// reading each file from disk at most once per scan. `file` is the path as
 /// recorded on `Issue` — relative to the scan root, exactly as
 /// `collect_sources` produces it.
@@ -202,7 +202,7 @@ impl FileLineHashes {
         let mut cache = self.cache.borrow_mut();
         if !cache.contains_key(file) {
             let hashes = std::fs::read_to_string(self.root.join(file))
-                .map(|text| text.lines().map(yunq_rules_engine::line_hash).collect())
+                .map(|text| text.lines().map(vord_rules_engine::line_hash).collect())
                 .unwrap_or_default();
             cache.insert(file.to_string(), hashes);
         }
@@ -219,7 +219,7 @@ pub async fn scan(path: &Path) -> anyhow::Result<AnalysisReport> {
 }
 
 /// Scans with an optional incremental cache; the caller decides persistence.
-/// Does not apply any `yunq.toml` exclusions — see [`scan_with_exclusions`]
+/// Does not apply any `vord.toml` exclusions — see [`scan_with_exclusions`]
 /// for callers that have already loaded the project config.
 pub async fn scan_with_cache(
     path: &Path,
@@ -228,7 +228,7 @@ pub async fn scan_with_cache(
     scan_with_exclusions(path, cache, &[]).await
 }
 
-/// Scans with an optional incremental cache and `yunq.toml`'s
+/// Scans with an optional incremental cache and `vord.toml`'s
 /// `[analysis] exclusions` globs (matched against each file's path relative
 /// to `path`).
 pub async fn scan_with_exclusions(
@@ -247,7 +247,7 @@ pub async fn scan_with_exclusions(
     .await
 }
 
-/// Scans with an optional incremental cache, `yunq.toml`'s
+/// Scans with an optional incremental cache, `vord.toml`'s
 /// `[analysis] sources` (directories to scan — the whole tree when empty),
 /// and its `[analysis] exclusions` globs (matched against each file's path
 /// relative to `path`).
@@ -256,10 +256,10 @@ pub async fn scan_with_project_config(
     cache: Option<Arc<FileAnalysisCache>>,
     source_dirs: &[String],
     exclusions: &[String],
-    duplication: &yunq_infra_fs::DuplicationSettings,
-    architecture: &yunq_infra_fs::ArchitectureSettings,
+    duplication: &vord_infra_fs::DuplicationSettings,
+    architecture: &vord_infra_fs::ArchitectureSettings,
 ) -> anyhow::Result<AnalysisReport> {
-    let sources = yunq_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
+    let sources = vord_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
     let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
         .with_duplication_config(duplication_config(duplication));
     let boundaries = architecture_config(architecture);
@@ -267,9 +267,9 @@ pub async fn scan_with_project_config(
         // Only discovered when there's a boundary to check against — this
         // walks every Cargo.toml under `path`, wasted work for a project
         // with no `[architecture]` table declared.
-        let rust_crates = yunq_infra_fs::discover_rust_crates(path);
+        let rust_crates = vord_infra_fs::discover_rust_crates(path);
         service = service.register_cross_rule(Box::new(
-            yunq_rules_architecture::BoundaryViolationRule::new(boundaries, rust_crates),
+            vord_rules_architecture::BoundaryViolationRule::new(boundaries, rust_crates),
         ));
     }
     if let Some(cache) = cache {
@@ -278,16 +278,16 @@ pub async fn scan_with_project_config(
     Ok(service.analyze_files(&sources).await?)
 }
 
-/// Overlays `[duplication]` from `yunq.toml` onto the engine defaults —
+/// Overlays `[duplication]` from `vord.toml` onto the engine defaults —
 /// an unset field keeps the default rather than zeroing it.
 pub fn duplication_config(
-    settings: &yunq_infra_fs::DuplicationSettings,
-) -> yunq_rules_engine::DuplicationConfig {
-    let defaults = yunq_rules_engine::DuplicationConfig::default();
-    yunq_rules_engine::DuplicationConfig {
+    settings: &vord_infra_fs::DuplicationSettings,
+) -> vord_rules_engine::DuplicationConfig {
+    let defaults = vord_rules_engine::DuplicationConfig::default();
+    vord_rules_engine::DuplicationConfig {
         block_size: settings.block_size.unwrap_or(defaults.block_size),
         min_lines: settings.min_lines.unwrap_or(defaults.min_lines),
-        normalization: yunq_rules_engine::TokenNormalization {
+        normalization: vord_rules_engine::TokenNormalization {
             identifiers: settings
                 .normalize_identifiers
                 .unwrap_or(defaults.normalization.identifiers),
@@ -307,18 +307,18 @@ pub fn duplication_config(
     }
 }
 
-/// Converts `[architecture]` from `yunq.toml` into the engine-facing
-/// `yunq_import_graph::ArchitectureConfig` `BoundaryViolationRule` takes —
+/// Converts `[architecture]` from `vord.toml` into the engine-facing
+/// `vord_import_graph::ArchitectureConfig` `BoundaryViolationRule` takes —
 /// same shape of bridge `duplication_config` is for `[duplication]`, just
 /// with no defaults to overlay (an empty list stays an empty list; there is
 /// nothing to declare a boundary that means "no boundary declared").
 pub fn architecture_config(
-    settings: &yunq_infra_fs::ArchitectureSettings,
-) -> yunq_import_graph::ArchitectureConfig {
-    let edge = |e: &yunq_infra_fs::DependencyEdgeConfig| {
-        yunq_import_graph::DependencyEdge::new(&e.from, &e.to)
+    settings: &vord_infra_fs::ArchitectureSettings,
+) -> vord_import_graph::ArchitectureConfig {
+    let edge = |e: &vord_infra_fs::DependencyEdgeConfig| {
+        vord_import_graph::DependencyEdge::new(&e.from, &e.to)
     };
-    yunq_import_graph::ArchitectureConfig {
+    vord_import_graph::ArchitectureConfig {
         allowed_dependencies: settings.allowed_dependencies.iter().map(edge).collect(),
         forbidden_dependencies: settings.forbidden_dependencies.iter().map(edge).collect(),
         exceptions: settings.exceptions.iter().map(edge).collect(),
@@ -346,7 +346,7 @@ pub fn find_git_root(start: &Path) -> Option<PathBuf> {
 
 /// Generates and verifies an AI fix for `issue_rule` in `path`, applying it
 /// to the real working tree on acceptance (rolled back automatically by the
-/// `WorktreeSandbox` if verification fails). Shared by `yunq fix` and the
+/// `WorktreeSandbox` if verification fails). Shared by `vord fix` and the
 /// interactive wizard so there is exactly one place that applies fixes.
 /// Returns the canonicalized path alongside the verdict for the caller to
 /// report on.
@@ -354,7 +354,7 @@ pub async fn remediate_issue(
     path: &Path,
     issue_rule: &str,
     model: Option<String>,
-) -> anyhow::Result<(PathBuf, yunq_remediation::RemediationVerdict)> {
+) -> anyhow::Result<(PathBuf, vord_remediation::RemediationVerdict)> {
     let path = path
         .canonicalize()
         .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
@@ -367,14 +367,14 @@ pub async fn remediate_issue(
 
     let source_code = std::fs::read_to_string(&path)?;
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let language = yunq_ast::LanguageIdentifier::from_extension(ext)
+    let language = vord_ast::LanguageIdentifier::from_extension(ext)
         .ok_or_else(|| anyhow::anyhow!("unrecognized file extension for {}", path.display()))?;
     let rel_path = path
         .strip_prefix(&git_root)
         .unwrap_or(&path)
         .to_string_lossy()
         .to_string();
-    let source_file = yunq_ast::SourceFile::new(rel_path, source_code.clone(), language)
+    let source_file = vord_ast::SourceFile::new(rel_path, source_code.clone(), language)
         .map_err(|e| anyhow::anyhow!("invalid file path: {e}"))?;
 
     let service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
@@ -392,19 +392,19 @@ pub async fn remediate_issue(
                 path.display()
             )
         })?;
-    let base_url = std::env::var("YUNQ_LLM_BASE_URL")
+    let base_url = std::env::var("VORD_LLM_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-    let api_key = std::env::var("YUNQ_LLM_API_KEY").ok();
+    let api_key = std::env::var("VORD_LLM_API_KEY").ok();
     let model_name = model.unwrap_or_else(|| {
-        std::env::var("YUNQ_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string())
+        std::env::var("VORD_LLM_MODEL").unwrap_or_else(|_| "llama3".to_string())
     });
-    let adapter = yunq_infra_llm::OpenAiCompatibleAdapter::new(
+    let adapter = vord_infra_llm::OpenAiCompatibleAdapter::new(
         base_url,
         model_name,
         api_key.unwrap_or_default(),
     );
-    let sandbox = yunq_infra_fs::WorktreeSandbox::new(&git_root)?;
-    let engine = yunq_remediation::RemediationEngine::new(adapter, sandbox);
+    let sandbox = vord_infra_fs::WorktreeSandbox::new(&git_root)?;
+    let engine = vord_remediation::RemediationEngine::new(adapter, sandbox);
 
     let verdict = engine
         .attempt_remediation(&target_issue, &path, &source_code, &service)
@@ -419,22 +419,22 @@ mod tests {
 
     #[test]
     fn all_rules_have_unique_ids() {
-        let rules: Vec<Box<dyn Rule>> = yunq_rules_owasp::all_rules()
+        let rules: Vec<Box<dyn Rule>> = vord_rules_owasp::all_rules()
             .into_iter()
-            .chain(yunq_rules_smells::all_rules())
-            .chain(yunq_rules_iac::all_rules())
-            .chain(yunq_rules_a11y::all_rules())
-            .chain(yunq_rules_react::all_rules())
-            .chain(yunq_rules_secrets::all_rules())
-            .chain(yunq_rules_rust::all_rules())
-            .chain(yunq_rules_reactive::all_rules())
-            .chain(yunq_rules_python::all_rules())
-            .chain(yunq_rules_typescript::all_rules())
-            .chain(yunq_rules_php::all_rules())
-            .chain(yunq_rules_go::all_rules())
-            .chain(yunq_rules_ai_agent::all_rules())
-            .chain(yunq_rules_architecture::all_rules())
-            .chain(yunq_rules_ddd::all_rules())
+            .chain(vord_rules_smells::all_rules())
+            .chain(vord_rules_iac::all_rules())
+            .chain(vord_rules_a11y::all_rules())
+            .chain(vord_rules_react::all_rules())
+            .chain(vord_rules_secrets::all_rules())
+            .chain(vord_rules_rust::all_rules())
+            .chain(vord_rules_reactive::all_rules())
+            .chain(vord_rules_python::all_rules())
+            .chain(vord_rules_typescript::all_rules())
+            .chain(vord_rules_php::all_rules())
+            .chain(vord_rules_go::all_rules())
+            .chain(vord_rules_ai_agent::all_rules())
+            .chain(vord_rules_architecture::all_rules())
+            .chain(vord_rules_ddd::all_rules())
             .collect();
 
         let mut seen = HashSet::new();

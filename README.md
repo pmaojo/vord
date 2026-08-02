@@ -1,6 +1,6 @@
-# yunq
+# vord
 
-[![Health Score](https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/pmaojo/yunq/main/.yunq-health.json&query=$.message&label=health)](https://github.com/pmaojo/yunq/blob/main/.yunq-health.json)
+[![Health Score](https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/pmaojo/vord/main/.vord-health.json&query=$.message&label=health)](https://github.com/pmaojo/vord/blob/main/.vord-health.json)
 
 A static analysis platform in Rust — a guardrail that judges an AI agent's
 write *before* it reaches disk, and a coding agent of its own that is judged
@@ -10,22 +10,22 @@ required.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pmaojo/yunq/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/pmaojo/vord/main/scripts/install.sh | sh
 ```
 
 <details>
 <summary>Other channels</summary>
 
 ```sh
-npx yunq scan .                          # npm, no install step
-brew install pmaojo/tap/yunq             # Homebrew (macOS/Linux)
-cargo install yunq-cli                   # crates.io
-docker run --rm -v "$PWD:/src" ghcr.io/pmaojo/yunq scan .
+npx vord scan .                          # npm, no install step
+brew install pmaojo/tap/vord             # Homebrew (macOS/Linux)
+cargo install vord-cli                   # crates.io
+docker run --rm -v "$PWD:/src" ghcr.io/pmaojo/vord scan .
 ```
 
 Or download a binary for your platform directly from
-[Releases](https://github.com/pmaojo/yunq/releases/latest) — `yunq-<target>`
-for the CLI, `yunq-lsp-<target>` for the language server. Every asset ships a
+[Releases](https://github.com/pmaojo/vord/releases/latest) — `vord-<target>`
+for the CLI, `vord-lsp-<target>` for the language server. Every asset ships a
 `.sha256` beside it, which the install script and the Homebrew formula both
 verify.
 
@@ -34,16 +34,16 @@ verify.
 Then:
 
 ```sh
-yunq scan .              # analyze this repository
-yunq hook install        # gate an AI agent's writes before they land
-yunq init                # add the CI workflow
-yunq                     # interactive wizard (in a TTY)
+vord scan .              # analyze this repository
+vord hook install        # gate an AI agent's writes before they land
+vord init                # add the CI workflow
+vord                     # interactive wizard (in a TTY)
 ```
 
 ### In CI
 
 ```yaml
-- uses: pmaojo/yunq@v0                   # GitHub Actions
+- uses: pmaojo/vord@v0                   # GitHub Actions
   with:
     enforce-gate: 'true'
 ```
@@ -56,13 +56,13 @@ Ready-made pipelines for other platforms live in
 The guardrail installs as a plugin whose hooks call the binary:
 
 ```
-/plugin marketplace add pmaojo/yunq
-/plugin install yunq-guardrail
+/plugin marketplace add pmaojo/vord
+/plugin install vord-guardrail
 ```
 
-The plugin needs `yunq` on your PATH (the install script above puts it there).
-Note that `yunq hook install` remains the stronger option for a team: it writes
-`.claude/settings.json` and `yunq-policy.toml` **into the repository**, so the
+The plugin needs `vord` on your PATH (the install script above puts it there).
+Note that `vord hook install` remains the stronger option for a team: it writes
+`.claude/settings.json` and `vord-policy.toml` **into the repository**, so the
 policy is versioned and reviewed in the same pull request as the code it
 governs, on every teammate's machine and in CI. A plugin lives in one user's
 configuration, where turning it off leaves no trace in a diff.
@@ -72,20 +72,20 @@ configuration, where turning it off leaves no trace in a diff.
 The directory structure *is* the architecture — nested workspace globs define the boundaries:
 
 ```
-yunq/
+vord/
 ├── core/                       # PURE LOGIC — no I/O, no async runtime, no serde
-│   ├── ast/                    # yunq-ast: neutral AST, LanguageIdentifier, SourceFile
-│   ├── profiles/               # yunq-profiles: RuleId, Severity, QualityProfile, QualityGate, Rating
-│   ├── rules-engine/           # yunq-rules-engine: ports (traits), Rule, CrossFileRule, AnalyzerService
-│   ├── taint/                  # yunq-taint: intra-file + cross-file inter-procedural taint analysis
-│   ├── symbols/                # yunq-symbols: per-language class/method extraction (SOLID/DDD rules read this)
-│   ├── import-graph/           # yunq-import-graph: components, cycles, Martin metrics, hexagonal layering
-│   ├── agent-policy/           # yunq-agent-policy: Agent Permission Policy — may this agent write land?
-│   ├── agent/                  # yunq-agent: the agent runtime — session loop, write gate, analyzer-as-done
-│   ├── swarm/                  # yunq-swarm: worktree/handoff/topology computation for multi-agent runs
-│   ├── remediation/            # yunq-remediation: generate → sandbox → re-scan → verdict
-│   ├── crap/                   # yunq-crap: risk = complexity² × untestedness³ + complexity
-│   └── duplication/            # yunq-cpd: copy-paste detection (rolling-window hashes)
+│   ├── ast/                    # vord-ast: neutral AST, LanguageIdentifier, SourceFile
+│   ├── profiles/               # vord-profiles: RuleId, Severity, QualityProfile, QualityGate, Rating
+│   ├── rules-engine/           # vord-rules-engine: ports (traits), Rule, CrossFileRule, AnalyzerService
+│   ├── taint/                  # vord-taint: intra-file + cross-file inter-procedural taint analysis
+│   ├── symbols/                # vord-symbols: per-language class/method extraction (SOLID/DDD rules read this)
+│   ├── import-graph/           # vord-import-graph: components, cycles, Martin metrics, hexagonal layering
+│   ├── agent-policy/           # vord-agent-policy: Agent Permission Policy — may this agent write land?
+│   ├── agent/                  # vord-agent: the agent runtime — session loop, write gate, analyzer-as-done
+│   ├── swarm/                  # vord-swarm: worktree/handoff/topology computation for multi-agent runs
+│   ├── remediation/            # vord-remediation: generate → sandbox → re-scan → verdict
+│   ├── crap/                   # vord-crap: risk = complexity² × untestedness³ + complexity
+│   └── duplication/            # vord-cpd: copy-paste detection (rolling-window hashes)
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
 │   ├── fs/                     # gitignore-aware source loader, coverage/mutation parsers, caches, worktrees
@@ -107,41 +107,41 @@ yunq/
 │   ├── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
 │   └── ...                     # 10 more: python, go, typescript, react, reactive, iac, a11y, ai-agent, php, secrets
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
-    ├── cli/                    # yunq scan/hook/agent/swarm/fix — local end-to-end analysis
+    ├── cli/                    # vord scan/hook/agent/swarm/fix — local end-to-end analysis
     └── lsp/                    # editor-facing language server
 ```
 
-The hosted API server, background worker, Postgres storage adapter, and web frontend live in a separate private repository (`yunq-cloud`) and are not part of this open-source core.
+The hosted API server, background worker, Postgres storage adapter, and web frontend live in a separate private repository (`vord-cloud`) and are not part of this open-source core.
 
 Dependency direction is enforced by Cargo: `bin → {infra, parsers, rulesets} → core`. The core defines **ports** (`AstParser`, `IssueStorage`, `IssueReader`, `IssueFacetReader`, `IssueWorkflow`, `HotspotStorage`, `MetricsTracker`, `JobQueue`, `AnalysisCache`); adapters implement them (DIP). The load-bearing identity types (`RuleId`, `Severity`, `LanguageIdentifier`) are validated newtypes with fallible constructors, never deserialized directly off an untrusted edge — HTTP, tree-sitter and config-file adapters own their own DTOs and translate in. Adding a language or ruleset means a new crate registered at a composition root; the engine never changes (OCP).
 
-Proof of purity: `cargo tree -p yunq-rules-engine` — only core crates, `serde` and `thiserror`. No I/O crate, no async runtime, no tree-sitter.
+Proof of purity: `cargo tree -p vord-rules-engine` — only core crates, `serde` and `thiserror`. No I/O crate, no async runtime, no tree-sitter.
 
 ```mermaid
 graph TD
     subgraph bin["bin/ — composition roots"]
-        CLI[yunq-cli]
+        CLI[vord-cli]
     end
     subgraph parsers["parsers/ — inbound adapters"]
-        PTS[yunq-parser-typescript]
-        PRS[yunq-parser-rust]
-        PPY[yunq-parser-python]
-        PGO[yunq-parser-go]
+        PTS[vord-parser-typescript]
+        PRS[vord-parser-rust]
+        PPY[vord-parser-python]
+        PGO[vord-parser-go]
     end
     subgraph rulesets["rulesets/ — plugins"]
-        ROW[yunq-rules-owasp]
-        RSM[yunq-rules-smells]
+        ROW[vord-rules-owasp]
+        RSM[vord-rules-smells]
     end
     subgraph infra["infra/ — outbound adapters"]
-        IMEM[yunq-infra-memory]
-        IFS[yunq-infra-fs]
+        IMEM[vord-infra-memory]
+        IFS[vord-infra-fs]
     end
     subgraph core["core/ — pure domain logic"]
-        AST[yunq-ast]
-        PROF[yunq-profiles]
-        ENGINE[yunq-rules-engine<br/>ports + AnalyzerService]
-        TAINT[yunq-taint]
-        CPD[yunq-cpd]
+        AST[vord-ast]
+        PROF[vord-profiles]
+        ENGINE[vord-rules-engine<br/>ports + AnalyzerService]
+        TAINT[vord-taint]
+        CPD[vord-cpd]
     end
     CLI --> PTS
     CLI --> PRS
@@ -177,33 +177,33 @@ No arrow ever points into `core/`. The core defines ports; everything else imple
 ## Quickstart (from source)
 
 Every command below works against an installed binary too — replace
-`cargo run -p yunq-cli --` with `yunq`.
+`cargo run -p vord-cli --` with `vord`.
 
 ```sh
-cargo run -p yunq-cli                  # no args, in a terminal: interactive wizard
+cargo run -p vord-cli                  # no args, in a terminal: interactive wizard
                                         # (scope: whole repo / branch diff / path — then
                                         # agent prompt, guided remediation, or CI install)
 cargo test --workspace                 # unit (fakes), fixtures, e2e — ~1700 tests
-cargo run -p yunq-cli -- scan fixtures # real scan: a small multi-language fixture set, rules + taint + CPD + complexity
-cargo run -p yunq-cli -- scan fixtures --format json
-cargo run -p yunq-cli -- scan fixtures --fail-on critical      # exit 2 on severity breach
-cargo run -p yunq-cli -- scan fixtures --enforce-gate          # exit 3 on quality gate failure
-cargo run -p yunq-cli -- scan fixtures --coverage report.lcov  # ingest LCOV coverage
-cargo run -p yunq-cli -- scan fixtures --cobertura report.xml # ingest Cobertura XML coverage
-cargo run -p yunq-cli -- scan fixtures --jacoco report.xml    # ingest JaCoCo XML coverage
-cargo run -p yunq-cli -- scan fixtures --llvm-cov report.json # ingest llvm-cov JSON coverage
-cargo run -p yunq-cli -- scan fixtures --coverage-report coverage-final.json --coverage-format istanbul
-cargo run -p yunq-cli -- scan fixtures --junit report.xml     # ingest JUnit test report
-cargo run -p yunq-cli -- scan fixtures --compliance-pdf report.pdf --compliance-csv report.csv  # OWASP/CWE/PCI DSS evidence report
-cargo run -p yunq-cli -- scan monorepo-root --monorepo         # discover + scan every yunq.toml-configured project under a root
-cargo run -p yunq-cli -- scan fixtures --mutation-report mutation.json  # ingest a Stryker-schema mutation report
-cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
-cargo run -p yunq-cli -- scan fixtures --sarif ruff.sarif --sarif eslint.sarif  # repeatable
-cargo run -p yunq-cli -- arch                                  # component architecture: text summary
-cargo run -p yunq-cli -- arch --format mermaid                 # Mermaid flowchart of the component graph
-cargo run -p yunq-cli -- arch --html arch.html                 # self-contained interactive viewer (open in a browser)
-cargo run -p yunq-cli -- init --yes                            # write .github/workflows/yunq.yml
-cargo run -p yunq-cli -- hook install                          # gate an AI agent's writes (see below)
+cargo run -p vord-cli -- scan fixtures # real scan: a small multi-language fixture set, rules + taint + CPD + complexity
+cargo run -p vord-cli -- scan fixtures --format json
+cargo run -p vord-cli -- scan fixtures --fail-on critical      # exit 2 on severity breach
+cargo run -p vord-cli -- scan fixtures --enforce-gate          # exit 3 on quality gate failure
+cargo run -p vord-cli -- scan fixtures --coverage report.lcov  # ingest LCOV coverage
+cargo run -p vord-cli -- scan fixtures --cobertura report.xml # ingest Cobertura XML coverage
+cargo run -p vord-cli -- scan fixtures --jacoco report.xml    # ingest JaCoCo XML coverage
+cargo run -p vord-cli -- scan fixtures --llvm-cov report.json # ingest llvm-cov JSON coverage
+cargo run -p vord-cli -- scan fixtures --coverage-report coverage-final.json --coverage-format istanbul
+cargo run -p vord-cli -- scan fixtures --junit report.xml     # ingest JUnit test report
+cargo run -p vord-cli -- scan fixtures --compliance-pdf report.pdf --compliance-csv report.csv  # OWASP/CWE/PCI DSS evidence report
+cargo run -p vord-cli -- scan monorepo-root --monorepo         # discover + scan every vord.toml-configured project under a root
+cargo run -p vord-cli -- scan fixtures --mutation-report mutation.json  # ingest a Stryker-schema mutation report
+cargo run -p vord-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
+cargo run -p vord-cli -- scan fixtures --sarif ruff.sarif --sarif eslint.sarif  # repeatable
+cargo run -p vord-cli -- arch                                  # component architecture: text summary
+cargo run -p vord-cli -- arch --format mermaid                 # Mermaid flowchart of the component graph
+cargo run -p vord-cli -- arch --html arch.html                 # self-contained interactive viewer (open in a browser)
+cargo run -p vord-cli -- init --yes                            # write .github/workflows/vord.yml
+cargo run -p vord-cli -- hook install                          # gate an AI agent's writes (see below)
 ```
 
 Example output:
@@ -219,46 +219,46 @@ Everything above — `scan`, `hook`, `agent`, `swarm`, `fix` — runs standalone
 against the local filesystem, with no daemon, no database and no network
 call unless you configure an LLM provider for `agent`/`fix`. A hosted layer
 (API server, worker, Postgres-backed issue storage, web frontend) exists as
-`yunq-cloud`, a separate private repository — it adds persistence, history
+`vord-cloud`, a separate private repository — it adds persistence, history
 and multi-user collaboration on top of this engine, and is never a gatekeeper
 for anything in this repo.
 
 ## Agentic guardrail (Claude Code, Codex, pre-commit)
 
 Every other entry point above answers *"what is wrong with this code?"* after
-the fact. `yunq hook` answers *"may this write happen?"* — inside an
+the fact. `vord hook` answers *"may this write happen?"* — inside an
 autonomous agent's edit loop, before the bytes reach disk.
 
 ```sh
-cargo run -p yunq-cli -- hook install        # write yunq-policy.toml + .claude/settings.json
-cargo run -p yunq-cli -- hook check file.py  # judge one file: exit 0 / 2 (denied) / 1 (yunq failed)
-cargo run -p yunq-cli -- hook check file.py --format json  # structured verdict on stdout, for tooling
-cargo run -p yunq-cli -- hook reset-circuit-breaker        # clear a tripped breaker after review
-cargo run -p yunq-cli -- hook approve <token>               # authorize one escalated write after review
-cargo run -p yunq-cli -- hook reset-loop-guard              # clear a tripped loop alarm after review
-cargo run -p yunq-cli -- hook audit --limit 20               # tail the guardrail's decision log
+cargo run -p vord-cli -- hook install        # write vord-policy.toml + .claude/settings.json
+cargo run -p vord-cli -- hook check file.py  # judge one file: exit 0 / 2 (denied) / 1 (vord failed)
+cargo run -p vord-cli -- hook check file.py --format json  # structured verdict on stdout, for tooling
+cargo run -p vord-cli -- hook reset-circuit-breaker        # clear a tripped breaker after review
+cargo run -p vord-cli -- hook approve <token>               # authorize one escalated write after review
+cargo run -p vord-cli -- hook reset-loop-guard              # clear a tripped loop alarm after review
+cargo run -p vord-cli -- hook audit --limit 20               # tail the guardrail's decision log
 ```
 
 `hook install` writes the hook wiring directly into the current repository.
 [`integrations/claude-code-plugin`](integrations/claude-code-plugin) packages
 the same wiring as an installable Claude Code plugin instead — this
 repository doubles as its own marketplace (`/plugin marketplace add
-pmaojo/yunq`, then `/plugin install yunq-guardrail@yunq`) for anyone who
+pmaojo/vord`, then `/plugin install vord-guardrail@vord`) for anyone who
 wants the hook without running the installer by hand. Either path still
-needs the `yunq` binary on `PATH` (`cargo install --path bin/cli`, or a
+needs the `vord` binary on `PATH` (`cargo install --path bin/cli`, or a
 release artifact).
 
 Once installed, an agent that tries to write a shell-injection sink gets its
 own tool call denied and the reason fed straight back into its context:
 
 ```
-yunq blocked this write to `deploy.py`.
+vord blocked this write to `deploy.py`.
 
   1. python:subprocess-shell-true at line 3 — subprocess call with shell=True is
      vulnerable to shell injection if the command is ever influenced by external input
      [hard-blocked for agents]
 
-This is an Agent Permission Policy block from yunq-policy.toml, not a style
+This is an Agent Permission Policy block from vord-policy.toml, not a style
 preference. The file was NOT written. Rewrite the code so these findings do not
 occur, then write it again.
 ```
@@ -278,10 +278,10 @@ all.
 
 **Provenance: a stricter gate for AI-touched paths.** SonarQube's "AI Code
 Assurance" flags a *project* as AI-generated by hand and applies a dedicated
-quality gate to it. `yunq hook` does the same thing automatically and at file
+quality gate to it. `vord hook` does the same thing automatically and at file
 granularity: every path a write has ever targeted (denied or not — an
 attempted edit is itself a signal an agent is steering this file) is recorded
-in `.yunq-provenance.json` (gitignored). The next write to that same path is
+in `.vord-provenance.json` (gitignored). The next write to that same path is
 judged against `[agent.ai_touched]`'s severity threshold instead of the base
 `block_at_or_above` — stricter if configured, identical otherwise. Only the
 threshold moves: `blocking_rules`/`escalate_rules`/`advisory_rules` apply the
@@ -298,7 +298,7 @@ not "who gets credit".
 procedures" gauntlet: `[[gherkin_required]]` names glob patterns an agent may
 only write to if at least one Gherkin scenario somewhere in the repository's
 `.feature` files is tagged `@covers(<glob matching this path>)` — feature-
-level or scenario-level, either counts. `yunq hook` scans `.feature` files for
+level or scenario-level, either counts. `vord hook` scans `.feature` files for
 that tag (no Gherkin execution, no cucumber-rust dependency — just the tag
 lines, which are mechanically easy to find without a full parser) and denies
 a matching write with no AST finding needed, the same "deny on path alone"
@@ -312,26 +312,26 @@ before this landed.
 
 **Circuit breaker.** An agent that cannot resolve a finding — a false
 positive, or a vulnerability it does not know how to fix — will otherwise
-retry the same write indefinitely, burning tokens against a wall. `yunq hook`
+retry the same write indefinitely, burning tokens against a wall. `vord hook`
 tracks how many times in a row the *same rule* has denied a write; the third
 consecutive denial trips a breaker, and the denial text changes from "rewrite
 and try again" to an explicit stop instruction: revert the change and get a
 human to look at it. The count is per rule, persists across the separate
-process invocations a hook loop makes (`.yunq-circuit-breaker.json` at the
+process invocations a hook loop makes (`.vord-circuit-breaker.json` at the
 repository root, gitignored), and resets the moment that rule stops being
 denied — whether because it was fixed or because the agent moved on to
-something else. `yunq hook reset-circuit-breaker` clears it after a human has
+something else. `vord hook reset-circuit-breaker` clears it after a human has
 reviewed the stuck finding.
 
 **Supply-chain: new dependencies.** No `Rule` in `core/rules-engine` can see
 "this write adds a dependency that was not here before" — that trait analyses
-one file's current content, with no concept of a prior version. `yunq hook`
+one file's current content, with no concept of a prior version. `vord hook`
 diffs `package.json`/`requirements.txt` against the on-disk version at
 `PreToolUse` time and turns any newly added dependency into an ordinary
 `supply-chain:new-dependency` finding, which flows through the same
 `blocking_rules`/`advisory_rules`/`block_at_or_above` policy as any AST
 finding. It reports nothing by default (most new dependencies are
-legitimate) — opt in per repository via `yunq-policy.toml`'s
+legitimate) — opt in per repository via `vord-policy.toml`'s
 `advisory_rules` or `blocking_rules`. This is intentionally *not* branded as
 a sandbox: a WASM/WASI sandbox isolates code compiled to WASM, and cannot
 meaningfully "sandbox-test" an arbitrary already-compiled shell command or
@@ -351,8 +351,8 @@ before, and `ai:test-skipped` fires when a write newly marks a test
 `#[ignore]`/`@pytest.mark.skip`/`.skip(`/`xit(`/`xdescribe(`. Both report
 nothing by default (a suppression is sometimes the right call) — opt in via
 `advisory_rules`/`blocking_rules` like any other rule id. The sharpest case
-this closes: `hook install`'s template lists `yunq-policy.toml` and
-`yunq.toml` themselves as `[[protected_path]]` entries, so an agent denied by
+this closes: `hook install`'s template lists `vord-policy.toml` and
+`vord.toml` themselves as `[[protected_path]]` entries, so an agent denied by
 its own policy cannot resolve the denial by editing the policy — a referee
 whose rulebook the players can edit is not a referee.
 
@@ -361,7 +361,7 @@ whose rulebook the players can edit is not a referee.
 is the third tier for findings that are too risky to let an agent resolve
 unsupervised but are not *always* wrong: the write is blocked exactly like a
 denial, but the denial text carries a token
-(`yunq hook approve <token>`) a human can redeem after reviewing the change.
+(`vord hook approve <token>`) a human can redeem after reviewing the change.
 Approval is single-use and write-specific — it authorizes one byte-identical
 retry, computed from the path and the exact findings that escalated, never a
 standing exemption for the rule. A rule also listed in `blocking_rules` stays
@@ -370,24 +370,24 @@ unconditionally denied; the hard-blocked list has no override, by design.
 **Loop alarm.** The circuit breaker (above) only watches denials of the same
 *rule*; it says nothing about an agent that keeps proposing the exact same
 byte-identical write regardless of outcome — including a clean one, which is
-just as strong a "the agent is stuck" signal. `yunq hook` separately tracks
+just as strong a "the agent is stuck" signal. `vord hook` separately tracks
 the last write's `(path, content)` signature; the third identical write in a
 row adds a `LOOP ALARM` line to the denial/advisory text telling the agent to
 stop retrying and try something materially different. State lives in
-`.yunq-loop-guard.json` (gitignored); `yunq hook reset-loop-guard` clears it.
+`.vord-loop-guard.json` (gitignored); `vord hook reset-loop-guard` clears it.
 
 **Audit log.** Every non-silent verdict — deny, advise, an unresolved
 escalation, an approval being consumed — is appended as one JSON line to
-`.yunq-audit.jsonl` (gitignored): timestamp, event, path, outcome, and the
+`.vord-audit.jsonl` (gitignored): timestamp, event, path, outcome, and the
 same violation detail as the machine-readable block above. A clean write
 leaves no trace, the same signal-to-noise judgement the denial text itself
-makes. `yunq hook audit` tails it (`--format json` for the raw entries).
+makes. `vord hook audit` tails it (`--format json` for the raw entries).
 
 **Why a hook and not an MCP tool.** An MCP tool or an LSP is *consulted*: the
 agent chooses whether to ask, and an agent optimising for task completion
 learns not to ask. A host hook is *invoked* by the runtime on every matching
 tool call and cannot be routed around. That is the difference between a
-guardrail and a linter the model may consult — and it is why yunq does not
+guardrail and a linter the model may consult — and it is why vord does not
 ship an MCP server as an alternative enforcement path. The one place MCP
 could add value is *planning-time*, before the agent has even proposed an
 edit — a read-only resource an agent's system prompt ingests up front (the
@@ -398,7 +398,7 @@ guardrail was built, and [ROADMAP.md](ROADMAP.md) for where it goes next.
 
 ### The Agent Permission Policy
 
-`yunq-policy.toml` is not the quality gate. The gate asks "is this project
+`vord-policy.toml` is not the quality gate. The gate asks "is this project
 releasable?" over a whole analysis; the policy asks "may this one write land?"
 over a single proposed edit — and the two disagree on purpose:
 
@@ -412,7 +412,7 @@ block_at_or_above = "critical"
 blocking_rules = ["ai:llm-output-injection", "owasp:command-execution", "owasp:eval-usage"]
 
 advisory_rules = []   # report, never deny — the escape hatch for a noisy rule
-escalate_rules = []   # deny until a human runs `yunq hook approve <token>`
+escalate_rules = []   # deny until a human runs `vord hook approve <token>`
 
 [[protected_path]]    # denied on path alone, no finding required
 pattern = ".github/workflows/**"
@@ -425,8 +425,8 @@ reason = "CI definitions gate every other control; changes need human review."
 |---|---|---|
 | **Claude Code** | `PreToolUse` on `Edit\|Write` | **Yes** — the write is prevented |
 | **Claude Code** | `PostToolUse` on `Edit\|Write` | No — the write landed; feeds the finding back as context |
-| **Codex CLI** | `yunq hook check` | Its tool hooks fire for shell commands only, not file writes |
-| **pre-commit / CI** | `yunq hook check` | Exit 2 fails the commit or the job |
+| **Codex CLI** | `vord hook check` | Its tool hooks fire for shell commands only, not file writes |
+| **pre-commit / CI** | `vord hook check` | Exit 2 fails the commit or the job |
 
 The two Claude Code hook points are asymmetric by design: **`PreToolUse`
 prevents, `PostToolUse` teaches.** The wording the agent receives differs
@@ -437,31 +437,31 @@ will move on and leave the finding in the tree.
 does not parse lets the write proceed and reports on stderr. A guardrail that
 wedges the agent loop on its own bug gets uninstalled within a day, and an
 uninstalled guardrail blocks nothing. `hook check` is the exception: its
-non-interactive callers can tell exit 1 (yunq broke) from exit 2 (policy
+non-interactive callers can tell exit 1 (vord broke) from exit 2 (policy
 denied) and decide for themselves.
 
-## `yunq agent` — the runtime that cannot approve its own work
+## `vord agent` — the runtime that cannot approve its own work
 
 Every coding agent on the market grades its own homework: the model proposes
 an edit, the model decides the edit is good, and the verification is a second
-prompt to the same weights. yunq is the one project where the judge already
+prompt to the same weights. vord is the one project where the judge already
 exists as a separate, deterministic, 150-rule artifact that predates the
-writer — so `yunq agent` is built on two constraints it cannot talk its way
+writer — so `vord agent` is built on two constraints it cannot talk its way
 out of.
 
 ```sh
-export ANTHROPIC_API_KEY=...            # or YUNQ_LLM_* for any OpenAI-compatible endpoint
-yunq agent run --task "remove the shell injection in scripts/deploy.py"
-yunq agent run --task "fix it" --rule python:subprocess-shell-true --scope scripts
-yunq agent watch-pr --pr 42             # wait out the late review/CI window on a PR
+export ANTHROPIC_API_KEY=...            # or VORD_LLM_* for any OpenAI-compatible endpoint
+vord agent run --task "remove the shell injection in scripts/deploy.py"
+vord agent run --task "fix it" --rule python:subprocess-shell-true --scope scripts
+vord agent watch-pr --pr 42             # wait out the late review/CI window on a PR
 ```
 
 **1. No edit reaches disk without passing the policy.** Not a second
 implementation of the guardrail — the same `hook::judge` a third-party agent's
 write goes through, on the proposed content, in-process, before the `write`
-syscall. Same `yunq-policy.toml`, same protected paths, same Gherkin evidence
+syscall. Same `vord-policy.toml`, same protected paths, same Gherkin evidence
 requirement, same single-use approvals, same circuit breaker, same
-`.yunq-audit.jsonl`. A denial comes back to the model as a tool error naming
+`.vord-audit.jsonl`. A denial comes back to the model as a tool error naming
 the rule and the line; the file on disk never changed.
 
 **2. No task is complete without the analyzer agreeing.** When the model stops
@@ -482,7 +482,7 @@ parse prose and "we could not check" must never read as success:
 | Exit | Outcome |
 |---|---|
 | `0` | Complete — the analyzer agrees |
-| `1` | yunq, the model or the workspace failed |
+| `1` | vord, the model or the workspace failed |
 | `3` | Incomplete — the analyzer still disagrees |
 | `4` | Budget exhausted (turns or tokens) |
 | `5` | Circuit breaker tripped — one rule denied the agent three times running |
@@ -495,8 +495,8 @@ triaged, and reports **quiet**, **new feedback**, **bot all-clear** or
 **inconclusive** — never conflating "we looked and saw nothing" with "we could
 not look", or with "CI has not finished".
 
-Runtime limits live in `yunq.toml`; what the agent may *do* stays in
-`yunq-policy.toml`, where a reviewer owns it.
+Runtime limits live in `vord.toml`; what the agent may *do* stays in
+`vord-policy.toml`, where a reviewer owns it.
 
 ```toml
 [agent]
@@ -507,34 +507,34 @@ allowed_commands = ["cargo", "npm", "pytest"]   # replaces the built-in list
 command_timeout_secs = 300
 ```
 
-## `yunq swarm` — multiple agents, isolated and scoped
+## `vord swarm` — multiple agents, isolated and scoped
 
-One `yunq agent` session is one role doing one task. `yunq swarm` drives
+One `vord agent` session is one role doing one task. `vord swarm` drives
 several roles — architect, coder, cleaner, QA, whatever `[[swarm.role]]`
 declares — through their own tasks in sequence, each isolated from the
 others and each narrower in what it's allowed to touch than the base policy:
 
 ```sh
-yunq swarm roles                              # list declared roles, resolved worktree + policy scope
-yunq swarm worktree-create --role coder       # git worktree add, idempotent
-yunq swarm run --task "add input validation to the signup form"
+vord swarm roles                              # list declared roles, resolved worktree + policy scope
+vord swarm worktree-create --role coder       # git worktree add, idempotent
+vord swarm run --task "add input validation to the signup form"
 ```
 
 Three ideas, adapted from Uncle Bob's
 [swarm-forge](https://github.com/unclebob/swarm-forge) protocol (not its
-tmux-based implementation — yunq solves the same coordination problem
+tmux-based implementation — vord solves the same coordination problem
 in-process):
 
 - **One `git worktree` per agent.** Concurrent roles never contend on the
   index; each works in its own checkout on its own branch
-  (`yunq/swarm/<role>` by default).
+  (`vord/swarm/<role>` by default).
 - **Durable, validated handoffs**, not direct messaging. A role finishing its
-  turn writes a handoff to `.yunq/handoffs/outbox`; `yunq swarm
+  turn writes a handoff to `.vord/handoffs/outbox`; `vord swarm
   handoff-deliver` moves it into the next role's inbox, quarantining
   anything malformed into `failed/` instead of losing or corrupting it. A
   crashed agent loses nothing.
 - **Roles get policy scopes, not just prompts.** swarm-forge enforces
-  discipline through workflow structure; yunq has actual access controls and
+  discipline through workflow structure; vord has actual access controls and
   uses them. `[[swarm.role]]` can add its own `protected_path`/
   `blocking_rules`/`escalate_rules` on top of the base policy — the cleaner
   role can be denied write access to `.github/workflows/**`, the coder
@@ -542,10 +542,10 @@ in-process):
   write at all. A role's scope only ever *adds* restriction; there is no way
   for a role config to widen what the base policy already forbids.
 
-`yunq swarm run` resolves `[swarm]`'s `topology = "two-pack"` (coder,
+`vord swarm run` resolves `[swarm]`'s `topology = "two-pack"` (coder,
 reviewer) or `"four-pack"` (architect, coder, cleaner, qa) preset — or an
 explicit `pipeline = [...]` role sequence — into an ordered list, then runs
-each role's own `yunq agent` turn against its own worktree and scoped
+each role's own `vord agent` turn against its own worktree and scoped
 policy, folding in whatever the previous role handed off. It stops at the
 first role whose run doesn't complete, exiting with that role's own exit
 code (see the table above) rather than compounding a failed run's baggage
@@ -554,7 +554,7 @@ forward.
 ```toml
 [swarm]
 topology = "two-pack"
-worktree_root = ".yunq/worktrees"   # default
+worktree_root = ".vord/worktrees"   # default
 
 [[swarm.role]]
 name = "cleaner"
@@ -564,14 +564,14 @@ pattern = ".github/workflows/**"
 reason = "CI definitions need human review."
 ```
 
-## `yunq kickoff` — AI-driven project templates
+## `vord kickoff` — AI-driven project templates
 
-`yunq kickoff` scaffolds new project templates that are pre-configured with rules to enforce clean architecture and best practices from day one. Instead of fighting technical debt later, the templates ship with a `yunq.toml` configuration that holds AI agents and human developers to strict architectural boundaries.
+`vord kickoff` scaffolds new project templates that are pre-configured with rules to enforce clean architecture and best practices from day one. Instead of fighting technical debt later, the templates ship with a `vord.toml` configuration that holds AI agents and human developers to strict architectural boundaries.
 
 ```sh
-yunq kickoff --template react-bulletproof .
-yunq kickoff --template rust-clean .
-yunq kickoff --template fullstack-hexagonal .
+vord kickoff --template react-bulletproof .
+vord kickoff --template rust-clean .
+vord kickoff --template fullstack-hexagonal .
 ```
 
 Supported templates:
@@ -581,42 +581,42 @@ Supported templates:
 - `typescript-clean` (or `ts`): Restricts wildcard re-exports and enforces naming conventions.
 - `fullstack-hexagonal` (or `hexagonal`): A complete backend/frontend setup with `architecture.yaml` and blocking rules for hexagonal layer violations and circular dependencies.
 
-## `yunq fix` — automated AI remediation
+## `vord fix` — automated AI remediation
 
-`yunq fix` takes an issue ID and asks an LLM (via an Anthropic or OpenAI-compatible endpoint) to write a patch for it. The engine verifies the fix in a sandbox, rejecting patches that break tests or fail to resolve the issue.
+`vord fix` takes an issue ID and asks an LLM (via an Anthropic or OpenAI-compatible endpoint) to write a patch for it. The engine verifies the fix in a sandbox, rejecting patches that break tests or fail to resolve the issue.
 
 ```sh
-yunq fix --issue python:unclosed-open-file src/scripts.py
-yunq fix --issue rust:disallow-unwrap-expect --model gpt-4o src/main.rs
+vord fix --issue python:unclosed-open-file src/scripts.py
+vord fix --issue rust:disallow-unwrap-expect --model gpt-4o src/main.rs
 ```
 
-## `yunq mcp` — Model Context Protocol
+## `vord mcp` — Model Context Protocol
 
-`yunq mcp` starts a standard JSON-RPC stdio server implementing the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). This allows AI assistants like Claude Desktop or Cursor to query the static analysis engine directly, asking about component boundaries, dependency cycles, or requesting a local scan without leaving the chat interface.
+`vord mcp` starts a standard JSON-RPC stdio server implementing the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). This allows AI assistants like Claude Desktop or Cursor to query the static analysis engine directly, asking about component boundaries, dependency cycles, or requesting a local scan without leaving the chat interface.
 
 ```sh
 # Usually configured in the AI assistant's settings, e.g.:
-# "yunq": { "command": "yunq", "args": ["mcp"] }
-yunq mcp
+# "vord": { "command": "vord", "args": ["mcp"] }
+vord mcp
 ```
 
 ## Importing another analyzer's findings (SARIF)
 
 `--sarif` merges a SARIF 2.x report into the scan. Every mainstream analyzer
 emits it — ruff, ESLint, clippy, gosec, bandit, semgrep, CodeQL — so one
-importer buys their whole rule catalogs without yunq reimplementing a single
+importer buys their whole rule catalogs without vord reimplementing a single
 check. Imported findings are ordinary issues from that point on: they render
 in the output, count toward the severity measures, and can fail the quality
 gate.
 
 ```bash
 ruff check --output-format sarif . > ruff.sarif
-cargo run -p yunq-cli -- scan . --sarif ruff.sarif --enforce-gate
+cargo run -p vord-cli -- scan . --sarif ruff.sarif --enforce-gate
 ```
 
 - **Rule ids** are namespaced by the emitting tool (`ruff:e501`,
   `eslint:no-eval`, `codeql:js-sql-injection`) so imported rules stay
-  visibly distinct from yunq's own.
+  visibly distinct from vord's own.
 - **Severity**: `properties.security-severity` (CVSS 0–10) wins when
   present; otherwise the SARIF `level` maps conservatively — `error` →
   `major`, not `critical`. A linter's "error" is its own default failure
@@ -632,11 +632,11 @@ cargo run -p yunq-cli -- scan . --sarif ruff.sarif --enforce-gate
 
 ## Mutation testing
 
-yunq runs no mutants itself — `--mutation-report` ingests the result of a
+vord runs no mutants itself — `--mutation-report` ingests the result of a
 tool that already did, the same relationship `--sarif` has to a linter.
 Bring your own mutation-testing run (`cargo-mutants`, StrykerJS,
 Stryker.NET, Infection, …) exported to Stryker's **Mutation Testing
-Elements** JSON schema, and yunq folds every mutant's status into a
+Elements** JSON schema, and vord folds every mutant's status into a
 `mutation_score` measure — `killed`/`timeout` mutants count as detected,
 `survived`/`no coverage` count as undetected, `ignored`/`compile error`/
 `runtime error`/`pending` mutants count toward neither, mirroring Stryker's
@@ -645,13 +645,13 @@ same treatment `coverage < 80` already gets — both conditions are `NoValue`
 (ignored) until the matching report is actually supplied.
 
 ```bash
-cargo run -p yunq-cli -- scan . --mutation-report mutation.json --enforce-gate
+cargo run -p vord-cli -- scan . --mutation-report mutation.json --enforce-gate
 ```
 
-This is deliberately the same posture as coverage/JUnit ingestion: yunq is
+This is deliberately the same posture as coverage/JUnit ingestion: vord is
 the gate that decides whether a build passes, not the tool that runs the
 tests or the mutants — a test runner (or `cargo test`/`pytest`/mutation
-tool) still has to produce the report yunq consumes.
+tool) still has to produce the report vord consumes.
 
 Alongside ingestion, the `rulesets/mutation` crate also ships *instant*,
 AST-only gap analysis — five operator families today: `conditional-boundary`,
@@ -666,7 +666,7 @@ covered, one whose mutant `survived` (or has no coverage) is a live test gap
 worth prioritizing.
 
 ```bash
-python3 scripts/correlate-mutation.py --yunq yunq.json --mutation reports/mutation-report.json --out overlap.csv
+python3 scripts/correlate-mutation.py --vord vord.json --mutation reports/mutation-report.json --out overlap.csv
 ```
 
 ## Compliance reports
@@ -678,7 +678,7 @@ an auditor something other than a terminal. Either flag, both, or neither;
 the scan's exit code and gate result never depend on them.
 
 ```bash
-cargo run -p yunq-cli -- scan . --compliance-pdf report.pdf --compliance-csv report.csv
+cargo run -p vord-cli -- scan . --compliance-pdf report.pdf --compliance-csv report.csv
 ```
 
 The PDF is a real, minimal, dependency-free PDF 1.4 document (ISO 32000-1) —
@@ -691,11 +691,11 @@ tabular data instead.
 
 ## The SOLID / hexagonal / DDD gatekeeper
 
-Most analyzers gate on *defects*. yunq also gates on **design**: the rules below
+Most analyzers gate on *defects*. vord also gates on **design**: the rules below
 fail a build for architecture, not just for bugs — across TypeScript/JavaScript,
 Python, Rust and Go, from one engine, with no per-language plugin to install.
 
-Nothing here needs configuration. `[architecture]` in `yunq.toml` still exists
+Nothing here needs configuration. `[architecture]` in `vord.toml` still exists
 for declaring your own component boundaries, but the layering rules read the
 vocabulary the industry already shares (`domain/`, `application/`, `ports/`,
 `adapters/`, `infrastructure/`, `core/`, …) straight off path topology, so the
@@ -820,12 +820,12 @@ The combination — zero-config hexagonal layering, framework purity, Martin's
 component metrics, SOLID and tactical DDD, in one parse-only engine that gates
 a build across four languages — is the part that doesn't exist elsewhere.
 
-## Expanding yunq
+## Expanding vord
 
 ### Adding a rule
 
 1. Create (or extend) a crate under `rulesets/`.
-2. Implement `yunq_rules_engine::Rule` (`id`, `applies_to`, `default_severity`,
+2. Implement `vord_rules_engine::Rule` (`id`, `applies_to`, `default_severity`,
    `check(file, ast)`) for a same-file check, or `CrossFileRule`
    (`check(files)`) for one that needs every file's AST at once (import
    graphs, cross-file taint).
@@ -839,13 +839,13 @@ pipeline with zero new plumbing.
 ### Adding a language
 
 A new language is a new crate under `parsers/`, not an engine change. Most of
-one is `yunq_treesitter_adapter::declare_parser!` plus a kind-mapping table —
+one is `vord_treesitter_adapter::declare_parser!` plus a kind-mapping table —
 the whole of `parsers/treesitter-rust/src/lib.rs`, for example:
 
 ```rust
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     RustParser,
     LanguageIdentifier::rust(),
     tree_sitter_rust::LANGUAGE,
@@ -866,7 +866,7 @@ const KIND_TABLE: &[(&str, NodeKind)] = &[
 ];
 
 fn map_kind(kind: &str) -> NodeKind {
-    yunq_ast::lookup_kind(KIND_TABLE, kind)
+    vord_ast::lookup_kind(KIND_TABLE, kind)
 }
 ```
 
@@ -888,7 +888,7 @@ basic rule coverage) additionally means adding an extractor to
 
 Everything documented above — the agent runtime, the swarm, CRAP risk
 scoring, declared architecture boundaries, gate-gaming detection, the
-mutation-testing gate, the `yunq arch` viewer, the CFG-derived cyclomatic
+mutation-testing gate, the `vord arch` viewer, the CFG-derived cyclomatic
 complexity behind `maintainability-index`, the functional-module rule — is
 shipped, not planned. What's actually still open:
 
@@ -908,7 +908,7 @@ shipped, not planned. What's actually still open:
 - **Coverage auto-detection.** `scripts/detect-coverage.sh` locates the
   project's LCOV/Cobertura/JaCoCo/llvm-cov/Istanbul reports and prints (or
   runs, with `--scan`) the exact ingestion command; folding that detection
-  into `yunq scan` itself so no flag is needed is still open.
+  into `vord scan` itself so no flag is needed is still open.
 - **Closing the remaining ~30% gap to the ≥100k LOC/s performance target.**
 
 See [ROADMAP.md](ROADMAP.md) for the current plan and [DEVLOG.md](DEVLOG.md)

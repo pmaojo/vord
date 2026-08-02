@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
 
 declare_rule_id!(NoDynamicReflectionRule, "ai-agent:no-dynamic-reflection");
 
@@ -24,8 +24,8 @@ impl Rule for NoDynamicReflectionRule {
         15
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Dynamic reflection (`eval`, `exec`, `getattr(obj, var)`) with unchecked string variables allows prompt injection or untrusted data to execute arbitrary code or access internal object state.".into(),
             tags: vec!["security".into(), "ai-agent".into(), "reflection".into(), "injection".into()],
             cwe: Some(95),
@@ -136,14 +136,14 @@ fn is_string_literal(node: &AstNode) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check_py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         NoDynamicReflectionRule::new().check(&file, &ast)
@@ -151,7 +151,7 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         NoDynamicReflectionRule::new().check(&file, &ast)

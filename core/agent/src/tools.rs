@@ -131,7 +131,7 @@ pub fn tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::Scan,
-            description: "Run the yunq analyzer over a path and report its findings.",
+            description: "Run the vord analyzer over a path and report its findings.",
             input_schema: object_schema(
                 serde_json::json!({ "path": { "type": "string" } }),
                 &["path"],

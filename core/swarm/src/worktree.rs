@@ -1,4 +1,4 @@
-//! Pure worktree-plan computation for `yunq swarm` (roadmap B1). No I/O:
+//! Pure worktree-plan computation for `vord swarm` (roadmap B1). No I/O:
 //! this module decides *where* a role's worktree and branch belong; the git
 //! shelling-out lives in `infra/fs::swarm_worktree`, mirroring the split
 //! `infra/fs::WorktreeSandbox` already draws between "a worktree exists" and
@@ -7,8 +7,8 @@
 use std::path::{Path, PathBuf};
 
 /// Directory (repository-relative) worktrees are created under when
-/// `[swarm] worktree_root` is unset in `yunq.toml`.
-pub const DEFAULT_WORKTREE_ROOT: &str = ".yunq/worktrees";
+/// `[swarm] worktree_root` is unset in `vord.toml`.
+pub const DEFAULT_WORKTREE_ROOT: &str = ".vord/worktrees";
 
 /// One `[[swarm.role]]` entry's worktree-relevant fields — a narrower type
 /// than `infra/fs::RoleSettings` (which also carries the policy-scope
@@ -20,7 +20,7 @@ pub struct RoleWorktreeConfig {
     /// Worktree directory for this role, relative to the worktree root.
     /// Defaults to the role's own `name` when unset.
     pub worktree: Option<String>,
-    /// Branch the worktree runs on. Defaults to `yunq/swarm/<name>` when
+    /// Branch the worktree runs on. Defaults to `vord/swarm/<name>` when
     /// unset.
     pub branch: Option<String>,
 }
@@ -50,7 +50,7 @@ pub fn plan_worktree(
     let branch = role
         .branch
         .clone()
-        .unwrap_or_else(|| format!("yunq/swarm/{}", role.name));
+        .unwrap_or_else(|| format!("vord/swarm/{}", role.name));
     WorktreePlan {
         role: role.name.clone(),
         path,
@@ -74,8 +74,8 @@ mod tests {
     fn an_unconfigured_role_gets_the_default_root_and_branch_naming() {
         let plan = plan_worktree(Path::new("/repo"), None, &role("coder"));
         assert_eq!(plan.role, "coder");
-        assert_eq!(plan.path, Path::new("/repo/.yunq/worktrees/coder"));
-        assert_eq!(plan.branch, "yunq/swarm/coder");
+        assert_eq!(plan.path, Path::new("/repo/.vord/worktrees/coder"));
+        assert_eq!(plan.branch, "vord/swarm/coder");
     }
 
     #[test]
@@ -90,7 +90,7 @@ mod tests {
         cfg.worktree = Some("quality".to_string());
         cfg.branch = Some("qa/custom-branch".to_string());
         let plan = plan_worktree(Path::new("/repo"), None, &cfg);
-        assert_eq!(plan.path, Path::new("/repo/.yunq/worktrees/quality"));
+        assert_eq!(plan.path, Path::new("/repo/.vord/worktrees/quality"));
         assert_eq!(plan.branch, "qa/custom-branch");
     }
 

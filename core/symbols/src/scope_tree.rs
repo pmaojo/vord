@@ -3,7 +3,7 @@
 //! and multi-language scoping rules (JS var hoisting, let/const block scope, Rust lifetimes/scopes, Python LEGB).
 
 use std::collections::HashMap;
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScopeKind {
@@ -19,7 +19,7 @@ pub struct BindingInfo {
     pub name: String,
     pub is_var_hoisted: bool,
     pub is_const: bool,
-    pub node_span: yunq_ast::Span,
+    pub node_span: vord_ast::Span,
 }
 
 #[derive(Debug, Clone)]
@@ -187,7 +187,7 @@ impl ScopeBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::Span;
+    use vord_ast::Span;
 
     #[test]
     fn builds_scope_tree_and_resolves_bindings() {

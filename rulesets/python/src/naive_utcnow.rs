@@ -4,8 +4,8 @@
 //! comparing it against local-time naive values is simply wrong. It is
 //! also deprecated since Python 3.12 in favor of `datetime.now(timezone.utc)`.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 pub struct NaiveUtcnowRule {
     id: RuleId,
@@ -42,8 +42,8 @@ impl Rule for NaiveUtcnowRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "datetime.utcnow() returns a naive datetime that silently represents UTC without saying so, and is deprecated since Python 3.12; use datetime.now(timezone.utc) instead.".into(),
             tags: vec!["reliability".into(), "python-idiom".into()],
             cwe: None,
@@ -62,13 +62,13 @@ impl Rule for NaiveUtcnowRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         NaiveUtcnowRule::new().check(&file, &ast)

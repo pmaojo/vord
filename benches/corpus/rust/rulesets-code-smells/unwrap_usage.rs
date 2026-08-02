@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 /// Flags bare `.unwrap()` in Rust code: a potential panic that should be
 /// handled or justified. `.expect(msg)` is deliberately not flagged — the
@@ -42,15 +42,15 @@ impl Rule for UnwrapUsageRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
-        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter_map(|call| {
-                if yunq_rules_engine::in_ranges(&test_ranges, call.span().start_line) {
+                if vord_rules_engine::in_ranges(&test_ranges, call.span().start_line) {
                     return None;
                 }
                 let callee = call.first_child()?;
@@ -77,14 +77,14 @@ impl Rule for UnwrapUsageRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         UnwrapUsageRule::new().check(&file, &ast)
     }
 

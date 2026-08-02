@@ -2,7 +2,7 @@
 //! utility functions and guard patterns that the clone detector
 //! otherwise flags as copy-paste.
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 /// Returns the inner grammar-kind name for a `NodeKind::Other` node,
 /// or `None` for neutral-AST node kinds. Every Python rule that
@@ -19,5 +19,5 @@ pub fn other_kind_name(node: &AstNode) -> Option<&str> {
 /// Rules should call this before inspecting a file's AST to avoid
 /// flagging test helpers as production issues.
 pub fn is_test_file(path: &str) -> bool {
-    yunq_rules_engine::is_test_only_path(path)
+    vord_rules_engine::is_test_only_path(path)
 }

@@ -1,8 +1,8 @@
 //! Rule: flags passing `children` as an explicit JSX attribute (`<Comp children={...} />`)
 //! instead of nested JSX elements.
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{find_attribute, is_jsx_kind};
 
@@ -57,11 +57,11 @@ impl Rule for NoChildrenPropRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         NoChildrenPropRule::new().check(&file, &ast)

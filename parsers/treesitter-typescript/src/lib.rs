@@ -1,8 +1,8 @@
 //! Inbound adapter: TypeScript/TSX → neutral AST via tree-sitter.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{AstParser, ParseError};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{AstParser, ParseError};
 
 pub struct TypeScriptParser;
 
@@ -24,15 +24,15 @@ impl AstParser for TypeScriptParser {
     }
 
     fn parse(&self, file: &SourceFile) -> Result<AstNode, ParseError> {
-        yunq_treesitter_adapter::parse_with(&grammar_for(file), file, map_kind)
+        vord_treesitter_adapter::parse_with(&grammar_for(file), file, map_kind)
     }
 
     fn tokenize_for_duplication(
         &self,
         file: &SourceFile,
-        normalization: yunq_cpd::TokenNormalization,
-    ) -> yunq_cpd::TokenizedSource {
-        yunq_treesitter_adapter::tokenize_with(&grammar_for(file), file, normalization)
+        normalization: vord_cpd::TokenNormalization,
+    ) -> vord_cpd::TokenizedSource {
+        vord_treesitter_adapter::tokenize_with(&grammar_for(file), file, normalization)
     }
 }
 
@@ -77,7 +77,7 @@ fn grammar_for(file: &SourceFile) -> tree_sitter::Language {
 }
 
 fn map_kind(kind: &str) -> NodeKind {
-    yunq_ast::lookup_kind(KIND_TABLE, kind)
+    vord_ast::lookup_kind(KIND_TABLE, kind)
 }
 
 #[cfg(test)]

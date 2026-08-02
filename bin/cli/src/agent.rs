@@ -1,4 +1,4 @@
-//! Composition root for `yunq agent` — the runtime that writes code and
+//! Composition root for `vord agent` — the runtime that writes code and
 //! cannot approve its own work (roadmap A).
 //!
 //! `core/agent` holds the loop and every decision in it; this module supplies
@@ -6,13 +6,13 @@
 //! point of the workstream:
 //!
 //! - [`HookWriteJudge`] is not a second implementation of the guardrail. It
-//!   calls [`crate::hook::judge`] — the exact function `yunq hook
-//!   claude-code` calls for a third-party agent — so `yunq agent` inherits
-//!   the same `yunq-policy.toml`, the same provenance ledger, the same
+//!   calls [`crate::hook::judge`] — the exact function `vord hook
+//!   claude-code` calls for a third-party agent — so `vord agent` inherits
+//!   the same `vord-policy.toml`, the same provenance ledger, the same
 //!   Gherkin evidence requirement, the same single-use approvals, the same
 //!   persisted circuit breaker and the same audit log. An agent that shared
 //!   only the *idea* of the policy would drift from it by the second release.
-//! - [`RepoAnalyzer`] is the same analyzer `yunq scan` runs, over the same
+//! - [`RepoAnalyzer`] is the same analyzer `vord scan` runs, over the same
 //!   profile. "Done" means what the CI gate means by it.
 //!
 //! The one thing this module deliberately does *not* do is decide anything.
@@ -21,21 +21,21 @@
 
 use std::path::{Path, PathBuf};
 
-use yunq_agent::completion::LocatedFinding;
-use yunq_agent::feedback::{FeedbackOutcome, FeedbackWatch, TriageLedger, Watch, WatchPolicy};
-use yunq_agent::runtime::{
+use vord_agent::completion::LocatedFinding;
+use vord_agent::feedback::{FeedbackOutcome, FeedbackWatch, TriageLedger, Watch, WatchPolicy};
+use vord_agent::runtime::{
     AgentRuntime, AnalysisError, Analyzer, JudgeError, RunConfig, RunOutcome, WriteJudge,
 };
-use yunq_agent::{Budget, CommandAllowlist};
-use yunq_agent_policy::{AgentPolicy, Evaluation};
-use yunq_infra_fs::{RepoWorkspace, YunqConfig};
-use yunq_infra_github::PullRequestFeedbackReader;
-use yunq_infra_llm::LlmProviderConfig;
-use yunq_rules_engine::RuleId;
+use vord_agent::{Budget, CommandAllowlist};
+use vord_agent_policy::{AgentPolicy, Evaluation};
+use vord_infra_fs::{RepoWorkspace, VordConfig};
+use vord_infra_github::PullRequestFeedbackReader;
+use vord_infra_llm::LlmProviderConfig;
+use vord_rules_engine::RuleId;
 
 use crate::hook;
 
-/// Judges every proposed write through `yunq hook`'s own path.
+/// Judges every proposed write through `vord hook`'s own path.
 pub struct HookWriteJudge {
     root: PathBuf,
     policy: AgentPolicy,
@@ -60,7 +60,7 @@ impl WriteJudge for HookWriteJudge {
         // order: the persisted breaker, the persisted loop alarm, the audit
         // line. `core/agent` keeps its own session-scoped copies of the first
         // two as stopping conditions; these are the repository's record,
-        // shared with every other agent yunq guards.
+        // shared with every other agent vord guards.
         let breaker = hook::track_circuit_breaker(&self.root, &verdict);
         let loop_report = hook::track_loop_guard(&self.root, path, Some(content));
         hook::append_audit_log(&self.root, "AgentWrite", &verdict, &breaker, &loop_report);
@@ -68,7 +68,7 @@ impl WriteJudge for HookWriteJudge {
     }
 }
 
-/// The analyzer, over the repository, with the project's own `yunq.toml`
+/// The analyzer, over the repository, with the project's own `vord.toml`
 /// sources and exclusions applied — so the agent is judged against the tree
 /// the CI gate judges, not a wider one.
 pub struct RepoAnalyzer {
@@ -78,7 +78,7 @@ pub struct RepoAnalyzer {
 }
 
 impl RepoAnalyzer {
-    pub fn new(root: impl Into<PathBuf>, config: Option<&YunqConfig>) -> Self {
+    pub fn new(root: impl Into<PathBuf>, config: Option<&VordConfig>) -> Self {
         let analysis = config.map(|c| &c.analysis);
         Self {
             root: root.into(),
@@ -113,10 +113,10 @@ impl Analyzer for RepoAnalyzer {
 
 /// Issues *and* hotspots, for the same reason [`crate::hook::analyze_content`]
 /// includes both: several rules are hotspot-only by design, and a completion
-/// check that ignored them would call a task done that `yunq scan` still
+/// check that ignored them would call a task done that `vord scan` still
 /// objects to.
-fn report_findings(report: &yunq_rules_engine::AnalysisReport) -> Vec<LocatedFinding> {
-    let profile = yunq_rules_engine::default_profile();
+fn report_findings(report: &vord_rules_engine::AnalysisReport) -> Vec<LocatedFinding> {
+    let profile = vord_rules_engine::default_profile();
     let issues = report.issues().iter().map(|issue| LocatedFinding {
         file: issue.file().to_string(),
         rule: issue.rule().clone(),
@@ -129,14 +129,14 @@ fn report_findings(report: &yunq_rules_engine::AnalysisReport) -> Vec<LocatedFin
         rule: hotspot.rule().clone(),
         severity: profile
             .severity_of(hotspot.rule())
-            .unwrap_or(yunq_rules_engine::Severity::Major),
+            .unwrap_or(vord_rules_engine::Severity::Major),
         message: hotspot.message().to_string(),
         line: hotspot.span().start_line,
     });
     issues.chain(hotspots).collect()
 }
 
-/// Everything `yunq agent run` was asked for on the command line.
+/// Everything `vord agent run` was asked for on the command line.
 pub struct AgentArgs {
     pub task: String,
     pub scope: String,
@@ -147,12 +147,12 @@ pub struct AgentArgs {
 }
 
 /// Builds the run's configuration from the CLI arguments layered over
-/// `yunq.toml`'s `[agent]` table, which is layered over the built-in
+/// `vord.toml`'s `[agent]` table, which is layered over the built-in
 /// defaults. A flag always wins; an absent flag never resets a configured
 /// value to the default.
 fn run_config(
     args: &AgentArgs,
-    settings: &yunq_infra_fs::AgentSettings,
+    settings: &vord_infra_fs::AgentSettings,
 ) -> anyhow::Result<RunConfig> {
     let defaults = Budget::default();
     let target_rule = match &args.rule {
@@ -187,41 +187,41 @@ fn run_config(
 }
 
 /// Runs one headless session. Returns the outcome rather than an exit code so
-/// the caller owns rendering — `yunq agent run`/`tui` want it as-is; `yunq
+/// the caller owns rendering — `vord agent run`/`tui` want it as-is; `vord
 /// swarm`'s topology runner (roadmap B4) wants the same shape but under a
 /// role's own scoped policy, hence [`run_with_policy`] alongside it.
 pub async fn run(root: &Path, args: AgentArgs) -> anyhow::Result<RunOutcome> {
-    run_with_observer(root, args, yunq_agent::NoopObserver).await
+    run_with_observer(root, args, vord_agent::NoopObserver).await
 }
 
 /// Same as [`run`], under a caller-supplied policy rather than `root`'s own
-/// `yunq-policy.toml` — see [`run_with_policy_and_observer`] for why this
+/// `vord-policy.toml` — see [`run_with_policy_and_observer`] for why this
 /// exists.
 pub async fn run_with_policy(
     root: &Path,
     args: AgentArgs,
     policy: AgentPolicy,
 ) -> anyhow::Result<RunOutcome> {
-    run_with_policy_and_observer(root, args, policy, yunq_agent::NoopObserver).await
+    run_with_policy_and_observer(root, args, policy, vord_agent::NoopObserver).await
 }
 
-/// Same as [`run`], with an [`yunq_agent::Observer`] watching every event the
-/// loop reports — `yunq agent tui` (roadmap A6) is the reason this exists,
+/// Same as [`run`], with an [`vord_agent::Observer`] watching every event the
+/// loop reports — `vord agent tui` (roadmap A6) is the reason this exists,
 /// but any observer works identically, since watching a run can never change
 /// what it decides (see `core/agent::observer`'s module docs).
 pub async fn run_with_observer(
     root: &Path,
     args: AgentArgs,
-    observer: impl yunq_agent::Observer + 'static,
+    observer: impl vord_agent::Observer + 'static,
 ) -> anyhow::Result<RunOutcome> {
     let policy = hook::load_policy(root)?;
     run_with_policy_and_observer(root, args, policy, observer).await
 }
 
 /// Same as [`run_with_observer`], with the policy supplied by the caller
-/// rather than loaded from `root`'s own `yunq-policy.toml` — `yunq swarm`
+/// rather than loaded from `root`'s own `vord-policy.toml` — `vord swarm`
 /// (roadmap B4) is the reason this exists: a role driven through a topology
-/// runs under its own [`yunq_agent_policy::AgentPolicy::with_role_scope`]
+/// runs under its own [`vord_agent_policy::AgentPolicy::with_role_scope`]
 /// narrowing, evaluated against the *worktree's* files, not a second
 /// implementation of what `run_with_observer` already does for the
 /// unscoped case.
@@ -229,9 +229,9 @@ pub async fn run_with_policy_and_observer(
     root: &Path,
     args: AgentArgs,
     policy: AgentPolicy,
-    observer: impl yunq_agent::Observer + 'static,
+    observer: impl vord_agent::Observer + 'static,
 ) -> anyhow::Result<RunOutcome> {
-    let config_file = YunqConfig::load_from_dir(root);
+    let config_file = VordConfig::load_from_dir(root);
     let settings = config_file
         .as_ref()
         .map(|c| c.agent.clone())
@@ -242,8 +242,8 @@ pub async fn run_with_policy_and_observer(
     if let Some(model) = args.model {
         provider.model = model;
     }
-    if provider.api_key.is_empty() && provider.kind == yunq_infra_llm::LlmProviderKind::Anthropic {
-        anyhow::bail!("no API key: set ANTHROPIC_API_KEY (or YUNQ_ANTHROPIC_API_KEY)");
+    if provider.api_key.is_empty() && provider.kind == vord_infra_llm::LlmProviderKind::Anthropic {
+        anyhow::bail!("no API key: set ANTHROPIC_API_KEY (or VORD_ANTHROPIC_API_KEY)");
     }
 
     let workspace = match settings.command_timeout_secs {
@@ -267,12 +267,12 @@ pub async fn run_with_policy_and_observer(
 // A5 — late feedback
 // ---------------------------------------------------------------------------
 
-/// Filename of the triage ledger: every feedback item `yunq agent watch-pr`
+/// Filename of the triage ledger: every feedback item `vord agent watch-pr`
 /// has already reported, keyed by pull request. Alongside the guardrail's
 /// other soft state in the repository root, and just as disposable — losing
 /// it re-reports items that were already handled, which is noisy but never
 /// wrong.
-pub const TRIAGE_FILE: &str = ".yunq-triage.json";
+pub const TRIAGE_FILE: &str = ".vord-triage.json";
 
 type TriageStore = std::collections::BTreeMap<String, Vec<String>>;
 
@@ -295,12 +295,12 @@ fn save_triage(root: &Path, key: &str, ledger: &TriageLedger) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
                 eprintln!(
-                    "yunq agent: could not persist the triage ledger at {}: {e}",
+                    "vord agent: could not persist the triage ledger at {}: {e}",
                     path.display()
                 );
             }
         }
-        Err(e) => eprintln!("yunq agent: could not serialize the triage ledger: {e}"),
+        Err(e) => eprintln!("vord agent: could not serialize the triage ledger: {e}"),
     }
 }
 
@@ -321,7 +321,7 @@ fn resolve_repository(repo: Option<String>) -> anyhow::Result<(String, String)> 
 /// Waits out the late-feedback window on a pull request.
 ///
 /// The sleeping happens here and the deciding happens in
-/// `yunq_agent::feedback` — this function judges nothing. It honours the
+/// `vord_agent::feedback` — this function judges nothing. It honours the
 /// delays the watch hands back, and hands the watch what the adapter saw.
 pub async fn watch_pull_request(
     repo: Option<String>,
@@ -334,7 +334,7 @@ pub async fn watch_pull_request(
         anyhow::anyhow!("no GITHUB_TOKEN — `watch-pr` needs one to read the pull request")
     })?;
     let reader = PullRequestFeedbackReader::new(token, &owner, &name).with_api_base(
-        std::env::var("YUNQ_GITHUB_API_BASE")
+        std::env::var("VORD_GITHUB_API_BASE")
             .unwrap_or_else(|_| "https://api.github.com".to_string()),
     );
 
@@ -359,7 +359,7 @@ pub async fn watch_pull_request(
 }
 
 pub fn report_feedback(outcome: &FeedbackOutcome) {
-    let line = format!("yunq agent watch-pr: {}", outcome.describe());
+    let line = format!("vord agent watch-pr: {}", outcome.describe());
     match outcome {
         FeedbackOutcome::Quiet | FeedbackOutcome::BotAllClear { .. } => println!("{line}"),
         _ => eprintln!("{line}"),
@@ -370,7 +370,7 @@ pub fn report_feedback(outcome: &FeedbackOutcome) {
 /// so a CI step's log shows the failure without `2>&1`.
 pub fn report(outcome: &RunOutcome) {
     let line = format!(
-        "yunq agent: {} (after {} turns)",
+        "vord agent: {} (after {} turns)",
         outcome.describe(),
         outcome.turns()
     );
@@ -382,7 +382,7 @@ pub fn report(outcome: &RunOutcome) {
 
 #[cfg(test)]
 mod tests {
-    use yunq_infra_fs::AgentSettings;
+    use vord_infra_fs::AgentSettings;
 
     use super::*;
 
@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn yunq_toml_overrides_the_built_in_budget() {
+    fn vord_toml_overrides_the_built_in_budget() {
         let settings = AgentSettings {
             max_turns: Some(5),
             max_tokens: Some(99),
@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn a_flag_outranks_yunq_toml() {
+    fn a_flag_outranks_vord_toml() {
         let settings = AgentSettings {
             max_turns: Some(5),
             ..AgentSettings::default()
@@ -494,7 +494,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_analyzer_adapter_reports_findings_with_their_file() {
-        let root = std::env::temp_dir().join(format!("yunq-agent-analyzer-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("vord-agent-analyzer-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(
@@ -514,7 +514,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_write_judge_denies_a_blocking_rule_and_leaves_an_audit_line() {
-        let root = std::env::temp_dir().join(format!("yunq-agent-judge-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("vord-agent-judge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 
@@ -540,7 +540,7 @@ mod tests {
     #[tokio::test]
     async fn the_write_judge_allows_a_clean_write() {
         let root =
-            std::env::temp_dir().join(format!("yunq-agent-judge-clean-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-agent-judge-clean-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 

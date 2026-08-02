@@ -3,8 +3,8 @@
 //! local names and making it impossible to tell where an identifier
 //! came from just by reading the file.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -48,8 +48,8 @@ impl Rule for WildcardImportRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`from module import *` pulls every public name into this file's namespace, shadowing local names unpredictably and hiding where each identifier is actually defined; import the specific names you need instead.".into(),
             tags: vec!["maintainability".into(), "python-idiom".into()],
             cwe: None,
@@ -68,13 +68,13 @@ impl Rule for WildcardImportRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         WildcardImportRule::new().check(&file, &ast)

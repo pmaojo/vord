@@ -1,7 +1,7 @@
 //! Rule: Flags Zustand store selectors that return a fresh object/array literal on every render without `useShallow`.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 pub struct ZustandFreshSelectorRule {
     id: RuleId,
@@ -78,7 +78,7 @@ impl Rule for ZustandFreshSelectorRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::Span;
+    use vord_ast::Span;
 
     #[test]
     fn flags_fresh_object_selector_in_zustand() {

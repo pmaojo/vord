@@ -3,14 +3,14 @@
 //! grouped by "touches the same field" bundles more than one responsibility,
 //! even when `smells:god-class`'s raw method/field counts stay under
 //! threshold (a class can have a modest method count and still be two
-//! unrelated classes glued together). Reuses `yunq_symbols::ClassRegistry`
+//! unrelated classes glued together). Reuses `vord_symbols::ClassRegistry`
 //! for extraction — same wiring as `smells:god-class`/`smells:feature-envy`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry, MethodInfo};
+use vord_ast::{AstNode, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry, MethodInfo};
 
 /// Constructors are excluded from the cohesion graph: their whole job is
 /// initializing every field at once, so including them would trivially
@@ -200,10 +200,10 @@ impl CrossFileRule for LowCohesionRule {
         let test_ranges: Vec<Vec<(u32, u32)>> = files
             .iter()
             .map(|(file, _)| {
-                if yunq_rules_engine::is_test_only_path(file.path()) {
+                if vord_rules_engine::is_test_only_path(file.path()) {
                     Vec::new()
                 } else {
-                    yunq_rules_engine::rust_test_module_ranges(file.content())
+                    vord_rules_engine::rust_test_module_ranges(file.content())
                 }
             })
             .collect();
@@ -221,8 +221,8 @@ impl CrossFileRule for LowCohesionRule {
                 }
                 let span = class.span?;
                 let index = files.iter().position(|(file, _)| file.path() == class.file)?;
-                if yunq_rules_engine::is_test_only_path(&class.file)
-                    || yunq_rules_engine::in_ranges(&test_ranges[index], span.start_line)
+                if vord_rules_engine::is_test_only_path(&class.file)
+                    || vord_rules_engine::in_ranges(&test_ranges[index], span.start_line)
                 {
                     return None;
                 }
@@ -247,12 +247,12 @@ impl CrossFileRule for LowCohesionRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str, min_methods: usize, min_fields: usize) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -303,7 +303,7 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -318,7 +318,7 @@ mod tests {
 
     fn check_rust(code: &str, min_methods: usize, min_fields: usize) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         let files = vec![(file, ast)];
         LowCohesionRule::new(min_methods, min_fields)
             .check(&files)
@@ -419,7 +419,7 @@ mod tests {
     fn rust_struct_field_clusters_across_impl_methods() {
         let code = "struct Mixed {\n    a: i32,\n    b: i32,\n}\nimpl Mixed {\n    fn inc_a(&mut self) {\n        self.a += 1;\n    }\n    fn read_a(&self) -> i32 {\n        self.a\n    }\n    fn inc_b(&mut self) {\n        self.b += 1;\n    }\n    fn read_b(&self) -> i32 {\n        self.b\n    }\n}\n";
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         let files = vec![(file, ast)];
         let findings: Vec<Finding> = LowCohesionRule::new(4, 2)
             .check(&files)

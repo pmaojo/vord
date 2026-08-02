@@ -3,8 +3,8 @@
 //! (`;`, `|`, `` ` ``, `$(...)`) execute arbitrary commands if any part of
 //! the string is influenced by external input.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::other_kind_name;
 
@@ -68,8 +68,8 @@ impl Rule for SubprocessShellTrueRule {
         20
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "subprocess with shell=True runs the command string through the shell, so any shell metacharacter reaching it (from user input, config, or another process) can execute arbitrary commands; pass a list of arguments and drop shell=True instead.".into(),
             tags: vec!["security".into(), "injection".into(), "cwe".into(), "owasp-top10".into()],
             cwe: Some(78),
@@ -92,13 +92,13 @@ impl Rule for SubprocessShellTrueRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         SubprocessShellTrueRule::new().check(&file, &ast)

@@ -6,8 +6,8 @@
 //! 2. `architecture:graph-missing-contract`: detects domain nodes defined
 //!    without an explicit `contract:` or `interface:` field.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 declare_rule_id!(
     GraphCircularDependencyRule,

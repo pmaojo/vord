@@ -1,7 +1,7 @@
 //! Rule: flags Dockerfiles that run as root (missing USER instruction).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct DockerfileRootUserRule {
     id: RuleId,
@@ -69,7 +69,7 @@ mod tests {
         let file = SourceFile::new("Dockerfile", code, LanguageIdentifier::dockerfile()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 3, 1),
+            vord_ast::Span::new(1, 1, 3, 1),
             code,
             vec![],
         );

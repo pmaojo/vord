@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
 
 declare_rule_id!(DisallowPanicMacrosRule, "rust:disallow-panic-macros");
 
@@ -24,8 +24,8 @@ impl Rule for DisallowPanicMacrosRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`panic!`, `todo!`, `unimplemented!`, and `unreachable!` macros cause unrecoverable crashes in production code. Use `Result` and explicit error handling instead.".into(),
             tags: vec!["reliability".into(), "rust".into(), "error-handling".into()],
             cwe: None,
@@ -138,8 +138,8 @@ fn check_panic_macro(node: &AstNode) -> Option<(&'static str, Span)> {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
@@ -149,7 +149,7 @@ mod tests {
 
     fn check_with_path(path: &str, code: &str) -> Vec<Finding> {
         let file = SourceFile::new(path, code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         DisallowPanicMacrosRule::new().check(&file, &ast)
     }
 

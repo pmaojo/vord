@@ -1,17 +1,17 @@
 [package]
-name = "yunq-treesitter-tokens"
+name = "vord-treesitter-tokens"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Shared tree-sitter token utilities for yunq parsers"
+description = "Shared tree-sitter token utilities for vord parsers"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-cpd = { path = "../../core/duplication" }
+vord-cpd = { path = "../../core/duplication" }
 tree-sitter = { workspace = true }
 
 [dev-dependencies]

@@ -7,7 +7,7 @@
 //! give the invariant one place to live.
 //!
 //! Counts only parameters whose declared type is data
-//! (`yunq_symbols::is_primitive_type`, which sees through `Vec<String>` and
+//! (`vord_symbols::is_primitive_type`, which sees through `Vec<String>` and
 //! `Optional[int]`), so a constructor taking four injected collaborators is
 //! `smells:constructor-over-injection`'s finding, not this one. Unannotated
 //! parameters are not counted at all — with no declared type there is no
@@ -20,9 +20,9 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassRegistry, MemberInfo, MethodInfo, function_params, is_primitive_type};
+use vord_ast::{AstNode, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassRegistry, MemberInfo, MethodInfo, function_params, is_primitive_type};
 
 use crate::common::{is_constructor, is_domain_path, is_value_object, wire_dto_names};
 
@@ -133,7 +133,7 @@ impl CrossFileRule for PrimitiveObsessionRule {
         let views: Vec<(&str, &AstNode)> = files
             .iter()
             .filter(|(file, _)| is_domain_path(file.path()))
-            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .map(|(file, ast)| (file.path(), ast))
             .collect();
         if views.is_empty() {
@@ -238,21 +238,21 @@ impl PrimitiveObsessionRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         PrimitiveObsessionRule::default()
             .check(&[(file, ast)])
@@ -367,7 +367,7 @@ mod tests {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         let findings: Vec<Finding> = PrimitiveObsessionRule::default()
             .check(&[(file, ast)])
             .into_iter()
@@ -432,7 +432,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];

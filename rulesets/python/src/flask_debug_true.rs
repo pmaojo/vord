@@ -4,8 +4,8 @@
 //! this ships to production, any anonymous visitor who triggers an
 //! unhandled exception gets remote code execution.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::other_kind_name;
 
@@ -69,8 +69,8 @@ impl Rule for FlaskDebugTrueRule {
         5
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Flask's debug mode enables the Werkzeug interactive debugger; if this reaches production, any visitor who triggers an unhandled exception can execute arbitrary Python.".into(),
             tags: vec!["security".into(), "cwe".into()],
             cwe: Some(489),
@@ -93,13 +93,13 @@ impl Rule for FlaskDebugTrueRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         FlaskDebugTrueRule::new().check(&file, &ast)

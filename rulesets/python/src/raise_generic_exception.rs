@@ -3,8 +3,8 @@
 //! wants to handle this failure specifically to catch broadly too (or
 //! parse the message), since there's no distinct type left to match on.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 const GENERIC_EXCEPTIONS: &[&str] = &["Exception", "BaseException"];
 
@@ -59,8 +59,8 @@ impl Rule for RaiseGenericExceptionRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Raising Exception/BaseException gives callers no specific type to match on, forcing them to catch broadly or parse the message; raise (or define) a more specific exception type instead.".into(),
             tags: vec!["maintainability".into(), "error-handling".into()],
             cwe: None,
@@ -79,13 +79,13 @@ impl Rule for RaiseGenericExceptionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         RaiseGenericExceptionRule::new().check(&file, &ast)

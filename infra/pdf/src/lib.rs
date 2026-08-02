@@ -1,7 +1,7 @@
 //! Compliance report generator: OWASP Top 10, CWE & PCI DSS evidence reports in valid binary PDF 1.4 and CSV format.
 
 use std::fmt::Write;
-use yunq_rules_engine::AnalysisReport;
+use vord_rules_engine::AnalysisReport;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReportError {
@@ -17,7 +17,7 @@ pub struct ComplianceReportGenerator;
 fn build_report_text_stream(report: &AnalysisReport) -> String {
     let mut text_stream = String::new();
     text_stream.push_str(
-        "BT /F1 16 Tf 50 750 Td (yunq OWASP Top 10 Security & Compliance Report) Tj ET\n",
+        "BT /F1 16 Tf 50 750 Td (vord OWASP Top 10 Security & Compliance Report) Tj ET\n",
     );
     text_stream.push_str(
         "BT /F1 12 Tf 50 720 Td (------------------------------------------------) Tj ET\n",
@@ -113,7 +113,7 @@ impl ComplianceReportGenerator {
         report: &AnalysisReport,
     ) -> Result<Vec<u8>, ReportError> {
         let mut pdf = Vec::with_capacity(4096);
-        pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"); // yunq-ignore: secrets:high-entropy-string (PDF spec magic bytes, not a secret)
+        pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"); // vord-ignore: secrets:high-entropy-string (PDF spec magic bytes, not a secret)
 
         let text_stream = build_report_text_stream(report);
         let offsets = write_pdf_objects(&mut pdf, &text_stream);
@@ -148,7 +148,7 @@ fn escape_csv(val: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::Metrics;
+    use vord_rules_engine::Metrics;
 
     #[test]
     fn generates_csv_report() {

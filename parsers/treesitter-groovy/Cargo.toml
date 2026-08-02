@@ -1,20 +1,20 @@
 [package]
-name = "yunq-parser-groovy"
+name = "vord-parser-groovy"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Groovy parser adapter (tree-sitter) for the yunq analysis engine"
+description = "Groovy parser adapter (tree-sitter) for the vord analysis engine"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-rules-engine = { workspace = true }
-yunq-cpd = { workspace = true }
-yunq-treesitter-tokens = { workspace = true }
-yunq-treesitter-adapter = { path = "../treesitter-adapter" }
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-cpd = { workspace = true }
+vord-treesitter-tokens = { workspace = true }
+vord-treesitter-adapter = { path = "../treesitter-adapter" }
 tree-sitter = { workspace = true }
 tree-sitter-groovy = "0.1.2"

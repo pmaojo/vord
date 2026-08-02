@@ -3,7 +3,7 @@
 //! smell: the subclass doesn't actually want the behavior it inherits, a
 //! sign the class hierarchy models the wrong relationship (composition or a
 //! narrower interface would fit better than inheritance). Needs
-//! `yunq_symbols::ClassRegistry` to resolve the superclass by name and see
+//! `vord_symbols::ClassRegistry` to resolve the superclass by name and see
 //! which of the child's methods actually share a name with — and so
 //! override — one of the parent's.
 //!
@@ -14,9 +14,9 @@
 //! so a superclass declared in another file still resolves — same wiring
 //! pattern as `smells:god-class`.
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry, MethodInfo};
+use vord_ast::{AstNode, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry, MethodInfo};
 
 /// The method body's statement list: TS's `statement_block`, Python's
 /// `block`.
@@ -169,12 +169,12 @@ impl CrossFileRule for RefusedBequestRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -246,7 +246,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let files = vec![
             (bird_file.clone(), parser.parse(&bird_file).unwrap()),
             (penguin_file.clone(), parser.parse(&penguin_file).unwrap()),

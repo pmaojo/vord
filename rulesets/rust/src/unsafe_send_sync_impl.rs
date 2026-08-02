@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::{has_safety_comment_directly_above, impl_trait_is, is_other};
 
@@ -57,8 +57,8 @@ impl Rule for UnsafeSendSyncImplRule {
         20
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "A manual `unsafe impl Send`/`Sync` asserts thread-safety the compiler \
                 can no longer verify; a `SAFETY` comment must justify why the type actually \
                 tolerates being moved or shared across threads."
@@ -95,14 +95,14 @@ impl Rule for UnsafeSendSyncImplRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         UnsafeSendSyncImplRule::new().check(&file, &ast)
     }
 

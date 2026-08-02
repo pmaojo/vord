@@ -11,8 +11,8 @@
 //! complexity rules will under-count Elixir branching until those get their
 //! own distinguishing treatment, tracked as a follow-up.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use yunq_rules_engine::{AstParser, ParseError};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
+use vord_rules_engine::{AstParser, ParseError};
 
 pub struct ElixirParser;
 
@@ -50,25 +50,25 @@ impl AstParser for ElixirParser {
     fn tokenize_for_duplication(
         &self,
         file: &SourceFile,
-        normalization: yunq_cpd::TokenNormalization,
-    ) -> yunq_cpd::TokenizedSource {
+        normalization: vord_cpd::TokenNormalization,
+    ) -> vord_cpd::TokenizedSource {
         let mut parser = tree_sitter::Parser::new();
         if parser
             .set_language(&tree_sitter_elixir::LANGUAGE.into())
             .is_err()
         {
-            return yunq_cpd::TokenizedSource {
-                lines: yunq_cpd::fallback_tokenize(file),
+            return vord_cpd::TokenizedSource {
+                lines: vord_cpd::fallback_tokenize(file),
                 declaration_lines: Vec::new(),
             };
         }
         let Some(tree) = parser.parse(file.content(), None) else {
-            return yunq_cpd::TokenizedSource {
-                lines: yunq_cpd::fallback_tokenize(file),
+            return vord_cpd::TokenizedSource {
+                lines: vord_cpd::fallback_tokenize(file),
                 declaration_lines: Vec::new(),
             };
         };
-        yunq_treesitter_tokens::tokenize(&tree, file.content(), normalization)
+        vord_treesitter_tokens::tokenize(&tree, file.content(), normalization)
     }
 }
 
@@ -174,7 +174,7 @@ const KIND_TABLE: &[(&str, NodeKind)] = &[
 
 fn map_kind(node: tree_sitter::Node<'_>, source: &str) -> NodeKind {
     special_case_kind(node, source)
-        .unwrap_or_else(|| yunq_ast::lookup_kind(KIND_TABLE, node.kind()))
+        .unwrap_or_else(|| vord_ast::lookup_kind(KIND_TABLE, node.kind()))
 }
 
 #[cfg(test)]

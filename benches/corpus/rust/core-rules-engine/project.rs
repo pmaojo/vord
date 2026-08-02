@@ -137,13 +137,13 @@ mod tests {
     #[test]
     fn analysis_context_carries_scope() {
         let context = AnalysisContext::new(
-            ProjectKey::new("yunq").unwrap(),
+            ProjectKey::new("vord").unwrap(),
             AnalysisScope::PullRequest {
                 number: PullRequestNumber::new(7).unwrap(),
                 target: BranchName::new("main").unwrap(),
             },
         );
-        assert_eq!(context.project().as_str(), "yunq");
+        assert_eq!(context.project().as_str(), "vord");
         assert!(matches!(context.scope(), AnalysisScope::PullRequest { .. }));
     }
 }

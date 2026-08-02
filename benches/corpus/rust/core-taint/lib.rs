@@ -6,7 +6,7 @@
 //! source→sink flow with a human-readable trace.
 //!
 //! Relies on the structural contracts documented on
-//! [`yunq_ast::NodeKind`]: `VariableDecl`/`Assignment` start with their
+//! [`vord_ast::NodeKind`]: `VariableDecl`/`Assignment` start with their
 //! target identifier, `Call` starts with its callee.
 
 mod cross;
@@ -16,7 +16,7 @@ pub use cross::{CrossFileFlow, CrossFileTaint};
 
 use std::collections::HashMap;
 
-use yunq_ast::{AstNode, NodeKind, Span};
+use vord_ast::{AstNode, NodeKind, Span};
 
 /// What taints (sources), what must not receive taint (sinks), and what
 /// strips taint from a value (sanitizers).

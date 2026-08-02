@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 /// A named thing's fully-qualified identity: the file it's declared/exported
 /// in, plus its name there.

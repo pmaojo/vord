@@ -1,7 +1,7 @@
 //! Rule: a class/struct with an excessive number of methods and/or fields —
 //! the classic "God Class" smell, doing far more than a single
 //! responsibility should. Doesn't need symbol/type resolution (just a
-//! member count), but reuses `yunq_symbols::ClassRegistry` for the
+//! member count), but reuses `vord_symbols::ClassRegistry` for the
 //! class/struct extraction itself rather than re-parsing class shapes a
 //! second time — the same extraction `smells:feature-envy` and
 //! `smells:refused-bequest` need.
@@ -12,9 +12,9 @@
 //! `impl` blocks in other files, are all counted against the one struct
 //! rather than only whichever file happens to declare it.
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::ClassRegistry;
+use vord_ast::{AstNode, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::ClassRegistry;
 
 pub struct GodClassRule {
     id: RuleId,
@@ -99,12 +99,12 @@ impl CrossFileRule for GodClassRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str, max_methods: usize, max_fields: usize) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -153,7 +153,7 @@ mod tests {
                 .collect::<String>()
         );
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         let files = vec![(file, ast)];
         let findings: Vec<Finding> = GodClassRule::new(3, 100)
             .check(&files)
@@ -179,7 +179,7 @@ mod tests {
                 .collect::<String>()
         );
         let impl_file = SourceFile::new("i.rs", impl_code, LanguageIdentifier::rust()).unwrap();
-        let parser = yunq_parser_rust::RustParser::new();
+        let parser = vord_parser_rust::RustParser::new();
         let files = vec![
             (struct_file.clone(), parser.parse(&struct_file).unwrap()),
             (impl_file.clone(), parser.parse(&impl_file).unwrap()),

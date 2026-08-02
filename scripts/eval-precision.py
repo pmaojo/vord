@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-yunq SAST Precision & False Positive Automated Evaluation Suite
+vord SAST Precision & False Positive Automated Evaluation Suite
 
-Runs yunq against labeled benchmark suites (OWASP Benchmark, Juliet, PythonSecurityEval,
+Runs vord against labeled benchmark suites (OWASP Benchmark, Juliet, PythonSecurityEval,
 or labeled JSON test cases) to compute exact Confusion Matrices:
   - True Positives (TP): Real security vulnerabilities correctly flagged
   - False Positives (FP): Clean code incorrectly flagged as vulnerable
@@ -20,18 +20,18 @@ import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-YUNQ_BIN = PROJECT_ROOT / "target" / "release" / "yunq"
+VORD_BIN = PROJECT_ROOT / "target" / "release" / "vord"
 
 
-def ensure_yunq_binary():
-    if not YUNQ_BIN.exists():
-        print(f"==> Building yunq release binary at {YUNQ_BIN}...")
-        subprocess.run(["cargo", "build", "--release", "--bin", "yunq"], cwd=PROJECT_ROOT, check=True)
+def ensure_vord_binary():
+    if not VORD_BIN.exists():
+        print(f"==> Building vord release binary at {VORD_BIN}...")
+        subprocess.run(["cargo", "build", "--release", "--bin", "vord"], cwd=PROJECT_ROOT, check=True)
 
 
-def run_yunq_scan(target_dir):
-    """Executes yunq scan --format json over target_dir and returns parsed JSON output."""
-    cmd = [str(YUNQ_BIN), "scan", str(target_dir), "--format", "json", "--no-cache"]
+def run_vord_scan(target_dir):
+    """Executes vord scan --format json over target_dir and returns parsed JSON output."""
+    cmd = [str(VORD_BIN), "scan", str(target_dir), "--format", "json", "--no-cache"]
     start_time = time.time()
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     duration = time.time() - start_time
@@ -39,7 +39,7 @@ def run_yunq_scan(target_dir):
     try:
         data = json.loads(res.stdout)
     except json.JSONDecodeError:
-        print(f"Error parsing yunq JSON output. Stderr: {res.stderr}")
+        print(f"Error parsing vord JSON output. Stderr: {res.stderr}")
         data = {"issues": [], "files_scanned": 0}
         
     return data, duration
@@ -47,15 +47,15 @@ def run_yunq_scan(target_dir):
 
 def evaluate_labeled_suite(suite_dir, expected_labels):
     """
-    Compares yunq scan findings against ground truth labels.
+    Compares vord scan findings against ground truth labels.
     expected_labels format:
     {
        "file_path.py": {"is_vulnerable": True/False, "cwe": "CWE-89"},
        ...
     }
     """
-    ensure_yunq_binary()
-    scan_results, duration = run_yunq_scan(suite_dir)
+    ensure_vord_binary()
+    scan_results, duration = run_vord_scan(suite_dir)
     
     flagged_files = set()
     for issue in scan_results.get("issues", []):
@@ -103,7 +103,7 @@ def evaluate_labeled_suite(suite_dir, expected_labels):
 
 def main():
     print("=" * 70)
-    print("yunq Automated SAST Precision & False Positive Evaluation Runner")
+    print("vord Automated SAST Precision & False Positive Evaluation Runner")
     print("=" * 70)
     
     fixtures_dir = PROJECT_ROOT / "fixtures"

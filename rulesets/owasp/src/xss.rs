@@ -1,6 +1,6 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
-use yunq_taint::{TaintAnalysis, TaintConfig};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_taint::{TaintAnalysis, TaintConfig};
 
 /// Taint-based Cross-Site Scripting detection: user-controlled input reaching
 /// a DOM-writing sink without sanitization.
@@ -72,13 +72,13 @@ impl Rule for XssRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     #[test]
     fn flags_direct_flow_into_document_write() {
         let code = "const name = req.query;\ndocument.write(name);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
 
@@ -91,7 +91,7 @@ mod tests {
     fn allows_untainted_dom_write() {
         let code = "const name = 'safe';\ndocument.write(name);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
 
@@ -103,7 +103,7 @@ mod tests {
     fn allows_dom_write_of_a_sanitized_value() {
         let code = "const name = DOMPurify.sanitize(req.query);\ndocument.write(name);\n";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
 

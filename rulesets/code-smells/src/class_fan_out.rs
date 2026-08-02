@@ -24,9 +24,9 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry};
+use vord_ast::{AstNode, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry};
 
 /// Every locally-defined class `class` depends on: its superclass, the types
 /// of its fields and method parameters, and every name its method bodies
@@ -127,7 +127,7 @@ impl CrossFileRule for ClassFanOutRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> = files
             .iter()
-            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .map(|(file, ast)| (file.path(), ast))
             .collect();
         let registry = ClassRegistry::build_cross_file(&views);
@@ -160,8 +160,8 @@ impl CrossFileRule for ClassFanOutRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     /// A class whose constructor takes `count` distinct declared collaborators,
     /// each of them a real class in the same file.
@@ -181,7 +181,7 @@ mod tests {
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -213,7 +213,7 @@ mod tests {
         let code = "class Dep {}\nclass Service {\n  a: Dep;\n  b: Dep;\n  use(d: Dep): Dep {\n    return new Dep();\n  }\n}\n";
         let findings = ClassFanOutRule::new(1).check(&{
             let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-            let ast = yunq_parser_typescript::TypeScriptParser::new()
+            let ast = vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap();
             vec![(file, ast)]
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn counts_dependencies_declared_in_other_files() {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let dep_code = "export class DepA {}\nexport class DepB {}\n";
         let service_code = "class Service {\n  constructor(a: DepA, b: DepB) {}\n}\n";
         let dep_file =
@@ -251,7 +251,7 @@ mod tests {
                 .check(&{
                     let file =
                         SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-                    let ast = yunq_parser_typescript::TypeScriptParser::new()
+                    let ast = vord_parser_typescript::TypeScriptParser::new()
                         .parse(&file)
                         .unwrap();
                     vec![(file, ast)]
@@ -268,7 +268,7 @@ mod tests {
             LanguageIdentifier::python(),
         )
         .unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         let findings = ClassFanOutRule::new(1).check(&[(file, ast)]);
@@ -284,7 +284,7 @@ mod tests {
             LanguageIdentifier::rust(),
         )
         .unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         let findings = ClassFanOutRule::new(1).check(&[(file, ast)]);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].1.message.contains("`Service` is coupled to 2"));
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_files_neither_report_nor_inflate_counts() {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let prod = SourceFile::new(
             "service.ts",
             "class DepA {}\nclass Service {\n  constructor(a: DepA) {}\n}\n",

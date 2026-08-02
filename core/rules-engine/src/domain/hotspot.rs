@@ -1,6 +1,6 @@
 use std::fmt;
-use yunq_ast::Span;
-use yunq_profiles::RuleId;
+use vord_ast::Span;
+use vord_profiles::RuleId;
 
 /// Review state of a security hotspot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

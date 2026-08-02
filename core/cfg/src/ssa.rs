@@ -152,7 +152,7 @@ fn place_phi_nodes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, NodeKind, Span};
+    use vord_ast::{AstNode, NodeKind, Span};
 
     #[test]
     fn computes_dominators_and_ssa() {

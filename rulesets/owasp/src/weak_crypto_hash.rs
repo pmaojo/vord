@@ -1,7 +1,7 @@
 //! Rule: flags weak cryptographic hash algorithms (MD5, SHA1) in crypto calls.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 fn mentions_algorithm_names_as_data(line: &str) -> bool {
     if line.contains("lower.contains")
@@ -92,17 +92,17 @@ impl Rule for WeakCryptoHashRule {
         if ast.kind() != &NodeKind::SourceUnit {
             return Vec::new();
         }
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
-        let test_ranges = yunq_rules_engine::rust_test_module_ranges(file.content());
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         let content = file.content();
 
         for (idx, line) in content.lines().enumerate() {
             let line_no = (idx + 1) as u32;
-            if yunq_rules_engine::in_ranges(&test_ranges, line_no) {
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
                 continue;
             }
             let trimmed = line.trim();
@@ -116,7 +116,7 @@ impl Rule for WeakCryptoHashRule {
             if is_weak_crypto_hash(line) {
                 findings.push(Finding::new(
                     "Weak cryptographic hash algorithm (MD5/SHA1) used in crypto call; prefer SHA-256 or SHA-512",
-                    yunq_ast::Span::new(line_no, 1, line_no, line.len().max(1) as u32),
+                    vord_ast::Span::new(line_no, 1, line_no, line.len().max(1) as u32),
                 ));
             }
         }
@@ -135,7 +135,7 @@ mod tests {
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -150,7 +150,7 @@ mod tests {
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -165,7 +165,7 @@ mod tests {
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -180,7 +180,7 @@ mod tests {
         let file = SourceFile::new("app.js", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );

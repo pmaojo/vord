@@ -4,8 +4,8 @@
 //! `Object.is` change check relies on, so the component silently fails to
 //! re-render even though the underlying data changed.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{callee_name, is_other, own_scope_descendants};
 
@@ -122,11 +122,11 @@ fn title_case(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
         DirectStateMutationRule::new().check(&file, &ast)
     }
 

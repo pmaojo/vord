@@ -1,7 +1,7 @@
 //! Control Flow Graph (CFG) Construction.
 
 use std::collections::HashMap;
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EdgeKind {
@@ -76,7 +76,7 @@ impl ControlFlowGraph {
     /// from `entry` or re-attached before `exit`).
     ///
     /// `ControlFlowGraph::build` keeps this exact identity with the decision-
-    /// point count used elsewhere in yunq (`core/rules-engine`'s
+    /// point count used elsewhere in vord (`core/rules-engine`'s
     /// `function_complexity`, whose `1 + decision_points` is what a straight
     /// `if`/`while`/`for`/`&&`-heavy function should yield): every `if`/`while`/
     /// `for`-family node adds one true edge plus one false edge and one join
@@ -232,7 +232,7 @@ impl CfgBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{NodeKind, Span};
+    use vord_ast::{NodeKind, Span};
 
     fn other(kind: &str, children: Vec<AstNode>) -> AstNode {
         AstNode::new(NodeKind::Other(kind.into()), Span::new(1, 1, 1, 1), "", children)

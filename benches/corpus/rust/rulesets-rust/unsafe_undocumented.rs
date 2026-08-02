@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 /// Whether the contiguous run of comment lines directly above `start_line`
 /// (1-based) mentions `SAFETY`. Stops at the first line that is neither a
@@ -60,8 +60,8 @@ impl Rule for UnsafeUndocumentedRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "An `unsafe` block must carry a `SAFETY` comment explaining why the \
                 invariants it depends on hold; without one a reviewer has to reconstruct the \
                 soundness argument from scratch."
@@ -90,14 +90,14 @@ impl Rule for UnsafeUndocumentedRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         UnsafeUndocumentedRule::new().check(&file, &ast)
     }
 

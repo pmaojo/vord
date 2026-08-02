@@ -1,4 +1,4 @@
-//! Interactive wizard: `yunq` with no subcommand, or `yunq wizard`, in a TTY.
+//! Interactive wizard: `vord` with no subcommand, or `vord wizard`, in a TTY.
 //! Guides scope selection → scan → a next-action menu (agent prompt, guided
 //! remediation, CI install) without requiring the user to know any flags.
 //! Purely additive: `scan`/`fix` stay flag-driven and unchanged for
@@ -12,12 +12,12 @@ use std::process::{Command as ProcessCommand, ExitCode};
 
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, Select};
-use yunq_rules_engine::{AnalysisReport, GateEvaluation, Issue, Severity};
+use vord_rules_engine::{AnalysisReport, GateEvaluation, Issue, Severity};
 
 use crate::output;
 
-const CI_WORKFLOW_PATH: &str = ".github/workflows/yunq.yml";
-const CI_ACTION_REF: &str = "pmaojo/yunq@main";
+const CI_WORKFLOW_PATH: &str = ".github/workflows/vord.yml";
+const CI_ACTION_REF: &str = "pmaojo/vord@main";
 
 /// Resolves the chosen scope to a scan path/diff-file-list, runs the scan,
 /// persists the cache, and evaluates the gate — everything `run()`'s
@@ -36,17 +36,17 @@ async fn scan_for_scope(
 
     println!("\nAnalizando {}...", scan_path.display());
     let cache = scan_path.is_dir().then(|| {
-        std::sync::Arc::new(yunq_infra_fs::FileAnalysisCache::open(
-            scan_path.join(".yunq-cache.json"),
+        std::sync::Arc::new(vord_infra_fs::FileAnalysisCache::open(
+            scan_path.join(".vord-cache.json"),
         ))
     });
-    let report = yunq_cli::scan_with_cache(&scan_path, cache.clone()).await?;
+    let report = vord_cli::scan_with_cache(&scan_path, cache.clone()).await?;
     if let Some(cache) = &cache
         && let Err(e) = cache.persist()
     {
         eprintln!("warning: could not persist analysis cache: {e}");
     }
-    let gate = yunq_cli::default_quality_gate().evaluate(|key| report.measure(key));
+    let gate = vord_cli::default_quality_gate().evaluate(|key| report.measure(key));
 
     Ok((scan_path, diff_files, report, gate))
 }
@@ -54,14 +54,14 @@ async fn scan_for_scope(
 pub async fn run() -> anyhow::Result<ExitCode> {
     if !is_interactive() {
         eprintln!(
-            "yunq: no interactive terminal detected. Use `yunq scan <path>` or `yunq --help` for scripted/CI use."
+            "vord: no interactive terminal detected. Use `vord scan <path>` or `vord --help` for scripted/CI use."
         );
         return Ok(ExitCode::FAILURE);
     }
 
     let theme = ColorfulTheme::default();
     let cwd = std::env::current_dir()?;
-    let git_root = yunq_cli::find_git_root(&cwd);
+    let git_root = vord_cli::find_git_root(&cwd);
     let root = git_root.clone().unwrap_or_else(|| cwd.clone());
 
     print_welcome(&root, git_root.as_deref());
@@ -88,7 +88,7 @@ pub async fn run() -> anyhow::Result<ExitCode> {
                     remediate_loop(&theme, &report, &scan_path, diff_files.as_deref()).await?;
                 }
                 Action::ConfigureToml => {
-                    configure_yunq_toml(&theme, &root)?;
+                    configure_vord_toml(&theme, &root)?;
                 }
                 Action::InstallCi => {
                     install_ci(&root, false)?;
@@ -105,7 +105,7 @@ fn is_interactive() -> bool {
 }
 
 fn print_welcome(root: &Path, git_root: Option<&Path>) {
-    println!("yunq — asistente interactivo");
+    println!("vord — asistente interactivo");
     println!("────────────────────────────");
     println!("Directorio: {}", root.display());
     match git_root {
@@ -114,7 +114,7 @@ fn print_welcome(root: &Path, git_root: Option<&Path>) {
                 println!("Rama: {branch}");
             }
             if let Some(existing) = detect_existing_ci(git_root) {
-                println!("CI: ya hay un workflow de yunq en {}", existing.display());
+                println!("CI: ya hay un workflow de vord en {}", existing.display());
             }
         }
         None => println!("(no es un repositorio git — el alcance \"diff\" no estará disponible)"),
@@ -214,12 +214,12 @@ fn action_menu(
         labels.push("Arreglar issues con el remediador (uno a uno)".to_string());
         actions.push(Action::Remediate);
     }
-    labels.push("Configurar perfil de reglas y topología swarm (yunq.toml)".to_string());
+    labels.push("Configurar perfil de reglas y topología swarm (vord.toml)".to_string());
     actions.push(Action::ConfigureToml);
     if let Some(root) = git_root
         && detect_existing_ci(root).is_none()
     {
-        labels.push("Instalar yunq en CI (GitHub Actions)".to_string());
+        labels.push("Instalar vord en CI (GitHub Actions)".to_string());
         actions.push(Action::InstallCi);
     }
     labels.push("Volver a analizar".to_string());
@@ -276,8 +276,8 @@ async fn remediate_one(
     }
 
     let file_path = scan_path.join(issue.file());
-    match yunq_cli::remediate_issue(&file_path, issue.rule().as_str(), None).await {
-        Ok((path, yunq_remediation::RemediationVerdict::Accepted { proposal })) => {
+    match vord_cli::remediate_issue(&file_path, issue.rule().as_str(), None).await {
+        Ok((path, vord_remediation::RemediationVerdict::Accepted { proposal })) => {
             println!(
                 "\n✅ Fix verificado y aplicado en {}:\n{}\n\nExplicación: {}",
                 path.display(),
@@ -285,7 +285,7 @@ async fn remediate_one(
                 proposal.explanation,
             );
         }
-        Ok((_, yunq_remediation::RemediationVerdict::Rejected { reason })) => {
+        Ok((_, vord_remediation::RemediationVerdict::Rejected { reason })) => {
             eprintln!("❌ No se pudo verificar un fix: {reason}");
         }
         Err(err) => {
@@ -344,22 +344,22 @@ fn truncate(text: &str, max_chars: usize) -> String {
     }
 }
 
-/// Installs the yunq GitHub Action workflow into `root` (a Git repo).
+/// Installs the vord GitHub Action workflow into `root` (a Git repo).
 /// `yes` skips the confirmation prompt — required when not running in a
-/// TTY, e.g. `yunq init --yes` from a setup script.
+/// TTY, e.g. `vord init --yes` from a setup script.
 pub fn install_ci(root: &Path, yes: bool) -> anyhow::Result<ExitCode> {
-    let root = yunq_cli::find_git_root(root)
+    let root = vord_cli::find_git_root(root)
         .ok_or_else(|| anyhow::anyhow!("{} is not inside a Git repository", root.display()))?;
 
     if let Some(existing) = detect_existing_ci(&root) {
-        println!("yunq ya está instalado en CI: {}", existing.display());
+        println!("vord ya está instalado en CI: {}", existing.display());
         return Ok(ExitCode::SUCCESS);
     }
 
     if !yes {
         if !is_interactive() {
             eprintln!(
-                "yunq init: no hay terminal interactiva — repite con --yes para instalar sin confirmar."
+                "vord init: no hay terminal interactiva — repite con --yes para instalar sin confirmar."
             );
             return Ok(ExitCode::FAILURE);
         }
@@ -393,20 +393,20 @@ fn detect_existing_ci(root: &Path) -> Option<PathBuf> {
             )
         })
         .find(|path| {
-            std::fs::read_to_string(path).is_ok_and(|contents| workflow_mentions_yunq(&contents))
+            std::fs::read_to_string(path).is_ok_and(|contents| workflow_mentions_vord(&contents))
         })
 }
 
-fn workflow_mentions_yunq(contents: &str) -> bool {
-    contents.contains("pmaojo/yunq")
-        || contents.contains("yunq scan")
-        || contents.contains("bin/yunq")
-        || contents.contains("bin yunq")
+fn workflow_mentions_vord(contents: &str) -> bool {
+    contents.contains("pmaojo/vord")
+        || contents.contains("vord scan")
+        || contents.contains("bin/vord")
+        || contents.contains("bin vord")
 }
 
 fn ci_workflow_yaml() -> String {
     format!(
-        "name: yunq\n\
+        "name: vord\n\
          \n\
          on:\n\
          \x20 pull_request:\n\
@@ -485,7 +485,7 @@ fn parse_name_only(raw: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn configure_yunq_toml(theme: &ColorfulTheme, root: &Path) -> anyhow::Result<()> {
+pub fn configure_vord_toml(theme: &ColorfulTheme, root: &Path) -> anyhow::Result<()> {
     let presets = [
         "recommended (Equilibrado para todo tipo de repositorios)",
         "bulletproof-react (Reglas de arquitectura React Doctor & Bulletproof)",
@@ -524,7 +524,7 @@ pub fn configure_yunq_toml(theme: &ColorfulTheme, root: &Path) -> anyhow::Result
     };
 
     let toml_content = format!(
-        "# Configuración generada por el wizard interactivo de yunq\n\
+        "# Configuración generada por el wizard interactivo de vord\n\
          [profile]\n\
          name = \"{profile_name}\"\n\n\
          [swarm]\n\
@@ -543,7 +543,7 @@ pub fn configure_yunq_toml(theme: &ColorfulTheme, root: &Path) -> anyhow::Result
          blocking_rules = [\"rust:disallow-unwrap-expect\", \"typescript:no-explicit-any\"]\n"
     );
 
-    let target = root.join("yunq.toml");
+    let target = root.join("vord.toml");
     std::fs::write(&target, toml_content)?;
     println!("\n¡Configuración guardada en {}!", target.display());
     Ok(())
@@ -552,8 +552,8 @@ pub fn configure_yunq_toml(theme: &ColorfulTheme, root: &Path) -> anyhow::Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::Span;
-    use yunq_rules_engine::RuleId;
+    use vord_ast::Span;
+    use vord_rules_engine::RuleId;
 
     fn issue(rule: &str, file: &str) -> Issue {
         Issue::new(
@@ -609,10 +609,10 @@ mod tests {
     }
 
     #[test]
-    fn detects_yunq_mentions_in_workflow_contents() {
-        assert!(workflow_mentions_yunq("uses: pmaojo/yunq@main"));
-        assert!(workflow_mentions_yunq("run: cargo run --bin yunq scan ."));
-        assert!(!workflow_mentions_yunq("uses: actions/checkout@v4"));
+    fn detects_vord_mentions_in_workflow_contents() {
+        assert!(workflow_mentions_vord("uses: pmaojo/vord@main"));
+        assert!(workflow_mentions_vord("run: cargo run --bin vord scan ."));
+        assert!(!workflow_mentions_vord("uses: actions/checkout@v4"));
     }
 
     #[test]

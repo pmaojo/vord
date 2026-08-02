@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "yunq hook claude-code",
+            "command": "vord hook claude-code",
             "timeout": 30,
-            "statusMessage": "yunq guardrail"
+            "statusMessage": "vord guardrail"
           }
         ]
       }
@@ -19,9 +19,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "yunq hook claude-code",
+            "command": "vord hook claude-code",
             "timeout": 30,
-            "statusMessage": "yunq guardrail"
+            "statusMessage": "vord guardrail"
           }
         ]
       }

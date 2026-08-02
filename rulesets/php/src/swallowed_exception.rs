@@ -4,8 +4,8 @@
 //! `broad-exception-swallowed`: the error is observed and then discarded,
 //! hiding a real failure from callers.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::is_other;
 
@@ -89,8 +89,8 @@ impl Rule for SwallowedExceptionRule {
         15
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "A catch block that is empty or only logs the error hides a real failure instead of handling it; log with context and recover, or re-throw.".into(),
             tags: vec!["bug".into(), "error-handling".into()],
             cwe: Some(390),
@@ -114,13 +114,13 @@ impl Rule for SwallowedExceptionRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.php", code, LanguageIdentifier::php()).unwrap();
-        let ast = yunq_parser_php::PhpParser::new().parse(&file).unwrap();
+        let ast = vord_parser_php::PhpParser::new().parse(&file).unwrap();
         SwallowedExceptionRule::new().check(&file, &ast)
     }
 

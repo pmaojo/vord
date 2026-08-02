@@ -1,10 +1,10 @@
 [package]
-name = "yunq-ast"
+name = "vord-ast"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Language-neutral AST and source model for the yunq analysis engine"
+description = "Language-neutral AST and source model for the vord analysis engine"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true

@@ -183,9 +183,9 @@ mod tests {
     #[test]
     fn pr_decoration_bundles_comments_check_and_summary() {
         let d = PrDecoration {
-            project_key: "yunq".to_string(),
+            project_key: "vord".to_string(),
             provider: "github".to_string(),
-            repo: "pmaojo/yunq".to_string(),
+            repo: "pmaojo/vord".to_string(),
             pr_id: "42".to_string(),
             comments: vec![InlineComment {
                 path: "src/main.rs".to_string(),
@@ -193,7 +193,7 @@ mod tests {
                 body: "Bug".to_string(),
             }],
             check: Some(CheckRunReport {
-                name: "yunq-quality-gate".to_string(),
+                name: "vord-quality-gate".to_string(),
                 conclusion: CheckConclusion::Failure,
                 title: "Quality gate failed".to_string(),
                 summary: "3 blocker issues".to_string(),

@@ -1,18 +1,18 @@
 [package]
-name = "yunq-treesitter-adapter"
+name = "vord-treesitter-adapter"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Shared tree-sitter to yunq-ast translation layer"
+description = "Shared tree-sitter to vord-ast translation layer"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { path = "../../core/ast" }
-yunq-rules-engine = { path = "../../core/rules-engine" }
-yunq-cpd = { path = "../../core/duplication" }
-yunq-treesitter-tokens = { path = "../treesitter-tokens" }
+vord-ast = { path = "../../core/ast" }
+vord-rules-engine = { path = "../../core/rules-engine" }
+vord-cpd = { path = "../../core/duplication" }
+vord-treesitter-tokens = { path = "../treesitter-tokens" }
 tree-sitter = { workspace = true }

@@ -2,25 +2,25 @@
 /mutants.out
 **/*.rs.bk
 .env
-.yunq-cache.json
-.yunq-baseline.json
-.yunq-circuit-breaker.json
-.yunq-approvals.json
-.yunq-loop-guard.json
-.yunq-audit.jsonl
-.yunq-provenance.json
-.yunq-triage.json
-.yunq/
+.vord-cache.json
+.vord-baseline.json
+.vord-circuit-breaker.json
+.vord-approvals.json
+.vord-loop-guard.json
+.vord-audit.jsonl
+.vord-provenance.json
+.vord-triage.json
+.vord/
 .freebuff/
 
-# `.claude/settings.json` is deliberately NOT ignored: `yunq hook install`
+# `.claude/settings.json` is deliberately NOT ignored: `vord hook install`
 # writes it so every teammate and CI run is gated by the same policy, which
 # only works if it is committed. Only the per-developer override is local.
 .claude/settings.local.json
 
 # The npm wrapper downloads this at install time.
-npm/bin/yunq
-npm/bin/yunq.exe
+npm/bin/vord
+npm/bin/vord.exe
 
 # Benchmark runner targets & reports
 .benchmark-targets/

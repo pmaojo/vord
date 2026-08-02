@@ -6,7 +6,7 @@
 //! string.
 
 use serde::{Deserialize, Serialize};
-use yunq_remediation::{FixPrompt, FixProposal, LlmError, LlmProvider};
+use vord_remediation::{FixPrompt, FixProposal, LlmError, LlmProvider};
 
 use crate::common::{SYSTEM_PROMPT, parse_fix_proposal, user_prompt};
 
@@ -36,15 +36,15 @@ impl AnthropicAdapter {
         }
     }
 
-    /// Builds adapter from environment variables (`YUNQ_ANTHROPIC_BASE_URL`,
-    /// `YUNQ_ANTHROPIC_MODEL`, `YUNQ_ANTHROPIC_API_KEY`, falling back to the
+    /// Builds adapter from environment variables (`VORD_ANTHROPIC_BASE_URL`,
+    /// `VORD_ANTHROPIC_MODEL`, `VORD_ANTHROPIC_API_KEY`, falling back to the
     /// conventional `ANTHROPIC_API_KEY`).
     pub fn from_env() -> Self {
-        let api_base = std::env::var("YUNQ_ANTHROPIC_BASE_URL")
+        let api_base = std::env::var("VORD_ANTHROPIC_BASE_URL")
             .unwrap_or_else(|_| DEFAULT_ANTHROPIC_BASE.to_string());
-        let model = std::env::var("YUNQ_ANTHROPIC_MODEL")
+        let model = std::env::var("VORD_ANTHROPIC_MODEL")
             .unwrap_or_else(|_| DEFAULT_ANTHROPIC_MODEL.to_string());
-        let api_key = std::env::var("YUNQ_ANTHROPIC_API_KEY")
+        let api_key = std::env::var("VORD_ANTHROPIC_API_KEY")
             .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
             .unwrap_or_default();
         Self::new(api_base, model, api_key)
@@ -198,9 +198,9 @@ mod tests {
     fn from_env_defaults_when_unset() {
         // SAFETY: single-threaded test, no other test reads these keys.
         unsafe {
-            std::env::remove_var("YUNQ_ANTHROPIC_BASE_URL");
-            std::env::remove_var("YUNQ_ANTHROPIC_MODEL");
-            std::env::remove_var("YUNQ_ANTHROPIC_API_KEY");
+            std::env::remove_var("VORD_ANTHROPIC_BASE_URL");
+            std::env::remove_var("VORD_ANTHROPIC_MODEL");
+            std::env::remove_var("VORD_ANTHROPIC_API_KEY");
             std::env::remove_var("ANTHROPIC_API_KEY");
         }
         let adapter = AnthropicAdapter::from_env();

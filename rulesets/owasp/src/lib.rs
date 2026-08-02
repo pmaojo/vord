@@ -1,5 +1,5 @@
 //! OWASP-oriented security rules. Each rule is an independent plugin
-//! implementing [`yunq_rules_engine::Rule`]; the engine never changes when
+//! implementing [`vord_rules_engine::Rule`]; the engine never changes when
 //! rules are added (Open/Closed).
 
 mod command_exec;
@@ -58,7 +58,7 @@ pub use weak_crypto_hash::WeakCryptoHashRule;
 pub use xss::XssRule;
 pub use xss_java::XssJavaRule;
 
-use yunq_rules_engine::{CrossFileRule, Rule};
+use vord_rules_engine::{CrossFileRule, Rule};
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

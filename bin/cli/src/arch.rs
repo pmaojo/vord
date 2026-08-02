@@ -1,4 +1,4 @@
-//! `yunq arch` — the interactive architecture viewer (roadmap item: auto-
+//! `vord arch` — the interactive architecture viewer (roadmap item: auto-
 //! detect and render a project's component graph without any config).
 //!
 //! Reuses `core/import-graph`'s already-shipped analysis (file-level import
@@ -11,12 +11,12 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use yunq_import_graph::{ImportGraph, TypeCensus, component_metrics, component_of};
-use yunq_rules_engine::AstParser;
+use vord_import_graph::{ImportGraph, TypeCensus, component_metrics, component_of};
+use vord_rules_engine::AstParser;
 
 pub struct ArchSummary {
     pub files: usize,
-    pub components: BTreeMap<String, yunq_import_graph::ComponentMetrics>,
+    pub components: BTreeMap<String, vord_import_graph::ComponentMetrics>,
     pub edges: Vec<(String, String)>,
     pub cycles: Vec<Vec<String>>,
 }
@@ -27,18 +27,18 @@ pub struct ArchSummary {
 /// `A`/`D` are real. Files that fail to parse are skipped silently (a parse
 /// error is an analysis signal, not an architecture one).
 pub fn analyze(root: &Path) -> anyhow::Result<ArchSummary> {
-    let sources = yunq_infra_fs::collect_sources_scoped(root, &[], &[])?;
-    let rust_crates = yunq_infra_fs::discover_rust_crates(root);
+    let sources = vord_infra_fs::collect_sources_scoped(root, &[], &[])?;
+    let rust_crates = vord_infra_fs::discover_rust_crates(root);
 
-    let mut parsed: Vec<(yunq_ast::SourceFile, yunq_ast::AstNode)> = Vec::new();
+    let mut parsed: Vec<(vord_ast::SourceFile, vord_ast::AstNode)> = Vec::new();
     let mut census: BTreeMap<String, TypeCensus> = BTreeMap::new();
 
     for file in &sources {
         let parser: Option<Box<dyn AstParser>> = match file.language().as_str() {
-            "typescript" => Some(Box::new(yunq_parser_typescript::TypeScriptParser::new())),
-            "rust" => Some(Box::new(yunq_parser_rust::RustParser::new())),
-            "python" => Some(Box::new(yunq_parser_python::PythonParser::new())),
-            "go" => Some(Box::new(yunq_parser_go::GoParser::new())),
+            "typescript" => Some(Box::new(vord_parser_typescript::TypeScriptParser::new())),
+            "rust" => Some(Box::new(vord_parser_rust::RustParser::new())),
+            "python" => Some(Box::new(vord_parser_python::PythonParser::new())),
+            "go" => Some(Box::new(vord_parser_go::GoParser::new())),
             _ => None,
         };
         let Some(parser) = parser else { continue };
@@ -50,7 +50,7 @@ pub fn analyze(root: &Path) -> anyhow::Result<ArchSummary> {
         parsed.push((file.clone(), ast));
     }
 
-    let views: Vec<(&str, &yunq_ast::AstNode)> =
+    let views: Vec<(&str, &vord_ast::AstNode)> =
         parsed.iter().map(|(f, a)| (f.path(), a)).collect();
     let graph = ImportGraph::build_with_rust_crates(&views, &rust_crates);
     let components = component_metrics(&graph, &census);
@@ -69,11 +69,11 @@ pub fn analyze(root: &Path) -> anyhow::Result<ArchSummary> {
 /// and how many of those are abstractions. Kept deliberately small — `A`
 /// needs to distinguish "mostly interfaces/traits" from "mostly concrete
 /// classes/structs", nothing finer.
-fn type_census(ast: &yunq_ast::AstNode) -> TypeCensus {
+fn type_census(ast: &vord_ast::AstNode) -> TypeCensus {
     let mut abstractions = 0usize;
     let mut total = 0usize;
     for node in ast.descendants() {
-        let yunq_ast::NodeKind::Other(kind) = node.kind() else { continue };
+        let vord_ast::NodeKind::Other(kind) = node.kind() else { continue };
         let kind = kind.as_ref();
         let is_type = matches!(
             kind,
@@ -204,7 +204,7 @@ pub fn render_html(summary: &ArchSummary) -> anyhow::Result<String> {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>yunq arch — component architecture</title>
+<title>vord arch — component architecture</title>
 <style>
   :root {{ color-scheme: light dark; }}
   body {{ margin: 0; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; }}
@@ -228,7 +228,7 @@ pub fn render_html(summary: &ArchSummary) -> anyhow::Result<String> {
 </head>
 <body>
 <header>
-  <h1>yunq arch</h1>
+  <h1>vord arch</h1>
   <span class="stats" id="stats"></span>
   <span class="legend">
     <span><span class="dot clean"></span>clean component</span>
@@ -331,11 +331,11 @@ requestAnimationFrame(function loop() {{ draw(); requestAnimationFrame(loop); }}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
+    use vord_ast::{LanguageIdentifier, SourceFile};
 
-    fn parse_ts(path: &str, code: &str) -> (SourceFile, yunq_ast::AstNode) {
+    fn parse_ts(path: &str, code: &str) -> (SourceFile, vord_ast::AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         (file, ast)
@@ -360,7 +360,7 @@ mod tests {
         let metrics = BTreeMap::from([
             (
                 "core/a".to_string(),
-                yunq_import_graph::ComponentMetrics {
+                vord_import_graph::ComponentMetrics {
                     component: "core/a".into(),
                     afferent: 1,
                     efferent: 0,
@@ -369,7 +369,7 @@ mod tests {
             ),
             (
                 "infra/fs".to_string(),
-                yunq_import_graph::ComponentMetrics {
+                vord_import_graph::ComponentMetrics {
                     component: "infra/fs".into(),
                     afferent: 0,
                     efferent: 1,

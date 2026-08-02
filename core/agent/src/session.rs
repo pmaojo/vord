@@ -157,8 +157,8 @@ mod tests {
 
     #[test]
     fn a_new_transcript_opens_with_its_system_prompt() {
-        let transcript = Transcript::new("you are yunq agent");
-        assert_eq!(transcript.system_prompt(), Some("you are yunq agent"));
+        let transcript = Transcript::new("you are vord agent");
+        assert_eq!(transcript.system_prompt(), Some("you are vord agent"));
         assert_eq!(transcript.messages().len(), 1);
     }
 

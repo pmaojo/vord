@@ -5,9 +5,9 @@
 //! attributes map to `Assignment`.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     HclParser,
     LanguageIdentifier::hcl(),
     tree_sitter_hcl::LANGUAGE,
@@ -23,15 +23,15 @@ fn map_kind(kind: &str) -> NodeKind {
         "identifier" | "variable_expr" => NodeKind::Identifier,
         "attribute" => NodeKind::Assignment,
         "comment" => NodeKind::Comment,
-        other => NodeKind::Other(yunq_ast::intern(other)),
+        other => NodeKind::Other(vord_ast::intern(other)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("test.tf", code, LanguageIdentifier::hcl()).unwrap();

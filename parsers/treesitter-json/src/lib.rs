@@ -5,9 +5,9 @@
 //! `Other`.
 //! tree-sitter types never escape this crate.
 
-use yunq_ast::{LanguageIdentifier, NodeKind};
+use vord_ast::{LanguageIdentifier, NodeKind};
 
-yunq_treesitter_adapter::declare_parser!(
+vord_treesitter_adapter::declare_parser!(
     JsonParser,
     LanguageIdentifier::json(),
     tree_sitter_json::LANGUAGE,
@@ -19,15 +19,15 @@ fn map_kind(kind: &str) -> NodeKind {
         "document" => NodeKind::SourceUnit,
         "string" => NodeKind::StringLiteral,
         "comment" => NodeKind::Comment,
-        other => NodeKind::Other(yunq_ast::intern(other)),
+        other => NodeKind::Other(vord_ast::intern(other)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{AstNode, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("test.json", code, LanguageIdentifier::json()).unwrap();
@@ -36,7 +36,7 @@ mod tests {
 
     #[test]
     fn maps_core_concepts() {
-        let ast = parse("{\"name\": \"yunq\", \"tags\": [\"a\", \"b\"]}");
+        let ast = parse("{\"name\": \"vord\", \"tags\": [\"a\", \"b\"]}");
         assert_eq!(ast.kind(), &NodeKind::SourceUnit);
         assert!(!ast.find_all(&NodeKind::StringLiteral).is_empty());
     }

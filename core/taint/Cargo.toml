@@ -1,20 +1,20 @@
 [package]
-name = "yunq-taint"
+name = "vord-taint"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Intra-file and cross-file inter-procedural taint analysis for yunq"
+description = "Intra-file and cross-file inter-procedural taint analysis for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-cfg = { workspace = true }
+vord-ast = { workspace = true }
+vord-cfg = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-yunq-rules-engine = { workspace = true }
-yunq-parser-typescript = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-parser-typescript = { workspace = true }

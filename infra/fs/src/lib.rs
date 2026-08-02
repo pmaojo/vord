@@ -29,7 +29,7 @@ pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura, parse_cobertura_report};
 pub use config::{
     AgentSettings, ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings,
-    GateSettings, RoleProtectedPath, RoleSettings, SwarmSettings, YunqConfig,
+    GateSettings, RoleProtectedPath, RoleSettings, SwarmSettings, VordConfig,
 };
 pub use coverage::{
     CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report,
@@ -58,7 +58,7 @@ use std::path::Path;
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
-use yunq_ast::{LanguageIdentifier, SourceFile};
+use vord_ast::{LanguageIdentifier, SourceFile};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceLoadError {
@@ -75,7 +75,7 @@ pub fn collect_sources(root: &Path) -> Result<Vec<SourceFile>, SourceLoadError> 
 }
 
 /// Same as [`collect_sources`], but skips any file whose path relative to
-/// `root` matches one of the given glob patterns — `yunq.toml`'s
+/// `root` matches one of the given glob patterns — `vord.toml`'s
 /// `[analysis] exclusions`.
 pub fn collect_sources_excluding(
     root: &Path,
@@ -86,7 +86,7 @@ pub fn collect_sources_excluding(
 
 /// Same as [`collect_sources_excluding`], but when `source_dirs` is
 /// non-empty only walks those directories (relative to `root`) instead of
-/// the whole tree — `yunq.toml`'s `[analysis] sources`. An empty
+/// the whole tree — `vord.toml`'s `[analysis] sources`. An empty
 /// `source_dirs` walks all of `root`, same as before.
 pub fn collect_sources_scoped(
     root: &Path,
@@ -143,7 +143,7 @@ fn load_source_entry(
         Err(e) => return Err(e.into()),
     };
     let display = display_path(path, relative);
-    if yunq_rules_engine::is_vendored_path(&display) {
+    if vord_rules_engine::is_vendored_path(&display) {
         return Ok(None);
     }
     Ok(SourceFile::new(display, content, language).ok())
@@ -157,7 +157,7 @@ fn is_excluded(relative: &Path, excludes: &GlobSet) -> bool {
 /// single file (there's no meaningful subpath to strip it to) fall back to
 /// the full path with any leading `/` stripped, rather than silently
 /// dropping every file whenever `root` is passed as an absolute file path
-/// (e.g. `yunq scan /abs/path/to/file.ts`).
+/// (e.g. `vord scan /abs/path/to/file.ts`).
 fn display_path(path: &Path, relative: &Path) -> String {
     if relative.as_os_str().is_empty() {
         path.to_string_lossy().trim_start_matches('/').to_string()
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn scans_a_single_file_given_by_absolute_path() {
         let dir = std::env::temp_dir().join(format!(
-            "yunq-collect-sources-{}",
+            "vord-collect-sources-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn exclusions_skip_matching_files_but_keep_the_rest() {
         let dir = std::env::temp_dir().join(format!(
-            "yunq-collect-sources-excl-{}",
+            "vord-collect-sources-excl-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn invalid_exclusion_glob_is_reported_as_an_error() {
         let dir = std::env::temp_dir().join(format!(
-            "yunq-collect-sources-bad-glob-{}",
+            "vord-collect-sources-bad-glob-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn scans_a_single_file_given_by_relative_path() {
         let dir = std::env::temp_dir().join(format!(
-            "yunq-collect-sources-rel-{}",
+            "vord-collect-sources-rel-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn vendored_files_are_skipped_during_collection() {
         let dir = std::env::temp_dir().join(format!(
-            "yunq-collect-sources-vendor-{}",
+            "vord-collect-sources-vendor-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

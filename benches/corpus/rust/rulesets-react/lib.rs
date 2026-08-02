@@ -1,12 +1,12 @@
 //! React/JSX-aware rules. Each rule is an independent plugin implementing
-//! [`yunq_rules_engine::Rule`] over the TypeScript AST (JSX/TSX is parsed as
+//! [`vord_rules_engine::Rule`] over the TypeScript AST (JSX/TSX is parsed as
 //! TypeScript in this analyzer's language model — see
 //! `parsers/treesitter-typescript`); the engine never changes when rules are
 //! added (Open/Closed).
 //!
 //! Most of what's here is purely syntactic/structural (AST shape, naming
 //! conventions, same-scope variable tracking). `react:exhaustive-deps` and
-//! `react:unused-state` are the exception: they lean on `yunq_symbols` for
+//! `react:unused-state` are the exception: they lean on `vord_symbols` for
 //! same-file scope resolution (which identifiers a hook body captures from
 //! its enclosing component vs. binds locally) — the piece of symbol/type
 //! resolution the neutral AST itself still doesn't provide.
@@ -39,7 +39,7 @@ pub use rules_of_hooks_naming::RulesOfHooksNamingRule;
 pub use unsafe_target_blank::UnsafeTargetBlankRule;
 pub use unused_state::UnusedStateRule;
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

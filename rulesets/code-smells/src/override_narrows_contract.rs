@@ -20,9 +20,9 @@
 //! is usually in another file. Rust is out of scope — structs have no
 //! inheritance, so "override" has no meaning there.
 
-use yunq_ast::{AstNode, NodeKind, SourceFile};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry, MethodInfo};
+use vord_ast::{AstNode, NodeKind, SourceFile};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry, MethodInfo};
 
 const CONSTRUCTOR_NAMES: &[&str] = &["constructor", "__init__"];
 
@@ -146,7 +146,7 @@ impl CrossFileRule for OverrideNarrowsContractRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> = files
             .iter()
-            .filter(|(file, _)| !yunq_rules_engine::is_test_only_path(file.path()))
+            .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .map(|(file, ast)| (file.path(), ast))
             .collect();
         let registry = ClassRegistry::build_cross_file(&views);
@@ -193,12 +193,12 @@ impl CrossFileRule for OverrideNarrowsContractRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -211,7 +211,7 @@ mod tests {
 
     fn check_py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         let files = vec![(file, ast)];
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn resolves_a_base_class_declared_two_levels_up_in_another_file() {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         let base = SourceFile::new(
             "base.ts",
             "export class Account {\n  deposit(amount: number): void {\n    this.total += amount;\n  }\n}\nexport class MidAccount extends Account {}\n",

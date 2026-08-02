@@ -8,7 +8,7 @@
 //! keep its directory name while losing the property that made it worth having.
 //!
 //! Every rule here is scoped to the domain layer
-//! (`yunq_import_graph::layer_of`, via `common::is_domain_path`), and that scope
+//! (`vord_import_graph::layer_of`, via `common::is_domain_path`), and that scope
 //! is load-bearing rather than an optimization. The same shapes are *correct*
 //! outside the model: a DTO at an HTTP boundary should be anemic and full of
 //! setters, a row type should carry the ORM mapping, a query object should take
@@ -41,7 +41,7 @@ pub use primitive_obsession::PrimitiveObsessionRule;
 pub use repository_per_entity::RepositoryPerEntityRule;
 pub use value_object_mutation::ValueObjectMutationRule;
 
-use yunq_rules_engine::{CrossFileRule, Rule};
+use vord_rules_engine::{CrossFileRule, Rule};
 
 /// Every per-file rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

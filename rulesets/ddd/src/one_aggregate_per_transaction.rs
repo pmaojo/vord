@@ -26,9 +26,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{ClassInfo, ClassRegistry, MethodInfo, type_identifiers};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_symbols::{ClassInfo, ClassRegistry, MethodInfo, type_identifiers};
 
 use crate::common::{accessed_field, declared_methods, field_declared_type, is_application_path};
 
@@ -133,7 +133,7 @@ impl Rule for OneAggregatePerTransactionRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if !is_application_path(file.path()) || yunq_rules_engine::is_test_only_path(file.path()) {
+        if !is_application_path(file.path()) || vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         let registry = ClassRegistry::build(ast);
@@ -169,22 +169,22 @@ impl Rule for OneAggregatePerTransactionRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(path: &str, code: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language.clone()).unwrap();
         let ast = if language == LanguageIdentifier::typescript() {
-            yunq_parser_typescript::TypeScriptParser::new()
+            vord_parser_typescript::TypeScriptParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::python() {
-            yunq_parser_python::PythonParser::new()
+            vord_parser_python::PythonParser::new()
                 .parse(&file)
                 .unwrap()
         } else if language == LanguageIdentifier::go() {
-            yunq_parser_go::GoParser::new().parse(&file).unwrap()
+            vord_parser_go::GoParser::new().parse(&file).unwrap()
         } else {
-            yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+            vord_parser_rust::RustParser::new().parse(&file).unwrap()
         };
         OneAggregatePerTransactionRule::new().check(&file, &ast)
     }

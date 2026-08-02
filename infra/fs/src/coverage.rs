@@ -3,7 +3,7 @@
 //! accept any of the five supported coverage-report formats through one
 //! flag instead of needing one flag per format.
 
-use yunq_rules_engine::CoverageReport;
+use vord_rules_engine::CoverageReport;
 
 use crate::cobertura::{self, CoberturaError};
 use crate::istanbul::{self, IstanbulError};

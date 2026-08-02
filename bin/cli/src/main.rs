@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use yunq_cli::output;
-use yunq_infra_fs::{BaselineStore, FileAnalysisCache};
-use yunq_rules_engine::{Baseline, NewCodeAnalysis, Severity};
+use vord_cli::output;
+use vord_infra_fs::{BaselineStore, FileAnalysisCache};
+use vord_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 
 mod arch;
 mod blame;
@@ -21,7 +21,7 @@ mod tui;
 mod wizard;
 
 #[derive(Parser)]
-#[command(name = "yunq", about = "yunq static analysis", version)]
+#[command(name = "vord", about = "vord static analysis", version)]
 struct Cli {
     /// No subcommand launches the interactive wizard in a TTY.
     #[command(subcommand)]
@@ -46,22 +46,22 @@ enum Command {
         #[arg(long)]
         model: Option<String>,
     },
-    /// Launch the interactive wizard (same as running `yunq` with no subcommand).
+    /// Launch the interactive wizard (same as running `vord` with no subcommand).
     Wizard,
-    /// Install the yunq GitHub Action workflow into this repository.
+    /// Install the vord GitHub Action workflow into this repository.
     Init {
         /// Write the workflow without asking for confirmation.
         #[arg(long)]
         yes: bool,
     },
     /// Agentic guardrail: gate an autonomous agent's writes against the
-    /// Agent Permission Policy (`yunq-policy.toml`).
+    /// Agent Permission Policy (`vord-policy.toml`).
     Hook {
         #[command(subcommand)]
         action: HookAction,
     },
-    /// yunq's own coding agent: edits this repository under the same policy
-    /// `yunq hook` enforces on third-party agents, and reports a task
+    /// vord's own coding agent: edits this repository under the same policy
+    /// `vord hook` enforces on third-party agents, and reports a task
     /// complete only when the analyzer agrees.
     Agent {
         #[command(subcommand)]
@@ -112,7 +112,7 @@ enum ArchFormat {
 enum AgentAction {
     /// Run one headless session against a task. Exits 0 (the analyzer agrees),
     /// 3 (incomplete), 4 (budget exhausted), 5 (circuit breaker tripped),
-    /// 6 (the agent looped) or 1 (yunq itself failed).
+    /// 6 (the agent looped) or 1 (vord itself failed).
     Run {
         /// What the agent should do.
         #[arg(long)]
@@ -125,10 +125,10 @@ enum AgentAction {
         /// still fires anywhere in scope.
         #[arg(long)]
         rule: Option<String>,
-        /// Model turns this run may take (overrides `yunq.toml`'s `[agent]`).
+        /// Model turns this run may take (overrides `vord.toml`'s `[agent]`).
         #[arg(long)]
         max_turns: Option<u32>,
-        /// Tokens this run may spend (overrides `yunq.toml`'s `[agent]`).
+        /// Tokens this run may spend (overrides `vord.toml`'s `[agent]`).
         #[arg(long)]
         max_tokens: Option<u64>,
         /// Model name, overriding the provider's configured default.
@@ -172,14 +172,14 @@ enum AgentAction {
 
 #[derive(Subcommand)]
 enum SwarmAction {
-    /// List every role declared under `[[swarm.role]]` in `yunq.toml`, with
+    /// List every role declared under `[[swarm.role]]` in `vord.toml`, with
     /// its resolved worktree/branch and how much it adds on top of the base
     /// policy.
     Roles,
     /// Create a role's worktree (`git worktree add`), branching from
     /// `--base`.
     WorktreeCreate {
-        /// The role's `name`, as declared in `yunq.toml`.
+        /// The role's `name`, as declared in `vord.toml`.
         #[arg(long)]
         role: String,
         /// Ref to branch from.
@@ -195,7 +195,7 @@ enum SwarmAction {
         force: bool,
     },
     /// List every worktree currently registered against this repository
-    /// (`git worktree list`) — not only ones `yunq swarm` created.
+    /// (`git worktree list`) — not only ones `vord swarm` created.
     WorktreeList,
     /// Write a handoff to the sender's outbox.
     HandoffSend {
@@ -207,7 +207,7 @@ enum SwarmAction {
         summary: String,
     },
     /// Move every outbox handoff into its recipient's inbox, quarantining
-    /// anything that fails to parse into `.yunq/handoffs/failed/`.
+    /// anything that fails to parse into `.vord/handoffs/failed/`.
     HandoffDeliver,
     /// List the handoffs currently waiting in a role's inbox.
     HandoffInbox {
@@ -223,7 +223,7 @@ enum SwarmAction {
     },
     /// Drive every role in the configured topology (`[swarm] topology =
     /// "two-pack"/"four-pack"`, or an explicit `pipeline`) through one
-    /// headless `yunq agent` run apiece, in order — each under its own
+    /// headless `vord agent` run apiece, in order — each under its own
     /// worktree and scoped policy, each handing the next role a summary of
     /// what it did (roadmap B4). Exits with the exit code of the role whose
     /// run stopped the pipeline, or 0 if every role completed.
@@ -241,12 +241,12 @@ enum SwarmAction {
 #[derive(Subcommand)]
 enum HookAction {
     /// Claude Code hook entry point. Reads the hook payload on stdin and
-    /// writes its verdict as JSON on stdout — not run by hand; `yunq hook
+    /// writes its verdict as JSON on stdout — not run by hand; `vord hook
     /// install` wires it into `.claude/settings.json`.
     ClaudeCode,
     /// Judge one file against the policy. The host-agnostic entry point, for
     /// hosts without file-write hooks (Codex CLI), `pre-commit`, and CI.
-    /// Exits 0 (allowed), 2 (denied by policy) or 1 (yunq itself failed).
+    /// Exits 0 (allowed), 2 (denied by policy) or 1 (vord itself failed).
     Check {
         /// File to judge, as the agent would write it.
         file: PathBuf,
@@ -255,10 +255,10 @@ enum HookAction {
         #[arg(long, value_enum, default_value = "text")]
         format: Format,
     },
-    /// Wire the guardrail into this repository: write `yunq-policy.toml` and
+    /// Wire the guardrail into this repository: write `vord-policy.toml` and
     /// merge the hooks into `.claude/settings.json`.
     Install {
-        /// Override the command the hooks invoke (defaults to `yunq hook
+        /// Override the command the hooks invoke (defaults to `vord hook
         /// claude-code`, which must be on PATH).
         #[arg(long)]
         command: Option<String>,
@@ -278,7 +278,7 @@ enum HookAction {
     /// a trip, same shape as `reset-circuit-breaker`.
     ResetLoopGuard,
     /// Show the audit log of every non-silent verdict this guardrail has issued
-    /// (`.yunq-audit.jsonl`).
+    /// (`.vord-audit.jsonl`).
     Audit {
         /// Show only the most recent N entries.
         #[arg(long, default_value_t = 20)]
@@ -345,7 +345,7 @@ struct GithubArgs {
 }
 
 /// Reports produced by *other* tools that this scan folds in. Grouped
-/// because they share one shape — an optional path to a file yunq parses
+/// because they share one shape — an optional path to a file vord parses
 /// but never generates — and one lifecycle: read after the analysis, merged
 /// into the same report, surfaced through the same gate. `CoverageArgs` is
 /// the fourth member of this family, kept separate only because coverage
@@ -358,14 +358,14 @@ struct ReportArgs {
     /// Mutation-testing report to ingest (Stryker's Mutation Testing
     /// Elements JSON schema — StrykerJS, Stryker.NET, or Infection exported
     /// in that format). Enables the `mutation_score` measure and gate
-    /// condition; yunq runs no mutants itself, it only aggregates the
+    /// condition; vord runs no mutants itself, it only aggregates the
     /// verdicts another tool already produced.
     #[arg(long = "mutation-report")]
     mutation_report: Option<PathBuf>,
     /// SARIF 2.x report from another analyzer (ruff, ESLint, clippy, gosec,
     /// bandit, semgrep, CodeQL, …) whose findings are merged into this
     /// scan's issues — they count toward the severity totals and the
-    /// quality gate exactly like yunq's own. Repeatable.
+    /// quality gate exactly like vord's own. Repeatable.
     #[arg(long, value_name = "PATH")]
     sarif: Vec<PathBuf>,
 }
@@ -376,7 +376,7 @@ struct ReportArgs {
 /// each of which then needs its own key and branch the same way.
 #[derive(clap::Args)]
 struct ProjectScopeArgs {
-    /// Explicit project identifier (defaults to yunq.toml's `[project] key`,
+    /// Explicit project identifier (defaults to vord.toml's `[project] key`,
     /// then the scanned directory's name).
     #[arg(long)]
     project: Option<String>,
@@ -384,7 +384,7 @@ struct ProjectScopeArgs {
     /// when omitted).
     #[arg(long)]
     branch: Option<String>,
-    /// Treat `path` as a monorepo root: discover every yunq.toml-configured
+    /// Treat `path` as a monorepo root: discover every vord.toml-configured
     /// project under it and scan each independently, reporting results per
     /// project instead of merging them into one report.
     #[arg(long)]
@@ -422,7 +422,7 @@ struct ScanArgs {
     /// Exit with a non-zero status if any issue at or above this severity is found.
     #[arg(long)]
     fail_on: Option<String>,
-    /// Disable the incremental analysis cache (.yunq-cache.json).
+    /// Disable the incremental analysis cache (.vord-cache.json).
     #[arg(long)]
     no_cache: bool,
     /// Exit with status 3 when the quality gate fails.
@@ -430,10 +430,10 @@ struct ScanArgs {
     enforce_gate: bool,
     /// Exit with status 3 when the health score is below this threshold (0-100).
     /// Requires `--enforce-gate`; ignored otherwise. Defaults to the value
-    /// in yunq.toml's `[gate] min_health_score` when omitted.
+    /// in vord.toml's `[gate] min_health_score` when omitted.
     #[arg(long)]
     min_health_score: Option<u32>,
-    /// Do not read or update the New Code baseline (.yunq-baseline.json).
+    /// Do not read or update the New Code baseline (.vord-baseline.json).
     #[arg(long)]
     no_baseline: bool,
     #[command(flatten)]
@@ -488,7 +488,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     }
 }
 
-/// `yunq arch`: analyze the component graph and render it in the requested
+/// `vord arch`: analyze the component graph and render it in the requested
 /// form. `--html` writes the interactive viewer *in addition to* the chosen
 /// format, mirroring how `--blame-output`/`--compliance-pdf` are byproducts
 /// of a scan rather than alternatives to it.
@@ -518,7 +518,7 @@ fn run_arch(
     Ok(ExitCode::SUCCESS)
 }
 
-/// `yunq agent`'s entry points. Unlike the hook, these do **not** fail open:
+/// `vord agent`'s entry points. Unlike the hook, these do **not** fail open:
 /// a run that could not judge, could not analyse or could not reach the model
 /// exits 1, distinct from every verdict, because an agent that reports
 /// success when it could not check is worse than one that reports nothing.
@@ -533,7 +533,7 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             max_tokens,
             model,
         } => {
-            let args = yunq_cli::agent::AgentArgs {
+            let args = vord_cli::agent::AgentArgs {
                 task,
                 scope,
                 rule,
@@ -541,8 +541,8 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
                 max_tokens,
                 model,
             };
-            let outcome = yunq_cli::agent::run(&root, args).await?;
-            yunq_cli::agent::report(&outcome);
+            let outcome = vord_cli::agent::run(&root, args).await?;
+            vord_cli::agent::report(&outcome);
             Ok(ExitCode::from(outcome.exit_code()))
         }
         AgentAction::Tui {
@@ -553,7 +553,7 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             max_tokens,
             model,
         } => {
-            let args = yunq_cli::agent::AgentArgs {
+            let args = vord_cli::agent::AgentArgs {
                 task,
                 scope,
                 rule,
@@ -562,7 +562,7 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
                 model,
             };
             let outcome = tui::run(&root, args).await?;
-            yunq_cli::agent::report(&outcome);
+            vord_cli::agent::report(&outcome);
             Ok(ExitCode::from(outcome.exit_code()))
         }
         AgentAction::WatchPr {
@@ -570,8 +570,8 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             repo,
             window_secs,
         } => {
-            let outcome = yunq_cli::agent::watch_pull_request(repo, pr, window_secs).await?;
-            yunq_cli::agent::report_feedback(&outcome);
+            let outcome = vord_cli::agent::watch_pull_request(repo, pr, window_secs).await?;
+            vord_cli::agent::report_feedback(&outcome);
             Ok(ExitCode::from(outcome.exit_code()))
         }
     }
@@ -579,17 +579,17 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
 
 /// The guardrail's three entry points. `ClaudeCode` deliberately swallows
 /// its own errors into a success exit inside `run_claude_code` (failing open
-/// keeps a yunq bug from wedging the agent loop); the other two report
+/// keeps a vord bug from wedging the agent loop); the other two report
 /// errors normally through `main`'s handler.
 async fn run_hook(action: HookAction) -> anyhow::Result<ExitCode> {
     match action {
-        HookAction::ClaudeCode => yunq_cli::hook::run_claude_code().await,
+        HookAction::ClaudeCode => vord_cli::hook::run_claude_code().await,
         HookAction::Check { file, format } => {
             let format = match format {
-                Format::Text => yunq_cli::hook::HookOutputFormat::Text,
-                Format::Json | Format::Sarif => yunq_cli::hook::HookOutputFormat::Json,
+                Format::Text => vord_cli::hook::HookOutputFormat::Text,
+                Format::Json | Format::Sarif => vord_cli::hook::HookOutputFormat::Json,
             };
-            yunq_cli::hook::run_check(file, format).await
+            vord_cli::hook::run_check(file, format).await
         }
         HookAction::Install { command } => {
             let root = std::env::current_dir()?;
@@ -599,29 +599,29 @@ async fn run_hook(action: HookAction) -> anyhow::Result<ExitCode> {
         }
         HookAction::ResetCircuitBreaker => {
             let root = std::env::current_dir()?;
-            yunq_cli::hook::reset_circuit_breaker(&root)?;
-            println!("yunq: circuit breaker state cleared.");
+            vord_cli::hook::reset_circuit_breaker(&root)?;
+            println!("vord: circuit breaker state cleared.");
             Ok(ExitCode::SUCCESS)
         }
         HookAction::Approve { token } => {
             let root = std::env::current_dir()?;
-            yunq_cli::hook::approve_escalation(&root, &token)?;
+            vord_cli::hook::approve_escalation(&root, &token)?;
             println!(
-                "yunq: escalation token {token} approved — the agent may retry the identical write once."
+                "vord: escalation token {token} approved — the agent may retry the identical write once."
             );
             Ok(ExitCode::SUCCESS)
         }
         HookAction::ResetLoopGuard => {
             let root = std::env::current_dir()?;
-            yunq_cli::hook::reset_loop_guard(&root)?;
-            println!("yunq: loop alarm state cleared.");
+            vord_cli::hook::reset_loop_guard(&root)?;
+            println!("vord: loop alarm state cleared.");
             Ok(ExitCode::SUCCESS)
         }
         HookAction::Audit { limit, format } => {
             let root = std::env::current_dir()?;
-            let entries = yunq_cli::hook::read_audit_log(&root, Some(limit));
+            let entries = vord_cli::hook::read_audit_log(&root, Some(limit));
             match format {
-                Format::Text => print!("{}", yunq_cli::hook::render_audit_text(&entries)),
+                Format::Text => print!("{}", vord_cli::hook::render_audit_text(&entries)),
                 Format::Json | Format::Sarif => {
                     println!("{}", serde_json::to_string_pretty(&entries)?)
                 }
@@ -631,8 +631,8 @@ async fn run_hook(action: HookAction) -> anyhow::Result<ExitCode> {
     }
 }
 
-/// `yunq swarm`'s entry points (roadmap B). Every failure here is a config
-/// or `git` error, not a policy verdict, so unlike `yunq hook`/`yunq agent`
+/// `vord swarm`'s entry points (roadmap B). Every failure here is a config
+/// or `git` error, not a policy verdict, so unlike `vord hook`/`vord agent`
 /// there is no fail-open story to preserve — errors propagate normally
 /// through `main`'s handler. `Run` is the one action that also carries an
 /// agent-run exit code, same convention as `run_agent`'s `Run`/`Tui`.
@@ -640,28 +640,28 @@ async fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
     let root = std::env::current_dir()?;
     match action {
         SwarmAction::Roles => {
-            print_roles(&yunq_cli::swarm::list_roles(&root)?);
+            print_roles(&vord_cli::swarm::list_roles(&root)?);
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::WorktreeCreate { role, base } => {
-            let plan = yunq_cli::swarm::worktree_create(&root, &role, &base)?;
+            let plan = vord_cli::swarm::worktree_create(&root, &role, &base)?;
             println!(
-                "yunq swarm: created worktree for `{role}` at {} (branch {})",
+                "vord swarm: created worktree for `{role}` at {} (branch {})",
                 plan.path.display(),
                 plan.branch
             );
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::WorktreeRemove { role, force } => {
-            let plan = yunq_cli::swarm::worktree_remove(&root, &role, force)?;
+            let plan = vord_cli::swarm::worktree_remove(&root, &role, force)?;
             println!(
-                "yunq swarm: removed worktree for `{role}` at {}",
+                "vord swarm: removed worktree for `{role}` at {}",
                 plan.path.display()
             );
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::WorktreeList => {
-            let worktrees = yunq_cli::swarm::worktree_list(&root)?;
+            let worktrees = vord_cli::swarm::worktree_list(&root)?;
             for worktree in worktrees {
                 println!(
                     "{} ({})",
@@ -672,13 +672,13 @@ async fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::HandoffSend { from, to, summary } => {
-            let handoff = yunq_cli::swarm::handoff_send(&root, &from, &to, &summary)?;
-            println!("yunq swarm: queued handoff {} ({from} -> {to})", handoff.id);
+            let handoff = vord_cli::swarm::handoff_send(&root, &from, &to, &summary)?;
+            println!("vord swarm: queued handoff {} ({from} -> {to})", handoff.id);
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::HandoffDeliver => {
-            let delivered = yunq_cli::swarm::handoff_deliver(&root)?;
-            println!("yunq swarm: delivered {} handoff(s)", delivered.len());
+            let delivered = vord_cli::swarm::handoff_deliver(&root)?;
+            println!("vord swarm: delivered {} handoff(s)", delivered.len());
             for handoff in delivered {
                 println!(
                     "  {} -> {} ({})",
@@ -688,7 +688,7 @@ async fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::HandoffInbox { role } => {
-            let waiting = yunq_cli::swarm::handoff_inbox(&root, &role)?;
+            let waiting = vord_cli::swarm::handoff_inbox(&root, &role)?;
             for handoff in waiting {
                 println!(
                     "{} from {}: {}",
@@ -698,23 +698,23 @@ async fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::HandoffAck { role, id } => {
-            yunq_cli::swarm::handoff_ack(&root, &role, &id)?;
-            println!("yunq swarm: acknowledged {id} for `{role}`");
+            vord_cli::swarm::handoff_ack(&root, &role, &id)?;
+            println!("vord swarm: acknowledged {id} for `{role}`");
             Ok(ExitCode::SUCCESS)
         }
         SwarmAction::Run { task } => run_topology(&root, &task).await,
         SwarmAction::Tui => {
-            yunq_cli::swarm::run_swarm_tui(&root)?;
+            vord_cli::swarm::run_swarm_tui(&root)?;
             Ok(ExitCode::SUCCESS)
         }
     }
 }
 
-/// `yunq swarm roles`: one role's resolved worktree plan and scope
+/// `vord swarm roles`: one role's resolved worktree plan and scope
 /// narrowing per line, or a pointer to configure one if there are none.
-fn print_roles(roles: &[yunq_cli::swarm::RoleReport]) {
+fn print_roles(roles: &[vord_cli::swarm::RoleReport]) {
     if roles.is_empty() {
-        println!("yunq swarm: no roles configured — add [[swarm.role]] entries to yunq.toml.");
+        println!("vord swarm: no roles configured — add [[swarm.role]] entries to vord.toml.");
         return;
     }
     for role in roles {
@@ -730,16 +730,16 @@ fn print_roles(roles: &[yunq_cli::swarm::RoleReport]) {
     }
 }
 
-/// `yunq swarm run`: drives the configured topology end to end and exits
+/// `vord swarm run`: drives the configured topology end to end and exits
 /// with the exit code of whichever role stopped the pipeline (or `0` if
-/// every role completed) — the same distinct-exit-code convention `yunq
+/// every role completed) — the same distinct-exit-code convention `vord
 /// agent run` already established.
 async fn run_topology(root: &Path, task: &str) -> anyhow::Result<ExitCode> {
-    let results = yunq_cli::swarm::topology_run(root, task).await?;
+    let results = vord_cli::swarm::topology_run(root, task).await?;
     let mut exit_code = 0u8;
     for result in &results {
         println!(
-            "yunq swarm: [{}] {} (after {} turns)",
+            "vord swarm: [{}] {} (after {} turns)",
             result.role,
             result.outcome.describe(),
             result.outcome.turns()
@@ -757,10 +757,10 @@ async fn run_fix(path: PathBuf, issue: String, model: Option<String>) -> anyhow:
         path.display()
     );
 
-    let (path, verdict) = yunq_cli::remediate_issue(&path, &issue, model).await?;
+    let (path, verdict) = vord_cli::remediate_issue(&path, &issue, model).await?;
 
     match verdict {
-        yunq_remediation::RemediationVerdict::Accepted { proposal } => {
+        vord_remediation::RemediationVerdict::Accepted { proposal } => {
             println!(
                 "\n✅ Verified fix applied to {} (issue gone, no regressions):\n",
                 path.display()
@@ -769,7 +769,7 @@ async fn run_fix(path: PathBuf, issue: String, model: Option<String>) -> anyhow:
             println!("\nExplanation: {}", proposal.explanation);
             Ok(ExitCode::SUCCESS)
         }
-        yunq_remediation::RemediationVerdict::Rejected { reason } => {
+        vord_remediation::RemediationVerdict::Rejected { reason } => {
             eprintln!("❌ Remediation Agent could not produce a verified fix: {reason}");
             Ok(ExitCode::FAILURE)
         }
@@ -786,7 +786,7 @@ fn parse_fail_on_threshold(fail_on: Option<String>) -> anyhow::Result<Option<Sev
         .transpose()
 }
 
-/// `yunq.toml`'s `[analysis] sources`/`exclusions`/`[project] key`, or all
+/// `vord.toml`'s `[analysis] sources`/`exclusions`/`[project] key`, or all
 /// empty when there's no project config (a bare directory/file scan).
 fn load_project_scope(
     path: &std::path::Path,
@@ -794,11 +794,11 @@ fn load_project_scope(
     Vec<String>,
     Vec<String>,
     Option<String>,
-    yunq_infra_fs::DuplicationSettings,
-    yunq_infra_fs::ArchitectureSettings,
-    yunq_infra_fs::GateSettings,
+    vord_infra_fs::DuplicationSettings,
+    vord_infra_fs::ArchitectureSettings,
+    vord_infra_fs::GateSettings,
 ) {
-    yunq_infra_fs::YunqConfig::load_from_dir(path)
+    vord_infra_fs::VordConfig::load_from_dir(path)
         .map(|config| {
             if let Some(key) = &config.project.key {
                 eprintln!("📋 Loaded project config ({key})");
@@ -861,7 +861,7 @@ fn resolve_ci_context() -> ci_detect::CiContext {
 
 /// Combines explicit `--project`/`--branch`/`--pr`/`--commit-sha`/
 /// `--github-repo` flags with CI auto-detection (explicit always wins) and
-/// `yunq.toml`'s `[project] key` / the scan path's directory name as the
+/// `vord.toml`'s `[project] key` / the scan path's directory name as the
 /// last-resort project fallback.
 fn resolve_context(
     args: &ScanArgs,
@@ -903,29 +903,29 @@ fn resolve_context(
 fn github_reporter(
     args: &ScanArgs,
     context: &ResolvedContext,
-) -> Option<yunq_infra_github::GitHubStatusReporter> {
+) -> Option<vord_infra_github::GitHubStatusReporter> {
     match (&args.github.github_token, &context.github_repo) {
         (Some(token), Some(repo)) => {
             let (owner, name) = repo.split_once('/').unwrap_or(("local", repo));
-            Some(yunq_infra_github::GitHubStatusReporter::new(
+            Some(vord_infra_github::GitHubStatusReporter::new(
                 token.clone(),
                 owner,
                 name,
             ))
         }
-        _ => yunq_infra_github::GitHubStatusReporter::from_env(),
+        _ => vord_infra_github::GitHubStatusReporter::from_env(),
     }
 }
 
 fn parse_coverage_format(
     raw: Option<String>,
-) -> anyhow::Result<Option<yunq_infra_fs::CoverageFormat>> {
+) -> anyhow::Result<Option<vord_infra_fs::CoverageFormat>> {
     raw.map(|raw| match raw.to_ascii_lowercase().as_str() {
-        "lcov" => Ok(yunq_infra_fs::CoverageFormat::Lcov),
-        "cobertura" => Ok(yunq_infra_fs::CoverageFormat::Cobertura),
-        "jacoco" => Ok(yunq_infra_fs::CoverageFormat::Jacoco),
-        "llvm-cov" | "llvmcov" => Ok(yunq_infra_fs::CoverageFormat::LlvmCov),
-        "istanbul" => Ok(yunq_infra_fs::CoverageFormat::Istanbul),
+        "lcov" => Ok(vord_infra_fs::CoverageFormat::Lcov),
+        "cobertura" => Ok(vord_infra_fs::CoverageFormat::Cobertura),
+        "jacoco" => Ok(vord_infra_fs::CoverageFormat::Jacoco),
+        "llvm-cov" | "llvmcov" => Ok(vord_infra_fs::CoverageFormat::LlvmCov),
+        "istanbul" => Ok(vord_infra_fs::CoverageFormat::Istanbul),
         other => Err(anyhow::anyhow!(
             "unknown --coverage-format {other:?} (lcov|cobertura|jacoco|llvm-cov|istanbul)"
         )),
@@ -947,12 +947,12 @@ fn read_report_file(path: &std::path::Path) -> anyhow::Result<String> {
 /// already understands (`coverage`/`branch_coverage` measures, gate).
 #[derive(Default)]
 struct CoverageAccumulator {
-    summary: Option<yunq_rules_engine::CoverageSummary>,
-    detail: Option<yunq_rules_engine::CoverageReport>,
+    summary: Option<vord_rules_engine::CoverageSummary>,
+    detail: Option<vord_rules_engine::CoverageReport>,
 }
 
 impl CoverageAccumulator {
-    fn merge(&mut self, parsed: yunq_rules_engine::CoverageReport) -> anyhow::Result<()> {
+    fn merge(&mut self, parsed: vord_rules_engine::CoverageReport) -> anyhow::Result<()> {
         let summary = parsed.summary()?;
         match &mut self.summary {
             Some(acc) => {
@@ -968,7 +968,7 @@ impl CoverageAccumulator {
         Ok(())
     }
 
-    fn apply_to(self, report: &mut yunq_rules_engine::AnalysisReport) {
+    fn apply_to(self, report: &mut vord_rules_engine::AnalysisReport) {
         if let Some(summary) = self.summary {
             report.set_coverage(summary);
         }
@@ -981,32 +981,32 @@ impl CoverageAccumulator {
 fn ingest_coverage(args: &ScanArgs) -> anyhow::Result<CoverageAccumulator> {
     let mut acc = CoverageAccumulator::default();
     if let Some(path) = &args.coverage.coverage {
-        acc.merge(yunq_infra_fs::parse_lcov_report(&read_report_file(path)?)?)?;
+        acc.merge(vord_infra_fs::parse_lcov_report(&read_report_file(path)?)?)?;
     }
     if let Some(path) = &args.coverage.cobertura {
-        acc.merge(yunq_infra_fs::parse_cobertura_report(&read_report_file(
+        acc.merge(vord_infra_fs::parse_cobertura_report(&read_report_file(
             path,
         )?)?)?;
     }
     if let Some(path) = &args.coverage.jacoco {
-        acc.merge(yunq_infra_fs::parse_jacoco_report(&read_report_file(
+        acc.merge(vord_infra_fs::parse_jacoco_report(&read_report_file(
             path,
         )?)?)?;
     }
     if let Some(path) = &args.coverage.llvm_cov {
-        acc.merge(yunq_infra_fs::parse_llvm_cov_report(&read_report_file(
+        acc.merge(vord_infra_fs::parse_llvm_cov_report(&read_report_file(
             path,
         )?)?)?;
     }
     if let Some(path) = &args.coverage.istanbul {
-        acc.merge(yunq_infra_fs::parse_istanbul_report(&read_report_file(
+        acc.merge(vord_infra_fs::parse_istanbul_report(&read_report_file(
             path,
         )?)?)?;
     }
     if let Some(path) = &args.coverage.coverage_report {
         let raw = read_report_file(path)?;
         let format = parse_coverage_format(args.coverage.coverage_format.clone())?;
-        acc.merge(yunq_infra_fs::parse_coverage_report(&raw, format)?)?;
+        acc.merge(vord_infra_fs::parse_coverage_report(&raw, format)?)?;
     }
     Ok(acc)
 }
@@ -1017,27 +1017,27 @@ fn ingest_coverage(args: &ScanArgs) -> anyhow::Result<CoverageAccumulator> {
 /// `git diff main...HEAD --unified=0 > diff.txt`).
 fn coverage_new_code_measure(
     coverage_diff: Option<PathBuf>,
-    report: &yunq_rules_engine::AnalysisReport,
+    report: &vord_rules_engine::AnalysisReport,
 ) -> anyhow::Result<Option<f64>> {
     Ok(coverage_diff
         .map(|path| read_report_file(&path))
         .transpose()?
-        .map(|raw| yunq_infra_fs::changed_lines_from_unified_diff(&raw))
+        .map(|raw| vord_infra_fs::changed_lines_from_unified_diff(&raw))
         .and_then(|changed| report.coverage_on_new_code(&changed)))
 }
 
 /// `--sarif`: merges another analyzer's findings into this scan's report.
 /// One importer, every tool that speaks SARIF — the coverage of ruff,
-/// ESLint, clippy, gosec, bandit, semgrep and CodeQL without yunq
+/// ESLint, clippy, gosec, bandit, semgrep and CodeQL without vord
 /// implementing any of their rules.
 ///
 /// Paths in the report are re-based onto the scan root so imported issues
-/// key by the same relative path yunq's own issues do (`Issue::file()`),
+/// key by the same relative path vord's own issues do (`Issue::file()`),
 /// which is what lets the two sets coexist in one report, one gate and one
 /// New Code baseline.
 fn ingest_sarif(
     args: &ScanArgs,
-    report: &mut yunq_rules_engine::AnalysisReport,
+    report: &mut vord_rules_engine::AnalysisReport,
 ) -> anyhow::Result<()> {
     if args.reports.sarif.is_empty() {
         return Ok(());
@@ -1058,7 +1058,7 @@ fn ingest_sarif(
     let mut tools: Vec<String> = Vec::new();
     for path in &args.reports.sarif {
         let raw = read_report_file(path)?;
-        let import = yunq_infra_fs::parse_sarif_relative_to(&raw, &root)
+        let import = vord_infra_fs::parse_sarif_relative_to(&raw, &root)
             .map_err(|e| anyhow::anyhow!("cannot import SARIF from {}: {e}", path.display()))?;
         imported += import.issues.len();
         skipped += import.skipped;
@@ -1089,20 +1089,20 @@ fn ingest_sarif(
 
 fn load_test_report(
     junit: Option<PathBuf>,
-) -> anyhow::Result<Option<yunq_rules_engine::TestReportSummary>> {
+) -> anyhow::Result<Option<vord_rules_engine::TestReportSummary>> {
     junit
         .map(|path| {
-            yunq_infra_fs::parse_junit(&read_report_file(&path)?).map_err(anyhow::Error::from)
+            vord_infra_fs::parse_junit(&read_report_file(&path)?).map_err(anyhow::Error::from)
         })
         .transpose()
 }
 
 fn load_mutation_report(
     mutation_report: Option<PathBuf>,
-) -> anyhow::Result<Option<yunq_rules_engine::MutationSummary>> {
+) -> anyhow::Result<Option<vord_rules_engine::MutationSummary>> {
     mutation_report
         .map(|path| {
-            yunq_infra_fs::parse_mutation_report(&read_report_file(&path)?)
+            vord_infra_fs::parse_mutation_report(&read_report_file(&path)?)
                 .map_err(anyhow::Error::from)
         })
         .transpose()
@@ -1116,11 +1116,11 @@ fn load_mutation_report(
 fn classify_new_code(
     path: &std::path::Path,
     no_baseline: bool,
-    report: &yunq_rules_engine::AnalysisReport,
+    report: &vord_rules_engine::AnalysisReport,
 ) -> Option<NewCodeAnalysis> {
     let baseline_store = (!no_baseline && path.is_dir())
-        .then(|| BaselineStore::new(path.join(".yunq-baseline.json")))?;
-    let line_hashes = yunq_cli::FileLineHashes::new(path);
+        .then(|| BaselineStore::new(path.join(".vord-baseline.json")))?;
+    let line_hashes = vord_cli::FileLineHashes::new(path);
     let hash_fn = |file: &str, line: u32| line_hashes.hash(file, line);
     let new_code = baseline_store
         .load()
@@ -1137,14 +1137,14 @@ fn classify_new_code(
 /// here; that detection now lives in `ci_detect` so it's covered by unit
 /// tests instead of only exercised by a real GitHub Actions run.
 async fn report_pull_request_review(
-    reporter: &yunq_infra_github::GitHubStatusReporter,
+    reporter: &vord_infra_github::GitHubStatusReporter,
     pr: Option<u32>,
     new_code: Option<&NewCodeAnalysis>,
     desc: &str,
 ) {
-    use yunq_rules_engine::AlmPullRequestReporter;
+    use vord_rules_engine::AlmPullRequestReporter;
     let Some(pr_num) = pr else { return };
-    let Ok(pr_number) = yunq_rules_engine::PullRequestNumber::new(pr_num) else {
+    let Ok(pr_number) = vord_rules_engine::PullRequestNumber::new(pr_num) else {
         return;
     };
 
@@ -1165,16 +1165,16 @@ async fn report_pull_request_review(
 async fn report_to_github(
     args: &ScanArgs,
     context: &ResolvedContext,
-    report: &yunq_rules_engine::AnalysisReport,
-    gate: &yunq_rules_engine::GateEvaluation,
+    report: &vord_rules_engine::AnalysisReport,
+    gate: &vord_rules_engine::GateEvaluation,
     new_code: Option<&NewCodeAnalysis>,
 ) {
-    use yunq_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
+    use vord_rules_engine::{AlmStatusReporter, CommitStatus, CommitStatusState};
 
     let Some(sha_str) = &context.commit_sha else {
         return;
     };
-    let Ok(sha) = yunq_rules_engine::CommitSha::new(sha_str) else {
+    let Ok(sha) = vord_rules_engine::CommitSha::new(sha_str) else {
         return;
     };
 
@@ -1182,14 +1182,14 @@ async fn report_to_github(
         return;
     };
 
-    let state = if gate.status() == yunq_rules_engine::GateStatus::Passed {
+    let state = if gate.status() == vord_rules_engine::GateStatus::Passed {
         CommitStatusState::Success
     } else {
         CommitStatusState::Failure
     };
     let gate_label = match gate.status() {
-        yunq_rules_engine::GateStatus::Passed => "passed",
-        yunq_rules_engine::GateStatus::Failed => "failed",
+        vord_rules_engine::GateStatus::Passed => "passed",
+        vord_rules_engine::GateStatus::Failed => "failed",
     };
     let desc = format!("Gate {gate_label}: {} issues found", report.issues().len());
     let status = CommitStatus::new(state, desc.clone());
@@ -1202,10 +1202,10 @@ async fn report_to_github(
 
 fn render_output(
     args: &ScanArgs,
-    report: &yunq_rules_engine::AnalysisReport,
-    gate: &yunq_rules_engine::GateEvaluation,
+    report: &vord_rules_engine::AnalysisReport,
+    gate: &vord_rules_engine::GateEvaluation,
     new_code: Option<&NewCodeAnalysis>,
-    test_report: Option<&yunq_rules_engine::TestReportSummary>,
+    test_report: Option<&vord_rules_engine::TestReportSummary>,
     coverage_new_code: Option<f64>,
     context: &output::ScanContextDto,
 ) -> anyhow::Result<()> {
@@ -1257,16 +1257,16 @@ fn render_output(
 ///
 /// `Issue::file()` is relative to the *scan root* (`args.path`), but `git
 /// blame` needs a path relative to the *Git root* — which can be a parent
-/// directory of the scan root (e.g. `yunq scan services/api` inside a
+/// directory of the scan root (e.g. `vord scan services/api` inside a
 /// larger repo). This re-bases each issue's file onto the Git root before
 /// blaming it, then keys the output back by the scan-relative path so it
 /// still lines up with `Issue::file()` for any consumer cross-referencing
 /// the two.
-fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisReport) {
+fn write_blame_output(args: &ScanArgs, report: &vord_rules_engine::AnalysisReport) {
     let Some(output_path) = &args.output.blame_output else {
         return;
     };
-    let Some(git_root) = yunq_cli::find_git_root(&args.path) else {
+    let Some(git_root) = vord_cli::find_git_root(&args.path) else {
         eprintln!(
             "warning: --blame-output given but {} is not inside a Git repository — skipping blame capture",
             args.path.display()
@@ -1332,14 +1332,14 @@ fn write_blame_output(args: &ScanArgs, report: &yunq_rules_engine::AnalysisRepor
 }
 
 /// `--compliance-pdf`/`--compliance-csv`: OWASP Top 10 / CWE / PCI DSS
-/// evidence reports (`yunq_infra_pdf::ComplianceReportGenerator`) for
+/// evidence reports (`vord_infra_pdf::ComplianceReportGenerator`) for
 /// whichever paths were given — either, neither or both independently, the
 /// same "only do what was asked for" shape `--blame-output` uses. Best-effort:
 /// a write failure warns rather than failing the whole scan, since the
 /// report is a byproduct of the analysis, not the analysis itself.
-fn write_compliance_reports(args: &ScanArgs, report: &yunq_rules_engine::AnalysisReport) {
+fn write_compliance_reports(args: &ScanArgs, report: &vord_rules_engine::AnalysisReport) {
     if let Some(output_path) = &args.output.compliance_pdf {
-        match yunq_infra_pdf::ComplianceReportGenerator::generate_owasp_compliance_pdf_binary(
+        match vord_infra_pdf::ComplianceReportGenerator::generate_owasp_compliance_pdf_binary(
             report,
         ) {
             Ok(pdf) => match std::fs::write(output_path, pdf) {
@@ -1353,7 +1353,7 @@ fn write_compliance_reports(args: &ScanArgs, report: &yunq_rules_engine::Analysi
         }
     }
     if let Some(output_path) = &args.output.compliance_csv {
-        match yunq_infra_pdf::ComplianceReportGenerator::generate_csv(report) {
+        match vord_infra_pdf::ComplianceReportGenerator::generate_csv(report) {
             Ok(csv) => match std::fs::write(output_path, csv) {
                 Ok(()) => println!("📝 Wrote compliance report to {}", output_path.display()),
                 Err(e) => eprintln!(
@@ -1367,14 +1367,14 @@ fn write_compliance_reports(args: &ScanArgs, report: &yunq_rules_engine::Analysi
 }
 
 /// Writes mutation-gap findings (rules starting with `mutation:`) to
-/// `.yunq-mutation-gaps.json` — a separate, explorable file so AI agents
+/// `.vord-mutation-gaps.json` — a separate, explorable file so AI agents
 /// don't burn context on 9,000+ informational hints. The main output only
 /// shows a count; the full per-file, per-rule breakdown lives here.
-fn write_mutation_gaps(args: &ScanArgs, report: &yunq_rules_engine::AnalysisReport) {
-    let gaps: Vec<&yunq_rules_engine::Issue> = report
+fn write_mutation_gaps(args: &ScanArgs, report: &vord_rules_engine::AnalysisReport) {
+    let gaps: Vec<&vord_rules_engine::Issue> = report
         .issues()
         .iter()
-        .filter(|i| yunq_cli::output::is_mutation_rule(i.rule().as_str()))
+        .filter(|i| vord_cli::output::is_mutation_rule(i.rule().as_str()))
         .collect();
     if gaps.is_empty() {
         return;
@@ -1402,12 +1402,12 @@ fn write_mutation_gaps(args: &ScanArgs, report: &yunq_rules_engine::AnalysisRepo
     });
 
     let output_path = if args.path.is_dir() {
-        args.path.join(".yunq-mutation-gaps.json")
+        args.path.join(".vord-mutation-gaps.json")
     } else {
         args.path
             .parent()
             .unwrap_or(std::path::Path::new("."))
-            .join(".yunq-mutation-gaps.json")
+            .join(".vord-mutation-gaps.json")
     };
     match serde_json::to_string_pretty(&output) {
         Ok(json) => match std::fs::write(&output_path, json) {
@@ -1427,15 +1427,15 @@ fn write_mutation_gaps(args: &ScanArgs, report: &yunq_rules_engine::AnalysisRepo
 
 fn exit_code(
     threshold: Option<Severity>,
-    report: &yunq_rules_engine::AnalysisReport,
+    report: &vord_rules_engine::AnalysisReport,
     enforce_gate: bool,
-    gate: &yunq_rules_engine::GateEvaluation,
+    gate: &vord_rules_engine::GateEvaluation,
     min_health_score: Option<u32>,
 ) -> ExitCode {
     let breached = threshold
         .zip(report.max_severity())
         .is_some_and(|(threshold, max)| max >= threshold);
-    let gate_failed = enforce_gate && gate.status() == yunq_rules_engine::GateStatus::Failed;
+    let gate_failed = enforce_gate && gate.status() == vord_rules_engine::GateStatus::Failed;
     let health_below =
         enforce_gate && min_health_score.is_some_and(|min| report.health_score() < min);
     if breached || gate_failed || health_below {
@@ -1467,8 +1467,8 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let context = resolve_context(&args, config_project_key, &ci);
 
     let cache = (!args.no_cache && args.path.is_dir())
-        .then(|| std::sync::Arc::new(FileAnalysisCache::open(args.path.join(".yunq-cache.json"))));
-    let mut report = yunq_cli::scan_with_project_config(
+        .then(|| std::sync::Arc::new(FileAnalysisCache::open(args.path.join(".vord-cache.json"))));
+    let mut report = vord_cli::scan_with_project_config(
         &args.path,
         cache.clone(),
         &source_dirs,
@@ -1504,7 +1504,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     // Gate conditions may target overall (`blocker_issues`), new-issue
     // (`new_blocker_issues`) or coverage-on-new-code (`coverage_new_code`)
     // measures.
-    let gate = yunq_cli::default_quality_gate().evaluate(|key| {
+    let gate = vord_cli::default_quality_gate().evaluate(|key| {
         if key.as_str() == "coverage_new_code" {
             return coverage_new_code;
         }
@@ -1536,4 +1536,4 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         min_health_score,
     ))
 }
-// yunq pre-commit hook verified
+// vord pre-commit hook verified

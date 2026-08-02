@@ -2,7 +2,7 @@
 //! Solves interprocedural, context-sensitive data-flow and taint analysis via Exploded Supergraph reachability.
 
 use std::collections::{HashSet, VecDeque};
-use yunq_cfg::ControlFlowGraph;
+use vord_cfg::ControlFlowGraph;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Fact {
@@ -87,7 +87,7 @@ impl IfdsSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, NodeKind, Span};
+    use vord_ast::{AstNode, NodeKind, Span};
 
     #[test]
     fn solves_exploded_supergraph_reachability() {

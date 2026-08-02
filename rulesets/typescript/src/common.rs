@@ -5,7 +5,7 @@
 //! typescript kind name via `NodeKind::Other`, same convention
 //! `rulesets/react::common` and `rulesets/reactive::common` use.
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 pub(crate) fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
@@ -33,12 +33,12 @@ pub(crate) fn call_arguments(call: &AstNode) -> &[AstNode] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     pub(crate) fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new()
+        vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap()
     }

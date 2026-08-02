@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use yunq_agent_policy::{AgentPolicy, Finding};
-use yunq_profiles::Severity;
+use vord_agent_policy::{AgentPolicy, Finding};
+use vord_profiles::Severity;
 
 use super::*;
 use crate::observer::{AgentEvent, Observer};

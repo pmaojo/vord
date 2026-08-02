@@ -8,8 +8,8 @@
 //! mirrors. Define an unexported key type instead (`type ctxKey int` or
 //! similar) so the compiler enforces uniqueness.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{
     Finding, IssueType, Rule, RuleId, RuleMetadata, Severity, declare_rule_id,
 };
 
@@ -72,14 +72,14 @@ impl Rule for ContextValueStringKeyRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.go", code, LanguageIdentifier::go()).unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         ContextValueStringKeyRule::new().check(&file, &ast)
     }
 

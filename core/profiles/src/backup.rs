@@ -1,5 +1,5 @@
 //! Profile backup/restore — issue #22's "export to a portable format and
-//! reimport it, including on a different yunq instance" operation.
+//! reimport it, including on a different vord instance" operation.
 //!
 //! [`ProfileBackup`] is the portable snapshot: name, own (non-inherited)
 //! activations, and the parent's name if any. It's deliberately serde-free,

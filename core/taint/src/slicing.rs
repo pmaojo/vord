@@ -2,8 +2,8 @@
 //! Uses backward reachability on Program Dependency Graphs (PDG = CFG + CDG + Data Dependence) to isolate statements influencing a criterion.
 
 use std::collections::{HashSet, VecDeque};
-use yunq_ast::AstNode;
-use yunq_cfg::{ControlDependenceGraph, ControlFlowGraph};
+use vord_ast::AstNode;
+use vord_cfg::{ControlDependenceGraph, ControlFlowGraph};
 
 #[derive(Debug, Clone)]
 pub struct SlicingCriterion {
@@ -71,7 +71,7 @@ impl WeiserSlicer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, NodeKind, Span};
+    use vord_ast::{AstNode, NodeKind, Span};
 
     #[test]
     fn computes_backward_program_slice() {

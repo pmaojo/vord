@@ -9,7 +9,7 @@
 //! (`typescript`, `python`, `rust`, `go`) and reaches this one only through
 //! [`EXTRACTORS`], a table of `(declaration kind, build, attach)` rows. The
 //! registry itself never asks what language it is looking at — it walks the
-//! table, exactly as `yunq_ast::lookup_kind` walks a kind table instead of
+//! table, exactly as `vord_ast::lookup_kind` walks a kind table instead of
 //! matching on grammar names. Adding a language is a new file and a new row;
 //! nothing here changes, which is the same Open/Closed property the `Rule`
 //! trait gives rulesets.
@@ -29,7 +29,7 @@ mod typescript;
 
 use std::collections::BTreeMap;
 
-use yunq_ast::{AstNode, NodeKind, Span};
+use vord_ast::{AstNode, NodeKind, Span};
 
 use crate::types::declared_type;
 
@@ -286,24 +286,24 @@ fn extract_param(node: &AstNode) -> MemberInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse_ts(code: &str) -> AstNode {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new()
+        vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap()
     }
 
     fn parse_rust(code: &str) -> AstNode {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        yunq_parser_rust::RustParser::new().parse(&file).unwrap()
+        vord_parser_rust::RustParser::new().parse(&file).unwrap()
     }
 
     fn parse_py(code: &str) -> AstNode {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        yunq_parser_python::PythonParser::new()
+        vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap()
     }
@@ -429,7 +429,7 @@ mod tests {
 
     fn parse_go(code: &str) -> AstNode {
         let file = SourceFile::new("t.go", code, LanguageIdentifier::go()).unwrap();
-        yunq_parser_go::GoParser::new().parse(&file).unwrap()
+        vord_parser_go::GoParser::new().parse(&file).unwrap()
     }
 
     #[test]

@@ -23,7 +23,7 @@
 //! stop affecting the hash — only leading/trailing whitespace mattered
 //! before this, via `str::trim`.
 
-pub use yunq_cpd::{
+pub use vord_cpd::{
     IDENTIFIER_PLACEHOLDER, NUMBER_PLACEHOLDER, STRING_PLACEHOLDER, TokenNormalization,
     TokenizedSource,
 };

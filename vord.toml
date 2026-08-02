@@ -1,12 +1,12 @@
 [project]
-key = "yunq-core-platform"
-name = "yunq — The Ultraperformant Code Analysis Platform"
+key = "vord-core-platform"
+name = "vord — The Ultraperformant Code Analysis Platform"
 version = "0.3.0"
 
 [analysis]
 sources = ["bin", "core", "infra", "parsers", "rulesets"]
 exclusions = ["**/fixtures/**", "**/target/**", "benches/**", "**/tests/**", "core/agent/src/runtime_tests.rs"]
-profile = "yunq way"
+profile = "vord way"
 
 [[architecture.forbidden_dependencies]]
 from = "core"

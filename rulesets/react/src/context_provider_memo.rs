@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::{attributes, attribute_name, attribute_value, opening_tag, is_other};
 

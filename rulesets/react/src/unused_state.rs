@@ -7,14 +7,14 @@
 //!
 //! Needs the same same-file scope tracking `react:exhaustive-deps` uses (to
 //! scope "never referenced" to the right component, not the whole file) for
-//! the hook half, and `yunq_symbols`'s class-field extraction idea (applied
+//! the hook half, and `vord_symbols`'s class-field extraction idea (applied
 //! directly here, since a class component's `state` object literal isn't a
 //! declared *field with a type* so much as an object-literal-shaped
 //! constructor argument — a narrower shape than `ClassRegistry` models) for
 //! the class-component half.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{hook_call_name, is_other};
 
@@ -83,7 +83,7 @@ fn walk<'a>(node: &'a AstNode, enclosing: Option<&'a AstNode>, findings: &mut Ve
 
 /// Whether `class_decl`'s superclass looks like a React component base
 /// (`Component`, `PureComponent`, `React.Component`, ...) — the same
-/// "match by simple name" convention `yunq_symbols::classes` uses for
+/// "match by simple name" convention `vord_symbols::classes` uses for
 /// superclass resolution generally, applied inline here since this rule
 /// only needs the one substring check, not a full registry.
 fn extends_react_component(class_decl: &AstNode) -> bool {
@@ -255,11 +255,11 @@ impl Rule for UnusedStateRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         UnusedStateRule::new().check(&file, &ast)

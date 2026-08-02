@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
 
 /// `if`/`else if` chain roots. Handled separately from [`NESTING_KINDS`]
 /// (via [`score_if_chain`]) because the metric charges every link after
@@ -412,20 +412,20 @@ impl Rule for CognitiveComplexityRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check_rust(code: &str, max: u32) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         CognitiveComplexityRule::new(max).check(&file, &ast)
     }
 
     fn check_python(code: &str, max: u32) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         CognitiveComplexityRule::new(max).check(&file, &ast)
@@ -776,7 +776,7 @@ mod tests {
 
     fn complexity_rust(code: &str) -> u32 {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         let function = ast
             .descendants()
             .find(|n| *n.kind() == NodeKind::FunctionDef)
@@ -786,7 +786,7 @@ mod tests {
 
     fn complexity_python(code: &str) -> u32 {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         let function = ast

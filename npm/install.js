@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Downloads the yunq binary matching this platform from the GitHub release
+// Downloads the vord binary matching this platform from the GitHub release
 // whose tag matches this package's version, and verifies its published
 // SHA-256.
 //
@@ -12,7 +12,7 @@ const path = require('node:path');
 const https = require('node:https');
 const crypto = require('node:crypto');
 
-const REPO = 'pmaojo/yunq';
+const REPO = 'pmaojo/vord';
 const version = require('./package.json').version;
 
 const TARGETS = {
@@ -24,7 +24,7 @@ const TARGETS = {
 };
 
 function fail(msg) {
-  console.error(`\nyunq: ${msg}`);
+  console.error(`\nvord: ${msg}`);
   console.error(`Install manually: https://github.com/${REPO}/releases\n`);
   process.exit(1);
 }
@@ -33,7 +33,7 @@ function fail(msg) {
 function get(url, redirectsLeft = 10) {
   return new Promise((resolve, reject) => {
     https
-      .get(url, { headers: { 'User-Agent': 'yunq-npm-installer' } }, (res) => {
+      .get(url, { headers: { 'User-Agent': 'vord-npm-installer' } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
           if (redirectsLeft === 0) return reject(new Error('too many redirects'));
@@ -58,7 +58,7 @@ async function main() {
   // was published without that step, and every download URL it builds would
   // point at a v0.0.0 release that does not exist.
   if (version === '0.0.0') {
-    fail('this package was published without a real version — report it at https://github.com/pmaojo/yunq/issues');
+    fail('this package was published without a real version — report it at https://github.com/pmaojo/vord/issues');
   }
 
   const key = `${process.platform}-${process.arch}`;
@@ -66,10 +66,10 @@ async function main() {
   if (!target) fail(`unsupported platform ${key}`);
 
   const ext = process.platform === 'win32' ? '.exe' : '';
-  const asset = `yunq-${target}${ext}`;
+  const asset = `vord-${target}${ext}`;
   const base = `https://github.com/${REPO}/releases/download/v${version}`;
 
-  console.log(`yunq: downloading ${asset} (v${version})`);
+  console.log(`vord: downloading ${asset} (v${version})`);
   let binary;
   try {
     binary = await get(`${base}/${asset}`);
@@ -84,17 +84,17 @@ async function main() {
     const expected = sums.trim().split(/\s+/)[0];
     const actual = crypto.createHash('sha256').update(binary).digest('hex');
     if (expected !== actual) fail(`checksum mismatch (expected ${expected}, got ${actual})`);
-    console.log('yunq: checksum verified');
+    console.log('vord: checksum verified');
   } catch (e) {
     if (String(e.message).includes('checksum mismatch')) throw e;
-    console.warn(`yunq: warning — no published checksum for ${asset}, not verified`);
+    console.warn(`vord: warning — no published checksum for ${asset}, not verified`);
   }
 
   const dir = path.join(__dirname, 'bin');
   fs.mkdirSync(dir, { recursive: true });
-  const dest = path.join(dir, `yunq${ext}`);
+  const dest = path.join(dir, `vord${ext}`);
   fs.writeFileSync(dest, binary, { mode: 0o755 });
-  console.log(`yunq: installed ${dest}`);
+  console.log(`vord: installed ${dest}`);
 }
 
 main().catch((e) => fail(e.message));

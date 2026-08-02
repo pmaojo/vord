@@ -1,7 +1,7 @@
 //! Rule: Warns against storing sensitive authentication tokens in `localStorage` or `sessionStorage` (OWASP A03 / ASVS 3.8.1).
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 pub struct AuthTokenInWebStorageRule {
     id: RuleId,
@@ -86,7 +86,7 @@ impl Rule for AuthTokenInWebStorageRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::Span;
+    use vord_ast::Span;
 
     #[test]
     fn flags_storing_token_in_local_storage() {

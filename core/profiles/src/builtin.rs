@@ -1,10 +1,10 @@
-//! The built-in "yunq way" profile (issue #22): a curated, sensible
+//! The built-in "vord way" profile (issue #22): a curated, sensible
 //! rule-activation baseline per language, active for any project with no
 //! explicit profile assignment.
 //!
 //! This crate can't depend on the ruleset crates (`rulesets/*`) or
 //! `core/rules-engine` without creating a dependency cycle — they depend on
-//! `yunq-profiles` for `RuleId`/`Severity`, not the other way around. So
+//! `vord-profiles` for `RuleId`/`Severity`, not the other way around. So
 //! the rule ids and severities below are literals, cross-checked by hand
 //! against each rule's real `RuleId::new(...)` and `default_severity()` in
 //! its source file (`rulesets/*/src/*.rs`) at the time this was written —
@@ -14,7 +14,7 @@
 //! Curation follows each rule's own `Rule::applies_to` scoping (also
 //! cross-checked by hand): a language's set only includes rules that would
 //! actually fire on that language. Language identifiers are plain strings
-//! here (not `yunq_ast::LanguageIdentifier`) to keep this crate
+//! here (not `vord_ast::LanguageIdentifier`) to keep this crate
 //! dependency-free — pass `LanguageIdentifier::as_str()` at the call site.
 //!
 //! `default_profile_for_language` gives the per-language profile (Rust,
@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use crate::{QualityProfile, RuleId, Severity};
 
 /// The built-in profile's name.
-pub const DEFAULT_PROFILE_NAME: &str = "yunq way";
+pub const DEFAULT_PROFILE_NAME: &str = "vord way";
 
 fn rule(raw: &str) -> RuleId {
     RuleId::new(raw).expect("builtin rule id is valid namespace:code")
@@ -42,7 +42,7 @@ fn rule(raw: &str) -> RuleId {
 /// for every language, or the rule is a whole-program cross-file rule run
 /// once per scan regardless of language): secrets detection, generic OWASP
 /// checks, and generic maintainability smells. Baseline for every
-/// language's yunq way profile.
+/// language's vord way profile.
 fn generic_activations() -> Vec<(RuleId, Severity)> {
     vec![
         // rulesets/architecture — functional-paradigm analogue of god-class
@@ -78,13 +78,13 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         // rulesets/architecture — cross-file rule, runs once per scan.
         (rule("architecture:dependency-cycle"), Severity::Major),
         // rulesets/architecture — cross-file, config-driven, only ever
-        // registered (bin/cli::scan_with_project_config) when `yunq.toml`
+        // registered (bin/cli::scan_with_project_config) when `vord.toml`
         // declares `[architecture]` boundaries; listed here so it's active
         // whenever it is registered, same as every other built-in rule.
         (rule("architecture:boundary-violation"), Severity::Major),
         // rulesets/architecture — zero-config hexagonal/component rules,
         // cross-file, run once per scan. They read the layering vocabulary
-        // off path topology (`yunq_import_graph::layer_of`) and stay silent
+        // off path topology (`vord_import_graph::layer_of`) and stay silent
         // on a project whose paths name no layer at all.
         (
             rule("architecture:hexagonal-layer-violation"),
@@ -460,7 +460,7 @@ fn iac_activations() -> Vec<(RuleId, Severity)> {
 
 /// Every other `LanguageIdentifier` (C, C++, PHP, C#, Kotlin, Swift, Scala,
 /// CSS, XML, Bash, Groovy, Lua, Elixir): no curated language-specific
-/// ruleset exists yet, so yunq way falls back to the language-agnostic
+/// ruleset exists yet, so vord way falls back to the language-agnostic
 /// baseline plus the one OWASP rule (`permissive-cors`) that applies to
 /// every non-Rust language.
 fn generic_language_activations() -> Vec<(RuleId, Severity)> {
@@ -469,7 +469,7 @@ fn generic_language_activations() -> Vec<(RuleId, Severity)> {
     activations
 }
 
-/// The curated yunq way activation set for one language, keyed by
+/// The curated vord way activation set for one language, keyed by
 /// `LanguageIdentifier::as_str()`. Unrecognized language strings still get
 /// the safe generic baseline rather than an empty profile.
 fn activations_for(language: &str) -> Vec<(RuleId, Severity)> {
@@ -490,8 +490,8 @@ fn activations_for(language: &str) -> Vec<(RuleId, Severity)> {
 
 /// Every language `LanguageIdentifier` supports, used to build the
 /// combined [`default_profile`] profile. Kept in sync with
-/// `yunq_ast::LanguageIdentifier::new`'s match arms by hand (this crate
-/// can't depend on `yunq-ast` — see module docs).
+/// `vord_ast::LanguageIdentifier::new`'s match arms by hand (this crate
+/// can't depend on `vord-ast` — see module docs).
 const ALL_LANGUAGES: &[&str] = &[
     "rust",
     "typescript",
@@ -519,9 +519,9 @@ const ALL_LANGUAGES: &[&str] = &[
     "elixir",
 ];
 
-/// The yunq way profile curated for a single language — e.g. what a
+/// The vord way profile curated for a single language — e.g. what a
 /// project pinned to one language would use, or what a "compare my profile
-/// against yunq way for Python" admin view would diff against.
+/// against vord way for Python" admin view would diff against.
 pub fn default_profile_for_language(language: &str) -> QualityProfile {
     QualityProfile::from_activations(
         format!("{DEFAULT_PROFILE_NAME} ({language})"),
@@ -529,7 +529,7 @@ pub fn default_profile_for_language(language: &str) -> QualityProfile {
     )
 }
 
-/// The combined, instance-wide yunq way profile: the union of every
+/// The combined, instance-wide vord way profile: the union of every
 /// supported language's curated activations. This is what a polyglot
 /// repo's analyzer run uses when a project has no explicit profile
 /// assignment — a single scan can see files in several languages, and each
@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn default_profile_name_is_stable() {
-        assert_eq!(default_profile().name(), "yunq way");
+        assert_eq!(default_profile().name(), "vord way");
     }
 
     #[test]

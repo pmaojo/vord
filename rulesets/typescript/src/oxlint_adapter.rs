@@ -1,8 +1,8 @@
 use oxc::allocator::Allocator;
 use oxc::parser::{Parser, ParserReturn};
 use oxc::span::SourceType;
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile, Span};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(OxlintAdapterRule, "typescript:oxlint-analyzer");
 
@@ -63,7 +63,7 @@ mod tests {
         let code = "const a: any = 123; syntax error {{{";
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
-            yunq_ast::NodeKind::SourceUnit,
+            vord_ast::NodeKind::SourceUnit,
             Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],

@@ -3,8 +3,8 @@
 //! JSX in `.tsx`/`.jsx` files is TypeScript, not HTML, in this analyzer's
 //! language model.
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
 
 use crate::common::{find_attribute, tag_name};
 
@@ -63,12 +63,12 @@ impl Rule for JsxImgMissingAltRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new().parse(&file).unwrap();
         JsxImgMissingAltRule::new().check(&file, &ast)
     }
 

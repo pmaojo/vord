@@ -1,21 +1,21 @@
 [package]
-name = "yunq-infra-fs"
+name = "vord-infra-fs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Filesystem adapters for yunq: source loading, coverage ingest and caches"
+description = "Filesystem adapters for vord: source loading, coverage ingest and caches"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-ast = { workspace = true }
-yunq-rules-engine = { workspace = true }
-yunq-remediation = { workspace = true }
-yunq-agent = { workspace = true }
-yunq-swarm = { workspace = true }
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
+vord-remediation = { workspace = true }
+vord-agent = { workspace = true }
+vord-swarm = { workspace = true }
 ignore = { workspace = true }
 globset = { workspace = true }
 regex = { workspace = true }

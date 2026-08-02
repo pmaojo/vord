@@ -2,7 +2,7 @@
 //! Fixed-point iteration over bounded lattices for Reaching Definitions, Live Variables, and Constant Propagation.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use yunq_cfg::ControlFlowGraph;
+use vord_cfg::ControlFlowGraph;
 
 pub trait LatticeValue: Clone + PartialEq + Eq {
     fn join(&self, other: &Self) -> Self;
@@ -93,7 +93,7 @@ impl KildallWorklist {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{AstNode, NodeKind, Span};
+    use vord_ast::{AstNode, NodeKind, Span};
 
     #[test]
     fn solves_reaching_definitions_lattice() {

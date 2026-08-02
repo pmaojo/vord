@@ -61,7 +61,7 @@ pub use typeshare_dto_sync::TypeshareDtoSyncRule;
 pub use unsafe_send_sync_impl::UnsafeSendSyncImplRule;
 pub use unsafe_undocumented::UnsafeUndocumentedRule;
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

@@ -26,7 +26,7 @@ jobs:
         run: cargo clippy --all-targets --workspace -- -D warnings
 
   dogfood-gate:
-    name: yunq scans itself (blocker/critical/parse-failure gate)
+    name: vord scans itself (blocker/critical/parse-failure gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,8 +36,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build yunq
-        run: cargo build -p yunq-cli
+      - name: Build vord
+        run: cargo build -p vord-cli
 
       - name: Self-scan with the enforced quality gate
         # No coverage/mutation report is fed here, so those two gate
@@ -45,10 +45,10 @@ jobs:
         # the coverage/mutation jobs below for why those aren't enforced yet.
         # This still gates on the part of the default gate the project does
         # meet today: zero blocker/critical issues, zero parse failures.
-        run: ./target/debug/yunq scan . --enforce-gate
+        run: ./target/debug/vord scan . --enforce-gate
 
       - name: Update health score badge
-        run: bash scripts/update-health-badge.sh ./target/debug/yunq .
+        run: bash scripts/update-health-badge.sh ./target/debug/vord .
 
       # Only persist the badge on pushes to main, not on every PR branch —
       # the README badge always reflects main's last green build.
@@ -61,16 +61,16 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .yunq-health.json
+          git add .vord-health.json
           if git diff --cached --quiet; then
             echo "Health badge unchanged."
           else
-            git commit -m "ci: update health score badge to $(jq -r .message .yunq-health.json)"
+            git commit -m "ci: update health score badge to $(jq -r .message .vord-health.json)"
             git push
           fi
 
   dogfood-coverage:
-    name: yunq's own test coverage (measured, not yet gated)
+    name: vord's own test coverage (measured, not yet gated)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,8 +88,8 @@ jobs:
       - name: Measure coverage
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex 'tests?/|fixtures/'
 
-      - name: Build yunq
-        run: cargo build -p yunq-cli
+      - name: Build vord
+        run: cargo build -p vord-cli
 
       # Deliberately not `--enforce-gate`: the shipped default gate wants
       # coverage >= 80%, and the real number here is ~72% today. Enforcing
@@ -97,32 +97,32 @@ jobs:
       # regress. This job exists to make the number visible and trending —
       # `--enforce-gate` belongs here once coverage actually clears the bar,
       # not before.
-      - name: Report coverage against yunq's own gate threshold
-        run: ./target/debug/yunq scan . --coverage-report lcov.info
+      - name: Report coverage against vord's own gate threshold
+        run: ./target/debug/vord scan . --coverage-report lcov.info
 
   dogfood-mutation:
     name: Mutation-test ${{ matrix.crate }}
     runs-on: ubuntu-latest
     # Widened crate by crate (roadmap item E1), cheapest/purest first, each
     # admitted only once it proves fast enough to stay in CI:
-    # yunq-agent-policy (the guardrail's own decision logic, the highest-
-    # consequence code in the repo) shipped first; yunq-profiles (gates,
-    # severities, ratings — also small and I/O-free) next; yunq-import-graph
+    # vord-agent-policy (the guardrail's own decision logic, the highest-
+    # consequence code in the repo) shipped first; vord-profiles (gates,
+    # severities, ratings — also small and I/O-free) next; vord-import-graph
     # (cycle detection, cross-file edge extraction, architecture boundaries)
-    # next; yunq-cpd (rolling-window duplicate detection) is next in that
+    # next; vord-cpd (rolling-window duplicate detection) is next in that
     # order. Remaining widening (taint → rules-engine) is just more matrix
     # entries.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - crate: yunq-agent-policy
+          - crate: vord-agent-policy
             path: core/agent-policy
-          - crate: yunq-profiles
+          - crate: vord-profiles
             path: core/profiles
-          - crate: yunq-import-graph
+          - crate: vord-import-graph
             path: core/import-graph
-          - crate: yunq-cpd
+          - crate: vord-cpd
             path: core/duplication
     steps:
       - uses: actions/checkout@v4
@@ -137,8 +137,8 @@ jobs:
       - name: Install cargo-mutants
         uses: taiki-e/install-action@cargo-mutants
 
-      - name: Build yunq
-        run: cargo build -p yunq-cli
+      - name: Build vord
+        run: cargo build -p vord-cli
 
       # No --output flag: cargo-mutants' own `-o`/`--output <dir>` creates a
       # `mutants.out` *within* `<dir>` rather than treating `<dir>` as the
@@ -152,17 +152,17 @@ jobs:
       # cargo-mutants exits 2 (FoundProblems) whenever any mutant survives,
       # and 3 (Timeout) whenever any mutant's test run hit the per-mutant
       # timeout — both are its own pass/fail signal, separate from this
-      # workflow's actual gate (the `yunq scan --mutation-report
+      # workflow's actual gate (the `vord scan --mutation-report
       # --enforce-gate` step below, which checks the score against the
       # quality gate's threshold). A timed-out mutant isn't a tooling
       # failure: it means the mutated code hung (an infinite loop, most
       # often), which is exactly as informative a result as a caught mutant
-      # — yunq's own mutation_score formula already counts `Timeout` as
+      # — vord's own mutation_score formula already counts `Timeout` as
       # detected, the same bucket as `Killed` (mirroring Stryker). Letting
       # either code abort the job here would skip the report-conversion and
       # gate steps entirely, so a crate with any surviving-or-timed-out
       # mutant would never reach the check that's supposed to judge it —
-      # masked so far only because yunq-agent-policy currently has zero of
+      # masked so far only because vord-agent-policy currently has zero of
       # either. Any other exit code (build failure, a baseline that was
       # already failing before any mutation, tool crash) still fails the
       # job immediately, as it should.
@@ -177,10 +177,10 @@ jobs:
 
       # cargo-mutants' own report schema isn't Stryker's; converts each
       # mutant outcome to the Stryker Mutation Testing Elements shape
-      # yunq's `--mutation-report` already understands (the same importer
+      # vord's `--mutation-report` already understands (the same importer
       # StrykerJS/Stryker.NET/Infection reports go through), grouped by
       # file. `Unviable` (does not compile) maps to `CompileError`, which
-      # yunq's mutation_score formula already excludes from both numerator
+      # vord's mutation_score formula already excludes from both numerator
       # and denominator, same as Stryker's own convention.
       - name: Convert cargo-mutants output to the Stryker report schema
         run: |
@@ -203,12 +203,12 @@ jobs:
           }' mutants.out/outcomes.json > mutation-report.json
 
       # Enforced: every crate in the matrix clears the default gate's 60%
-      # bar comfortably (yunq-agent-policy ~95%, yunq-profiles ~72%,
-      # yunq-import-graph ~92%, yunq-cpd ~84% as of this crate's
+      # bar comfortably (vord-agent-policy ~95%, vord-profiles ~72%,
+      # vord-import-graph ~92%, vord-cpd ~84% as of this crate's
       # introduction), so unlike the workspace-wide coverage job above,
       # there's no reason to hold this one back from actually gating.
       - name: Gate on ${{ matrix.crate }}'s mutation score
-        run: ./target/debug/yunq scan ${{ matrix.path }} --mutation-report mutation-report.json --enforce-gate
+        run: ./target/debug/vord scan ${{ matrix.path }} --mutation-report mutation-report.json --enforce-gate
 
   benchmark-gate:
     name: Benchmark regression gate
@@ -227,7 +227,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Benchmark PR head
-        run: cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/pr-perf.json
+        run: cargo run --release -p vord-benchmarks --bin perf_report -- --output /tmp/pr-perf.json
 
       # The merge base predates whatever PR first introduced the
       # perf_report binary itself (a one-time bootstrap gap — every PR
@@ -238,7 +238,7 @@ jobs:
         id: base_bench
         run: |
           git checkout ${{ github.event.pull_request.base.sha }}
-          if cargo run --release -p yunq-benchmarks --bin perf_report -- --output /tmp/base-perf.json; then
+          if cargo run --release -p vord-benchmarks --bin perf_report -- --output /tmp/base-perf.json; then
             echo "has_base=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_base=false" >> "$GITHUB_OUTPUT"
@@ -254,4 +254,4 @@ jobs:
       # on — no established target for either.
       - name: Compare and gate on >10% throughput regression
         if: steps.base_bench.outputs.has_base == 'true'
-        run: cargo run --release -p yunq-benchmarks --bin perf_report -- --compare /tmp/base-perf.json /tmp/pr-perf.json
+        run: cargo run --release -p vord-benchmarks --bin perf_report -- --compare /tmp/base-perf.json /tmp/pr-perf.json

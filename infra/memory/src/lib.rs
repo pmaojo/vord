@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use yunq_rules_engine::{
+use vord_rules_engine::{
     BulkOutcome, ChangelogAction, ChangelogEntry, Hotspot, HotspotReader, HotspotReview,
     HotspotStatus, HotspotStorage, Issue, IssueBulkWorkflow, IssueChangelogReader,
     IssueFacetReader, IssueFacets, IssueQuery, IssueReader, IssueScope, IssueStorage,
@@ -117,7 +117,7 @@ impl IssueFacetReader for InMemoryIssueStorage {
             *by_severity.entry(issue.severity()).or_default() += 1;
         }
 
-        let mut status_counts: BTreeMap<String, (yunq_rules_engine::IssueStatus, usize)> =
+        let mut status_counts: BTreeMap<String, (vord_rules_engine::IssueStatus, usize)> =
             BTreeMap::new();
         for issue in issues
             .iter()
@@ -328,8 +328,8 @@ impl IssueWorkflow for InMemoryIssueStorage {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::Span;
-    use yunq_rules_engine::{IssueStatus, Resolution, RuleId, Severity};
+    use vord_ast::Span;
+    use vord_rules_engine::{IssueStatus, Resolution, RuleId, Severity};
 
     use super::*;
 
@@ -578,13 +578,13 @@ impl InMemorySandbox {
     }
 }
 
-impl yunq_remediation::Sandbox for InMemorySandbox {
+impl vord_remediation::Sandbox for InMemorySandbox {
     fn apply_proposal(
         &self,
-        proposal: &yunq_remediation::FixProposal,
-    ) -> Result<(), yunq_remediation::RemediationError> {
+        proposal: &vord_remediation::FixProposal,
+    ) -> Result<(), vord_remediation::RemediationError> {
         if proposal.original_snippet.is_empty() {
-            return Err(yunq_remediation::RemediationError::SandboxError(
+            return Err(vord_remediation::RemediationError::SandboxError(
                 "proposal snippet must not be empty".to_string(),
             ));
         }
@@ -593,14 +593,14 @@ impl yunq_remediation::Sandbox for InMemorySandbox {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let source = files.get(&proposal.file_path).cloned().ok_or_else(|| {
-            yunq_remediation::RemediationError::SandboxError(format!(
+            vord_remediation::RemediationError::SandboxError(format!(
                 "no sandboxed content for {}",
                 proposal.file_path.display()
             ))
         })?;
         let occurrences = source.matches(&proposal.original_snippet).count();
         if occurrences != 1 {
-            return Err(yunq_remediation::RemediationError::SandboxError(format!(
+            return Err(vord_remediation::RemediationError::SandboxError(format!(
                 "proposal snippet must match exactly once, matched {occurrences} times"
             )));
         }
@@ -617,21 +617,21 @@ impl yunq_remediation::Sandbox for InMemorySandbox {
     fn read_source(
         &self,
         file_path: &std::path::Path,
-    ) -> Result<String, yunq_remediation::RemediationError> {
+    ) -> Result<String, vord_remediation::RemediationError> {
         self.files
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(file_path)
             .cloned()
             .ok_or_else(|| {
-                yunq_remediation::RemediationError::SandboxError(format!(
+                vord_remediation::RemediationError::SandboxError(format!(
                     "no sandboxed content for {}",
                     file_path.display()
                 ))
             })
     }
 
-    fn rollback(&self) -> Result<(), yunq_remediation::RemediationError> {
+    fn rollback(&self) -> Result<(), vord_remediation::RemediationError> {
         let originals = std::mem::take(
             &mut *self
                 .originals
@@ -653,7 +653,7 @@ impl yunq_remediation::Sandbox for InMemorySandbox {
 mod in_memory_sandbox_tests {
     use std::path::PathBuf;
 
-    use yunq_remediation::{FixProposal, Sandbox};
+    use vord_remediation::{FixProposal, Sandbox};
 
     use super::InMemorySandbox;
 
@@ -688,7 +688,7 @@ mod in_memory_sandbox_tests {
         let err = sandbox.apply_proposal(&proposal("1", "2")).unwrap_err();
         assert!(matches!(
             err,
-            yunq_remediation::RemediationError::SandboxError(_)
+            vord_remediation::RemediationError::SandboxError(_)
         ));
     }
 }

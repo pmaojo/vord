@@ -1,7 +1,7 @@
 //! Rule: flags explicit `: any` or `as any` type annotations and type assertions in TypeScript files.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// Whether `bytes[i..]` starts with `: any` or `:any` (with word-boundary check).
 fn scan_colon_any(bytes: &[u8], i: usize) -> bool {
@@ -109,7 +109,7 @@ impl Rule for NoExplicitAnyRule {
         if ast.kind() != &NodeKind::SourceUnit {
             return Vec::new();
         }
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
 
@@ -126,7 +126,7 @@ impl Rule for NoExplicitAnyRule {
             if is_explicit_any(line) {
                 findings.push(Finding::new(
                     "Avoid explicit `: any` type annotations or `as any` type assertions; prefer specific types or `unknown`",
-                    yunq_ast::Span::new(line_no, 1, line_no, line.len().max(1) as u32),
+                    vord_ast::Span::new(line_no, 1, line_no, line.len().max(1) as u32),
                 ));
             }
         }
@@ -145,7 +145,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -160,7 +160,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -175,7 +175,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -190,7 +190,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -205,7 +205,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );

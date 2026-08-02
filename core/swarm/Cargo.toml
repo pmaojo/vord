@@ -1,10 +1,10 @@
 [package]
-name = "yunq-swarm"
+name = "vord-swarm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "yunq swarm — worktree-per-agent isolation, role scoping and durable handoffs for multi-agent orchestration"
+description = "vord swarm — worktree-per-agent isolation, role scoping and durable handoffs for multi-agent orchestration"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true

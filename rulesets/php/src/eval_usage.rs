@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::callee_node;
 
@@ -46,8 +46,8 @@ impl Rule for EvalUsageRule {
         20
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "`eval()` executes a string as PHP code; if any part of that string \
                 can be influenced by request input, this is arbitrary code execution. Confirm \
                 the argument is never attacker-controlled, or remove the `eval()`."
@@ -77,14 +77,14 @@ impl Rule for EvalUsageRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.php", code, LanguageIdentifier::php()).unwrap();
-        let ast = yunq_parser_php::PhpParser::new().parse(&file).unwrap();
+        let ast = vord_parser_php::PhpParser::new().parse(&file).unwrap();
         EvalUsageRule::new().check(&file, &ast)
     }
 

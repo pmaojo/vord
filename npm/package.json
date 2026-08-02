@@ -1,5 +1,5 @@
 {
-  "name": "yunq",
+  "name": "vord",
   "version": "0.0.0",
   "description": "Ultraperformant static analysis and an agent guardrail that judges a write before it reaches disk — 24 languages, one static binary",
   "keywords": [
@@ -12,17 +12,17 @@
     "guardrail",
     "claude-code"
   ],
-  "homepage": "https://github.com/pmaojo/yunq",
+  "homepage": "https://github.com/pmaojo/vord",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pmaojo/yunq.git"
+    "url": "git+https://github.com/pmaojo/vord.git"
   },
   "license": "MIT",
   "bin": {
-    "yunq": "bin/yunq.js"
+    "vord": "bin/vord.js"
   },
   "files": [
-    "bin/yunq.js",
+    "bin/vord.js",
     "install.js",
     "README.md"
   ],

@@ -54,7 +54,7 @@ pub use type_check_chain::TypeCheckChainRule;
 pub use unreachable_code::UnreachableCodeRule;
 pub use unwrap_usage::UnwrapUsageRule;
 
-use yunq_rules_engine::{CrossFileRule, Rule};
+use vord_rules_engine::{CrossFileRule, Rule};
 
 /// Every per-file rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

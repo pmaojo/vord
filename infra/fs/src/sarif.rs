@@ -1,11 +1,11 @@
 //! SARIF 2.x report import (inbound adapter): turns another analyzer's
-//! findings into yunq [`Issue`]s so they land in the same report, the same
-//! severity counters and the same quality gate as yunq's own rules.
+//! findings into vord [`Issue`]s so they land in the same report, the same
+//! severity counters and the same quality gate as vord's own rules.
 //!
 //! SARIF (OASIS "Static Analysis Results Interchange Format") is the one
 //! format every mainstream analyzer already emits — ruff, ESLint, clippy,
 //! gosec, bandit, semgrep, CodeQL — so a single importer buys their whole
-//! rule catalogs without yunq implementing a single one of those checks.
+//! rule catalogs without vord implementing a single one of those checks.
 //!
 //! ## What is imported, and what is dropped
 //!
@@ -39,8 +39,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use serde::Deserialize;
-use yunq_ast::Span;
-use yunq_rules_engine::{ExternalIssue, Issue, IssueType, RuleId, Severity};
+use vord_ast::Span;
+use vord_rules_engine::{ExternalIssue, Issue, IssueType, RuleId, Severity};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SarifError {
@@ -53,8 +53,8 @@ pub enum SarifError {
 /// The outcome of importing one SARIF log.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SarifImport {
-    /// Findings translated into yunq issues, ready for
-    /// [`yunq_rules_engine::AnalysisReport::add_external_issues`].
+    /// Findings translated into vord issues, ready for
+    /// [`vord_rules_engine::AnalysisReport::add_external_issues`].
     pub issues: Vec<ExternalIssue>,
     /// Every distinct emitting tool named in the log, in encounter order —
     /// what the CLI reports back so the user can see whose rules arrived.
@@ -85,7 +85,7 @@ pub fn parse_sarif(content: &str) -> Result<SarifImport, SarifError> {
 }
 
 /// Like [`parse_sarif`], but re-bases absolute paths onto `root` so imported
-/// issues use the same scan-root-relative paths yunq's own issues do. A URI
+/// issues use the same scan-root-relative paths vord's own issues do. A URI
 /// that is not under `root` keeps its absolute form rather than being
 /// mangled into a wrong relative path.
 pub fn parse_sarif_relative_to(content: &str, root: &Path) -> Result<SarifImport, SarifError> {
@@ -219,7 +219,7 @@ fn is_suppressed(result: &SarifResult) -> bool {
 }
 
 /// First physical location with a URI. SARIF allows several locations per
-/// result (and `relatedLocations` on top); yunq issues are single-span, so
+/// result (and `relatedLocations` on top); vord issues are single-span, so
 /// the primary location is the one that becomes the issue.
 fn physical_location(result: &SarifResult, root: Option<&Path>) -> Option<(String, Span)> {
     let physical = result
@@ -246,7 +246,7 @@ fn span_of(region: Option<&Region>) -> Span {
 
 /// `file:///abs/path` → `/abs/path`, `%20` → ` `, backslashes → slashes,
 /// and (when `root` is known) absolute paths re-based onto it so they line
-/// up with the scan-relative paths yunq's own issues carry.
+/// up with the scan-relative paths vord's own issues carry.
 fn normalize_uri(uri: &str, root: Option<&Path>) -> String {
     let decoded = percent_decode(uri);
     let path = strip_file_scheme(&decoded).replace('\\', "/");
@@ -406,7 +406,7 @@ fn message_of(
 
 /// `namespace:code` in lowercase kebab-case, the only shape [`RuleId`]
 /// accepts. The emitting tool becomes the namespace so imported rules stay
-/// visibly distinct from yunq's own (`ruff:e501`, `eslint:no-eval`,
+/// visibly distinct from vord's own (`ruff:e501`, `eslint:no-eval`,
 /// `semgrep:python-lang-security-audit-dangerous-subprocess-use`).
 fn rule_id(tool: &str, raw: &str) -> RuleId {
     let namespace = slug(tool, "external");
@@ -903,7 +903,7 @@ mod tests {
 
     #[test]
     fn file_uris_are_decoded_and_rebased_onto_the_scan_root() {
-        let root = std::env::temp_dir().join("yunq-sarif-root");
+        let root = std::env::temp_dir().join("vord-sarif-root");
         std::fs::create_dir_all(root.join("src")).unwrap();
         let root = root.canonicalize().unwrap();
 

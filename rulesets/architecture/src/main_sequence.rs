@@ -1,6 +1,6 @@
 //! Rule: a component far from the *main sequence* — Robert C. Martin's
 //! `D = |A + I - 1|` metric over the component graph
-//! (`yunq_import_graph::metrics`).
+//! (`vord_import_graph::metrics`).
 //!
 //! Two failure modes, one number:
 //!
@@ -27,9 +27,9 @@
 //! without meaning anything. A component must declare `min_types` types and
 //! carry `min_couplings` component-level dependencies before it is judged.
 
-use yunq_ast::{AstNode, SourceFile, Span};
-use yunq_import_graph::{ComponentMetrics, ImportGraph, component_metrics, component_of};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, SourceFile, Span};
+use vord_import_graph::{ComponentMetrics, ImportGraph, component_metrics, component_of};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 use crate::census::component_census;
 
@@ -146,11 +146,11 @@ impl CrossFileRule for MainSequenceRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn parsed_ts(files: &[(&str, &str)]) -> Vec<(SourceFile, AstNode)> {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         files
             .iter()
             .map(|(path, code)| {

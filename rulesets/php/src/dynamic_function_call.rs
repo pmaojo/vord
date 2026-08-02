@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::{SUPERGLOBALS, callee_node, is_other};
 
@@ -65,8 +65,8 @@ impl Rule for DynamicFunctionCallRule {
         25
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "The function to call is read directly from request data (a \
                 superglobal), letting an attacker choose which function in the program runs \
                 with attacker-chosen arguments. Validate against an explicit allow-list of \
@@ -116,14 +116,14 @@ impl Rule for DynamicFunctionCallRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_ast::SourceFile;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.php", code, LanguageIdentifier::php()).unwrap();
-        let ast = yunq_parser_php::PhpParser::new().parse(&file).unwrap();
+        let ast = vord_parser_php::PhpParser::new().parse(&file).unwrap();
         DynamicFunctionCallRule::new().check(&file, &ast)
     }
 

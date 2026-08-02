@@ -5,7 +5,7 @@
 //! churn-heavy adapter can then force a change in a component nobody can
 //! afford to change.
 //!
-//! Computed over the component graph in `yunq_import_graph::metrics`, which
+//! Computed over the component graph in `vord_import_graph::metrics`, which
 //! is the same Ca/Ce arithmetic CodeQL exposes per type
 //! (`TAfferentCoupling.ql`/`TEfferentCoupling.ql`) — the difference is that
 //! this is a *direction* check between two components rather than a size
@@ -16,9 +16,9 @@
 //! instability gap must exceed `margin`, because `I` is a ratio over small
 //! integers where one import can move it 0.1.
 
-use yunq_ast::{AstNode, SourceFile};
-use yunq_import_graph::{ImportGraph, component_metrics, component_of, stability_violations};
-use yunq_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, SourceFile};
+use vord_import_graph::{ImportGraph, component_metrics, component_of, stability_violations};
+use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 use crate::census::component_census;
 
@@ -129,11 +129,11 @@ impl CrossFileRule for StableDependencyRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_rules_engine::AstParser;
 
     fn parsed_ts(files: &[(&str, &str)]) -> Vec<(SourceFile, AstNode)> {
-        let parser = yunq_parser_typescript::TypeScriptParser::new();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
         files
             .iter()
             .map(|(path, code)| {

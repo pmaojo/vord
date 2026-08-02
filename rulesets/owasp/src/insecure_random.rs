@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct InsecureRandomRule {
     id: RuleId,
@@ -36,8 +36,8 @@ impl Rule for InsecureRandomRule {
         IssueType::Vulnerability
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "Usage of insecure random number generators (e.g. Math.random() in JS, random in Python) is unsafe for cryptographic purposes. Use a cryptographically secure pseudo-random number generator (CSPRNG) instead.".into(),
             tags: vec!["security".into(), "owasp-a02".into(), "crypto".into()],
             cwe: Some(330), // CWE-330: Use of Insufficiently Random Values
@@ -65,7 +65,7 @@ impl Rule for InsecureRandomRule {
                 if line.contains("Math.random") {
                     findings.push(Finding::new(
                         "Math.random() is not cryptographically secure. Prefer crypto.getRandomValues() or crypto.randomBytes()",
-                        yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                        vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                     ));
                 }
             } else if is_python {
@@ -80,7 +80,7 @@ impl Rule for InsecureRandomRule {
                 {
                     findings.push(Finding::new(
                         "The 'random' module is not cryptographically secure. Prefer the 'secrets' module.",
-                        yunq_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                        vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                     ));
                 }
             }
@@ -93,7 +93,7 @@ impl Rule for InsecureRandomRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::NodeKind;
+    use vord_ast::NodeKind;
 
     #[test]
     fn flags_math_random() {
@@ -101,7 +101,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -115,7 +115,7 @@ mod tests {
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -129,7 +129,7 @@ mod tests {
         let file = SourceFile::new("app.py", code, LanguageIdentifier::python()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -143,7 +143,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );

@@ -3,9 +3,9 @@
 //! `axios.get()`, `http.get()`, `requests.get()`) without URL validation or host allowlisting,
 //! which leads to Server-Side Request Forgery (SSRF).
 
-use yunq_ast::{AstNode, LanguageIdentifier, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
-use yunq_taint::{TaintAnalysis, TaintConfig};
+use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_taint::{TaintAnalysis, TaintConfig};
 
 pub struct SsrfUnvalidatedUrlRule {
     id: RuleId,
@@ -65,8 +65,8 @@ impl Rule for SsrfUnvalidatedUrlRule {
         IssueType::Vulnerability
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "User input parameters (`req.query`, `req.params`, `req.body`, `request.args`) passed directly into HTTP request sinks (`fetch()`, `axios.get()`, `http.get()`, `requests.get()`) without URL validation or host allowlisting lead to Server-Side Request Forgery (SSRF).".into(),
             tags: vec!["security".into(), "owasp-a10".into(), "cwe".into(), "ssrf".into()],
             cwe: Some(918),
@@ -96,11 +96,11 @@ impl Rule for SsrfUnvalidatedUrlRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check_ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         SsrfUnvalidatedUrlRule::new().check(&file, &ast)

@@ -135,7 +135,7 @@ pub enum FeedbackOutcome {
 impl FeedbackOutcome {
     /// Exit codes in the same family as
     /// [`RunOutcome::exit_code`](crate::runtime::RunOutcome::exit_code), with
-    /// `1` reserved for "yunq could not do its job".
+    /// `1` reserved for "vord could not do its job".
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::Quiet | Self::BotAllClear { .. } => 0,

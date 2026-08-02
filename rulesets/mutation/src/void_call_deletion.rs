@@ -1,5 +1,5 @@
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(VoidCallDeletionMutantRule, "mutation:void-call-deletion");
 
@@ -56,9 +56,9 @@ impl Rule for VoidCallDeletionMutantRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_parser_typescript::TypeScriptParser;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_parser_typescript::TypeScriptParser;
+    use vord_rules_engine::AstParser;
 
     fn findings(code: &str, path: &str, language: LanguageIdentifier) -> Vec<Finding> {
         let file = SourceFile::new(path, code, language).unwrap();

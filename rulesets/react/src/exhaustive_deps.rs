@@ -5,7 +5,7 @@
 //! present at all), this needs to know *which* identifiers in the hook body
 //! are captured from the enclosing component's scope rather than locally
 //! bound inside the callback or free from module scope — exactly the
-//! same-file scope resolution `yunq_symbols::scope` provides.
+//! same-file scope resolution `vord_symbols::scope` provides.
 //!
 //! `useState` setters and `useRef` bindings are exempted: React guarantees
 //! their identity is stable across renders, so `eslint-plugin-react-hooks`
@@ -13,9 +13,9 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
-use yunq_symbols::{free_identifiers, own_bindings};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_symbols::{free_identifiers, own_bindings};
 
 use crate::common::{call_arguments, hook_call_name, is_other, own_scope_descendants};
 
@@ -194,11 +194,11 @@ impl Rule for ExhaustiveDepsRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         ExhaustiveDepsRule::new().check(&file, &ast)

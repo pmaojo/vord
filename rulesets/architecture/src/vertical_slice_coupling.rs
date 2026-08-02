@@ -3,8 +3,8 @@
 //! must not directly depend on private internal details of another slice.
 //! Interactions between slices must occur via Domain Events or explicit public contracts.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(VerticalSliceCouplingRule, "architecture:cross-slice-coupling");
 
@@ -67,8 +67,8 @@ impl Rule for VerticalSliceCouplingRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_parser_typescript::TypeScriptParser;
-    use yunq_rules_engine::AstParser;
+    use vord_parser_typescript::TypeScriptParser;
+    use vord_rules_engine::AstParser;
 
     #[test]
     fn test_flags_cross_slice_internal_import() {

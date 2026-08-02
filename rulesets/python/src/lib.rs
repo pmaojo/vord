@@ -71,7 +71,7 @@ pub use unused_loop_variable::UnusedLoopVariableRule;
 pub use wildcard_import::WildcardImportRule;
 pub use xml_xxe::XmlXxeRule;
 
-use yunq_rules_engine::Rule;
+use vord_rules_engine::Rule;
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {

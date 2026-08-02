@@ -13,7 +13,7 @@ pub use pr_feedback::PullRequestFeedbackReader;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use yunq_rules_engine::{
+use vord_rules_engine::{
     AlmError, AlmPullRequestReporter, AlmStatusReporter, CommitSha, CommitStatus, Issue,
     PullRequestNumber,
 };
@@ -54,7 +54,7 @@ impl GitHubStatusReporter {
         let repository = std::env::var("GITHUB_REPOSITORY").ok()?;
         let (owner, repo) = repository.split_once('/')?;
         let mut reporter = Self::new(token, owner, repo);
-        if let Ok(base) = std::env::var("YUNQ_GITHUB_API_BASE") {
+        if let Ok(base) = std::env::var("VORD_GITHUB_API_BASE") {
             reporter.api_base = base;
         }
         Some(reporter)
@@ -92,7 +92,7 @@ impl GitHubStatusReporter {
             .get(&url)
             .bearer_auth(&self.token)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "yunq")
+            .header("User-Agent", "vord")
             .send()
             .await
             .map_err(|e| AlmError(e.to_string()))?;
@@ -178,10 +178,10 @@ struct IssueCommentRequest {
     body: String,
 }
 
-/// The general summary comment body: the yunq marker + gate summary, plus
+/// The general summary comment body: the vord marker + gate summary, plus
 /// (when non-empty) a bulleted list of issues that fell outside the PR diff.
 fn build_summary_body(gate_summary: &str, fallback_issues: &[Issue]) -> String {
-    let mut body = format!("<!-- yunq-pr-comment -->\n{}\n\n", gate_summary);
+    let mut body = format!("<!-- vord-pr-comment -->\n{}\n\n", gate_summary);
     if !fallback_issues.is_empty() {
         body.push_str("### ⚠️ Issues outside the pull request diff\n\n");
         for issue in fallback_issues {
@@ -225,7 +225,7 @@ impl GitHubStatusReporter {
                 .get(format!("{url}?per_page=100&page={page}"))
                 .bearer_auth(&self.token)
                 .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "yunq")
+                .header("User-Agent", "vord")
                 .send()
                 .await
                 .map_err(|e| AlmError(e.to_string()))?;
@@ -266,7 +266,7 @@ impl GitHubStatusReporter {
             .get(&url)
             .bearer_auth(&self.token)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "yunq")
+            .header("User-Agent", "vord")
             .send()
             .await
             .map_err(|e| AlmError(e.to_string()))?;
@@ -320,7 +320,7 @@ impl GitHubStatusReporter {
             .post(comments_url)
             .bearer_auth(&self.token)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "yunq")
+            .header("User-Agent", "vord")
             .json(&req_body)
             .send()
             .await
@@ -358,15 +358,15 @@ impl GitHubStatusReporter {
         request
             .bearer_auth(&self.token)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "yunq")
+            .header("User-Agent", "vord")
             .json(req_body)
             .send()
             .await
             .map_err(|e| AlmError(e.to_string()))
     }
 
-    /// Creates or updates the single yunq-tagged general summary comment on
-    /// the PR (identified by the `<!-- yunq-pr-comment -->` marker),
+    /// Creates or updates the single vord-tagged general summary comment on
+    /// the PR (identified by the `<!-- vord-pr-comment -->` marker),
     /// listing any issues that fell outside the diff.
     async fn upsert_summary_comment(
         &self,
@@ -384,7 +384,7 @@ impl GitHubStatusReporter {
             self.get_all_pages(&issue_comments_url).await?;
         let existing_comment = existing_issue_comments
             .iter()
-            .find(|c| c.body.contains("<!-- yunq-pr-comment -->"));
+            .find(|c| c.body.contains("<!-- vord-pr-comment -->"));
 
         let req_body = IssueCommentRequest { body: general_body };
         let response = self
@@ -460,7 +460,7 @@ impl AlmStatusReporter for GitHubStatusReporter {
             .post(&url)
             .bearer_auth(&self.token)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "yunq")
+            .header("User-Agent", "vord")
             .json(&body)
             .send()
             .await
@@ -483,7 +483,7 @@ mod tests {
     use axum::http::{HeaderMap, StatusCode};
     use axum::routing::post;
     use axum::{Json, Router};
-    use yunq_rules_engine::CommitStatusState;
+    use vord_rules_engine::CommitStatusState;
 
     use super::*;
 
@@ -534,7 +534,7 @@ mod tests {
         assert_eq!(path, &format!("acme/widgets/{sha}"));
         assert_eq!(body["state"], "failure");
         assert_eq!(body["description"], "quality gate failed");
-        assert_eq!(body["context"], "yunq");
+        assert_eq!(body["context"], "vord");
         assert_eq!(body["target_url"], "https://ci.example.com/build/42");
         assert_eq!(headers.get("authorization").unwrap(), "Bearer test-token");
     }
@@ -625,11 +625,11 @@ mod tests {
 
     fn sample_issue(file: &str, line: u32) -> Issue {
         Issue::new(
-            yunq_profiles::RuleId::new("test:rule").unwrap(),
-            yunq_profiles::Severity::Major,
+            vord_profiles::RuleId::new("test:rule").unwrap(),
+            vord_profiles::Severity::Major,
             "some message",
             file,
-            yunq_ast::Span::new(line, 1, line, 10),
+            vord_ast::Span::new(line, 1, line, 10),
         )
     }
 

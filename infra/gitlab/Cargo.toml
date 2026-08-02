@@ -1,17 +1,17 @@
 [package]
-name = "yunq-infra-gitlab"
+name = "vord-infra-gitlab"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "GitLab adapter for yunq"
+description = "GitLab adapter for vord"
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-yunq-rules-engine = { workspace = true }
+vord-rules-engine = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

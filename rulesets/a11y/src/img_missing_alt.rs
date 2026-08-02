@@ -1,8 +1,8 @@
 //! Rule: flags `<img>` tags without an `alt` attribute (WCAG 1.1.1
 //! Non-text Content) — screen readers have nothing to announce for them.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, Rule, RuleId, RuleMetadata, Severity};
 
 pub struct ImgMissingAltRule {
     id: RuleId,
@@ -75,7 +75,7 @@ impl Rule for ImgMissingAltRule {
                 let line = 1 + content[..start].matches('\n').count() as u32;
                 findings.push(Finding::new(
                     "`<img>` is missing an `alt` attribute; screen readers cannot describe this image",
-                    yunq_ast::Span::new(line, 1, line, tag_text.len().max(1) as u32),
+                    vord_ast::Span::new(line, 1, line, tag_text.len().max(1) as u32),
                 ));
             }
             cursor = end.max(after_tag_name);
@@ -91,7 +91,7 @@ mod tests {
     fn source_unit(code: &str) -> AstNode {
         AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         )

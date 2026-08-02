@@ -1,7 +1,7 @@
 //! Rule: flags CORS configuration that allows any origin.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 pub struct PermissiveCorsRule {
     id: RuleId,
@@ -60,7 +60,7 @@ impl Rule for PermissiveCorsRule {
             if mentions_cors && allows_any_origin {
                 findings.push(Finding::new(
                     "CORS configured to allow any origin ('*'); restrict to a known allowlist",
-                    yunq_ast::Span::new(
+                    vord_ast::Span::new(
                         (idx + 1) as u32,
                         1,
                         (idx + 1) as u32,
@@ -83,7 +83,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -97,7 +97,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );
@@ -111,7 +111,7 @@ mod tests {
         let file = SourceFile::new("app.ts", code, LanguageIdentifier::typescript()).unwrap();
         let ast = AstNode::new(
             NodeKind::SourceUnit,
-            yunq_ast::Span::new(1, 1, 1, code.len() as u32),
+            vord_ast::Span::new(1, 1, 1, code.len() as u32),
             code,
             vec![],
         );

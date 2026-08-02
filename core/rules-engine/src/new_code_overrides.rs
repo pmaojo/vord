@@ -233,22 +233,22 @@ mod tests {
 
     #[test]
     fn empty_sources_returns_none() {
-        assert!(resolve_new_code_definition(&[], "yunq", "main").is_none());
+        assert!(resolve_new_code_definition(&[], "vord", "main").is_none());
     }
 
     #[test]
     fn only_global_picks_global() {
         let src = global(7);
         let (val, src_back) =
-            resolve_new_code_definition(std::slice::from_ref(&src), "yunq", "main").unwrap();
+            resolve_new_code_definition(std::slice::from_ref(&src), "vord", "main").unwrap();
         assert_eq!(val, NewCodeOverride::Days(7));
         assert_eq!(src_back.scope, OverrideScope::Global);
     }
 
     #[test]
     fn project_override_beats_global() {
-        let sources = vec![global(7), project("yunq", "develop")];
-        let (val, src) = resolve_new_code_definition(&sources, "yunq", "main").unwrap();
+        let sources = vec![global(7), project("vord", "develop")];
+        let (val, src) = resolve_new_code_definition(&sources, "vord", "main").unwrap();
         assert_eq!(val, NewCodeOverride::ReferenceBranch("develop".to_string()));
         assert!(matches!(src.scope, OverrideScope::Project { .. }));
     }
@@ -257,27 +257,27 @@ mod tests {
     fn branch_override_beats_project_and_global() {
         let sources = vec![
             global(7),
-            project("yunq", "develop"),
-            branch("yunq", "main", 1),
+            project("vord", "develop"),
+            branch("vord", "main", 1),
         ];
-        let (val, src) = resolve_new_code_definition(&sources, "yunq", "main").unwrap();
+        let (val, src) = resolve_new_code_definition(&sources, "vord", "main").unwrap();
         assert_eq!(val, NewCodeOverride::Days(1));
         assert!(matches!(src.scope, OverrideScope::Branch { .. }));
     }
 
     #[test]
     fn branch_override_is_per_branch_not_shared() {
-        let sources = vec![branch("yunq", "main", 1)];
+        let sources = vec![branch("vord", "main", 1)];
         // `feature/x` doesn't have its own override; falls back to global.
-        let sources_global = vec![branch("yunq", "main", 1), global(14)];
-        assert!(resolve_new_code_definition(&sources, "yunq", "feature/x").is_none());
-        let (val, _) = resolve_new_code_definition(&sources_global, "yunq", "feature/x").unwrap();
+        let sources_global = vec![branch("vord", "main", 1), global(14)];
+        assert!(resolve_new_code_definition(&sources, "vord", "feature/x").is_none());
+        let (val, _) = resolve_new_code_definition(&sources_global, "vord", "feature/x").unwrap();
         assert_eq!(val, NewCodeOverride::Days(14));
     }
 
     #[test]
     fn project_override_does_not_leak_to_other_projects() {
-        let sources = vec![project("yunq", "develop")];
+        let sources = vec![project("vord", "develop")];
         let other = resolve_new_code_definition(&sources, "other", "main");
         assert!(other.is_none());
     }
@@ -366,12 +366,12 @@ mod tests {
         let mut history = FakeAnalysisHistory::default();
         history
             .latest
-            .insert(("yunq".to_string(), "develop".to_string()), 42);
+            .insert(("vord".to_string(), "develop".to_string()), 42);
         history.baselines.insert(42, baseline_with_fingerprint(7));
 
         let resolved = futures::executor::block_on(resolve_baseline(
             &history,
-            "yunq",
+            "vord",
             "main",
             &NewCodeOverride::ReferenceBranch("develop".to_string()),
         ))
@@ -384,12 +384,12 @@ mod tests {
         let mut history = FakeAnalysisHistory::default();
         history
             .days_ago
-            .insert(("yunq".to_string(), "main".to_string(), 7), 9);
+            .insert(("vord".to_string(), "main".to_string(), 7), 9);
         history.baselines.insert(9, baseline_with_fingerprint(99));
 
         let resolved = futures::executor::block_on(resolve_baseline(
             &history,
-            "yunq",
+            "vord",
             "main",
             &NewCodeOverride::Days(7),
         ))
@@ -404,7 +404,7 @@ mod tests {
 
         let resolved = futures::executor::block_on(resolve_baseline(
             &history,
-            "yunq",
+            "vord",
             "main",
             &NewCodeOverride::SpecificAnalysis("123".to_string()),
         ))
@@ -417,7 +417,7 @@ mod tests {
         let history = FakeAnalysisHistory::default();
         let resolved = futures::executor::block_on(resolve_baseline(
             &history,
-            "yunq",
+            "vord",
             "main",
             &NewCodeOverride::ReferenceBranch("never-scanned".to_string()),
         ))
@@ -430,7 +430,7 @@ mod tests {
         let history = FakeAnalysisHistory::default();
         let resolved = futures::executor::block_on(resolve_baseline(
             &history,
-            "yunq",
+            "vord",
             "main",
             &NewCodeOverride::SpecificAnalysis("not-a-number".to_string()),
         ))
@@ -441,11 +441,11 @@ mod tests {
     #[test]
     fn override_scope_serializes_with_kind_tag() {
         let s = OverrideScope::Project {
-            project_key: "yunq".to_string(),
+            project_key: "vord".to_string(),
         };
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"project\""));
-        assert!(json.contains("yunq"));
+        assert!(json.contains("vord"));
     }
 
     #[test]
@@ -455,12 +455,12 @@ mod tests {
         // its own "previous" analysis.
         history
             .previous
-            .insert(("yunq".to_string(), "main".to_string(), 50), 41);
+            .insert(("vord".to_string(), "main".to_string(), 50), 41);
         history.baselines.insert(41, baseline_with_fingerprint(11));
 
         let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
             &history,
-            "yunq",
+            "vord",
             "main",
             50,
             &NewCodeDefinition::PreviousAnalysis,
@@ -474,7 +474,7 @@ mod tests {
         let history = FakeAnalysisHistory::default();
         let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
             &history,
-            "yunq",
+            "vord",
             "main",
             1,
             &NewCodeDefinition::PreviousAnalysis,
@@ -488,12 +488,12 @@ mod tests {
         let mut history = FakeAnalysisHistory::default();
         history
             .days_ago
-            .insert(("yunq".to_string(), "main".to_string(), 30), 7);
+            .insert(("vord".to_string(), "main".to_string(), 30), 7);
         history.baselines.insert(7, baseline_with_fingerprint(3));
 
         let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
             &history,
-            "yunq",
+            "vord",
             "main",
             999,
             &NewCodeDefinition::NumberOfDays(30),
@@ -507,12 +507,12 @@ mod tests {
         let mut history = FakeAnalysisHistory::default();
         history
             .latest
-            .insert(("yunq".to_string(), "develop".to_string()), 8);
+            .insert(("vord".to_string(), "develop".to_string()), 8);
         history.baselines.insert(8, baseline_with_fingerprint(4));
 
         let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
             &history,
-            "yunq",
+            "vord",
             "main",
             999,
             &NewCodeDefinition::ReferenceBranch(
@@ -530,7 +530,7 @@ mod tests {
 
         let resolved = futures::executor::block_on(resolve_baseline_for_new_code_definition(
             &history,
-            "yunq",
+            "vord",
             "main",
             999,
             &NewCodeDefinition::SpecificAnalysis("55".to_string()),

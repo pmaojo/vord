@@ -1,4 +1,4 @@
-//! Agentic guardrail: yunq inside an autonomous agent's edit loop.
+//! Agentic guardrail: vord inside an autonomous agent's edit loop.
 //!
 //! Every other entry point in this binary answers "what is wrong with this
 //! code?" after the fact. This one answers "may this write happen?" *before*
@@ -47,7 +47,7 @@
 //! day, and a removed guardrail blocks nothing at all. Denials are only ever
 //! issued from a policy that parsed and an analysis that ran. The one place
 //! this is deliberately reversed is [`run_check`], whose non-interactive
-//! callers (CI, `pre-commit`) can tell exit 1 (yunq broke) from exit 2
+//! callers (CI, `pre-commit`) can tell exit 1 (vord broke) from exit 2
 //! (policy denied) and decide for themselves.
 
 use std::collections::HashSet;
@@ -55,31 +55,31 @@ use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use yunq_agent_policy::{
+use vord_agent_policy::{
     AgentPolicy, Cause, CircuitBreakerState, Enforcement, Evaluation, Finding, Provenance,
     Violation,
 };
-use yunq_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
-use yunq_rules_engine::RuleId;
+use vord_infra_memory::{InMemoryIssueStorage, InMemoryMetricsTracker};
+use vord_rules_engine::RuleId;
 
 /// Filename of the Agent Permission Policy, read from the repository root.
-pub const POLICY_FILE: &str = "yunq-policy.toml";
+pub const POLICY_FILE: &str = "vord-policy.toml";
 
 /// Filename of the circuit breaker's persisted per-rule failure counts, read from and written to
 /// the repository root alongside the policy.
-pub const CIRCUIT_BREAKER_FILE: &str = ".yunq-circuit-breaker.json";
+pub const CIRCUIT_BREAKER_FILE: &str = ".vord-circuit-breaker.json";
 
-/// Filename of the escalation approval store: tokens a human has authorized via `yunq hook
+/// Filename of the escalation approval store: tokens a human has authorized via `vord hook
 /// approve`, each consumed the next time the matching write is judged.
-pub const APPROVALS_FILE: &str = ".yunq-approvals.json";
+pub const APPROVALS_FILE: &str = ".vord-approvals.json";
 
 /// Filename of the loop alarm's persisted "last write" signature and streak count.
-pub const LOOP_GUARD_FILE: &str = ".yunq-loop-guard.json";
+pub const LOOP_GUARD_FILE: &str = ".vord-loop-guard.json";
 
 /// Filename of the append-only audit log of every non-silent verdict this guardrail has issued.
-pub const AUDIT_LOG_FILE: &str = ".yunq-audit.jsonl";
+pub const AUDIT_LOG_FILE: &str = ".vord-audit.jsonl";
 
-/// Filename of the per-path AI-touch ledger: every path a `yunq hook` write
+/// Filename of the per-path AI-touch ledger: every path a `vord hook` write
 /// has ever targeted, denied or not — an attempted edit is itself a signal
 /// worth remembering, since the point is "has an agent been steering this
 /// file", not "did every attempt succeed". Read back on the next judgement to
@@ -87,7 +87,7 @@ pub const AUDIT_LOG_FILE: &str = ".yunq-audit.jsonl";
 /// is the automatic, per-file analogue of the "flag this project as
 /// AI-generated" setting incumbent AI-code-assurance tools require a human
 /// to set by hand.
-pub const PROVENANCE_FILE: &str = ".yunq-provenance.json";
+pub const PROVENANCE_FILE: &str = ".vord-provenance.json";
 
 /// Loads the AI-touch ledger, or an empty one when the file is missing or
 /// unreadable. Same fail-open posture as [`load_circuit_breaker`]: a lost
@@ -115,12 +115,12 @@ pub fn save_provenance(root: &Path, touched: &HashSet<String>) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
                 eprintln!(
-                    "yunq hook: could not persist provenance ledger at {}: {e}",
+                    "vord hook: could not persist provenance ledger at {}: {e}",
                     path.display()
                 );
             }
         }
-        Err(e) => eprintln!("yunq hook: could not serialize provenance ledger: {e}"),
+        Err(e) => eprintln!("vord hook: could not serialize provenance ledger: {e}"),
     }
 }
 
@@ -180,7 +180,7 @@ pub enum Verdict {
 
 impl Verdict {
     /// The evaluation behind this verdict, for a caller that wants the
-    /// policy's answer rather than the guardrail's phrasing of it — `yunq
+    /// policy's answer rather than the guardrail's phrasing of it — `vord
     /// agent`'s in-process gate, which renders its own agent-facing text.
     /// [`Verdict::Silent`] yields an empty evaluation: nothing to say is the
     /// same answer as no violations.
@@ -261,12 +261,12 @@ pub fn save_circuit_breaker(root: &Path, state: &CircuitBreakerState) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
                 eprintln!(
-                    "yunq hook: could not persist circuit breaker state at {}: {e}",
+                    "vord hook: could not persist circuit breaker state at {}: {e}",
                     path.display()
                 );
             }
         }
-        Err(e) => eprintln!("yunq hook: could not serialize circuit breaker state: {e}"),
+        Err(e) => eprintln!("vord hook: could not serialize circuit breaker state: {e}"),
     }
 }
 
@@ -368,16 +368,16 @@ fn save_approvals(root: &Path, approvals: &HashSet<String>) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
                 eprintln!(
-                    "yunq hook: could not persist approvals at {}: {e}",
+                    "vord hook: could not persist approvals at {}: {e}",
                     path.display()
                 );
             }
         }
-        Err(e) => eprintln!("yunq hook: could not serialize approvals: {e}"),
+        Err(e) => eprintln!("vord hook: could not serialize approvals: {e}"),
     }
 }
 
-/// `yunq hook approve <token>`: the human-intervention step for an escalated write. Records the
+/// `vord hook approve <token>`: the human-intervention step for an escalated write. Records the
 /// token so the *next* judgement of the matching write consumes it and lets that one write
 /// through — approval is single-use and write-specific, never a standing exemption for the rule.
 pub fn approve_escalation(root: &Path, token: &str) -> std::io::Result<()> {
@@ -440,12 +440,12 @@ fn save_loop_guard(root: &Path, state: &LoopGuardState) {
         Ok(raw) => {
             if let Err(e) = std::fs::write(&path, raw) {
                 eprintln!(
-                    "yunq hook: could not persist loop guard state at {}: {e}",
+                    "vord hook: could not persist loop guard state at {}: {e}",
                     path.display()
                 );
             }
         }
-        Err(e) => eprintln!("yunq hook: could not serialize loop guard state: {e}"),
+        Err(e) => eprintln!("vord hook: could not serialize loop guard state: {e}"),
     }
 }
 
@@ -481,7 +481,7 @@ pub fn reset_loop_guard(root: &Path) -> std::io::Result<()> {
 // Audit log
 // ---------------------------------------------------------------------------
 
-/// Appends one JSON line to `.yunq-audit.jsonl`. Best-effort, like every other piece of state
+/// Appends one JSON line to `.vord-audit.jsonl`. Best-effort, like every other piece of state
 /// this module persists: an audit entry that fails to write is reported on stderr, never turned
 /// into a denial — this is a record of decisions, not a decision itself.
 fn append_audit_entry(root: &Path, entry: serde_json::Value) {
@@ -497,13 +497,13 @@ fn append_audit_entry(root: &Path, entry: serde_json::Value) {
         Ok(mut file) => {
             if let Err(e) = writeln!(file, "{line}") {
                 eprintln!(
-                    "yunq hook: could not append audit log at {}: {e}",
+                    "vord hook: could not append audit log at {}: {e}",
                     path.display()
                 );
             }
         }
         Err(e) => eprintln!(
-            "yunq hook: could not open audit log at {}: {e}",
+            "vord hook: could not open audit log at {}: {e}",
             path.display()
         ),
     }
@@ -580,11 +580,11 @@ pub fn read_audit_log(root: &Path, limit: Option<usize>) -> Vec<serde_json::Valu
     entries
 }
 
-/// Human-readable rendering of [`read_audit_log`]'s output for `yunq hook audit`'s default
+/// Human-readable rendering of [`read_audit_log`]'s output for `vord hook audit`'s default
 /// (non-`--format json`) output.
 pub fn render_audit_text(entries: &[serde_json::Value]) -> String {
     if entries.is_empty() {
-        return format!("yunq: no audit log entries yet ({AUDIT_LOG_FILE} not found or empty).\n");
+        return format!("vord: no audit log entries yet ({AUDIT_LOG_FILE} not found or empty).\n");
     }
     let mut out = String::new();
     for entry in entries {
@@ -652,7 +652,7 @@ fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serd
             "escalation",
             match &rule {
                 Some(r) => format!(
-                    "write requires human approval for rule `{r}` — see `yunq hook approve <token>`"
+                    "write requires human approval for rule `{r}` — see `vord hook approve <token>`"
                 ),
                 None => "requires human approval".to_string(),
             },
@@ -749,16 +749,16 @@ pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Ve
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
-    let Some(language) = yunq_ast::LanguageIdentifier::from_extension(extension) else {
+    let Some(language) = vord_ast::LanguageIdentifier::from_extension(extension) else {
         return Ok(Vec::new());
     };
-    let source = yunq_ast::SourceFile::new(relative.to_string(), content.to_string(), language)
+    let source = vord_ast::SourceFile::new(relative.to_string(), content.to_string(), language)
         .map_err(|e| anyhow::anyhow!("invalid source path {relative:?}: {e}"))?;
 
     let service =
         crate::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
     let report = service.analyze_files(std::slice::from_ref(&source)).await?;
-    let profile = yunq_rules_engine::default_profile();
+    let profile = vord_rules_engine::default_profile();
 
     let issue_findings = report.issues().iter().map(|issue| Finding {
         rule: issue.rule().clone(),
@@ -770,7 +770,7 @@ pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Ve
         rule: hotspot.rule().clone(),
         severity: profile
             .severity_of(hotspot.rule())
-            .unwrap_or(yunq_rules_engine::Severity::Major),
+            .unwrap_or(vord_rules_engine::Severity::Major),
         message: hotspot.message().to_string(),
         line: hotspot.span().start_line,
     });
@@ -828,7 +828,7 @@ fn manifest_dependency_names(
 /// (rather than flagging every dependency) when the manifest did not
 /// previously exist — bootstrapping a new project's dependency set is
 /// normal, not drift in an established one. Not in the default policy's
-/// `blocking_rules`/`advisory_rules` — see `yunq-policy.toml`'s template for
+/// `blocking_rules`/`advisory_rules` — see `vord-policy.toml`'s template for
 /// how to opt in.
 fn new_dependency_findings(
     relative: &str,
@@ -857,7 +857,7 @@ fn new_dependency_findings(
         .into_iter()
         .map(|name| Finding {
             rule: rule.clone(),
-            severity: yunq_rules_engine::Severity::Major,
+            severity: vord_rules_engine::Severity::Major,
             message: format!(
                 "agent introduced new dependency `{name}` in {relative} — review provenance and check for \
                  typosquatting before this lands"
@@ -926,7 +926,7 @@ fn new_marker_lines(old_content: &str, new_content: &str, markers: &[&str]) -> V
 /// `old_content` (a brand-new file) is treated as empty rather than skipped:
 /// unlike a bootstrapping dependency set, every suppression in a file an
 /// agent just created was, in fact, added by this write. Not in the default
-/// policy's `blocking_rules` — see `yunq-policy.toml`'s template for how to
+/// policy's `blocking_rules` — see `vord-policy.toml`'s template for how to
 /// opt into `advisory_rules`/`escalate_rules`.
 fn suppression_added_findings(
     relative: &str,
@@ -939,7 +939,7 @@ fn suppression_added_findings(
         .into_iter()
         .map(|line| Finding {
             rule: rule.clone(),
-            severity: yunq_rules_engine::Severity::Major,
+            severity: vord_rules_engine::Severity::Major,
             message: format!(
                 "agent added a new suppression/exclusion directive in {relative}: `{line}` — a gate that is \
                  silenced is not a gate that is satisfied; fix the underlying finding or justify the suppression in \
@@ -955,7 +955,7 @@ fn suppression_added_findings(
 /// siblings. Same before/after shape as [`suppression_added_findings`]: a
 /// skip that was already there is not a finding, the same annotation added by
 /// this write is. Not in the default policy's `blocking_rules` — see
-/// `yunq-policy.toml`'s template for how to opt in.
+/// `vord-policy.toml`'s template for how to opt in.
 fn test_skip_added_findings(
     relative: &str,
     old_content: Option<&str>,
@@ -967,7 +967,7 @@ fn test_skip_added_findings(
         .into_iter()
         .map(|line| Finding {
             rule: rule.clone(),
-            severity: yunq_rules_engine::Severity::Major,
+            severity: vord_rules_engine::Severity::Major,
             message: format!(
                 "agent marked a test skipped/ignored in {relative}: `{line}` — a skipped test proves nothing; the \
                  suite must still be able to catch a revert of the change it was meant to guard"
@@ -991,10 +991,10 @@ fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &s
     if !policy.has_gherkin_requirements() {
         return true;
     }
-    match yunq_infra_fs::GherkinCoverageIndex::build_from_repo(root) {
+    match vord_infra_fs::GherkinCoverageIndex::build_from_repo(root) {
         Ok(index) => index.covers(relative),
         Err(e) => {
-            eprintln!("yunq hook: could not scan .feature files for Gherkin evidence: {e}");
+            eprintln!("vord hook: could not scan .feature files for Gherkin evidence: {e}");
             true
         }
     }
@@ -1011,7 +1011,7 @@ fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &s
 /// no landed write.
 ///
 /// Before evaluating, the path's [`Provenance`] is looked up in the AI-touch
-/// ledger (`.yunq-provenance.json`) and passed to
+/// ledger (`.vord-provenance.json`) and passed to
 /// [`AgentPolicy::evaluate_with_provenance`], so a path with prior agent
 /// history is judged against `[agent.ai_touched]`'s stricter threshold. The
 /// touch is then recorded unconditionally — including on this very write,
@@ -1024,10 +1024,10 @@ fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &s
 /// The last step consumes a pending escalation approval: when every
 /// violation in an otherwise-denied evaluation is an [`Enforcement::Escalate`]
 /// (never when a hard `Deny` is mixed in — see [`Cause::BlockingRule`]'s "no
-/// exceptions" invariant), a matching token in `.yunq-approvals.json` is
+/// exceptions" invariant), a matching token in `.vord-approvals.json` is
 /// removed and the write is re-judged against whatever remains. This is the
 /// only place approval state is read, keeping it out of the pure
-/// `yunq-agent-policy` evaluation itself.
+/// `vord-agent-policy` evaluation itself.
 pub async fn judge(
     policy: &AgentPolicy,
     root: &Path,
@@ -1137,10 +1137,10 @@ pub fn denial_text(
     loop_report: &LoopGuardReport,
 ) -> String {
     let mut out = match timing {
-        Timing::Prevented => format!("yunq blocked this write to `{path}`.\n\n"),
+        Timing::Prevented => format!("vord blocked this write to `{path}`.\n\n"),
         Timing::AlreadyWritten => {
             format!(
-                "yunq policy violation in `{path}` — this file has ALREADY been written to disk.\n\n"
+                "vord policy violation in `{path}` — this file has ALREADY been written to disk.\n\n"
             )
         }
     };
@@ -1156,13 +1156,13 @@ pub fn denial_text(
     }
     out.push_str(match timing {
         Timing::Prevented => {
-            "\nThis is an Agent Permission Policy block from yunq-policy.toml, not a style \
+            "\nThis is an Agent Permission Policy block from vord-policy.toml, not a style \
              preference. The file was NOT written. Rewrite the code so these findings do not \
              occur, then write it again. Do not retry the same content, and do not disable \
              the policy.\n"
         }
         Timing::AlreadyWritten => {
-            "\nThis is an Agent Permission Policy violation from yunq-policy.toml, not a style \
+            "\nThis is an Agent Permission Policy violation from vord-policy.toml, not a style \
              preference. The offending content is on disk now — fix it before doing anything \
              else, and do not disable the policy.\n"
         }
@@ -1170,7 +1170,7 @@ pub fn denial_text(
     if let Some(token) = escalation_token(path, evaluation) {
         out.push_str(&format!(
             "\nThis includes finding(s) that require human approval before they may proceed. A human \
-             reviewer must run `yunq hook approve {token}` after reviewing this change; only then may \
+             reviewer must run `vord hook approve {token}` after reviewing this change; only then may \
              you retry the identical write.\n"
         ));
     }
@@ -1203,7 +1203,7 @@ pub fn denial_text(
 /// The non-blocking counterpart: findings worth putting in front of the model
 /// without stopping it.
 pub fn advisory_text(path: &str, evaluation: &Evaluation, loop_report: &LoopGuardReport) -> String {
-    let mut out = format!("yunq found issues in `{path}`:\n\n");
+    let mut out = format!("vord found issues in `{path}`:\n\n");
     for violation in &evaluation.violations {
         out.push_str(&format!("  - {}\n", violation.describe()));
     }
@@ -1227,7 +1227,7 @@ pub fn advisory_text(path: &str, evaluation: &Evaluation, loop_report: &LoopGuar
 /// `PreToolUse` emits a denial or *nothing at all*. Emitting
 /// `permissionDecision: "allow"` on the non-denied path would be actively
 /// harmful — it would override the user's own permission settings and
-/// auto-approve every edit yunq happens not to object to, turning a security
+/// auto-approve every edit vord happens not to object to, turning a security
 /// tool into a permission bypass. Staying silent lets the host's normal
 /// permission flow run untouched.
 pub fn claude_code_output(
@@ -1262,7 +1262,7 @@ pub fn claude_code_output(
     }
 }
 
-/// `yunq hook claude-code`: reads the hook payload on stdin, writes the
+/// `vord hook claude-code`: reads the hook payload on stdin, writes the
 /// verdict JSON on stdout, always exits 0.
 ///
 /// Exit 0 with a JSON body is the documented way to deny; exit 2 also denies
@@ -1276,7 +1276,7 @@ pub async fn run_claude_code() -> anyhow::Result<std::process::ExitCode> {
         Ok(result) => result,
         Err(e) => {
             // Fail open: the agent keeps working, the operator sees why.
-            eprintln!("yunq hook: {e:#}");
+            eprintln!("vord hook: {e:#}");
             return Ok(std::process::ExitCode::SUCCESS);
         }
     };
@@ -1351,11 +1351,11 @@ async fn claude_code_verdict(raw: &str) -> anyhow::Result<(Verdict, LoopGuardRep
 // Portable adapter
 // ---------------------------------------------------------------------------
 
-/// `yunq hook check <file>`: the host-agnostic gate.
+/// `vord hook check <file>`: the host-agnostic gate.
 ///
 /// Exit codes are the contract here, since there is no host to speak JSON to:
-/// `0` allowed, `2` denied by policy, `1` yunq itself failed. Callers that
-/// must not be blocked by a yunq bug can treat 1 as success; callers that
+/// `0` allowed, `2` denied by policy, `1` vord itself failed. Callers that
+/// must not be blocked by a vord bug can treat 1 as success; callers that
 /// want strictness can treat it as failure. Both are possible only because
 /// the two are distinguishable.
 pub async fn run_check(
@@ -1441,7 +1441,7 @@ mod tests {
 
     #[test]
     fn an_edit_tool_call_is_applied_to_the_file_on_disk() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-edit-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-edit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let file = dir.join("a.ts");
         std::fs::write(&file, "const a = 1;\nconst b = 1;\n").expect("write");
@@ -1586,8 +1586,8 @@ mod tests {
         let evaluation = AgentPolicy::default().evaluate(
             "a.py",
             &[Finding {
-                rule: yunq_rules_engine::RuleId::new("owasp:eval-usage").expect("rule"),
-                severity: yunq_rules_engine::Severity::Blocker,
+                rule: vord_rules_engine::RuleId::new("owasp:eval-usage").expect("rule"),
+                severity: vord_rules_engine::Severity::Blocker,
                 message: "eval".to_string(),
                 line: 3,
             }],
@@ -1613,8 +1613,8 @@ mod tests {
         let evaluation = AgentPolicy::default().evaluate(
             "a.py",
             &[Finding {
-                rule: yunq_rules_engine::RuleId::new("owasp:eval-usage").expect("rule"),
-                severity: yunq_rules_engine::Severity::Blocker,
+                rule: vord_rules_engine::RuleId::new("owasp:eval-usage").expect("rule"),
+                severity: vord_rules_engine::Severity::Blocker,
                 message: "eval".to_string(),
                 line: 3,
             }],
@@ -1644,8 +1644,8 @@ mod tests {
         let evaluation = AgentPolicy::default().evaluate(
             "a.py",
             &[Finding {
-                rule: yunq_rules_engine::RuleId::new("owasp:eval-usage").expect("rule"),
-                severity: yunq_rules_engine::Severity::Blocker,
+                rule: vord_rules_engine::RuleId::new("owasp:eval-usage").expect("rule"),
+                severity: vord_rules_engine::Severity::Blocker,
                 message: "eval".to_string(),
                 line: 3,
             }],
@@ -1688,14 +1688,14 @@ mod tests {
     #[test]
     fn pre_tool_use_never_emits_allow_for_an_advisory() {
         // Regression guard for a permission bypass: emitting `allow` here
-        // would auto-approve every edit yunq does not object to.
+        // would auto-approve every edit vord does not object to.
         let evaluation = AgentPolicy::parse("[agent]\nadvisory_rules = [\"owasp:eval-usage\"]\n")
             .expect("parses")
             .evaluate(
                 "a.py",
                 &[Finding {
-                    rule: yunq_rules_engine::RuleId::new("owasp:eval-usage").expect("rule"),
-                    severity: yunq_rules_engine::Severity::Blocker,
+                    rule: vord_rules_engine::RuleId::new("owasp:eval-usage").expect("rule"),
+                    severity: vord_rules_engine::Severity::Blocker,
                     message: "eval".to_string(),
                     line: 3,
                 }],
@@ -1731,7 +1731,7 @@ mod tests {
             "a.py",
             &[Finding {
                 rule: RuleId::new("owasp:eval-usage").expect("rule"),
-                severity: yunq_rules_engine::Severity::Blocker,
+                severity: vord_rules_engine::Severity::Blocker,
                 message: "eval".to_string(),
                 line: 3,
             }],
@@ -1856,7 +1856,7 @@ mod tests {
 
     #[test]
     fn identical_writes_trip_the_loop_alarm_on_the_third_repeat() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-loop-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-loop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         assert!(!track_loop_guard(&dir, "a.py", Some("x = 1")).is_tripped());
@@ -1873,7 +1873,7 @@ mod tests {
 
     #[test]
     fn a_write_that_changes_content_resets_the_loop_streak() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-loop-reset-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-loop-reset-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         track_loop_guard(&dir, "a.py", Some("x = 1"));
@@ -1887,7 +1887,7 @@ mod tests {
 
     #[test]
     fn reset_loop_guard_clears_the_persisted_streak() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-loop-clear-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-loop-clear-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         track_loop_guard(&dir, "a.py", Some("x = 1"));
@@ -1901,7 +1901,7 @@ mod tests {
 
     #[test]
     fn the_circuit_breaker_state_persists_across_separate_invocations() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-breaker-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-breaker-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let verdict = Verdict::from_evaluation("a.py".to_string(), eval_usage_evaluation());
@@ -1930,7 +1930,7 @@ mod tests {
     #[test]
     fn a_clean_write_resets_the_persisted_streak() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-hook-breaker-reset-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-hook-breaker-reset-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let denied = Verdict::from_evaluation("a.py".to_string(), eval_usage_evaluation());
@@ -2077,7 +2077,7 @@ mod tests {
     #[tokio::test]
     async fn a_new_suppression_is_wired_into_the_full_judge_pipeline() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-hook-suppression-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-hook-suppression-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let file = dir.join("lib.rs");
         std::fs::write(&file, "fn f() {}\n").expect("write");
@@ -2095,7 +2095,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_new_dependency_is_wired_into_the_full_judge_pipeline() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-manifest-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-manifest-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let manifest = dir.join("package.json");
         std::fs::write(&manifest, r#"{"dependencies": {"left-pad": "1.0.0"}}"#).expect("write");
@@ -2118,7 +2118,7 @@ mod tests {
     #[tokio::test]
     async fn a_required_path_with_no_covering_feature_file_denies_end_to_end() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-hook-gherkin-missing-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-hook-gherkin-missing-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
         let file = dir.join("core/domain/order.rs");
 
@@ -2146,7 +2146,7 @@ mod tests {
     #[tokio::test]
     async fn a_required_path_with_a_covering_feature_file_is_not_denied_on_that_ground() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-hook-gherkin-covered-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-hook-gherkin-covered-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
         std::fs::create_dir_all(dir.join("features")).expect("features dir");
         std::fs::write(
@@ -2204,7 +2204,7 @@ mod tests {
     fn finding_of(rule_id: &str, line: u32) -> Finding {
         Finding {
             rule: RuleId::new(rule_id).expect("rule"),
-            severity: yunq_rules_engine::Severity::Minor,
+            severity: vord_rules_engine::Severity::Minor,
             message: "long method".to_string(),
             line,
         }
@@ -2212,7 +2212,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unapproved_escalation_blocks_the_write_end_to_end() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-escalate-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-escalate-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let policy = AgentPolicy::parse(
@@ -2236,7 +2236,7 @@ mod tests {
 
     #[test]
     fn an_approved_token_is_consumed_exactly_once() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-approve-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-approve-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         approve_escalation(&dir, "deadbeef").expect("approve");
@@ -2258,7 +2258,7 @@ mod tests {
     #[tokio::test]
     async fn an_approved_escalation_lets_the_identical_write_through_end_to_end() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-hook-approve-flow-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-hook-approve-flow-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let policy = AgentPolicy::parse(
@@ -2302,7 +2302,7 @@ mod tests {
 
     #[test]
     fn append_and_read_audit_log_round_trips_a_denial() {
-        let dir = std::env::temp_dir().join(format!("yunq-hook-audit-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("vord-hook-audit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         let verdict = Verdict::from_evaluation("a.py".to_string(), eval_usage_evaluation());
@@ -2327,7 +2327,7 @@ mod tests {
     #[test]
     fn a_silent_verdict_is_never_written_to_the_audit_log() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-hook-audit-silent-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-hook-audit-silent-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         append_audit_log(
@@ -2348,7 +2348,7 @@ mod tests {
     #[test]
     fn read_audit_log_limit_keeps_only_the_most_recent_entries() {
         let dir =
-            std::env::temp_dir().join(format!("yunq-hook-audit-limit-{}", std::process::id()));
+            std::env::temp_dir().join(format!("vord-hook-audit-limit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
 
         for line in 1..=5 {
@@ -2356,7 +2356,7 @@ mod tests {
                 "a.py",
                 &[Finding {
                     rule: RuleId::new("owasp:eval-usage").expect("rule"),
-                    severity: yunq_rules_engine::Severity::Blocker,
+                    severity: vord_rules_engine::Severity::Blocker,
                     message: format!("attempt {line}"),
                     line,
                 }],

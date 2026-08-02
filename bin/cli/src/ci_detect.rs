@@ -130,7 +130,7 @@ mod tests {
             ("GITHUB_ACTIONS", "true"),
             ("GITHUB_SHA", "abc1234abc1234abc1234abc1234abc1234abcd"),
             ("GITHUB_REF", "refs/heads/main"),
-            ("GITHUB_REPOSITORY", "pmaojo/yunq"),
+            ("GITHUB_REPOSITORY", "pmaojo/vord"),
         ]);
         let ctx = detect_ci_context(&env);
         assert_eq!(ctx.provider, Some(CiProvider::GithubActions));
@@ -140,7 +140,7 @@ mod tests {
         );
         assert_eq!(ctx.branch.as_deref(), Some("main"));
         assert_eq!(ctx.pr, None);
-        assert_eq!(ctx.github_repo.as_deref(), Some("pmaojo/yunq"));
+        assert_eq!(ctx.github_repo.as_deref(), Some("pmaojo/vord"));
     }
 
     #[test]
@@ -150,7 +150,7 @@ mod tests {
             ("GITHUB_SHA", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
             ("GITHUB_REF", "refs/pull/42/merge"),
             ("GITHUB_HEAD_REF", "feature/ergonomics"),
-            ("GITHUB_REPOSITORY", "pmaojo/yunq"),
+            ("GITHUB_REPOSITORY", "pmaojo/vord"),
         ]);
         let ctx = detect_ci_context(&env);
         assert_eq!(ctx.branch.as_deref(), Some("feature/ergonomics"));

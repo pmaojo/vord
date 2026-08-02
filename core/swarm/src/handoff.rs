@@ -1,5 +1,5 @@
-//! Durable handoff schema for `yunq swarm` (roadmap B2). Files under
-//! `.yunq/handoffs/` (`outbox`/`inbox`/`sent`/`failed`), not direct
+//! Durable handoff schema for `vord swarm` (roadmap B2). Files under
+//! `.vord/handoffs/` (`outbox`/`inbox`/`sent`/`failed`), not direct
 //! messaging — a crashed agent loses nothing sitting in a directory, and a
 //! malformed handoff lands in `failed` instead of corrupting a peer's
 //! context.

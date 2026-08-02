@@ -13,11 +13,11 @@
 //! Per-file (`Rule`): the pattern is local to the call site — no cross-file
 //! resolution would make a `getInstance()` call any more or less of a hidden
 //! dependency. The composition root is where lookups belong, and a project
-//! that wants them exempted there says so with a `// yunq:ignore`-style
+//! that wants them exempted there says so with a `// vord:ignore`-style
 //! suppression or an exclusion glob, the same as any other rule.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
 /// Accessor names that mean "give me the one global instance".
 const SINGLETON_ACCESSORS: &[&str] = &[
@@ -146,7 +146,7 @@ impl Rule for ServiceLocatorRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if yunq_rules_engine::is_test_only_path(file.path()) {
+        if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
         ast.descendants()
@@ -175,11 +175,11 @@ impl Rule for ServiceLocatorRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     fn ts(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.ts", code, LanguageIdentifier::typescript()).unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         ServiceLocatorRule::new().check(&file, &ast)
@@ -187,7 +187,7 @@ mod tests {
 
     fn py(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         ServiceLocatorRule::new().check(&file, &ast)
@@ -195,7 +195,7 @@ mod tests {
 
     fn rs(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.rs", code, LanguageIdentifier::rust()).unwrap();
-        let ast = yunq_parser_rust::RustParser::new().parse(&file).unwrap();
+        let ast = vord_parser_rust::RustParser::new().parse(&file).unwrap();
         ServiceLocatorRule::new().check(&file, &ast)
     }
 
@@ -269,7 +269,7 @@ mod tests {
             LanguageIdentifier::typescript(),
         )
         .unwrap();
-        let ast = yunq_parser_typescript::TypeScriptParser::new()
+        let ast = vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap();
         assert!(ServiceLocatorRule::new().check(&file, &ast).is_empty());
@@ -302,7 +302,7 @@ func rate() float64 {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         let findings = ServiceLocatorRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("GetInstance"));
@@ -321,7 +321,7 @@ func rate(cache map[string]float64) float64 {
             LanguageIdentifier::go(),
         )
         .unwrap();
-        let ast = yunq_parser_go::GoParser::new().parse(&file).unwrap();
+        let ast = vord_parser_go::GoParser::new().parse(&file).unwrap();
         assert!(ServiceLocatorRule::new().check(&file, &ast).is_empty());
     }
 }

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-yunq Multi-Language Precision Benchmark
+vord Multi-Language Precision Benchmark
 ========================================
-Runs yunq against the fixtures/ directory and evaluates precision/recall
+Runs vord against the fixtures/ directory and evaluates precision/recall
 against `fixtures/ground-truth.json`. Reports per-language metrics and
 a global summary.
 
 Unlike the OWASP Benchmark eval which uses file-level labels, this script
 uses *rule-level expected findings*: each fixture file declares which
-specific yunq rule IDs SHOULD fire on it. This gives us:
+specific vord rule IDs SHOULD fire on it. This gives us:
   - File-level Precision/Recall (any finding = flagged)
   - Rule-level Precision/Recall (expected rule matched exactly)
 
@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-YUNQ_BIN = PROJECT_ROOT / "target" / "debug" / "yunq"
+VORD_BIN = PROJECT_ROOT / "target" / "debug" / "vord"
 FIXTURES_DIR = PROJECT_ROOT / "fixtures"
 GT_PATH = FIXTURES_DIR / ".ground-truth.json"
 RESULTS_DIR = PROJECT_ROOT / ".benchmark-results"
@@ -37,8 +37,8 @@ def load_ground_truth() -> dict:
         return json.load(f)
 
 
-def run_yunq() -> tuple[list, float]:
-    cmd = [str(YUNQ_BIN), "scan", str(FIXTURES_DIR), "--format", "json", "--no-cache"]
+def run_vord() -> tuple[list, float]:
+    cmd = [str(VORD_BIN), "scan", str(FIXTURES_DIR), "--format", "json", "--no-cache"]
     start = time.time()
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     duration = time.time() - start
@@ -233,7 +233,7 @@ def evaluate(ground_truth: dict, findings: list[dict]) -> dict:
 def generate_markdown(results: dict, duration: float) -> str:
     g = results["global"]
     lines = [
-        "# yunq Multi-Language Precision Benchmark",
+        "# vord Multi-Language Precision Benchmark",
         "",
         f"**Scan duration:** {duration:.1f}s | **Corpus:** fixtures/ ({g['total_fixtures']} files)",
         "",
@@ -298,18 +298,18 @@ def generate_markdown(results: dict, duration: float) -> str:
 
 def main():
     print("=" * 60)
-    print("yunq Multi-Language Precision Benchmark")
+    print("vord Multi-Language Precision Benchmark")
     print("=" * 60)
 
     gt = load_ground_truth()
     print(f"Ground truth: {len(gt['files'])} fixtures loaded")
 
-    if not YUNQ_BIN.exists():
-        print(f"Building yunq debug binary...")
-        subprocess.run(["cargo", "build", "--bin", "yunq"], cwd=PROJECT_ROOT, check=True)
+    if not VORD_BIN.exists():
+        print(f"Building vord debug binary...")
+        subprocess.run(["cargo", "build", "--bin", "vord"], cwd=PROJECT_ROOT, check=True)
 
-    print(f"\nRunning yunq scan on {FIXTURES_DIR} ...")
-    all_findings, duration = run_yunq()
+    print(f"\nRunning vord scan on {FIXTURES_DIR} ...")
+    all_findings, duration = run_vord()
     print(f"Scan complete: {len(all_findings)} findings (issues + hotspots) in {duration:.1f}s")
 
     results = evaluate(gt, all_findings)

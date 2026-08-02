@@ -4,8 +4,8 @@
 //! first (a classic TOCTOU race). The stdlib docs call it deprecated for
 //! exactly this reason.
 
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::is_test_file;
 
@@ -48,8 +48,8 @@ impl Rule for InsecureTempfileRule {
         10
     }
 
-    fn metadata(&self) -> yunq_rules_engine::RuleMetadata {
-        yunq_rules_engine::RuleMetadata {
+    fn metadata(&self) -> vord_rules_engine::RuleMetadata {
+        vord_rules_engine::RuleMetadata {
             description: "tempfile.mktemp() returns a path without creating the file, leaving a window for another process to create or symlink it first; use tempfile.mkstemp() or NamedTemporaryFile() instead.".into(),
             tags: vec!["security".into(), "race-condition".into(), "cwe".into()],
             cwe: Some(377),
@@ -71,13 +71,13 @@ impl Rule for InsecureTempfileRule {
 
 #[cfg(test)]
 mod tests {
-    use yunq_rules_engine::AstParser;
+    use vord_rules_engine::AstParser;
 
     use super::*;
 
     fn findings(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("t.py", code, LanguageIdentifier::python()).unwrap();
-        let ast = yunq_parser_python::PythonParser::new()
+        let ast = vord_parser_python::PythonParser::new()
             .parse(&file)
             .unwrap();
         InsecureTempfileRule::new().check(&file, &ast)

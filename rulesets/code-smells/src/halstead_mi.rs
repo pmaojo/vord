@@ -3,8 +3,8 @@
 //! and normalized Microsoft Maintainability Index (MI_norm) with language-specific AST classification.
 
 use std::collections::HashMap;
-use yunq_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use yunq_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(HalsteadMiRule, "smells:maintainability-index");
 
@@ -130,12 +130,12 @@ pub fn calculate_halstead_mi(ast: &AstNode, loc: u32) -> HalsteadMetrics {
     let time_seconds = effort / 18.0;
 
     // McCabe's M, derived from the real control flow graph (`E − N + 2`,
-    // `yunq_cfg::ControlFlowGraph::cyclomatic_complexity`) instead of the
+    // `vord_cfg::ControlFlowGraph::cyclomatic_complexity`) instead of the
     // syntactic `n1 + N1/4` operator proxy the original formula fell back
     // on. Building the CFG over the whole file yields exactly `1 + total
     // decision points` across every function — the "program complexity"
     // term the Microsoft MI formula's `M` parameter is defined to be.
-    let cyclomatic = yunq_cfg::ControlFlowGraph::build(ast).cyclomatic_complexity() as f64;
+    let cyclomatic = vord_cfg::ControlFlowGraph::build(ast).cyclomatic_complexity() as f64;
     let loc_safe = (loc as f64).max(1.0);
 
     let mi = 171.0 - 5.2 * volume.max(1.0).ln() - 0.23 * cyclomatic - 16.2 * loc_safe.ln();
@@ -203,9 +203,9 @@ fn is_operand(kind: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::LanguageIdentifier;
-    use yunq_parser_typescript::TypeScriptParser;
-    use yunq_rules_engine::AstParser;
+    use vord_ast::LanguageIdentifier;
+    use vord_parser_typescript::TypeScriptParser;
+    use vord_rules_engine::AstParser;
 
     #[test]
     fn test_simple_function_has_high_mi() {

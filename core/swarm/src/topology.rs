@@ -1,4 +1,4 @@
-//! Topologies: an ordered pipeline of roles `yunq swarm` drives automatically
+//! Topologies: an ordered pipeline of roles `vord swarm` drives automatically
 //! (roadmap B4). B1–B3 gave a role everything it needs to run in isolation —
 //! its own worktree, its own scoped policy, its own handoff channel — but
 //! nothing decided *which roles, in what order*. This module is that
@@ -72,7 +72,7 @@ fn preset_order(name: &str) -> Result<Vec<String>, TopologyError> {
 /// present) or `topology` (a named preset, otherwise) into a validated,
 /// ordered list of role names. An explicit `pipeline` always wins over a
 /// named `topology` — the same "the specific setting outranks the general
-/// one" convention `run_config` already uses for `yunq agent`'s budget.
+/// one" convention `run_config` already uses for `vord agent`'s budget.
 pub fn resolve_topology(
     preset: Option<&str>,
     pipeline: Option<&[String]>,

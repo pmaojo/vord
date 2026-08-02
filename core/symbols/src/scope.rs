@@ -11,7 +11,7 @@
 
 use std::collections::BTreeSet;
 
-use yunq_ast::{AstNode, NodeKind};
+use vord_ast::{AstNode, NodeKind};
 
 /// Grammar node kinds (`NodeKind::Other`) that wrap a destructuring pattern
 /// whose leaf identifiers are all newly bound names, not references to
@@ -175,12 +175,12 @@ fn collect_free(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yunq_ast::{LanguageIdentifier, SourceFile};
-    use yunq_rules_engine::AstParser;
+    use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse(code: &str) -> AstNode {
         let file = SourceFile::new("t.tsx", code, LanguageIdentifier::typescript()).unwrap();
-        yunq_parser_typescript::TypeScriptParser::new()
+        vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap()
     }
