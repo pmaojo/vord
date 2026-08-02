@@ -3,7 +3,7 @@ resolver = "3"
 members = ["core/*", "infra/*", "parsers/*", "rulesets/*", "bin/*", "benches"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
@@ -15,69 +15,69 @@ categories = ["development-tools", "development-tools::testing"]
 
 [workspace.dependencies]
 # Internal crates
-vord-ast = { path = "core/ast", version = "0.4.0" }
-vord-cfg = { path = "core/cfg", version = "0.4.0" }
-vord-profiles = { path = "core/profiles", version = "0.4.0" }
-vord-rules-engine = { path = "core/rules-engine", version = "0.4.0" }
-vord-taint = { path = "core/taint", version = "0.4.0" }
-vord-symbols = { path = "core/symbols", version = "0.4.0" }
-vord-import-graph = { path = "core/import-graph", version = "0.4.0" }
-vord-agent-policy = { path = "core/agent-policy", version = "0.4.0" }
-vord-agent = { path = "core/agent", version = "0.4.0" }
-vord-swarm = { path = "core/swarm", version = "0.4.0" }
-vord-parser-typescript = { path = "parsers/treesitter-typescript", version = "0.4.0" }
-vord-parser-rust = { path = "parsers/treesitter-rust", version = "0.4.0" }
-vord-parser-python = { path = "parsers/treesitter-python", version = "0.4.0" }
-vord-parser-go = { path = "parsers/treesitter-go", version = "0.4.0" }
-vord-parser-java = { path = "parsers/treesitter-java", version = "0.4.0" }
-vord-parser-c = { path = "parsers/treesitter-c", version = "0.4.0" }
-vord-parser-cpp = { path = "parsers/treesitter-cpp", version = "0.4.0" }
-vord-parser-php = { path = "parsers/treesitter-php", version = "0.4.0" }
-vord-parser-dockerfile = { path = "parsers/treesitter-dockerfile", version = "0.4.0" }
-vord-parser-csharp = { path = "parsers/treesitter-csharp", version = "0.4.0" }
-vord-parser-ruby = { path = "parsers/treesitter-ruby", version = "0.4.0" }
-vord-parser-kotlin = { path = "parsers/treesitter-kotlin", version = "0.4.0" }
-vord-parser-swift = { path = "parsers/treesitter-swift", version = "0.4.0" }
-vord-parser-scala = { path = "parsers/treesitter-scala", version = "0.4.0" }
-vord-parser-html = { path = "parsers/treesitter-html", version = "0.4.0" }
-vord-parser-css = { path = "parsers/treesitter-css", version = "0.4.0" }
-vord-parser-xml = { path = "parsers/treesitter-xml", version = "0.4.0" }
-vord-parser-json = { path = "parsers/treesitter-json", version = "0.4.0" }
-vord-parser-yaml = { path = "parsers/treesitter-yaml", version = "0.4.0" }
-vord-parser-hcl = { path = "parsers/treesitter-hcl", version = "0.4.0" }
-vord-parser-bash = { path = "parsers/treesitter-bash", version = "0.4.0" }
-vord-parser-groovy = { path = "parsers/treesitter-groovy", version = "0.4.0" }
-vord-parser-lua = { path = "parsers/treesitter-lua", version = "0.4.0" }
-vord-parser-elixir = { path = "parsers/treesitter-elixir", version = "0.4.0" }
-vord-treesitter-tokens = { path = "parsers/treesitter-tokens", version = "0.4.0" }
-vord-cpd = { path = "core/duplication", version = "0.4.0" }
-vord-crap = { path = "core/crap", version = "0.4.0" }
-vord-rules-owasp = { path = "rulesets/owasp", version = "0.4.0" }
-vord-rules-smells = { path = "rulesets/code-smells", version = "0.4.0" }
-vord-rules-iac = { path = "rulesets/iac", version = "0.4.0" }
-vord-rules-a11y = { path = "rulesets/a11y", version = "0.4.0" }
-vord-rules-react = { path = "rulesets/react", version = "0.4.0" }
-vord-rules-secrets = { path = "rulesets/secrets", version = "0.4.0" }
-vord-rules-rust = { path = "rulesets/rust", version = "0.4.0" }
-vord-rules-python = { path = "rulesets/python", version = "0.4.0" }
-vord-rules-architecture = { path = "rulesets/architecture", version = "0.4.0" }
-vord-rules-ddd = { path = "rulesets/ddd", version = "0.4.0" }
-vord-rules-reactive = { path = "rulesets/reactive", version = "0.4.0" }
-vord-rules-mutation = { path = "rulesets/mutation", version = "0.4.0" }
-vord-rules-typescript = { path = "rulesets/typescript", version = "0.4.0" }
-vord-rules-php = { path = "rulesets/php", version = "0.4.0" }
-vord-rules-go = { path = "rulesets/go", version = "0.4.0" }
-vord-rules-ai-agent = { path = "rulesets/ai-agent", version = "0.4.0" }
-vord-infra-memory = { path = "infra/memory", version = "0.4.0" }
-vord-cli = { path = "bin/cli", version = "0.4.0" }
-vord-infra-fs = { path = "infra/fs", version = "0.4.0" }
-vord-infra-github = { path = "infra/github", version = "0.4.0" }
-vord-infra-gitlab = { path = "infra/gitlab", version = "0.4.0" }
-vord-infra-bitbucket = { path = "infra/bitbucket", version = "0.4.0" }
-vord-infra-azure = { path = "infra/azure", version = "0.4.0" }
-vord-infra-pdf = { path = "infra/pdf", version = "0.4.0" }
-vord-remediation = { path = "core/remediation", version = "0.4.0" }
-vord-infra-llm = { path = "infra/llm", version = "0.4.0" }
+vord-ast = { path = "core/ast", version = "0.4.1" }
+vord-cfg = { path = "core/cfg", version = "0.4.1" }
+vord-profiles = { path = "core/profiles", version = "0.4.1" }
+vord-rules-engine = { path = "core/rules-engine", version = "0.4.1" }
+vord-taint = { path = "core/taint", version = "0.4.1" }
+vord-symbols = { path = "core/symbols", version = "0.4.1" }
+vord-import-graph = { path = "core/import-graph", version = "0.4.1" }
+vord-agent-policy = { path = "core/agent-policy", version = "0.4.1" }
+vord-agent = { path = "core/agent", version = "0.4.1" }
+vord-swarm = { path = "core/swarm", version = "0.4.1" }
+vord-parser-typescript = { path = "parsers/treesitter-typescript", version = "0.4.1" }
+vord-parser-rust = { path = "parsers/treesitter-rust", version = "0.4.1" }
+vord-parser-python = { path = "parsers/treesitter-python", version = "0.4.1" }
+vord-parser-go = { path = "parsers/treesitter-go", version = "0.4.1" }
+vord-parser-java = { path = "parsers/treesitter-java", version = "0.4.1" }
+vord-parser-c = { path = "parsers/treesitter-c", version = "0.4.1" }
+vord-parser-cpp = { path = "parsers/treesitter-cpp", version = "0.4.1" }
+vord-parser-php = { path = "parsers/treesitter-php", version = "0.4.1" }
+vord-parser-dockerfile = { path = "parsers/treesitter-dockerfile", version = "0.4.1" }
+vord-parser-csharp = { path = "parsers/treesitter-csharp", version = "0.4.1" }
+vord-parser-ruby = { path = "parsers/treesitter-ruby", version = "0.4.1" }
+vord-parser-kotlin = { path = "parsers/treesitter-kotlin", version = "0.4.1" }
+vord-parser-swift = { path = "parsers/treesitter-swift", version = "0.4.1" }
+vord-parser-scala = { path = "parsers/treesitter-scala", version = "0.4.1" }
+vord-parser-html = { path = "parsers/treesitter-html", version = "0.4.1" }
+vord-parser-css = { path = "parsers/treesitter-css", version = "0.4.1" }
+vord-parser-xml = { path = "parsers/treesitter-xml", version = "0.4.1" }
+vord-parser-json = { path = "parsers/treesitter-json", version = "0.4.1" }
+vord-parser-yaml = { path = "parsers/treesitter-yaml", version = "0.4.1" }
+vord-parser-hcl = { path = "parsers/treesitter-hcl", version = "0.4.1" }
+vord-parser-bash = { path = "parsers/treesitter-bash", version = "0.4.1" }
+vord-parser-groovy = { path = "parsers/treesitter-groovy", version = "0.4.1" }
+vord-parser-lua = { path = "parsers/treesitter-lua", version = "0.4.1" }
+vord-parser-elixir = { path = "parsers/treesitter-elixir", version = "0.4.1" }
+vord-treesitter-tokens = { path = "parsers/treesitter-tokens", version = "0.4.1" }
+vord-cpd = { path = "core/duplication", version = "0.4.1" }
+vord-crap = { path = "core/crap", version = "0.4.1" }
+vord-rules-owasp = { path = "rulesets/owasp", version = "0.4.1" }
+vord-rules-smells = { path = "rulesets/code-smells", version = "0.4.1" }
+vord-rules-iac = { path = "rulesets/iac", version = "0.4.1" }
+vord-rules-a11y = { path = "rulesets/a11y", version = "0.4.1" }
+vord-rules-react = { path = "rulesets/react", version = "0.4.1" }
+vord-rules-secrets = { path = "rulesets/secrets", version = "0.4.1" }
+vord-rules-rust = { path = "rulesets/rust", version = "0.4.1" }
+vord-rules-python = { path = "rulesets/python", version = "0.4.1" }
+vord-rules-architecture = { path = "rulesets/architecture", version = "0.4.1" }
+vord-rules-ddd = { path = "rulesets/ddd", version = "0.4.1" }
+vord-rules-reactive = { path = "rulesets/reactive", version = "0.4.1" }
+vord-rules-mutation = { path = "rulesets/mutation", version = "0.4.1" }
+vord-rules-typescript = { path = "rulesets/typescript", version = "0.4.1" }
+vord-rules-php = { path = "rulesets/php", version = "0.4.1" }
+vord-rules-go = { path = "rulesets/go", version = "0.4.1" }
+vord-rules-ai-agent = { path = "rulesets/ai-agent", version = "0.4.1" }
+vord-infra-memory = { path = "infra/memory", version = "0.4.1" }
+vord-cli = { path = "bin/cli", version = "0.4.1" }
+vord-infra-fs = { path = "infra/fs", version = "0.4.1" }
+vord-infra-github = { path = "infra/github", version = "0.4.1" }
+vord-infra-gitlab = { path = "infra/gitlab", version = "0.4.1" }
+vord-infra-bitbucket = { path = "infra/bitbucket", version = "0.4.1" }
+vord-infra-azure = { path = "infra/azure", version = "0.4.1" }
+vord-infra-pdf = { path = "infra/pdf", version = "0.4.1" }
+vord-remediation = { path = "core/remediation", version = "0.4.1" }
+vord-infra-llm = { path = "infra/llm", version = "0.4.1" }
 
 # External
 thiserror = "2"
