@@ -193,6 +193,15 @@ pub struct ArchitectureSettings {
     /// a deliberate, reviewed exception to an otherwise-general rule.
     #[serde(default)]
     pub exceptions: Vec<DependencyEdgeConfig>,
+    /// Project-specific layer names that play the role of one of the five
+    /// built-in hexagonal rings (`domain`/`application`/`port`/`adapter`/
+    /// `infrastructure`), so `architecture:hexagonal-layer-violation`,
+    /// `architecture:framework-in-domain` and the `rulesets/ddd` tactical
+    /// rules recognize a directory like `checkout/` as domain code without
+    /// renaming it to `domain/`. Empty by default — the same zero-config
+    /// behavior as today.
+    #[serde(default)]
+    pub layer: Vec<LayerConfig>,
 }
 
 /// One `{ from = "...", to = "..." }` entry in an `[architecture]` list.
@@ -204,6 +213,19 @@ pub struct ArchitectureSettings {
 pub struct DependencyEdgeConfig {
     pub from: String,
     pub to: String,
+}
+
+/// One `[[architecture.layer]]` entry: `name` is documentation only (it
+/// appears in validation errors), `is_a` names the built-in ring this layer
+/// subsumes into, and `patterns` are the globs (matched against a file's
+/// path, same syntax `[[protected_path]]` in `vord-policy.toml` already
+/// uses) that mark a path as belonging to it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LayerConfig {
+    pub name: String,
+    pub is_a: String,
+    #[serde(default)]
+    pub patterns: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -358,6 +380,24 @@ to = "infra"
     fn architecture_table_is_optional() {
         let config: VordConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
         assert_eq!(config.architecture, ArchitectureSettings::default());
+    }
+
+    #[test]
+    fn parses_a_declared_layer_taxonomy() {
+        let toml_content = r#"
+[[architecture.layer]]
+name = "checkout-domain"
+is_a = "domain"
+patterns = ["src/checkout/**", "src/billing/core/**"]
+"#;
+        let config: VordConfig = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.architecture.layer.len(), 1);
+        assert_eq!(config.architecture.layer[0].name, "checkout-domain");
+        assert_eq!(config.architecture.layer[0].is_a, "domain");
+        assert_eq!(
+            config.architecture.layer[0].patterns,
+            vec!["src/checkout/**", "src/billing/core/**"]
+        );
     }
 
     #[test]

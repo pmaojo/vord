@@ -25,16 +25,27 @@ use vord_ast::{AstNode, SourceFile};
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use vord_symbols::{ClassRegistry, type_identifiers};
 
-use crate::common::{field_declared_type, is_domain_path, repository_backed_names};
+use crate::common::{field_declared_type, repository_backed_names};
+use vord_import_graph::LayerTaxonomy;
 
 pub struct AggregateReferenceByIdRule {
     id: RuleId,
+    taxonomy: LayerTaxonomy,
 }
 
 impl AggregateReferenceByIdRule {
     pub fn new() -> Self {
+        Self::with_taxonomy(LayerTaxonomy::default())
+    }
+
+    /// Same rule, recognizing the domain layer through a project's declared
+    /// `[[architecture.layer]]` taxonomy as well as the zero-config
+    /// heuristic — see `HexagonalLayerRule::with_taxonomy` for why this is a
+    /// strict extension of [`Self::new`].
+    pub fn with_taxonomy(taxonomy: LayerTaxonomy) -> Self {
         Self {
             id: RuleId::new("ddd:aggregate-reference-by-id").expect("valid rule id"),
+            taxonomy,
         }
     }
 }
@@ -74,7 +85,7 @@ impl CrossFileRule for AggregateReferenceByIdRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let domain: Vec<&(SourceFile, AstNode)> = files
             .iter()
-            .filter(|(file, _)| is_domain_path(file.path()))
+            .filter(|(file, _)| self.taxonomy.is_domain(file.path()))
             .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .collect();
         if domain.is_empty() {

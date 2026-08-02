@@ -21,7 +21,8 @@
 use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::{declared_types, is_domain_path};
+use crate::common::declared_types;
+use vord_import_graph::LayerTaxonomy;
 
 const JARGON_SUFFIXES: &[&str] = &["Dto", "DTO", "Dao", "DAO", "Pojo", "POJO"];
 const JARGON_PREFIXES: &[&str] = &["Db", "Sql", "Orm"];
@@ -43,12 +44,22 @@ fn jargon_marker(name: &str) -> Option<&'static str> {
 
 pub struct DomainJargonNamingRule {
     id: RuleId,
+    taxonomy: LayerTaxonomy,
 }
 
 impl DomainJargonNamingRule {
     pub fn new() -> Self {
+        Self::with_taxonomy(LayerTaxonomy::default())
+    }
+
+    /// Same rule, recognizing the domain layer through a project's declared
+    /// `[[architecture.layer]]` taxonomy as well as the zero-config
+    /// heuristic — see `HexagonalLayerRule::with_taxonomy` for why this is a
+    /// strict extension of [`Self::new`].
+    pub fn with_taxonomy(taxonomy: LayerTaxonomy) -> Self {
         Self {
             id: RuleId::new("ddd:domain-jargon-naming").expect("valid rule id"),
+            taxonomy,
         }
     }
 }
@@ -90,7 +101,9 @@ impl Rule for DomainJargonNamingRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if !is_domain_path(file.path()) || vord_rules_engine::is_test_only_path(file.path()) {
+        if !self.taxonomy.is_domain(file.path())
+            || vord_rules_engine::is_test_only_path(file.path())
+        {
             return Vec::new();
         }
         declared_types(ast)

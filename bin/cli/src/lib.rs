@@ -272,6 +272,43 @@ pub async fn scan_with_project_config(
             vord_rules_architecture::BoundaryViolationRule::new(boundaries, rust_crates),
         ));
     }
+    if !architecture.layer.is_empty() {
+        let taxonomy = layer_taxonomy(architecture)?;
+        service = service
+            .replace_cross_rule(Box::new(
+                vord_rules_architecture::HexagonalLayerRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_rule(Box::new(
+                vord_rules_architecture::FrameworkInDomainRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_rule(Box::new(
+                vord_rules_ddd::PersistenceInDomainRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_rule(Box::new(
+                vord_rules_ddd::DomainJargonNamingRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_rule(Box::new(
+                vord_rules_ddd::OneAggregatePerTransactionRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_ddd::AnemicDomainModelRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_ddd::PublicEntitySetterRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_ddd::PrimitiveObsessionRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_ddd::ExposedCollectionRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_ddd::ValueObjectMutationRule::with_taxonomy(taxonomy.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_ddd::AggregateReferenceByIdRule::with_taxonomy(taxonomy),
+            ));
+    }
     if let Some(cache) = cache {
         service = service.with_cache(cache);
     }
@@ -301,9 +338,7 @@ pub fn duplication_config(
         max_literal_density: settings
             .max_literal_density
             .or(defaults.max_literal_density),
-        max_occurrences: settings
-            .max_occurrences
-            .or(defaults.max_occurrences),
+        max_occurrences: settings.max_occurrences.or(defaults.max_occurrences),
     }
 }
 
@@ -323,6 +358,26 @@ pub fn architecture_config(
         forbidden_dependencies: settings.forbidden_dependencies.iter().map(edge).collect(),
         exceptions: settings.exceptions.iter().map(edge).collect(),
     }
+}
+
+/// Converts `[[architecture.layer]]` from `vord.toml` into the
+/// engine-facing `vord_import_graph::LayerTaxonomy` the hexagonal-layer,
+/// framework-purity and DDD tactical rules take. Unlike `architecture_config`,
+/// this can fail: an unknown `is_a` ring name or an invalid glob pattern must
+/// stop the scan with a clear message rather than silently classify nothing.
+pub fn layer_taxonomy(
+    settings: &vord_infra_fs::ArchitectureSettings,
+) -> Result<vord_import_graph::LayerTaxonomy, vord_import_graph::LayerTaxonomyError> {
+    let entries = settings
+        .layer
+        .iter()
+        .map(|l| vord_import_graph::CustomLayerSpec {
+            name: l.name.clone(),
+            is_a: l.is_a.clone(),
+            patterns: l.patterns.clone(),
+        })
+        .collect();
+    vord_import_graph::LayerTaxonomy::new(entries)
 }
 
 /// Walks up from `start` looking for a `.git` directory, so remediation can

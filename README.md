@@ -704,6 +704,27 @@ vocabulary the industry already shares (`domain/`, `application/`, `ports/`,
 first scan already enforces the hexagon. Paths that name no layer are left
 alone rather than guessed at.
 
+**Declaring a custom layer name.** A project that spells its domain
+directory something other than `domain/` (`checkout/`, `biz/`) gets no
+layering or DDD coverage on it by default — renaming the directory is one
+fix, declaring the name is the other:
+
+```toml
+[[architecture.layer]]
+name = "checkout-domain"    # documentation only, shown in validation errors
+is_a = "domain"             # domain | application | port | adapter | infrastructure
+patterns = ["src/checkout/**"]
+```
+
+`architecture:hexagonal-layer-violation`, `architecture:framework-in-domain`
+and every tactical DDD rule below recognize the declared pattern as that
+ring in addition to the zero-config vocabulary — declaring one never takes
+coverage away from `domain/`, `application/`, etc. This is single-hop
+classification, not general inference: a declared layer's `is_a` must name
+one of the five built-in rings, never another declared layer, and an
+unknown `is_a` or an invalid pattern fails the scan rather than silently
+matching nothing.
+
 ### SOLID (`rulesets/code-smells`)
 
 | Principle | Rules |

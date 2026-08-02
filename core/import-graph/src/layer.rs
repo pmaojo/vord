@@ -70,6 +70,22 @@ impl HexLayer {
             HexLayer::Unknown => "unclassified",
         }
     }
+
+    /// Parses one of the five named rings from a `vord.toml`-facing string
+    /// (case-insensitive) — the vocabulary a declared [`CustomLayerSpec`] may
+    /// subsume into. [`HexLayer::Unknown`] is deliberately not parseable
+    /// here: it is the "no vocabulary matched" outcome, never something a
+    /// project declares a custom layer *as*.
+    fn parse(raw: &str) -> Option<Self> {
+        match raw.to_ascii_lowercase().as_str() {
+            "domain" => Some(HexLayer::Domain),
+            "application" => Some(HexLayer::Application),
+            "port" => Some(HexLayer::Port),
+            "adapter" => Some(HexLayer::Adapter),
+            "infrastructure" => Some(HexLayer::Infrastructure),
+            _ => None,
+        }
+    }
 }
 
 /// `core` is included: it is the most common name for "the pure inside" in
@@ -179,6 +195,109 @@ fn classify_segment(segment: &str) -> HexLayer {
         .unwrap_or(HexLayer::Unknown)
 }
 
+/// One `[[architecture.layer]]` entry, `vord.toml`-facing: a project-specific
+/// layer name (`"checkout-domain"`) that plays the role of one of the five
+/// built-in rings (`is_a`), matched by glob against a file's path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomLayerSpec {
+    pub name: String,
+    pub is_a: String,
+    pub patterns: Vec<String>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LayerTaxonomyError {
+    #[error(
+        "layer {name:?} declares unknown parent ring {is_a:?} (expected domain|application|port|adapter|infrastructure)"
+    )]
+    UnknownParent { name: String, is_a: String },
+    #[error("layer {name:?} has an invalid pattern {pattern:?}: {source}")]
+    InvalidPattern {
+        name: String,
+        pattern: String,
+        #[source]
+        source: globset::Error,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct CustomLayer {
+    parent: HexLayer,
+    matcher: globset::GlobSet,
+}
+
+/// A project's declared extension of the zero-config hexagonal-layer
+/// vocabulary: a directory named `checkout/` gets to mean "domain" without
+/// renaming it to `domain/`.
+///
+/// This is single-hop subsumption only — every custom layer's parent must be
+/// one of the five built-in rings, never another custom layer — deliberately
+/// short of a general ontology. [`LayerTaxonomy::default`] declares no custom
+/// layers, so [`LayerTaxonomy::classify`] always falls through to
+/// [`layer_of`]: the zero-config behavior every existing caller and test
+/// relies on is unchanged when no `[[architecture.layer]]` is configured.
+#[derive(Clone, Debug, Default)]
+pub struct LayerTaxonomy {
+    custom: Vec<CustomLayer>,
+}
+
+impl LayerTaxonomy {
+    /// Validates and compiles every declared layer. Rejects an `is_a` that
+    /// isn't one of the five ring names, and any pattern `globset` itself
+    /// rejects — a malformed declaration must fail the scan, not silently
+    /// classify nothing.
+    pub fn new(entries: Vec<CustomLayerSpec>) -> Result<Self, LayerTaxonomyError> {
+        let mut custom = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let parent =
+                HexLayer::parse(&entry.is_a).ok_or_else(|| LayerTaxonomyError::UnknownParent {
+                    name: entry.name.clone(),
+                    is_a: entry.is_a.clone(),
+                })?;
+            let mut builder = globset::GlobSetBuilder::new();
+            for pattern in &entry.patterns {
+                let glob = globset::Glob::new(pattern).map_err(|source| {
+                    LayerTaxonomyError::InvalidPattern {
+                        name: entry.name.clone(),
+                        pattern: pattern.clone(),
+                        source,
+                    }
+                })?;
+                builder.add(glob);
+            }
+            let matcher = builder
+                .build()
+                .map_err(|source| LayerTaxonomyError::InvalidPattern {
+                    name: entry.name.clone(),
+                    pattern: "<set>".to_string(),
+                    source,
+                })?;
+            custom.push(CustomLayer { parent, matcher });
+        }
+        Ok(Self { custom })
+    }
+
+    /// The ring `path` belongs to: the parent ring of the first declared
+    /// custom layer (declaration order) whose pattern matches, or — for a
+    /// project with no matching custom layer, and for every project with
+    /// none declared at all — [`layer_of`]'s path-segment heuristic.
+    pub fn classify(&self, path: &str) -> HexLayer {
+        self.custom
+            .iter()
+            .find(|layer| layer.matcher.is_match(path))
+            .map(|layer| layer.parent)
+            .unwrap_or_else(|| layer_of(path))
+    }
+
+    pub fn is_domain(&self, path: &str) -> bool {
+        self.classify(path) == HexLayer::Domain
+    }
+
+    pub fn is_application(&self, path: &str) -> bool {
+        self.classify(path) == HexLayer::Application
+    }
+}
+
 /// One import that points outward: an inner-ring file depending on an
 /// outer-ring one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -198,12 +317,30 @@ pub struct LayerViolation {
 /// `BoundaryViolationRule` makes). Edges where either side is
 /// [`HexLayer::Unknown`], and edges inside one ring, are not violations.
 pub fn inward_dependency_violations(graph: &ImportGraph) -> Vec<LayerViolation> {
+    inward_dependency_violations_with(graph, layer_of)
+}
+
+/// Same as [`inward_dependency_violations`], classifying each edge's
+/// endpoints through a declared [`LayerTaxonomy`] instead of the hardcoded
+/// segment heuristic alone — identical output when `taxonomy` declares no
+/// custom layers.
+pub fn inward_dependency_violations_with_taxonomy(
+    graph: &ImportGraph,
+    taxonomy: &LayerTaxonomy,
+) -> Vec<LayerViolation> {
+    inward_dependency_violations_with(graph, |path| taxonomy.classify(path))
+}
+
+fn inward_dependency_violations_with(
+    graph: &ImportGraph,
+    classify: impl Fn(&str) -> HexLayer,
+) -> Vec<LayerViolation> {
     graph
         .edges()
         .iter()
         .filter_map(|edge| {
-            let from_layer = layer_of(&edge.from);
-            let to_layer = layer_of(&edge.to);
+            let from_layer = classify(&edge.from);
+            let to_layer = classify(&edge.to);
             let (from_depth, to_depth) = (from_layer.depth()?, to_layer.depth()?);
             (from_depth < to_depth).then(|| LayerViolation {
                 from: edge.from.clone(),
@@ -383,6 +520,148 @@ mod tests {
         let graph = ImportGraph::build(&views);
         let violations = inward_dependency_violations(&graph);
         assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].to_layer, HexLayer::Infrastructure);
+    }
+
+    fn custom_layer(name: &str, is_a: &str, patterns: &[&str]) -> CustomLayerSpec {
+        CustomLayerSpec {
+            name: name.to_string(),
+            is_a: is_a.to_string(),
+            patterns: patterns.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn default_taxonomy_behaves_exactly_like_layer_of() {
+        let taxonomy = LayerTaxonomy::default();
+        assert_eq!(
+            taxonomy.classify("src/domain/order.ts"),
+            layer_of("src/domain/order.ts")
+        );
+        assert_eq!(
+            taxonomy.classify("src/checkout/order.ts"),
+            layer_of("src/checkout/order.ts")
+        );
+    }
+
+    #[test]
+    fn a_custom_layer_maps_to_its_declared_parent_ring() {
+        let taxonomy = LayerTaxonomy::new(vec![custom_layer(
+            "checkout-domain",
+            "domain",
+            &["src/checkout/**"],
+        )])
+        .unwrap();
+        assert_eq!(taxonomy.classify("src/checkout/order.ts"), HexLayer::Domain);
+        assert!(taxonomy.is_domain("src/checkout/order.ts"));
+        assert!(!taxonomy.is_domain("src/adapters/http.ts"));
+    }
+
+    #[test]
+    fn an_unmatched_path_still_falls_back_to_the_hardcoded_heuristic() {
+        let taxonomy = LayerTaxonomy::new(vec![custom_layer(
+            "checkout-domain",
+            "domain",
+            &["src/checkout/**"],
+        )])
+        .unwrap();
+        assert_eq!(
+            taxonomy.classify("src/infrastructure/db.ts"),
+            HexLayer::Infrastructure
+        );
+    }
+
+    #[test]
+    fn an_unknown_parent_ring_is_rejected() {
+        let err = LayerTaxonomy::new(vec![custom_layer(
+            "checkout-domain",
+            "not-a-ring",
+            &["src/checkout/**"],
+        )])
+        .unwrap_err();
+        assert!(matches!(err, LayerTaxonomyError::UnknownParent { .. }));
+    }
+
+    #[test]
+    fn a_custom_layer_with_no_patterns_never_matches() {
+        let taxonomy =
+            LayerTaxonomy::new(vec![custom_layer("empty-layer", "domain", &[])]).unwrap();
+        // An empty GlobSet must reject every path, not accept everything by
+        // default — a mutation flipping that fallback would make every
+        // unclassified path in the project silently "domain".
+        assert_eq!(
+            taxonomy.classify("src/anything/at/all.ts"),
+            HexLayer::Unknown
+        );
+    }
+
+    #[test]
+    fn an_invalid_glob_pattern_is_rejected() {
+        let err = LayerTaxonomy::new(vec![custom_layer("checkout-domain", "domain", &["["])])
+            .unwrap_err();
+        assert!(matches!(err, LayerTaxonomyError::InvalidPattern { .. }));
+    }
+
+    #[test]
+    fn a_custom_pattern_wins_over_the_default_segment_heuristic() {
+        // `src/checkout/adapters/stripe.ts` would classify as Adapter under
+        // the innermost-segment heuristic; the declared taxonomy says the
+        // whole `checkout/` tree is domain code instead.
+        let taxonomy = LayerTaxonomy::new(vec![custom_layer(
+            "checkout-domain",
+            "domain",
+            &["src/checkout/**"],
+        )])
+        .unwrap();
+        assert_eq!(
+            layer_of("src/checkout/adapters/stripe.ts"),
+            HexLayer::Adapter
+        );
+        assert_eq!(
+            taxonomy.classify("src/checkout/adapters/stripe.ts"),
+            HexLayer::Domain
+        );
+    }
+
+    #[test]
+    fn declaration_order_decides_between_overlapping_custom_patterns() {
+        let taxonomy = LayerTaxonomy::new(vec![
+            custom_layer("checkout-domain", "domain", &["src/checkout/**"]),
+            custom_layer(
+                "checkout-adapters",
+                "adapter",
+                &["src/checkout/adapters/**"],
+            ),
+        ])
+        .unwrap();
+        assert_eq!(
+            taxonomy.classify("src/checkout/adapters/stripe.ts"),
+            HexLayer::Domain,
+            "first declared match wins, same convention as ArchitectureConfig"
+        );
+    }
+
+    #[test]
+    fn taxonomy_aware_violations_use_the_custom_layer_for_both_endpoints() {
+        let graph = graph_of(&[
+            (
+                "src/checkout/order.ts",
+                "import { pool } from '../infrastructure/db';\n",
+            ),
+            ("src/infrastructure/db.ts", "export const pool = 1;\n"),
+        ]);
+        let taxonomy = LayerTaxonomy::new(vec![custom_layer(
+            "checkout-domain",
+            "domain",
+            &["src/checkout/**"],
+        )])
+        .unwrap();
+        // Without the taxonomy, `checkout` names no ring at all and the edge
+        // is silently skipped.
+        assert!(inward_dependency_violations(&graph).is_empty());
+        let violations = inward_dependency_violations_with_taxonomy(&graph, &taxonomy);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].from_layer, HexLayer::Domain);
         assert_eq!(violations[0].to_layer, HexLayer::Infrastructure);
     }
 }

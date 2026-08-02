@@ -22,15 +22,17 @@
 //! `ClassRegistry::build_cross_file` exists for.
 
 use vord_ast::{AstNode, SourceFile};
+use vord_import_graph::LayerTaxonomy;
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 use vord_symbols::ClassRegistry;
 
-use crate::common::{accessor_of, declared_methods, field_names, is_domain_path, wire_dto_names};
+use crate::common::{accessor_of, declared_methods, field_names, wire_dto_names};
 
 pub struct AnemicDomainModelRule {
     id: RuleId,
     min_fields: usize,
     min_accessors: usize,
+    taxonomy: LayerTaxonomy,
 }
 
 impl AnemicDomainModelRule {
@@ -39,6 +41,19 @@ impl AnemicDomainModelRule {
             id: RuleId::new("ddd:anemic-domain-model").expect("valid rule id"),
             min_fields,
             min_accessors,
+            taxonomy: LayerTaxonomy::default(),
+        }
+    }
+
+    /// Same defaults as [`Default::default`], recognizing the domain layer
+    /// through a project's declared `[[architecture.layer]]` taxonomy as
+    /// well as the zero-config heuristic — see
+    /// `HexagonalLayerRule::with_taxonomy` for why this is a strict
+    /// extension.
+    pub fn with_taxonomy(taxonomy: LayerTaxonomy) -> Self {
+        Self {
+            taxonomy,
+            ..Self::default()
         }
     }
 }
@@ -80,7 +95,7 @@ impl CrossFileRule for AnemicDomainModelRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> = files
             .iter()
-            .filter(|(file, _)| is_domain_path(file.path()))
+            .filter(|(file, _)| self.taxonomy.is_domain(file.path()))
             .filter(|(file, _)| !vord_rules_engine::is_test_only_path(file.path()))
             .map(|(file, ast)| (file.path(), ast))
             .collect();

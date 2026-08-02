@@ -7,13 +7,16 @@
 //! collection handed out by reference — each is a way for the domain layer to
 //! keep its directory name while losing the property that made it worth having.
 //!
-//! Every rule here is scoped to the domain layer
-//! (`vord_import_graph::layer_of`, via `common::is_domain_path`), and that scope
-//! is load-bearing rather than an optimization. The same shapes are *correct*
-//! outside the model: a DTO at an HTTP boundary should be anemic and full of
-//! setters, a row type should carry the ORM mapping, a query object should take
-//! four strings. Reporting them everywhere would be reporting noise; reporting
-//! them on an aggregate root is reporting a design defect.
+//! Every rule here is scoped to the domain layer, recognized through each
+//! rule's own `vord_import_graph::LayerTaxonomy` (`LayerTaxonomy::is_domain`,
+//! zero-config by default — `vord_import_graph::layer_of`'s path-segment
+//! heuristic — and extended by a project's declared `[[architecture.layer]]`
+//! taxonomy when one exists), and that scope is load-bearing rather than an
+//! optimization. The same shapes are *correct* outside the model: a DTO at an
+//! HTTP boundary should be anemic and full of setters, a row type should
+//! carry the ORM mapping, a query object should take four strings. Reporting
+//! them everywhere would be reporting noise; reporting them on an aggregate
+//! root is reporting a design defect.
 
 mod aggregate_reference;
 mod anemic_domain_model;

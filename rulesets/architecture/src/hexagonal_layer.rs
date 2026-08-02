@@ -17,17 +17,27 @@
 //! index, alongside TypeScript and Python relative/absolute imports.
 
 use vord_ast::{AstNode, SourceFile};
-use vord_import_graph::{ImportGraph, inward_dependency_violations};
+use vord_import_graph::{ImportGraph, LayerTaxonomy, inward_dependency_violations_with_taxonomy};
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct HexagonalLayerRule {
     id: RuleId,
+    taxonomy: LayerTaxonomy,
 }
 
 impl HexagonalLayerRule {
     pub fn new() -> Self {
+        Self::with_taxonomy(LayerTaxonomy::default())
+    }
+
+    /// Same rule, classifying paths through a project's declared
+    /// `[[architecture.layer]]` taxonomy first — falls back to the
+    /// zero-config heuristic for anything it doesn't match, so this is a
+    /// strict extension of [`Self::new`], never a different rule.
+    pub fn with_taxonomy(taxonomy: LayerTaxonomy) -> Self {
         Self {
             id: RuleId::new("architecture:hexagonal-layer-violation").expect("valid rule id"),
+            taxonomy,
         }
     }
 }
@@ -73,7 +83,7 @@ impl CrossFileRule for HexagonalLayerRule {
         let views: Vec<(&str, &AstNode)> =
             files.iter().map(|(file, ast)| (file.path(), ast)).collect();
         let graph = ImportGraph::build_with_rust_modules(&views);
-        inward_dependency_violations(&graph)
+        inward_dependency_violations_with_taxonomy(&graph, &self.taxonomy)
             .into_iter()
             .filter_map(|violation| {
                 let index = files.iter().position(|(file, _)| file.path() == violation.from)?;

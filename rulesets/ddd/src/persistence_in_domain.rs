@@ -18,9 +18,10 @@
 //! markers each ORM actually uses.
 
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
+use vord_import_graph::LayerTaxonomy;
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::{is_domain_path, is_other};
+use crate::common::is_other;
 
 /// TypeScript/JavaScript decorator markers: TypeORM, Sequelize (`sequelize-
 /// typescript`), Nest/Mongoose schemas, MikroORM.
@@ -174,12 +175,22 @@ fn markers(file: &SourceFile, ast: &AstNode) -> Vec<(String, vord_ast::Span)> {
 
 pub struct PersistenceInDomainRule {
     id: RuleId,
+    taxonomy: LayerTaxonomy,
 }
 
 impl PersistenceInDomainRule {
     pub fn new() -> Self {
+        Self::with_taxonomy(LayerTaxonomy::default())
+    }
+
+    /// Same rule, recognizing the domain layer through a project's declared
+    /// `[[architecture.layer]]` taxonomy as well as the zero-config
+    /// heuristic — see `HexagonalLayerRule::with_taxonomy` for why this is a
+    /// strict extension of [`Self::new`].
+    pub fn with_taxonomy(taxonomy: LayerTaxonomy) -> Self {
         Self {
             id: RuleId::new("ddd:persistence-in-domain").expect("valid rule id"),
+            taxonomy,
         }
     }
 }
@@ -227,7 +238,9 @@ impl Rule for PersistenceInDomainRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if !is_domain_path(file.path()) || vord_rules_engine::is_test_only_path(file.path()) {
+        if !self.taxonomy.is_domain(file.path())
+            || vord_rules_engine::is_test_only_path(file.path())
+        {
             return Vec::new();
         }
         markers(file, ast)
