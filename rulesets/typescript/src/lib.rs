@@ -2,6 +2,7 @@
 //! anti-patterns.
 
 mod boolean_naming;
+mod buffer_noassert;
 mod common;
 mod dynamic_regexp_source;
 mod innerhtml_assignment;
@@ -20,6 +21,7 @@ mod swallowed_exception;
 mod var_declaration;
 
 pub use boolean_naming::BooleanNamingRule;
+pub use buffer_noassert::BufferNoassertRule;
 pub use dynamic_regexp_source::DynamicRegexpSourceRule;
 pub use innerhtml_assignment::InnerHtmlAssignmentRule;
 pub use json_parse_unguarded::JsonParseUnguardedRule;
@@ -57,5 +59,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(BooleanNamingRule::new()),
         Box::new(NoExplicitAnyRule::new()),
         Box::new(OxlintAdapterRule::new()),
+        Box::new(BufferNoassertRule::new()),
     ]
 }
