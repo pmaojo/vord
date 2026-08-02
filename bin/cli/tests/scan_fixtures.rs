@@ -48,7 +48,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
         );
     }
 
-    assert_eq!(report.metrics().files_scanned(), 21);
+    assert_eq!(report.metrics().files_scanned(), 23);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);
@@ -105,6 +105,28 @@ fn scans_fixtures_and_finds_every_rule_family() {
         assert!(
             go_findings.contains(&expected),
             "Go rule {expected} did not fire; got {go_findings:?}"
+        );
+    }
+
+    // Rust rides the same rules through its own grammar:
+    let rs_findings: Vec<&str> = report
+        .issues()
+        .iter()
+        .filter(|i| i.file().ends_with("domain/order.rs"))
+        .map(|i| i.rule().as_str())
+        .collect();
+    for expected in [
+        "architecture:framework-in-domain",
+        "architecture:hexagonal-layer-violation",
+        "ddd:public-entity-setter",
+        "ddd:persistence-in-domain",
+        "ddd:primitive-obsession",
+        "ddd:anemic-domain-model",
+        "ddd:aggregate-exposes-internal-collection",
+    ] {
+        assert!(
+            rs_findings.contains(&expected),
+            "Rust rule {expected} did not fire on domain/order.rs; got {rs_findings:?}"
         );
     }
 
