@@ -72,6 +72,13 @@ vord kickoff typescript-clean --path ./my-ts-app
 vord scan                         # Scan workspace using vord.toml profile
 vord scan --fix                   # Apply automated rule fixes
 
+# Declare a custom hexagonal/DDD layer name in vord.toml so a non-standard
+# directory (e.g. `checkout/`) is recognized as domain code without renaming it:
+#   [[architecture.layer]]
+#   name = "checkout-domain"
+#   is_a = "domain"        # domain | application | port | adapter | infrastructure
+#   patterns = ["src/checkout/**"]
+
 # 🐝 3. Swarm & Multi-Worktree Orchestration (LLM or Offline Spec-Driven)
 vord swarm roles                  # View resolved role topologies and policy scopes
 vord swarm tui                    # Interactive Ratatui dashboard for roles & handoffs
