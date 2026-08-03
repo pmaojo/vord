@@ -1,0 +1,6 @@
+[project]
+key = "vite-react-starter-dirty-fixture"
+
+[analysis]
+sources = ["src"]
+profile = "vite-react-frontend-starter"

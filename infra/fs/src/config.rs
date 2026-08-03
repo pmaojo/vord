@@ -1,6 +1,7 @@
 //! Configuration loader for `vord.toml` / `.vord.toml` and legacy `sonar-project.properties`.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -22,6 +23,8 @@ pub struct VordConfig {
     pub swarm: SwarmSettings,
     #[serde(default)]
     pub gate: GateSettings,
+    #[serde(default)]
+    pub vite_react: ViteReactSettings,
 }
 
 /// `[gate]` in `vord.toml` — quality-gate thresholds evaluated by
@@ -31,6 +34,22 @@ pub struct GateSettings {
     /// Minimum health score (0-100). When set, `vord scan --enforce-gate`
     /// exits with status 3 if the score falls below this value.
     pub min_health_score: Option<u32>,
+}
+
+/// `[vite_react]` in `vord.toml` — per-rule glob exceptions for the
+/// `vite-react-frontend-starter` profile's own rules (`rulesets/vite-react`).
+/// Keyed by the rule's full id (e.g.
+/// `"vite-react:no-data-layer-import-in-view"`) so one table can carry
+/// exceptions for every rule in the ruleset without a field per rule; a rule
+/// id this profile doesn't recognize is ignored rather than rejected, the
+/// same forward-compatible posture `[[rules.custom]]` already takes.
+/// Empty by default — no exceptions declared means every rule applies
+/// everywhere, the same opt-in-until-configured convention `[architecture]`
+/// and `[duplication]` already use.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ViteReactSettings {
+    #[serde(default)]
+    pub exceptions: HashMap<String, Vec<String>>,
 }
 
 /// `[agent]` in `vord.toml` — the `vord agent` runtime's limits.
@@ -470,5 +489,29 @@ reason = "QA is read-only"
         let config: VordConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
         assert_eq!(config.swarm, SwarmSettings::default());
         assert!(config.swarm.roles.is_empty());
+    }
+
+    #[test]
+    fn parses_vite_react_exceptions() {
+        let toml_content = r#"
+[vite_react.exceptions]
+"vite-react:no-data-layer-import-in-view" = ["src/components/LegacyWidget/**"]
+"#;
+        let config: VordConfig = toml::from_str(toml_content).unwrap();
+        assert_eq!(
+            config
+                .vite_react
+                .exceptions
+                .get("vite-react:no-data-layer-import-in-view")
+                .map(Vec::as_slice),
+            Some(["src/components/LegacyWidget/**".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn the_vite_react_table_is_optional() {
+        let config: VordConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
+        assert_eq!(config.vite_react, ViteReactSettings::default());
+        assert!(config.vite_react.exceptions.is_empty());
     }
 }

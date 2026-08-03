@@ -118,6 +118,17 @@ where
         self
     }
 
+    /// Swaps the active `QualityProfile` after construction — for a
+    /// composition root that builds the default rule set first
+    /// (`bin/cli::default_service`) and only later resolves a project's
+    /// `--profile` selection, mirroring how `with_duplication_config` and
+    /// `with_cache` are applied post-construction rather than threaded
+    /// through `new`.
+    pub fn with_profile(mut self, profile: QualityProfile) -> Self {
+        self.profile = profile;
+        self
+    }
+
     /// Enables incremental analysis: per-file results are reused when
     /// neither the file nor the engine configuration changed.
     pub fn with_cache(mut self, cache: Arc<dyn AnalysisCache>) -> Self {

@@ -85,6 +85,12 @@ fn all_default_parsers() -> Vec<Box<dyn vord_rules_engine::AstParser>> {
 /// `bin/server/src/ops.rs` that per-project *gate* assignment exists but
 /// per-project *profile* assignment is still "Fase 3 territory"), so the
 /// vord way profile is the sole default every scan uses today.
+///
+/// `vord_rules_vite_react::all_rules()` is registered unconditionally along
+/// with every other ruleset, same as the rest of this chain — it's inert
+/// unless the active profile activates a `vite-react:*` id
+/// (`AnalyzerService::check` filters by `profile.is_active`), and "vord way"
+/// never does, so this is safe with no `--profile` selected at all.
 pub fn default_service<S, M>(storage: S, metrics: M) -> AnalyzerService<S, M>
 where
     S: IssueStorage + HotspotStorage,
@@ -108,6 +114,7 @@ where
         .chain(vord_rules_architecture::all_rules())
         .chain(vord_rules_ddd::all_rules())
         .chain(vord_rules_mutation::all_rules())
+        .chain(vord_rules_vite_react::all_rules())
         .collect();
     let cross_rules: Vec<Box<dyn vord_rules_engine::CrossFileRule>> =
         vord_rules_owasp::all_cross_rules()
@@ -176,6 +183,45 @@ pub fn default_quality_gate() -> QualityGate {
             ComparisonOperator::GreaterThan,
             0.0,
         ))
+}
+
+/// The `vite-react-frontend-starter` profile's quality gate: the same
+/// blocker/critical/parse-failure conditions as [`default_quality_gate`],
+/// minus its `coverage`/`mutation_score` conditions — Vord doesn't measure
+/// JS test coverage or run mutants itself, that's `pnpm test`'s (and, for
+/// mutation, Stryker's) job, wired separately into the pre-push/CI composite
+/// command documented in `docs/starters/vite-react-frontend-starter.md`
+/// rather than into this gate. Coupled to the `--profile` selection by
+/// `quality_gate_for_profile`.
+pub fn vite_react_gate() -> QualityGate {
+    let metric = |raw: &str| MetricKey::new(raw).expect("valid metric key");
+    QualityGate::new("vord-vite-react-frontend-starter")
+        .with_condition(Condition::new(
+            metric("blocker_issues"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
+        .with_condition(Condition::new(
+            metric("critical_issues"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
+        .with_condition(Condition::new(
+            metric("parse_failures"),
+            ComparisonOperator::GreaterThan,
+            0.0,
+        ))
+}
+
+/// The quality gate `--profile <name>` selects: [`vite_react_gate`] for the
+/// `vite-react-frontend-starter` profile, [`default_quality_gate`] for
+/// every other name (including no `--profile` at all, so the default path
+/// is unchanged).
+pub fn quality_gate_for_profile(profile_name: Option<&str>) -> QualityGate {
+    match profile_name {
+        Some(vord_rules_engine::VITE_REACT_FRONTEND_STARTER_NAME) => vite_react_gate(),
+        _ => default_quality_gate(),
+    }
 }
 
 /// Resolves an issue's `(file, line)` to that source line's content hash for
@@ -251,7 +297,9 @@ pub async fn scan_with_exclusions(
 /// Scans with an optional incremental cache, `vord.toml`'s
 /// `[analysis] sources` (directories to scan — the whole tree when empty),
 /// and its `[analysis] exclusions` globs (matched against each file's path
-/// relative to `path`).
+/// relative to `path`). Always the "vord way" default profile with no
+/// `[vite_react.exceptions]` applied — see [`scan_with_profile`] for a
+/// caller that has resolved a `--profile` selection.
 pub async fn scan_with_project_config(
     path: &Path,
     cache: Option<Arc<FileAnalysisCache>>,
@@ -260,9 +308,46 @@ pub async fn scan_with_project_config(
     duplication: &vord_infra_fs::DuplicationSettings,
     architecture: &vord_infra_fs::ArchitectureSettings,
 ) -> anyhow::Result<AnalysisReport> {
+    scan_with_profile(
+        path,
+        cache,
+        source_dirs,
+        exclusions,
+        duplication,
+        architecture,
+        &Default::default(),
+        None,
+    )
+    .await
+}
+
+/// Same as [`scan_with_project_config`], plus `vord.toml`'s
+/// `[vite_react.exceptions]` (bridged via [`vite_react_config`] into each
+/// `rulesets/vite-react` rule's own `with_exceptions` constructor) and an
+/// optional resolved `QualityProfile` — `None` keeps today's "vord way"
+/// default exactly as [`scan_with_project_config`] always has, so this is
+/// the one place `--profile` actually changes what a scan measures.
+pub async fn scan_with_profile(
+    path: &Path,
+    cache: Option<Arc<FileAnalysisCache>>,
+    source_dirs: &[String],
+    exclusions: &[String],
+    duplication: &vord_infra_fs::DuplicationSettings,
+    architecture: &vord_infra_fs::ArchitectureSettings,
+    vite_react: &vord_infra_fs::ViteReactSettings,
+    profile: Option<vord_rules_engine::QualityProfile>,
+) -> anyhow::Result<AnalysisReport> {
     let sources = vord_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
     let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
         .with_duplication_config(duplication_config(duplication));
+    if let Some(profile) = profile {
+        service = service.with_profile(profile);
+    }
+    for (rule_id, globs) in vite_react_config(vite_react) {
+        if let Some(rule) = vite_react_rule_with_exceptions(&rule_id, globs) {
+            service = service.replace_rule(rule);
+        }
+    }
     let boundaries = architecture_config(architecture);
     if !boundaries.is_empty() {
         // Only discovered when there's a boundary to check against — this
@@ -381,6 +466,47 @@ pub fn layer_taxonomy(
     vord_import_graph::LayerTaxonomy::new(entries)
 }
 
+/// Converts `[vite_react.exceptions]` from `vord.toml` into the plain
+/// `(rule id, globs)` pairs [`scan_with_profile`] applies — same shape of
+/// bridge `architecture_config` is for `[architecture]`, just keyed by rule
+/// id instead of a fixed struct, since one glob-exceptions table serves
+/// every rule in `rulesets/vite-react` rather than one edge kind.
+pub fn vite_react_config(
+    settings: &vord_infra_fs::ViteReactSettings,
+) -> HashMap<String, Vec<String>> {
+    settings.exceptions.clone()
+}
+
+/// Reconstructs the one `rulesets/vite-react` rule named `rule_id` with
+/// `globs` as its exceptions, or `None` for a rule id this ruleset doesn't
+/// recognize (a `vord.toml` typo is ignored here rather than failing the
+/// scan — the same forward-compatible posture `ViteReactSettings` itself
+/// documents). `service.replace_rule` then swaps it in for the
+/// zero-exceptions instance `default_service` already registered.
+fn vite_react_rule_with_exceptions(rule_id: &str, globs: Vec<String>) -> Option<Box<dyn Rule>> {
+    match rule_id {
+        "vite-react:no-data-layer-import-in-view" => Some(Box::new(
+            vord_rules_vite_react::NoDataLayerImportInViewRule::with_exceptions(globs),
+        )),
+        "vite-react:no-transport-call-in-view" => Some(Box::new(
+            vord_rules_vite_react::NoTransportCallInViewRule::with_exceptions(globs),
+        )),
+        "vite-react:data-hook-outside-api-dir" => Some(Box::new(
+            vord_rules_vite_react::DataHookOutsideApiDirRule::with_exceptions(globs),
+        )),
+        "vite-react:transport-client-outside-infra" => Some(Box::new(
+            vord_rules_vite_react::TransportClientOutsideInfraRule::with_exceptions(globs),
+        )),
+        "vite-react:hardcoded-base-url" => Some(Box::new(
+            vord_rules_vite_react::HardcodedBaseUrlRule::with_exceptions(globs),
+        )),
+        "vite-react:tailwind-space-between" => Some(Box::new(
+            vord_rules_vite_react::TailwindSpaceBetweenRule::with_exceptions(globs),
+        )),
+        _ => None,
+    }
+}
+
 /// Walks up from `start` looking for a `.git` directory, so remediation can
 /// sandbox its verification in the real worktree the file lives in rather
 /// than mutating the caller's file directly with no rollback.
@@ -492,6 +618,7 @@ mod tests {
             .chain(vord_rules_ai_agent::all_rules())
             .chain(vord_rules_architecture::all_rules())
             .chain(vord_rules_ddd::all_rules())
+            .chain(vord_rules_vite_react::all_rules())
             .collect();
 
         let mut seen = HashSet::new();

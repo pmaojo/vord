@@ -3387,6 +3387,7 @@ dependencies = [
  "vord-rules-secrets",
  "vord-rules-smells",
  "vord-rules-typescript",
+ "vord-rules-vite-react",
  "vord-rules-wordpress",
  "vord-swarm",
  "vord-taint",
@@ -4052,6 +4053,17 @@ version = "0.7.0"
 dependencies = [
  "oxc",
  "vord-ast",
+ "vord-parser-typescript",
+ "vord-rules-engine",
+]
+
+[[package]]
+name = "vord-rules-vite-react"
+version = "0.7.0"
+dependencies = [
+ "globset",
+ "vord-ast",
+ "vord-import-graph",
  "vord-parser-typescript",
  "vord-rules-engine",
 ]

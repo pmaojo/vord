@@ -1,0 +1,27 @@
+# Starting point for a Vite+React project following the bulletproof-react
+# layered convention (src/components, src/features/<feature>/{api,hooks,components},
+# src/infra). Copy this to <repo>/vord.toml and adjust to taste.
+#
+# Full walkthrough: docs/starters/vite-react-frontend-starter.md
+
+[project]
+key = "my-vite-react-app"
+
+# NOTE: this field is recorded for documentation/future use but is not yet
+# read by `vord scan` — pass `--profile vite-react-frontend-starter`
+# explicitly on the command line (see the composite command in the docs
+# above) until config-file profile selection ships.
+[analysis]
+sources = ["src"]
+exclusions = ["**/*.stories.tsx", "**/*.test.tsx", "**/node_modules/**"]
+profile = "vite-react-frontend-starter"
+
+[vite_react.exceptions]
+# One entry per rule id that needs a reviewed, explicit exception — never
+# implicit. Globs are matched against the file's path relative to the scan
+# root. Example: a legacy component mid-migration that's still allowed to
+# import global state directly.
+# "vite-react:no-data-layer-import-in-view" = ["src/components/SomeException/**"]
+
+[gate]
+min_health_score = 90

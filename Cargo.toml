@@ -69,6 +69,7 @@ vord-rules-php = { path = "rulesets/php", version = "0.7.0" }
 vord-rules-wordpress = { path = "rulesets/wordpress", version = "0.7.0" }
 vord-rules-go = { path = "rulesets/go", version = "0.7.0" }
 vord-rules-ai-agent = { path = "rulesets/ai-agent", version = "0.7.0" }
+vord-rules-vite-react = { path = "rulesets/vite-react", version = "0.7.0" }
 vord-infra-memory = { path = "infra/memory", version = "0.7.0" }
 vord-cli = { path = "bin/cli", version = "0.7.0" }
 vord-infra-fs = { path = "infra/fs", version = "0.7.0" }

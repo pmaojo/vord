@@ -78,6 +78,7 @@ pub use vord_profiles::{
     GateEvaluation, GateStatus, ImpactSeverity, InvalidMetricKeyError, InvalidRuleIdError,
     IssueType, MetricKey, ProfileBackup, ProfileDiff, QualityGate, QualityProfile, Rating,
     RemediationEffortSummary, RestoreError, RestorePolicy, RuleId, Severity, SeverityDifference,
-    SoftwareQuality, SoftwareQualityImpact, backup, compare, copy_profile, default_impact,
-    default_profile, default_profile_for_language, restore,
+    SoftwareQuality, SoftwareQualityImpact, VITE_REACT_FRONTEND_STARTER_NAME, backup, compare,
+    copy_profile, default_impact, default_profile, default_profile_for_language, profile_by_name,
+    restore, vite_react_frontend_starter,
 };

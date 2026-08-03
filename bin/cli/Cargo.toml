@@ -52,6 +52,7 @@ vord-parser-elixir = { workspace = true }
 vord-rules-owasp = { workspace = true }
 vord-rules-smells = { workspace = true }
 vord-rules-ai-agent = { workspace = true }
+vord-rules-vite-react = { workspace = true }
 vord-rules-iac = { workspace = true }
 vord-rules-a11y = { workspace = true }
 vord-rules-react = { workspace = true }
