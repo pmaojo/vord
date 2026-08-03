@@ -143,6 +143,7 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("rust:mutex-atomic-candidate"), Severity::Minor),
         (rule("rust:suspicious-arithmetic-impl"), Severity::Major),
         (rule("rust:lock-held-across-await"), Severity::Critical),
+        (rule("rust:disallow-panic-macros"), Severity::Major),
         // rulesets/code-smells — applies_to rust only.
         (rule("smells:unwrap-usage"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/python/rust.
@@ -314,6 +315,7 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         ),
         (rule("python:debugger-left-in-code"), Severity::Major),
         (rule("python:open-without-encoding"), Severity::Minor),
+        (rule("python:unclosed-open-file"), Severity::Major),
         (rule("python:datetime-utcnow-naive"), Severity::Minor),
         (rule("python:mutable-class-attribute"), Severity::Major),
         (

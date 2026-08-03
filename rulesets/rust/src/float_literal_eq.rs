@@ -59,6 +59,8 @@ impl Rule for FloatLiteralEqRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "binary_expression"))
             .filter_map(|expr| match expr.children() {
@@ -68,6 +70,7 @@ impl Rule for FloatLiteralEqRule {
             .filter(|(_, left, right)| {
                 is_other(left.kind(), "float_literal") || is_other(right.kind(), "float_literal")
             })
+            .filter(|(expr, _, _)| !vord_rules_engine::in_ranges(&test_ranges, expr.span().start_line))
             .filter_map(|(expr, left, right)| {
                 let op = operator_between(file.content(), left, right);
                 (op == "==" || op == "!=").then(|| {
@@ -124,5 +127,11 @@ mod tests {
     #[test]
     fn ignores_non_equality_float_comparison() {
         assert!(check("fn f(x: f64) { if x < 1.0 {} }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_float_literal_eq_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t(x: f64) {\n        if x == 1.0 {}\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

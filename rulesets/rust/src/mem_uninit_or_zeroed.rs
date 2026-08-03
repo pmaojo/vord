@@ -78,10 +78,15 @@ impl Rule for MemUninitOrZeroedRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter_map(|call| {
+                if vord_rules_engine::in_ranges(&test_ranges, call.span().start_line) {
+                    return None;
+                }
                 let callee = call.first_child()?;
                 let message = message_for(callee.text())?;
                 Some(Finding::hotspot(message, call.span()))
@@ -118,5 +123,11 @@ mod tests {
     #[test]
     fn ignores_unrelated_calls() {
         assert!(check("fn f() { let x = std::mem::size_of::<u8>(); }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_mem_zeroed_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n        let x: u8 = unsafe { std::mem::zeroed() };\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

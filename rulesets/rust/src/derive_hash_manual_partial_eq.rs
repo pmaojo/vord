@@ -127,7 +127,8 @@ impl Rule for DeriveHashManualPartialEqRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
         let mut hash_derived = Vec::new();
         collect_hash_derived(ast, &mut hash_derived);
         let manual_eq_targets = manual_partial_eq_targets(ast);
@@ -135,6 +136,7 @@ impl Rule for DeriveHashManualPartialEqRule {
         hash_derived
             .into_iter()
             .filter(|(name, _)| manual_eq_targets.contains(&name.as_str()))
+            .filter(|(_, span)| !vord_rules_engine::in_ranges(&test_ranges, span.start_line))
             .map(|(name, span)| {
                 Finding::new(
                     format!(
@@ -197,5 +199,11 @@ mod tests {
             "#[derive(Hash)]\nstruct Foo(u32);\nimpl Clone for Foo {\n    fn clone(&self) -> Self { Self(0) }\n}\n"
         )
         .is_empty());
+    }
+
+    #[test]
+    fn ignores_derive_hash_manual_partial_eq_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[derive(Hash, Eq)]\n    struct Foo(u32);\n    impl PartialEq for Foo {\n        fn eq(&self, o: &Self) -> bool { true }\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

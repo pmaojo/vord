@@ -83,13 +83,16 @@ impl Rule for MutexAtomicCandidateRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "generic_type"))
             .filter(|n| {
                 n.first_child()
                     .is_some_and(|base| base_name(base) == "Mutex")
             })
+            .filter(|n| !vord_rules_engine::in_ranges(&test_ranges, n.span().start_line))
             .filter_map(|n| {
                 let arg = sole_primitive_type_arg(n)?;
                 ATOMIC_CANDIDATE_TYPES.contains(&arg.text()).then(|| {
@@ -165,5 +168,11 @@ mod tests {
     #[test]
     fn ignores_rwlock_bool() {
         assert!(check("struct S { flag: RwLock<bool> }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_mutex_atomic_candidate_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    struct S { counter: Mutex<u32> }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

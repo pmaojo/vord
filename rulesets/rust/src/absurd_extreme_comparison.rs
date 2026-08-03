@@ -133,6 +133,8 @@ impl Rule for AbsurdExtremeComparisonRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::FunctionDef)
             .flat_map(|func| {
@@ -140,6 +142,9 @@ impl Rule for AbsurdExtremeComparisonRule {
                 func.descendants()
                     .filter(|n| is_other(n.kind(), "binary_expression") && n.children().len() == 2)
                     .filter_map(|n| {
+                        if vord_rules_engine::in_ranges(&test_ranges, n.span().start_line) {
+                            return None;
+                        }
                         let (left, right) = (&n.children()[0], &n.children()[1]);
                         let op = operator_between(file.content(), left, right);
                         absurd_message(&unsigned, left, right, op)
@@ -195,5 +200,11 @@ mod tests {
     #[test]
     fn ignores_unsigned_compared_to_other_var() {
         assert!(check("fn f(x: u32, y: u32) { if x < y { } }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_absurd_comparison_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    fn t(x: u32) {\n        if x < 0 { }\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

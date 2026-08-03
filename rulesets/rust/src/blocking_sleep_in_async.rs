@@ -96,7 +96,8 @@ impl Rule for BlockingSleepInAsyncRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
         let mut spans: Vec<Span> = Vec::new();
         for async_fn in ast
             .descendants()
@@ -108,6 +109,7 @@ impl Rule for BlockingSleepInAsyncRule {
         }
         spans
             .into_iter()
+            .filter(|span| !vord_rules_engine::in_ranges(&test_ranges, span.start_line))
             .map(|span| {
                 Finding::new(
                     "`std::thread::sleep` blocks the OS thread inside an `async fn`, stalling \
@@ -171,5 +173,11 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn ignores_blocking_sleep_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    async fn t() {\n        std::thread::sleep(std::time::Duration::from_secs(1));\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

@@ -52,7 +52,8 @@ impl Rule for BufferNoassertRule {
                 let Some(callee) = n.first_child() else { return false };
                 if *callee.kind() != NodeKind::MemberAccess { return false; }
                 let text = callee.text();
-                text.contains(".read") || text.contains(".write")
+                let method = text.rsplit('.').next().unwrap_or(text);
+                is_buffer_read_write_method(method)
             })
             .filter(|n| {
                 crate::common::call_arguments(n).iter().any(|arg| {
@@ -62,6 +63,46 @@ impl Rule for BufferNoassertRule {
             .map(|n| Finding::new("Using `noAssert` (passing true as the last argument to Buffer read/write methods) allows out-of-bounds memory access. Remove the argument to enable bounds checking.", n.span()))
             .collect()
     }
+}
+
+/// Node's `Buffer` instance methods that accept a `noAssert` boolean as
+/// their last argument. Matched by exact method name — not a `.read`/
+/// `.write` substring of the callee, which would also match unrelated
+/// methods like `stream.readable()`, `fs.writeFileSync(path, data, true)`
+/// or any application method merely named `*read*`/`*write*` that happens
+/// to take a trailing boolean flag.
+fn is_buffer_read_write_method(method: &str) -> bool {
+    matches!(
+        method,
+        "readUInt8"
+            | "readUInt16LE"
+            | "readUInt16BE"
+            | "readUInt32LE"
+            | "readUInt32BE"
+            | "readInt8"
+            | "readInt16LE"
+            | "readInt16BE"
+            | "readInt32LE"
+            | "readInt32BE"
+            | "readFloatLE"
+            | "readFloatBE"
+            | "readDoubleLE"
+            | "readDoubleBE"
+            | "writeUInt8"
+            | "writeUInt16LE"
+            | "writeUInt16BE"
+            | "writeUInt32LE"
+            | "writeUInt32BE"
+            | "writeInt8"
+            | "writeInt16LE"
+            | "writeInt16BE"
+            | "writeInt32LE"
+            | "writeInt32BE"
+            | "writeFloatLE"
+            | "writeFloatBE"
+            | "writeDoubleLE"
+            | "writeDoubleBE"
+    )
 }
 
 #[cfg(test)]
@@ -101,5 +142,13 @@ mod tests {
     #[test]
     fn allows_false_noassert() {
         assert!(check("buf.readUInt8(0, false);\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_unrelated_read_and_write_methods_with_a_trailing_true() {
+        assert!(check("fs.writeFileSync(path, data, true);\n").is_empty());
+        assert!(check("cache.write(key, value, true);\n").is_empty());
+        assert!(check("logger.readValue(id, true);\n").is_empty());
+        assert!(check("stream.readable(true);\n").is_empty());
     }
 }

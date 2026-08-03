@@ -58,10 +58,13 @@ impl Rule for FromOverIntoRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "impl_item"))
             .filter(|n| impl_trait_is(n, "Into"))
+            .filter(|n| !vord_rules_engine::in_ranges(&test_ranges, n.span().start_line))
             .map(|n| {
                 Finding::new(
                     "implement `From` for the target type instead of `Into`; `From` gives you \
@@ -114,5 +117,11 @@ mod tests {
     #[test]
     fn ignores_unrelated_trait_impls() {
         assert!(check("impl Clone for Foo { fn clone(&self) -> Self { Self } }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_from_over_into_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    impl Into<String> for Foo {\n        fn into(self) -> String { self.0 }\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

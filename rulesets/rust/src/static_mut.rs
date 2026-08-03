@@ -60,7 +60,9 @@ impl Rule for StaticMutRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "static_item"))
             .filter(|s| {
@@ -68,6 +70,7 @@ impl Rule for StaticMutRule {
                     .iter()
                     .any(|c| is_other(c.kind(), "mutable_specifier"))
             })
+            .filter(|s| !vord_rules_engine::in_ranges(&test_ranges, s.span().start_line))
             .map(|s| {
                 Finding::new(
                     "`static mut` allows unsynchronized global mutable state; use an atomic \
@@ -107,5 +110,11 @@ mod tests {
     #[test]
     fn ignores_local_mut_binding() {
         assert!(check("fn f() { let mut x = 0; x += 1; }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_static_mut_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    static mut COUNTER: u32 = 0;\n}\n";
+        assert!(check(code).is_empty());
     }
 }
