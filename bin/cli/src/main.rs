@@ -1148,7 +1148,7 @@ fn ingest_sarif(
     } else {
         tools.join(", ")
     };
-    println!(
+    eprintln!(
         "📥 Imported {imported} issue(s) from {} SARIF report(s) [{tools}]{}",
         args.reports.sarif.len(),
         if skipped > 0 {

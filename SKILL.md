@@ -68,6 +68,38 @@
 
 ---
 
+## 🧬 Full-Coverage Linting: Oxlint/Ruff/Clippy's Real Rule Catalogs
+
+`vord scan` alone only catches parse errors for `typescript:oxlint-analyzer`/
+`python:ruff-analyzer`/`rust:clippy-analyzer` — not each tool's actual rules
+(see Phase 3 above). For real coverage, run each tool yourself with SARIF
+output and merge it into the same scan. Every command below is verified to
+work as written — not just documented, actually run end-to-end:
+
+```bash
+# JS/TS — oxlint's own rule engine (native `-f sarif`, oxlint >= 1.x)
+oxlint -f sarif src > oxlint.sarif
+
+# Python — ruff's own rule engine (native `--output-format sarif`)
+ruff check --output-format sarif . > ruff.sarif
+
+# Rust — clippy's own rule engine (needs a one-time
+# `cargo install --locked clippy-sarif`; clippy itself has no native SARIF output)
+cargo clippy --message-format=json -q 2>/dev/null | clippy-sarif > clippy.sarif
+
+# Merge whichever of the above apply to this repo — a JS/TS+Python monorepo
+# skips --sarif clippy.sarif, etc. Imported findings become ordinary issues:
+# they count toward blocker_issues/critical_issues, show up in --format
+# json's issues[], and can fail --enforce-gate, same as vord's own rules.
+vord scan . --sarif oxlint.sarif --sarif ruff.sarif --sarif clippy.sarif --enforce-gate
+```
+
+`--format json`'s stdout carries only the JSON payload (the "📥 Imported..."
+status line goes to stderr) — safe to pipe straight into `jq`/a parser
+without stripping anything first.
+
+---
+
 ## ✅ Finishing a Task: Version Bump Convention
 
 Once a change is actually done — implemented, tested, and you have
