@@ -66,6 +66,26 @@
     "duplication_edge.rs": {
       "is_vulnerable": false,
       "expected_rules": []
+    },
+    "wordpress_vulnerable.php": {
+      "is_vulnerable": true,
+      "expected_rules": [
+        "wordpress:unescaped-superglobal-output",
+        "wordpress:unsanitized-superglobal-input",
+        "wordpress:nonce-verification-missing",
+        "wordpress:unprepared-wpdb-query",
+        "wordpress:i18n-missing-text-domain",
+        "wordpress:discouraged-function",
+        "wordpress:global-variable-override",
+        "wordpress:unsafe-plugin-menu-slug",
+        "wordpress:unversioned-enqueued-resource",
+        "wordpress:discouraged-constant",
+        "wordpress:assignment-in-condition"
+      ]
+    },
+    "wordpress_clean.php": {
+      "is_vulnerable": false,
+      "expected_rules": []
     }
   }
 }

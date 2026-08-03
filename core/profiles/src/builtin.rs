@@ -370,6 +370,30 @@ fn php_activations() -> Vec<(RuleId, Severity)> {
         (rule("php:variable-variable"), Severity::Major),
         (rule("php:weak-random-token"), Severity::Critical),
         (rule("php:swallowed-exception"), Severity::Major),
+        // rulesets/wordpress — WPCS-shaped checks, applies_to php only.
+        (
+            rule("wordpress:unescaped-superglobal-output"),
+            Severity::Blocker,
+        ),
+        (
+            rule("wordpress:unsanitized-superglobal-input"),
+            Severity::Major,
+        ),
+        (
+            rule("wordpress:nonce-verification-missing"),
+            Severity::Major,
+        ),
+        (rule("wordpress:unprepared-wpdb-query"), Severity::Blocker),
+        (rule("wordpress:i18n-missing-text-domain"), Severity::Minor),
+        (rule("wordpress:discouraged-function"), Severity::Major),
+        (rule("wordpress:global-variable-override"), Severity::Major),
+        (rule("wordpress:unsafe-plugin-menu-slug"), Severity::Major),
+        (
+            rule("wordpress:unversioned-enqueued-resource"),
+            Severity::Minor,
+        ),
+        (rule("wordpress:discouraged-constant"), Severity::Minor),
+        (rule("wordpress:assignment-in-condition"), Severity::Major),
     ]);
     activations
 }

@@ -57,6 +57,7 @@ def lang_from_path(file_path: str) -> str:
         ".ts": "typescript", ".tsx": "typescript", ".js": "typescript",
         ".py": "python",
         ".rs": "rust",
+        ".php": "php",
         ".html": "html",
         ".tf": "hcl", ".hcl": "hcl",
         ".yaml": "yaml", ".yml": "yaml",

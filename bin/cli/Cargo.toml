@@ -65,6 +65,7 @@ vord-rules-reactive = { workspace = true }
 vord-rules-mutation = { workspace = true }
 vord-rules-typescript = { workspace = true }
 vord-rules-php = { workspace = true }
+vord-rules-wordpress = { workspace = true }
 vord-rules-go = { workspace = true }
 vord-agent-policy = { workspace = true }
 vord-agent = { workspace = true }

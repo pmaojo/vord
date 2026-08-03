@@ -1,0 +1,18 @@
+[package]
+name = "vord-rules-wordpress"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "WordPress coding-standards ruleset for the vord analysis engine"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+vord-ast = { workspace = true }
+vord-rules-engine = { workspace = true }
+
+[dev-dependencies]
+vord-parser-php = { workspace = true }

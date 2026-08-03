@@ -41,6 +41,19 @@ fn scans_fixtures_and_finds_every_rule_family() {
         "ddd:primitive-obsession",
         "smells:type-check-chain",
         "smells:service-locator",
+        // The WordPress fixture: every wordpress:* rule, proving the
+        // composition-root wiring (rules chain + "vord way" profile
+        // activation in core/profiles) end to end, not just their unit tests.
+        "wordpress:unescaped-superglobal-output",
+        "wordpress:unsanitized-superglobal-input",
+        "wordpress:unprepared-wpdb-query",
+        "wordpress:i18n-missing-text-domain",
+        "wordpress:discouraged-function",
+        "wordpress:global-variable-override",
+        "wordpress:unsafe-plugin-menu-slug",
+        "wordpress:unversioned-enqueued-resource",
+        "wordpress:discouraged-constant",
+        "wordpress:assignment-in-condition",
     ] {
         assert!(
             fired.contains(expected),
@@ -48,7 +61,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
         );
     }
 
-    assert_eq!(report.metrics().files_scanned(), 23);
+    assert_eq!(report.metrics().files_scanned(), 25);
     assert_eq!(report.metrics().parse_failures(), 0);
     assert!(report.metrics().lines_of_code() > 50);
     assert!(report.metrics().debt_minutes() > 0);
@@ -64,26 +77,74 @@ fn scans_fixtures_and_finds_every_rule_family() {
 
     // OS-command hotspots fire as hotspots, not issues — Rust Command::new,
     // Python os.system, and the execSync inside lib_exec.ts — plus the
-    // `dangerouslySetInnerHTML` hotspot in the React fixture.
-    assert_eq!(report.hotspots().len(), 4);
+    // `dangerouslySetInnerHTML` hotspot in the React fixture, plus one
+    // `wordpress:nonce-verification-missing` hotspot per function in
+    // wordpress_vulnerable.php that reads request data without a nonce check
+    // (save_settings, render_greeting, store_email, redirect_after_login,
+    // admin_menu).
+    assert_eq!(report.hotspots().len(), 9);
     for hotspot in report.hotspots() {
         assert!(matches!(
             hotspot.rule().as_str(),
-            "owasp:command-execution" | "react:dangerously-set-inner-html"
+            "owasp:command-execution"
+                | "react:dangerously-set-inner-html"
+                | "wordpress:nonce-verification-missing"
         ));
     }
 
     // Python detections: eval issue and the hardcoded password.
+    assert!(report
+        .issues()
+        .iter()
+        .any(|i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:eval-usage"));
+    assert!(report
+        .issues()
+        .iter()
+        .any(|i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:hardcoded-secret"));
+
+    // WordPress fixtures: wordpress_vulnerable.php trips every wordpress:*
+    // rule (checked above); wordpress_clean.php is the same plugin written
+    // the WPCS-approved way and must trip none of them — proves the ruleset
+    // isn't just permissive enough to never fire, it actually discriminates.
     assert!(
         report
             .issues()
             .iter()
-            .any(|i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:eval-usage")
+            .all(|i| !i.file().ends_with("wordpress_clean.php")
+                || !i.rule().as_str().starts_with("wordpress:")),
+        "wordpress_clean.php should trip no wordpress:* issues"
     );
     assert!(
-        report.issues().iter().any(
-            |i| i.file().ends_with("dirty.py") && i.rule().as_str() == "owasp:hardcoded-secret"
-        )
+        report
+            .hotspots()
+            .iter()
+            .all(|h| !h.file().ends_with("wordpress_clean.php")
+                || !h.rule().as_str().starts_with("wordpress:")),
+        "wordpress_clean.php should trip no wordpress:* hotspots"
+    );
+    let wordpress_vulnerable_rules: BTreeSet<&str> = report
+        .issues()
+        .iter()
+        .filter(|i| {
+            i.file().ends_with("wordpress_vulnerable.php")
+                && i.rule().as_str().starts_with("wordpress:")
+        })
+        .map(|i| i.rule().as_str())
+        .collect();
+    assert_eq!(
+        wordpress_vulnerable_rules,
+        BTreeSet::from([
+            "wordpress:unescaped-superglobal-output",
+            "wordpress:unsanitized-superglobal-input",
+            "wordpress:unprepared-wpdb-query",
+            "wordpress:i18n-missing-text-domain",
+            "wordpress:discouraged-function",
+            "wordpress:global-variable-override",
+            "wordpress:unsafe-plugin-menu-slug",
+            "wordpress:unversioned-enqueued-resource",
+            "wordpress:discouraged-constant",
+            "wordpress:assignment-in-condition",
+        ])
     );
 
     // Go rides the same rules through its own grammar: a struct with receiver
@@ -163,6 +224,7 @@ fn scans_fixtures_and_finds_every_rule_family() {
                 || issue.file().ends_with(".go")
                 || issue.file().ends_with(".tf")
                 || issue.file().ends_with(".html")
+                || issue.file().ends_with(".php")
         );
     }
 }
