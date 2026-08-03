@@ -55,13 +55,16 @@ impl Rule for DbgMacroRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter(|call| {
                 call.first_child()
                     .is_some_and(|c| *c.kind() == NodeKind::Identifier && c.text() == "dbg")
             })
+            .filter(|call| !vord_rules_engine::in_ranges(&test_ranges, call.span().start_line))
             .map(|call| {
                 Finding::new(
                     "`dbg!` left in code; remove it or replace it with a real logging call"
@@ -100,5 +103,11 @@ mod tests {
     #[test]
     fn ignores_identifier_named_dbg() {
         assert!(check("fn f() { let dbg = 1; let _ = dbg; }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_dbg_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t(x: u32) -> u32 {\n        dbg!(x)\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

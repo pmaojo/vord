@@ -76,12 +76,14 @@ impl Rule for UnsafeSendSyncImplRule {
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let lines: Vec<&str> = file.content().lines().collect();
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         ast.descendants()
             .filter(|n| is_other(n.kind(), "impl_item"))
             .filter(|n| is_unsafe_impl(n))
             .filter(|n| impl_trait_is(n, "Send") || impl_trait_is(n, "Sync"))
             .filter(|n| !has_safety_comment_directly_above(&lines, n.span().start_line))
+            .filter(|n| !vord_rules_engine::in_ranges(&test_ranges, n.span().start_line))
             .map(|n| {
                 Finding::hotspot(
                     "`unsafe impl Send`/`Sync` has no `SAFETY` comment justifying the \
@@ -145,5 +147,11 @@ mod tests {
     #[test]
     fn ignores_other_unsafe_trait_impls() {
         assert!(check("unsafe impl Allocator for Foo {}\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_unsafe_send_sync_impl_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    unsafe impl Send for Wrapper {}\n}\n";
+        assert!(check(code).is_empty());
     }
 }

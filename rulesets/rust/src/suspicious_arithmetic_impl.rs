@@ -107,8 +107,11 @@ impl Rule for SuspiciousArithmeticImplRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "impl_item"))
+            .filter(|n| !vord_rules_engine::in_ranges(&test_ranges, n.span().start_line))
             .flat_map(|impl_item| {
                 ARITHMETIC_TRAITS
                     .iter()
@@ -196,5 +199,11 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn ignores_suspicious_arithmetic_impl_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    impl std::ops::Add for P {\n        type Output = P;\n        fn add(self, o: P) -> P { P { x: self.x - o.x } }\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

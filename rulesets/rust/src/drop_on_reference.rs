@@ -71,10 +71,13 @@ impl Rule for DropOnReferenceRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter(|call| call.first_child().is_some_and(|c| is_drop_call(c.text())))
+            .filter(|call| !vord_rules_engine::in_ranges(&test_ranges, call.span().start_line))
             .filter_map(|call| {
                 let arg = sole_argument(call)?;
                 is_other(arg.kind(), "reference_expression").then(|| {
@@ -131,5 +134,11 @@ mod tests {
     #[test]
     fn ignores_unrelated_calls() {
         assert!(check("fn f() { let x = 1; let _ = &x; }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_drop_on_reference_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n        let x = 1;\n        drop(&x);\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

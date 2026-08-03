@@ -57,6 +57,8 @@ impl Rule for ModuloOneRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "binary_expression") && n.children().len() == 2)
             .filter(|n| {
@@ -65,6 +67,7 @@ impl Rule for ModuloOneRule {
                     && right.text() == "1"
                     && operator_between(file.content(), &n.children()[0], right) == "%"
             })
+            .filter(|n| !vord_rules_engine::in_ranges(&test_ranges, n.span().start_line))
             .map(|n| {
                 Finding::new(
                     "`% 1` always evaluates to 0; this looks like a typo".to_string(),
@@ -113,5 +116,11 @@ mod tests {
     #[test]
     fn ignores_division_by_one() {
         assert!(check("fn f(x: i32) -> i32 { x / 1 }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_modulo_one_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    fn t(x: i32) -> i32 {\n        x % 1\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

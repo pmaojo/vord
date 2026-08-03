@@ -67,6 +67,8 @@ impl Rule for SelfComparisonRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "binary_expression"))
             .filter_map(|expr| match expr.children() {
@@ -75,6 +77,7 @@ impl Rule for SelfComparisonRule {
             })
             .filter(|(_, left, _)| !is_literal(left.kind()))
             .filter(|(_, left, right)| left.text().trim() == right.text().trim())
+            .filter(|(expr, _, _)| !vord_rules_engine::in_ranges(&test_ranges, expr.span().start_line))
             .filter_map(|(expr, left, right)| {
                 let op = operator_between(file.content(), left, right);
                 (op == "==" || op == "!=").then(|| {
@@ -139,5 +142,11 @@ mod tests {
     #[test]
     fn ignores_non_equality_operators() {
         assert!(check("fn f(x: i32) { if x <= x {} }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_self_comparison_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t(x: i32) {\n        if x == x {}\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

@@ -31,6 +31,7 @@ mod sql_injection;
 mod subprocess_shell_true;
 mod tarfile_unsafe_extraction;
 mod type_comparison;
+mod unclosed_open_file;
 mod unsafe_yaml_load;
 mod unused_loop_variable;
 mod wildcard_import;
@@ -66,6 +67,7 @@ pub use sql_injection::SqlInjectionRule;
 pub use subprocess_shell_true::SubprocessShellTrueRule;
 pub use tarfile_unsafe_extraction::TarfileUnsafeExtractionRule;
 pub use type_comparison::TypeComparisonRule;
+pub use unclosed_open_file::UnclosedOpenFileRule;
 pub use unsafe_yaml_load::UnsafeYamlLoadRule;
 pub use unused_loop_variable::UnusedLoopVariableRule;
 pub use wildcard_import::WildcardImportRule;
@@ -108,5 +110,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(MissingTypeAnnotationsRule::new()),
         Box::new(ModernTypeSyntaxRule::new()),
         Box::new(RuffAdapterRule::new()),
+        Box::new(UnclosedOpenFileRule::new()),
     ]
 }

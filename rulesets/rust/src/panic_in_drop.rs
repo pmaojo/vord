@@ -102,10 +102,13 @@ impl Rule for PanicInDropRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "impl_item"))
             .filter(|n| impl_trait_is(n, "Drop"))
+            .filter(|n| !vord_rules_engine::in_ranges(&test_ranges, n.span().start_line))
             .filter_map(drop_method)
             .flat_map(|drop_fn| {
                 drop_fn
@@ -182,5 +185,11 @@ mod tests {
     #[test]
     fn ignores_other_trait_impls() {
         assert!(check("impl Clone for Foo {\n    fn clone(&self) -> Self {\n        self.x.unwrap();\n        Self\n    }\n}\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_panic_in_drop_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    impl Drop for Foo {\n        fn drop(&mut self) {\n            self.close().unwrap();\n        }\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

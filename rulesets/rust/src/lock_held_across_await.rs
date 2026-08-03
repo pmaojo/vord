@@ -156,10 +156,13 @@ impl Rule for LockHeldAcrossAwaitRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
+
         ast.descendants()
             .filter(|n| is_other(n.kind(), "block"))
             .flat_map(scan_block)
+            .filter(|span| !vord_rules_engine::in_ranges(&test_ranges, span.start_line))
             .map(|span| {
                 Finding::new(
                     "a lock guard taken earlier in this block is still held across this \
@@ -245,5 +248,11 @@ mod tests {
             "async fn f(m: std::sync::Mutex<i32>) { let g = m.lock().unwrap(); spawn(|| async { other().await; }); drop(g); }\n"
         )
         .is_empty());
+    }
+
+    #[test]
+    fn ignores_lock_held_across_await_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    async fn t(m: std::sync::Mutex<i32>) {\n        let g = m.lock().unwrap();\n        other().await;\n        drop(g);\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }

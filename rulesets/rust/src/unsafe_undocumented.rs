@@ -60,10 +60,12 @@ impl Rule for UnsafeUndocumentedRule {
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let lines: Vec<&str> = file.content().lines().collect();
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Other("unsafe_block".into()))
             .filter(|block| !has_safety_comment_directly_above(&lines, block.span().start_line))
+            .filter(|block| !vord_rules_engine::in_ranges(&test_ranges, block.span().start_line))
             .map(|block| {
                 Finding::hotspot(
                     "`unsafe` block has no `SAFETY` comment explaining why it's sound",
@@ -125,5 +127,11 @@ mod tests {
     #[test]
     fn ignores_non_rust_languages() {
         assert!(!UnsafeUndocumentedRule::new().applies_to(&LanguageIdentifier::typescript()));
+    }
+
+    #[test]
+    fn ignores_unsafe_block_inside_a_cfg_test_module() {
+        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {\n        unsafe { g(); }\n    }\n}\n";
+        assert!(check(code).is_empty());
     }
 }
