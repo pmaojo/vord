@@ -142,6 +142,36 @@ doesn't seem to take effect. A ready-to-copy starting point (this exact
 table, plus `[analysis]`/`[gate]`) lives at
 `rulesets/vite-react/vord.toml.template`.
 
+## Known false-positive fixes
+
+Two false-positive classes were found by hand-testing the rules against
+realistic (not just the shipped fixture) code, and fixed before this profile
+was considered ready:
+
+- **`vite-react:no-data-layer-import-in-view` and type-only imports.**
+  `import type { QueryClient } from '@tanstack/react-query'` (typing a prop,
+  no runtime call) used to be flagged identically to a real
+  `import { useQuery } from '@tanstack/react-query'`. The rule now skips any
+  import/export statement that starts with `import type`/`export type`
+  before matching it against the data-layer roster or the infra-specifier
+  check. A per-specifier `import { type X, useQuery } from '...'` is not
+  covered by this — a statement is only exempted when the whole statement is
+  type-only.
+- **`vite-react:hardcoded-base-url` and presentational URLs.** The name
+  heuristic used to match *any* `*Url`-suffixed binding, so
+  `const avatarUrl = 'https://cdn.example.com/default.png'` was flagged with
+  "move this to infra config" — wrong advice for a plain image link. The
+  heuristic now only matches `url`/`endpoint` exactly, or a `*Url`-suffixed
+  name that also mentions `base`/`api`/`server`/`backend` (`baseURL`,
+  `apiUrl`, `serverUrl`, …).
+
+Both have regression tests (`silent_on_a_type_only_import`,
+`silent_on_a_presentational_url_binding`) alongside the rules' existing
+positive cases, but the heuristics are still name/shape-based and not
+exhaustive — treat a first run's findings as a starting point to triage, not
+as ground truth, and use `[vite_react.exceptions]` for anything that's a
+false positive this pass didn't anticipate.
+
 ## Rolling this out
 
 `--profile` and the `vite-react-frontend-starter` name are new additions —

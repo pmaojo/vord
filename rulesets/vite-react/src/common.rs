@@ -94,6 +94,23 @@ pub(crate) fn is_infra_specifier(specifier: &str) -> bool {
     )
 }
 
+/// Spans of every `import type { ... } from '...'` / `export type { ... }
+/// from '...'` statement in `ast` — a type-only import is erased at compile
+/// time, so it carries none of the runtime coupling these rules exist to
+/// catch (a component typing a prop as `QueryClient` is not calling React
+/// Query). `imported_modules` doesn't distinguish the two, so callers that
+/// care check a hit's span against this set themselves.
+pub(crate) fn is_type_only_import_span(ast: &AstNode, span: vord_ast::Span) -> bool {
+    ast.descendants().any(|node| {
+        (is_other(node, "import_statement") || is_other(node, "export_statement"))
+            && node.span() == span
+            && {
+                let text = node.text().trim_start();
+                text.starts_with("import type") || text.starts_with("export type")
+            }
+    })
+}
+
 /// A path whose name marks it as configuration rather than application
 /// code (`vite.config.ts`, `src/config/env.ts`, `tailwind.config.js`) — the
 /// literal it holds is a deliberate, single-source-of-truth constant, not

@@ -13,7 +13,7 @@ use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
 use vord_import_graph::{imported_modules, matches_module};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::{build_globset, is_excepted, is_infra_specifier, is_view_path};
+use crate::common::{build_globset, is_excepted, is_infra_specifier, is_view_path, is_type_only_import_span};
 
 struct RosterEntry {
     module: &'static str,
@@ -115,6 +115,9 @@ impl Rule for NoDataLayerImportInViewRule {
         imported_modules(file, ast)
             .into_iter()
             .filter_map(|import| {
+                if is_type_only_import_span(ast, import.span) {
+                    return None;
+                }
                 if is_infra_specifier(&import.specifier) {
                     return Some(Finding::new(
                         format!(
@@ -215,6 +218,24 @@ mod tests {
             ts(
                 "src/components/UserCard.tsx",
                 "import { Button } from './Button';\n"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn silent_on_a_type_only_import() {
+        assert!(
+            ts(
+                "src/components/UserCard.tsx",
+                "import type { QueryClient } from '@tanstack/react-query';\nexport type X = QueryClient;\n"
+            )
+            .is_empty()
+        );
+        assert!(
+            ts(
+                "src/components/UserCard.tsx",
+                "import type { InfraLogger } from '../infra/logger';\nexport type X = InfraLogger;\n"
             )
             .is_empty()
         );

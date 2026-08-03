@@ -38,9 +38,18 @@ impl Default for HardcodedBaseUrlRule {
     }
 }
 
+/// Deliberately narrow: `*Url`-suffixed names are common for plain content
+/// (an avatar, an external profile link, an icon) that has nothing to do
+/// with API infra — flagging those would be bad advice ("move it to
+/// `import.meta.env`") on entirely presentational data. Only names that
+/// name the *backend a client talks to* qualify.
 fn is_url_shaped_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    lower == "url" || lower == "endpoint" || lower.ends_with("baseurl") || lower.ends_with("url")
+    if lower == "url" || lower == "endpoint" {
+        return true;
+    }
+    const BACKEND_MARKERS: &[&str] = &["base", "api", "server", "backend"];
+    lower.ends_with("url") && BACKEND_MARKERS.iter().any(|m| lower.contains(m))
 }
 
 fn binding_name(node: &AstNode) -> Option<String> {
@@ -210,6 +219,33 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn silent_on_a_presentational_url_binding() {
+        assert!(
+            ts(
+                "src/components/Avatar.tsx",
+                "const fallbackAvatarUrl = 'https://cdn.example.com/default-avatar.png';\n",
+            )
+            .is_empty()
+        );
+        assert!(
+            ts(
+                "src/components/Profile.tsx",
+                "const githubUrl = 'https://github.com/octocat';\n",
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn flags_a_server_url_variable() {
+        let findings = ts(
+            "src/features/user/api/client.ts",
+            "const serverUrl = 'https://api.example.com';\n",
+        );
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]
