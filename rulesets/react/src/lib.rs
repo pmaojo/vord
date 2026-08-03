@@ -14,6 +14,9 @@ mod component_pascal_case;
 mod context_provider_memo;
 mod dangerously_set_inner_html;
 mod direct_state_mutation;
+mod effect_derives_state;
+mod effect_external_store;
+mod effect_notifies_parent;
 mod event_handler_prefix;
 mod exhaustive_deps;
 mod feature_directory_isolation;
@@ -44,6 +47,9 @@ pub use component_pascal_case::ComponentPascalCaseRule;
 pub use context_provider_memo::ContextProviderMemoRule;
 pub use dangerously_set_inner_html::DangerouslySetInnerHtmlRule;
 pub use direct_state_mutation::DirectStateMutationRule;
+pub use effect_derives_state::EffectDerivesStateRule;
+pub use effect_external_store::EffectExternalStoreRule;
+pub use effect_notifies_parent::EffectNotifiesParentRule;
 pub use event_handler_prefix::EventHandlerPrefixRule;
 pub use exhaustive_deps::ExhaustiveDepsRule;
 pub use feature_directory_isolation::FeatureDirectoryIsolationRule;
@@ -93,6 +99,9 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(FeatureDirectoryIsolationRule::new()),
         Box::new(NoDefaultExportComponentRule::new()),
         Box::new(NoFetchInUseEffectRule::new()),
+        Box::new(EffectDerivesStateRule::new()),
+        Box::new(EffectNotifiesParentRule::new()),
+        Box::new(EffectExternalStoreRule::new()),
         Box::new(ContextProviderMemoRule::new()),
         Box::new(ComponentPascalCaseRule::new()),
         Box::new(EventHandlerPrefixRule::new()),

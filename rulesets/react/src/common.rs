@@ -3,6 +3,8 @@
 //! (see `vord_ast::NodeKind`), so every JSX concept here is matched by its
 //! raw tree-sitter-typescript grammar name via `NodeKind::Other`.
 
+use std::collections::BTreeSet;
+
 use vord_ast::{AstNode, NodeKind};
 
 pub(crate) fn is_other(node: &AstNode, kind: &str) -> bool {
@@ -172,6 +174,70 @@ pub(crate) fn hook_call_name(node: &AstNode) -> Option<&str> {
     callee_name(node).filter(|name| is_hook_name(name))
 }
 
+/// The setter/dispatch name from a `const [x, setX] = useState(...)` (or
+/// `useReducer`)-shaped declaration, if `decl` has that shape — the second
+/// element of the destructured array pattern, whose identity React
+/// guarantees is stable across renders.
+pub(crate) fn state_setter_name(decl: &AstNode) -> Option<&str> {
+    let pattern = decl.first_child().filter(|c| is_other(c, "array_pattern"))?;
+    let setter = pattern
+        .children()
+        .get(1)
+        .filter(|c| *c.kind() == NodeKind::Identifier)?;
+    let call = decl.children().iter().find(|c| *c.kind() == NodeKind::Call)?;
+    matches!(hook_call_name(call), Some("useState") | Some("useReducer")).then(|| setter.text())
+}
+
+/// Every `useState`/`useReducer` setter name declared in `component`'s own
+/// scope (not descending into a nested `FunctionDef` — a setter declared in
+/// a different component/hook isn't this one's).
+pub(crate) fn state_setter_names(component: &AstNode) -> BTreeSet<String> {
+    own_scope_descendants(component)
+        .into_iter()
+        .filter(|n| *n.kind() == NodeKind::VariableDecl)
+        .filter_map(state_setter_name)
+        .map(str::to_string)
+        .collect()
+}
+
+/// The naming convention for a callback prop (`onChange`, `onClose`, ...):
+/// `on` followed by an uppercase letter, mirroring [`is_hook_name`]'s `use`
+/// check for hooks.
+pub(crate) fn is_on_prop_name(name: &str) -> bool {
+    name.strip_prefix("on")
+        .and_then(|rest| rest.chars().next())
+        .is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// Every callback-prop-shaped (`onX`) name destructured from `component`'s
+/// first parameter (`function Comp({ onChange, value }) { ... }`) — this
+/// project's convention for reading props. A non-destructured parameter
+/// (`props`, `(props) => props.onChange(...)`) isn't handled: narrower than a
+/// full props model, but avoids guessing at member-access call targets.
+///
+/// The pattern is searched for anywhere under `formal_parameters` (via
+/// `descendants`, not a direct child) because tree-sitter-typescript wraps
+/// each parameter in its own `required_parameter`/`optional_parameter` node,
+/// so `object_pattern` sits one level deeper than the parameter list itself.
+pub(crate) fn destructured_on_prop_names(component: &AstNode) -> BTreeSet<String> {
+    let Some(params) = component
+        .children()
+        .iter()
+        .find(|c| is_other(c, "formal_parameters"))
+    else {
+        return BTreeSet::new();
+    };
+    let Some(pattern) = params.descendants().find(|c| is_other(c, "object_pattern")) else {
+        return BTreeSet::new();
+    };
+    pattern
+        .descendants()
+        .filter(|n| *n.kind() == NodeKind::Identifier)
+        .map(|n| n.text().to_string())
+        .filter(|name| is_on_prop_name(name))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +249,36 @@ mod tests {
         vord_parser_typescript::TypeScriptParser::new()
             .parse(&file)
             .unwrap()
+    }
+
+    #[test]
+    fn finds_state_setter_names_in_component_scope() {
+        let ast = parse_tsx(
+            "function Comp() {\n  const [count, setCount] = useState(0);\n  const [other, setOther] = useReducer(r, 0);\n}\n",
+        );
+        let comp = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
+        let setters = state_setter_names(comp);
+        assert!(setters.contains("setCount"));
+        assert!(setters.contains("setOther"));
+        assert!(!setters.contains("count"));
+    }
+
+    #[test]
+    fn recognizes_on_prop_names() {
+        assert!(is_on_prop_name("onChange"));
+        assert!(is_on_prop_name("onClose"));
+        assert!(!is_on_prop_name("on"));
+        assert!(!is_on_prop_name("only"));
+        assert!(!is_on_prop_name("options"));
+    }
+
+    #[test]
+    fn finds_destructured_on_prop_names() {
+        let ast = parse_tsx("function Comp({ onChange, value }) {\n  return null;\n}\n");
+        let comp = ast.descendants().find(|n| *n.kind() == NodeKind::FunctionDef).unwrap();
+        let props = destructured_on_prop_names(comp);
+        assert!(props.contains("onChange"));
+        assert!(!props.contains("value"));
     }
 
     #[test]
