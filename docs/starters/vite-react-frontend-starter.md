@@ -142,6 +142,25 @@ doesn't seem to take effect. A ready-to-copy starting point (this exact
 table, plus `[analysis]`/`[gate]`) lives at
 `rulesets/vite-react/vord.toml.template`.
 
+`[vite_react.exceptions]` only covers this crate's own `vite-react:*` rules.
+For a false positive from one of the *reused* rules this profile activates
+(`secrets:*`, `owasp:*`, `react:*`, `typescript:*` — see "What's blocked"),
+use Vord's general, line-level `// vord-ignore: <rule-id>` comment instead
+(`core/rules-engine/src/suppression.rs`) — the one concrete case this profile
+is known to hit: **`secrets:stripe-live-key` cannot distinguish a Stripe
+*publishable* key (`pk_live_...`) from a *secret* key (`sk_live_...`)**, and
+a publishable key is, by Stripe's own design, meant to ship in frontend
+code. Suppress just that line:
+
+```ts
+export const stripePromise = loadStripe('pk_live_...'); // vord-ignore: secrets:stripe-live-key, secrets:high-entropy-string
+```
+
+This rule lives in `rulesets/secrets` (shared by every profile and every
+language Vord analyzes, not this crate) and its severity is not something
+this starter profile changes — `// vord-ignore` on the one line that's a
+known-safe exception is the correct tool, not disabling the rule.
+
 ## Known false-positive fixes
 
 Two false-positive classes were found by hand-testing the rules against
