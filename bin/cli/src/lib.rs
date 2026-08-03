@@ -46,8 +46,11 @@ pub mod swarm;
 
 /// Every parser the default service registers. Its own flat data literal
 /// (complexity 1) so `default_service` doesn't carry the whole fluent
-/// registration chain's line count.
-fn all_default_parsers() -> Vec<Box<dyn vord_rules_engine::AstParser>> {
+/// registration chain's line count. Public so callers that need a one-off
+/// parse outside `AnalyzerService`'s own pipeline (e.g. `bin/cli::flow`'s
+/// flow-coverage re-parse) can build the same registry without duplicating
+/// this list.
+pub fn all_default_parsers() -> Vec<Box<dyn vord_rules_engine::AstParser>> {
     vec![
         Box::new(TypeScriptParser::new()),
         Box::new(RustParser::new()),
