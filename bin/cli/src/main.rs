@@ -436,6 +436,12 @@ struct ScanArgs {
     /// Do not read or update the New Code baseline (.vord-baseline.json).
     #[arg(long)]
     no_baseline: bool,
+    /// Quality profile to scan with, by name (e.g. `vite-react-frontend-starter`).
+    /// Omitted keeps today's behavior exactly: the built-in "vord way"
+    /// profile. Also selects the matching quality gate for `--enforce-gate`
+    /// (`vord_cli::quality_gate_for_profile`).
+    #[arg(long)]
+    profile: Option<String>,
     #[command(flatten)]
     coverage: CoverageArgs,
     #[command(flatten)]
@@ -786,31 +792,36 @@ fn parse_fail_on_threshold(fail_on: Option<String>) -> anyhow::Result<Option<Sev
         .transpose()
 }
 
-/// `vord.toml`'s `[analysis] sources`/`exclusions`/`[project] key`, or all
-/// empty when there's no project config (a bare directory/file scan).
-fn load_project_scope(
-    path: &std::path::Path,
-) -> (
-    Vec<String>,
-    Vec<String>,
-    Option<String>,
-    vord_infra_fs::DuplicationSettings,
-    vord_infra_fs::ArchitectureSettings,
-    vord_infra_fs::GateSettings,
-) {
+/// `vord.toml`'s `[analysis] sources`/`exclusions`/`profile`/`[project] key`,
+/// or all empty when there's no project config (a bare directory/file scan).
+#[derive(Default)]
+struct ProjectScope {
+    source_dirs: Vec<String>,
+    exclusions: Vec<String>,
+    project_key: Option<String>,
+    duplication: vord_infra_fs::DuplicationSettings,
+    architecture: vord_infra_fs::ArchitectureSettings,
+    gate: vord_infra_fs::GateSettings,
+    config_profile: Option<String>,
+    vite_react: vord_infra_fs::ViteReactSettings,
+}
+
+fn load_project_scope(path: &std::path::Path) -> ProjectScope {
     vord_infra_fs::VordConfig::load_from_dir(path)
         .map(|config| {
             if let Some(key) = &config.project.key {
                 eprintln!("📋 Loaded project config ({key})");
             }
-            (
-                config.analysis.sources.unwrap_or_default(),
-                config.analysis.exclusions.unwrap_or_default(),
-                config.project.key,
-                config.duplication,
-                config.architecture,
-                config.gate,
-            )
+            ProjectScope {
+                source_dirs: config.analysis.sources.unwrap_or_default(),
+                exclusions: config.analysis.exclusions.unwrap_or_default(),
+                project_key: config.project.key,
+                duplication: config.duplication,
+                architecture: config.architecture,
+                gate: config.gate,
+                config_profile: config.analysis.profile,
+                vite_react: config.vite_react,
+            }
         })
         .unwrap_or_default()
 }
@@ -1459,22 +1470,48 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     }
 
     let threshold = parse_fail_on_threshold(args.fail_on.clone())?;
-    let (source_dirs, exclusions, config_project_key, duplication, architecture, gate_config) =
-        load_project_scope(&args.path);
-    // CLI flag wins over config file; config file is the default.
+    let ProjectScope {
+        source_dirs,
+        exclusions,
+        project_key: config_project_key,
+        duplication,
+        architecture,
+        gate: gate_config,
+        config_profile: _config_profile,
+        vite_react,
+    } = load_project_scope(&args.path);
+    // `--profile` is the only trigger in this increment: `vord.toml`'s own
+    // `[analysis] profile` stays parsed-but-unread (see `VordConfig`'s own
+    // doc note), same as before this flag existed, so omitting `--profile`
+    // is byte-for-byte the "vord way"/`default_quality_gate` behavior every
+    // scan used prior to this — wiring the config-file default is deferred,
+    // not silently smuggled in through a fixture that happens to set it.
+    let profile_name = args.profile.clone();
+    let profile = match &profile_name {
+        Some(name) => Some(vord_rules_engine::profile_by_name(name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unrecognized --profile {name:?} (known profiles: \"vord way\", \"vite-react-frontend-starter\")"
+            )
+        })?),
+        None => None,
+    };
     let min_health_score = args.min_health_score.or(gate_config.min_health_score);
     let ci = resolve_ci_context();
     let context = resolve_context(&args, config_project_key, &ci);
 
     let cache = (!args.no_cache && args.path.is_dir())
         .then(|| std::sync::Arc::new(FileAnalysisCache::open(args.path.join(".vord-cache.json"))));
-    let mut report = vord_cli::scan_with_project_config(
+    let mut report = vord_cli::scan_with_profile(
         &args.path,
         cache.clone(),
         &source_dirs,
         &exclusions,
-        &duplication,
-        &architecture,
+        &vord_cli::ProjectSettings {
+            duplication: &duplication,
+            architecture: &architecture,
+            vite_react: &vite_react,
+        },
+        profile,
     )
     .await?;
 
@@ -1504,7 +1541,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     // Gate conditions may target overall (`blocker_issues`), new-issue
     // (`new_blocker_issues`) or coverage-on-new-code (`coverage_new_code`)
     // measures.
-    let gate = vord_cli::default_quality_gate().evaluate(|key| {
+    let gate = vord_cli::quality_gate_for_profile(profile_name.as_deref()).evaluate(|key| {
         if key.as_str() == "coverage_new_code" {
             return coverage_new_code;
         }

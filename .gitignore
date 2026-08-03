@@ -18,6 +18,9 @@
 # only works if it is committed. Only the per-developer override is local.
 .claude/settings.local.json
 
+# Ephemeral per-agent worktree checkouts created by the coding harness.
+.claude/worktrees/
+
 # The npm wrapper downloads this at install time.
 npm/bin/vord
 npm/bin/vord.exe

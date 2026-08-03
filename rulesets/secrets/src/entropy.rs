@@ -98,6 +98,26 @@ fn looks_like_css_variable(s: &str) -> bool {
     s.starts_with("var(--") && s.ends_with(')')
 }
 
+/// Tailwind's arbitrary-value/arbitrary-variant syntax packs a CSS selector
+/// or value straight into square brackets inside the class name itself —
+/// `[&_tr:last-child]:border-0`, `top-[calc(-50%_-_2px)]`,
+/// `grid-cols-[repeat(auto-fill,minmax(120px,1fr))]`. The `&`, `(`, `)`,
+/// `%`, `,`, `=` characters that syntax needs defeat
+/// `looks_like_delimited_identifier`'s word-shaped-segment check (none of
+/// those are alphanumeric), so it falls through to entropy scoring. The
+/// brackets — on a string built only from the same narrow class-name
+/// charset — are the signal: a real secret essentially never contains a
+/// literal `[`/`]` pair, since none of the standard token encodings
+/// (base64, hex, base62) use square brackets.
+fn looks_like_tailwind_arbitrary_value(s: &str) -> bool {
+    if !s.contains('[') || !s.contains(']') {
+        return false;
+    }
+    const CLASS_CHARSET: &[u8] = b"[]-_:./%#(),&*!='\"+";
+    s.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || CLASS_CHARSET.contains(&b))
+}
+
 /// URLs, filesystem paths and Subresource-Integrity/lockfile hash prefixes:
 /// all can be high-entropy but are not secrets.
 fn looks_like_url_path_or_integrity_hash(s: &str) -> bool {
@@ -342,6 +362,7 @@ impl Rule for HighEntropyStringRule {
                 || looks_like_format_template(value)
                 || looks_like_delimited_identifier(value)
                 || looks_like_css_variable(value)
+                || looks_like_tailwind_arbitrary_value(value)
                 || looks_like_sql_or_query_fragment(value)
                 || looks_like_http_or_mime_value(value)
             {
@@ -594,6 +615,22 @@ mod tests {
         assert!(
             check_ts("const h = \"Content-Type: application/x-www-form-urlencoded\";\n").is_empty()
         );
+    }
+
+    #[test]
+    fn ignores_tailwind_arbitrary_value_classes() {
+        // All from real code: bulletproof-react's table.tsx and shadcn/ui's
+        // sidebar.tsx / tooltip.tsx (vercel/ai-chatbot).
+        for class in [
+            "[&_tr:last-child]:border-0",
+            "grid-cols-[repeat(auto-fill,minmax(120px,1fr))]",
+            "group-data-[side=left]:cursor-e-resize",
+            "aria-[current=page]:bg-accent",
+            "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]",
+        ] {
+            let code = format!("const c = \"{class}\";\n");
+            assert!(check_ts(&code).is_empty(), "flagged tailwind class {class}");
+        }
     }
 
     #[test]

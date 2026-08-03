@@ -9,6 +9,8 @@ mod copy;
 mod gate;
 mod impact;
 mod rating;
+mod registry;
+mod starters;
 
 pub use backup::{ProfileBackup, RestoreError, RestorePolicy, backup, restore};
 pub use builtin::{DEFAULT_PROFILE_NAME, default_profile, default_profile_for_language};
@@ -24,6 +26,8 @@ pub use rating::{
     ReliabilitySecurityRatings, RemediationEffortSummary, aggregate_remediation_effort, debt_ratio,
     reliability_and_security_ratings,
 };
+pub use registry::profile_by_name;
+pub use starters::{VITE_REACT_FRONTEND_STARTER_NAME, vite_react_frontend_starter};
 
 use std::collections::HashMap;
 use std::fmt;
