@@ -53,10 +53,22 @@ fn vite_react_own_activations() -> Vec<(RuleId, Severity)> {
 
 /// `rulesets/react` rules that already implement (or directly support) this
 /// starter's own conventions — reused as-is, never reimplemented.
+///
+/// `react:feature-directory-isolation` is deliberately *not* here: it bans
+/// any deep import into a feature's subdirectories from outside that
+/// feature, which is stricter than this starter's actual convention.
+/// Checked against the reference implementation's own enforced lint config
+/// (`alan2207/bulletproof-react`, `apps/react-vite/.eslintrc.cjs`'s
+/// `import/no-restricted-paths`): it only forbids *cross-feature* imports
+/// (feature A reaching into feature B) and the `features -> app` direction —
+/// `src/app/routes/**` importing straight from
+/// `features/<feature>/api/...`/`.../components/...` is explicitly allowed,
+/// and the reference app does exactly that throughout. Activating this rule
+/// here fired 8 times on that reference implementation alone, all on
+/// idiomatic code.
 fn react_reused_activations() -> Vec<(RuleId, Severity)> {
     vec![
         (rule("react:bulletproof-folder-structure"), Severity::Major),
-        (rule("react:feature-directory-isolation"), Severity::Major),
         (rule("react:no-fetch-in-useeffect"), Severity::Major),
         (rule("react:rules-of-hooks-naming"), Severity::Major),
         (rule("react:rules-of-hooks-conditional"), Severity::Critical),
@@ -160,9 +172,20 @@ mod tests {
     #[test]
     fn reuses_react_and_secrets_rules() {
         let profile = vite_react_frontend_starter();
-        assert!(profile.is_active(&RuleId::new("react:feature-directory-isolation").unwrap()));
+        assert!(profile.is_active(&RuleId::new("react:bulletproof-folder-structure").unwrap()));
         assert!(profile.is_active(&RuleId::new("secrets:aws-access-key-id").unwrap()));
         assert!(profile.is_active(&RuleId::new("owasp:hardcoded-secret").unwrap()));
+    }
+
+    #[test]
+    fn does_not_activate_feature_directory_isolation() {
+        // Stricter than the reference implementation's own enforced
+        // boundary (see `react_reused_activations`'s doc comment) — not
+        // part of this profile.
+        assert!(
+            !vite_react_frontend_starter()
+                .is_active(&RuleId::new("react:feature-directory-isolation").unwrap())
+        );
     }
 
     #[test]

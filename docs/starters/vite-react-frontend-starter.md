@@ -36,7 +36,7 @@ than folded into a language ruleset. The profile composes
 
 | Rule | Severity | What it checks | Example |
 |---|---|---|---|
-| `vite-react:no-data-layer-import-in-view` | Blocker | Import graph, per-file | `src/components/**` or `src/features/**/components/**` importing `@tanstack/react-query`/`zustand`/`react-router-dom`, or a `src/infra/**` module directly |
+| `vite-react:no-data-layer-import-in-view` | Blocker | Import graph, per-file | `src/components/**` or `src/features/**/components/**` calling `useQuery`/`useMutation`/`useInfiniteQuery`/`useQueries`, importing `zustand`, or reaching a `src/infra/**` module directly. Routing (`react-router`) and `useQueryClient` are deliberately *not* banned — see the note below. |
 | `vite-react:no-transport-call-in-view` | Blocker | AST call-expression, per-file | a raw `fetch(...)`/`axios.<verb>(...)` call inside `components/**` or `features/**/hooks/**` |
 | `vite-react:transport-client-outside-infra` | Blocker | AST call-expression, per-file | `axios.create(...)` or `new Axios(...)` anywhere outside `src/infra/**` |
 
@@ -50,7 +50,7 @@ than folded into a language ruleset. The profile composes
 
 Reused as-is from the rest of the platform (no new code, same severities the
 "vord way" profile already gives them where applicable):
-`react:bulletproof-folder-structure`, `react:feature-directory-isolation`,
+`react:bulletproof-folder-structure`,
 `react:no-fetch-in-useeffect`, `react:rules-of-hooks-naming`,
 `react:rules-of-hooks-conditional`, `react:exhaustive-deps`,
 `react:unsafe-target-blank`, `react:jsx-img-missing-alt`,
@@ -58,6 +58,9 @@ Reused as-is from the rest of the platform (no new code, same severities the
 `secrets:*`, plus a generic OWASP/TypeScript baseline (XSS, eval, SSRF,
 injection, loose equality, unguarded `JSON.parse`, `innerHTML` assignment,
 swallowed exceptions, …).
+
+`react:feature-directory-isolation` is deliberately *not* activated here —
+see "Tested against a real bulletproof-react app" below for why.
 
 ## What Vord cannot detect natively (and why)
 
@@ -160,6 +163,55 @@ This rule lives in `rulesets/secrets` (shared by every profile and every
 language Vord analyzes, not this crate) and its severity is not something
 this starter profile changes — `// vord-ignore` on the one line that's a
 known-safe exception is the correct tool, not disabling the rule.
+
+## Tested against a real bulletproof-react app
+
+Beyond the shipped fixture, this profile was run (`--enforce-gate
+--no-cache`) against the actual reference implementation this convention is
+named after — `github.com/alan2207/bulletproof-react`, `apps/react-vite`
+(103 files, ~5,100 LOC, a real production-shaped app with auth, comments,
+discussions, teams and users features). The first pass found real problems:
+
+- **`react-router` doesn't belong in `no-data-layer-import-in-view`'s
+  roster.** Routing is a view-layer concern, not a data-layer one — the
+  reference app calls `useNavigate`/`useSearchParams` directly in layouts
+  and even wraps `Link` itself in a `components/ui/link` component. Banning
+  it flagged 6 of the reference app's own files, including that `Link`
+  wrapper. Removed from the roster entirely.
+- **`useQueryClient` isn't the same concern as fetching.** The reference
+  app's `DiscussionsList` component calls `useQueryClient()` directly to
+  prefetch a detail query on hover — cache management, not a fetch. The rule
+  now only flags an import of the four hooks that actually fetch
+  (`useQuery`/`useMutation`/`useInfiniteQuery`/`useQueries`), not the whole
+  `@tanstack/react-query` module.
+- **A store's own module isn't "the view depending on it."** The reference
+  app co-locates a widget's Zustand store under `components/ui/<widget>/`
+  (`notifications-store.ts` next to `notifications.tsx`) — flagging the
+  store's own definition file for importing `zustand` is a category error.
+  Files named `*-store.ts`/`*.store.ts` are now exempt.
+- **`react:feature-directory-isolation` doesn't match this starter's actual
+  boundary.** Checked against the reference app's own enforced lint config
+  (`.eslintrc.cjs`'s `import/no-restricted-paths`): it only forbids
+  *cross-feature* imports and the `features -> app` direction —
+  `src/app/routes/**` importing straight from a feature's `api/`/`components/`
+  is explicitly allowed, and the reference app does exactly that throughout.
+  Activating this rule fired 8 times on entirely idiomatic reference code, so
+  it isn't part of this profile (it's still available and unaffected in
+  other profiles).
+
+After those four fixes, a second `--no-cache` run against the same
+103-file app dropped from 34 issues (8 blocker, 1 critical) to 12 issues (0
+blocker, 1 critical) — zero remaining findings from any `vite-react:*` rule.
+The one remaining gate failure (`react:rules-of-hooks-conditional`, a hook
+called after an early `throw`) is a plausible genuine bug in
+`src/lib/authorization.tsx`, not a false positive introduced by this
+profile. The other reused-rule findings that survived
+(`secrets:high-entropy-string` on a route-path template literal and a
+Tailwind arbitrary-variant selector string, `typescript:promise-then-without-catch`
+on an unhandled mock-server bootstrap promise in `main.tsx`) are Major/Minor
+— advisory in this profile's gate, not blocking — and are either legitimate
+or already-known limitations of the shared, reused rule (not something this
+starter's own rules changed).
 
 ## Known false-positive fixes
 

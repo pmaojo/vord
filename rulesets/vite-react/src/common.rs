@@ -122,6 +122,57 @@ pub(crate) fn is_dev_only_path(path: &str) -> bool {
     vord_rules_engine::is_test_only_path(path) || path.to_ascii_lowercase().contains(".stories.")
 }
 
+/// The `import_statement`/`export_statement` node at `span`, if any — used
+/// once a caller already has an `ImportedModule`'s span (from
+/// `vord_import_graph::imported_modules`, which discards the node itself)
+/// and needs to look back at what it actually binds.
+pub(crate) fn import_statement_at(ast: &AstNode, span: vord_ast::Span) -> Option<&AstNode> {
+    ast.descendants().find(|node| {
+        (is_other(node, "import_statement") || is_other(node, "export_statement"))
+            && node.span() == span
+    })
+}
+
+/// Every local name a named-import clause binds (`{ a, b as c }` — the
+/// effective local binding, alias or not). Default and namespace imports
+/// aren't collected: no rule in this crate needs to recognize
+/// `import ReactQuery from '@tanstack/react-query'`-shaped code, and a
+/// narrower helper is easier to get right than one that also has to.
+pub(crate) fn named_import_bindings(node: &AstNode) -> Vec<String> {
+    node.descendants()
+        .filter(|n| is_other(n, "import_specifier"))
+        .filter_map(|specifier| {
+            specifier
+                .children()
+                .iter()
+                .rev()
+                .find(|c| *c.kind() == NodeKind::Identifier)
+                .map(|bound| bound.text().to_string())
+        })
+        .collect()
+}
+
+/// A file's own name marks it as a state-module definition rather than a
+/// component (`notifications-store.ts`, `cart.store.ts`) — bulletproof-react
+/// itself co-locates a widget's store under `components/ui/<widget>/`
+/// (`notifications-store.ts` sits next to `notifications.tsx`), so "is this
+/// path under `components/`" alone can't tell a store's own module from a
+/// component that consumes one. The module that *defines* the store is
+/// supposed to import its state library; a component that only imports
+/// *from* the store (a relative import, never `'zustand'` itself) isn't
+/// touched by this at all.
+pub(crate) fn is_store_module_path(path: &str) -> bool {
+    let Some(file_name) = path.rsplit(['/', '\\']).next() else {
+        return false;
+    };
+    let lower = file_name.to_ascii_lowercase();
+    let stem = lower
+        .strip_suffix(".ts")
+        .or_else(|| lower.strip_suffix(".tsx"))
+        .unwrap_or(&lower);
+    stem.ends_with("-store") || stem.ends_with(".store")
+}
+
 /// A path whose name marks it as configuration rather than application
 /// code (`vite.config.ts`, `src/config/env.ts`, `tailwind.config.js`) — the
 /// literal it holds is a deliberate, single-source-of-truth constant, not
