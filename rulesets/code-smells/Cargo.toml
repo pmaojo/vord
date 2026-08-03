@@ -15,6 +15,7 @@ vord-ast = { workspace = true }
 vord-rules-engine = { workspace = true }
 vord-symbols = { workspace = true }
 vord-cfg = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 vord-parser-rust = { workspace = true }

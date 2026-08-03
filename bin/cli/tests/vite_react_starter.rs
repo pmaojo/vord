@@ -28,6 +28,7 @@ fn scan(name: &str) -> vord_rules_engine::AnalysisReport {
             duplication: &Default::default(),
             architecture: &Default::default(),
             vite_react: &Default::default(),
+            rules_custom: &[],
         },
         Some(profile),
     ))

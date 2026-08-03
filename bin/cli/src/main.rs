@@ -865,6 +865,7 @@ struct ProjectScope {
     config_profile: Option<String>,
     vite_react: vord_infra_fs::ViteReactSettings,
     flows: Vec<vord_infra_fs::FlowConfig>,
+    rules_custom: Vec<vord_infra_fs::CustomRuleConfig>,
 }
 
 fn load_project_scope(path: &std::path::Path) -> ProjectScope {
@@ -883,6 +884,7 @@ fn load_project_scope(path: &std::path::Path) -> ProjectScope {
                 config_profile: config.analysis.profile,
                 vite_react: config.vite_react,
                 flows: config.flows,
+                rules_custom: config.rules.custom,
             }
         })
         .unwrap_or_default()
@@ -1542,6 +1544,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         config_profile: _config_profile,
         vite_react,
         flows,
+        rules_custom,
     } = load_project_scope(&args.path);
     // `--profile` is the only trigger in this increment: `vord.toml`'s own
     // `[analysis] profile` stays parsed-but-unread (see `VordConfig`'s own
@@ -1573,6 +1576,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
             duplication: &duplication,
             architecture: &architecture,
             vite_react: &vite_react,
+            rules_custom: &rules_custom,
         },
         profile,
     )

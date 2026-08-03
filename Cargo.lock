@@ -4055,6 +4055,7 @@ dependencies = [
 name = "vord-rules-smells"
 version = "0.8.2"
 dependencies = [
+ "regex",
  "vord-ast",
  "vord-cfg",
  "vord-parser-go",
