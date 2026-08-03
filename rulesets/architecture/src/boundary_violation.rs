@@ -11,13 +11,14 @@
 use std::collections::HashMap;
 
 use vord_ast::{AstNode, SourceFile};
-use vord_import_graph::{ArchitectureConfig, ImportGraph, ViolationKind, component_of};
+use vord_import_graph::{ArchitectureConfig, ImportGraph, TsPathAliases, ViolationKind, component_of};
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct BoundaryViolationRule {
     id: RuleId,
     config: ArchitectureConfig,
     rust_crates: HashMap<String, String>,
+    ts_aliases: TsPathAliases,
 }
 
 impl BoundaryViolationRule {
@@ -30,7 +31,15 @@ impl BoundaryViolationRule {
             id: RuleId::new("architecture:boundary-violation").expect("valid rule id"),
             config,
             rust_crates,
+            ts_aliases: TsPathAliases::default(),
         }
+    }
+
+    /// See `DependencyCycleRule::with_ts_aliases` — same rationale, same
+    /// no-op-when-empty default.
+    pub fn with_ts_aliases(mut self, ts_aliases: TsPathAliases) -> Self {
+        self.ts_aliases = ts_aliases;
+        self
     }
 }
 
@@ -66,7 +75,7 @@ impl CrossFileRule for BoundaryViolationRule {
         }
         let views: Vec<(&str, &AstNode)> =
             files.iter().map(|(file, ast)| (file.path(), ast)).collect();
-        let graph = ImportGraph::build_with_rust_crates(&views, &self.rust_crates);
+        let graph = ImportGraph::build_with_options(&views, &self.rust_crates, &self.ts_aliases);
         let mut findings = Vec::new();
         for violation in self.config.violations(&graph) {
             let reason = match violation.kind {
@@ -164,6 +173,31 @@ mod tests {
         let (index, finding) = &findings[0];
         assert_eq!(*index, 0);
         assert!(finding.message.contains("`core` depends on `infra`"));
+    }
+
+    #[test]
+    fn a_path_aliased_forbidden_import_is_invisible_without_ts_aliases_but_flagged_with_them() {
+        let files = parsed(&[
+            ("core/a.ts", "import { b } from '@/infra/b';\n"),
+            ("infra/b.ts", "export const b = 1;\n"),
+        ]);
+        let config = ArchitectureConfig {
+            forbidden_dependencies: vec![DependencyEdge::new("core", "infra")],
+            ..Default::default()
+        };
+
+        assert!(
+            BoundaryViolationRule::new(config.clone(), HashMap::new())
+                .check(&files)
+                .is_empty()
+        );
+
+        let aliases = TsPathAliases::new(vec![("@/*".to_string(), vec!["*".to_string()])]);
+        let findings = BoundaryViolationRule::new(config, HashMap::new())
+            .with_ts_aliases(aliases)
+            .check(&files);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].1.message.contains("`core` depends on `infra`"));
     }
 
     #[test]

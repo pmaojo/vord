@@ -5,12 +5,18 @@
 //! codebase uses (`core/taint::cross`'s function-name indexing is the same
 //! idea applied to functions instead of files).
 //!
-//! TypeScript/JS: relative specifiers only (`./x`, `../x`) — bare
-//! specifiers (`"react"`, path-aliased `"@/lib"`) resolve to a package or a
-//! bundler config this analyzer doesn't have, so they're always treated as
-//! external and produce no edge. A path alias never being followed is a
-//! known false-negative, not a bug: better to miss a cycle than invent a
-//! wrong edge.
+//! TypeScript/JS: relative specifiers (`./x`, `../x`) always resolve
+//! against the candidate set. Bare specifiers (`"react"`) are external and
+//! produce no edge, *unless* they match a [`TsPathAliases`] entry the
+//! caller supplies (built from `tsconfig.json`/`jsconfig.json`'s
+//! `compilerOptions.paths` — see `vord_infra_fs::discover_ts_path_aliases`;
+//! this crate stays I/O-free, so reading that file happens elsewhere). An
+//! empty `TsPathAliases` (the default, and what every caller got before
+//! this existed) behaves exactly like before: every bare specifier is
+//! external. A specifier that matches a configured alias but still can't be
+//! found among the candidates (e.g. `@/lib` when the file was excluded from
+//! this scan) stays external too — better to miss an edge than invent a
+//! wrong one, the same posture this module has always taken.
 //!
 //! Python: both absolute (`import foo.bar`, `from foo.bar import baz`) and
 //! relative (`from . import x`, `from .sibling import y`) module paths,
@@ -55,22 +61,107 @@ fn join_relative(importer: &str, specifier: &str) -> String {
     segments.join("/")
 }
 
-/// Resolves a TypeScript/JS import specifier (as written, quotes already
-/// stripped) against `candidates`, returning the matching candidate path.
-/// Non-relative specifiers (no `./`/`../` prefix) are always external.
-pub fn resolve_ts_specifier<'a>(
-    importer: &str,
-    specifier: &str,
-    candidates: &[&'a str],
-) -> Option<&'a str> {
-    if !specifier.starts_with('.') {
-        return None;
+/// One resolved `tsconfig.json`/`jsconfig.json` `compilerOptions.paths`
+/// table, already normalized against `baseUrl` into project-relative
+/// patterns — see `vord_infra_fs::discover_ts_path_aliases` for how these
+/// are read from disk. Each pattern and each of its targets may contain at
+/// most one `*` wildcard, TypeScript's own `paths` grammar (e.g. pattern
+/// `"@/*"` with target `"./src/*"`, or an exact pattern with no `*` at all
+/// for a single fixed alias).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TsPathAliases {
+    entries: Vec<(String, Vec<String>)>,
+}
+
+impl TsPathAliases {
+    /// `entries` is `(pattern, targets)` pairs in `tsconfig.json`'s own
+    /// declared order — irrelevant for matching (every entry is tried; see
+    /// [`Self::candidates`]'s own specificity ordering) but kept for
+    /// `PartialEq`-based test assertions.
+    pub fn new(entries: Vec<(String, Vec<String>)>) -> Self {
+        Self { entries }
     }
-    let target = join_relative(importer, specifier);
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Every project-relative, extension-less path `specifier` could
+    /// resolve to, most-specific pattern first (TypeScript's own tie-break:
+    /// the entry with the longest fixed prefix wins when more than one
+    /// pattern matches), each pattern's own targets tried in their declared
+    /// order.
+    fn candidates(&self, specifier: &str) -> Vec<String> {
+        let mut scored: Vec<(usize, String)> = Vec::new();
+        for (pattern, targets) in &self.entries {
+            let Some(capture) = match_alias_pattern(pattern, specifier) else {
+                continue;
+            };
+            let specificity = pattern.split_once('*').map_or(pattern.len(), |(p, _)| p.len());
+            for target in targets {
+                scored.push((specificity, substitute_alias_target(target, capture)));
+            }
+        }
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        scored.into_iter().map(|(_, target)| target).collect()
+    }
+}
+
+/// If `pattern` (at most one `*`) matches `specifier`, returns the captured
+/// wildcard text — `None` inside the `Some` for a pattern with no `*` at
+/// all (an exact-match alias, valid but unusual).
+fn match_alias_pattern<'a>(pattern: &str, specifier: &'a str) -> Option<Option<&'a str>> {
+    match pattern.split_once('*') {
+        None => (pattern == specifier).then_some(None),
+        Some((prefix, suffix)) => {
+            let rest = specifier.strip_prefix(prefix)?;
+            let captured = rest.strip_suffix(suffix)?;
+            Some(Some(captured))
+        }
+    }
+}
+
+/// Substitutes `capture` into `target`'s own `*`, if it has one; a target
+/// with no `*` is returned as-is.
+fn substitute_alias_target(target: &str, capture: Option<&str>) -> String {
+    match (target.split_once('*'), capture) {
+        (Some((prefix, suffix)), Some(capture)) => format!("{prefix}{capture}{suffix}"),
+        _ => target.to_string(),
+    }
+}
+
+fn find_ts_candidate<'a>(target: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    // Alias targets are conventionally extension-less (`"src/config"`, the
+    // same convention a relative import specifier already uses), but strip
+    // a known extension here too in case a tsconfig target spells one out
+    // — cheap, and it means a caller doesn't have to get that convention
+    // exactly right for resolution to still work.
+    let target = strip_known_extension(target, TS_EXTENSIONS);
     candidates.iter().copied().find(|candidate| {
         let stem = strip_known_extension(candidate, TS_EXTENSIONS);
         stem == target || stem == format!("{target}/index")
     })
+}
+
+/// Resolves a TypeScript/JS import specifier (as written, quotes already
+/// stripped) against `candidates`, returning the matching candidate path.
+/// A relative specifier (`./`/`../` prefix) always resolves against the
+/// importer's own directory; a bare specifier (`"react"`, `"@/lib"`) is
+/// tried against `aliases` first and is external if nothing there matches.
+pub fn resolve_ts_specifier<'a>(
+    importer: &str,
+    specifier: &str,
+    candidates: &[&'a str],
+    aliases: &TsPathAliases,
+) -> Option<&'a str> {
+    if specifier.starts_with('.') {
+        let target = join_relative(importer, specifier);
+        return find_ts_candidate(&target, candidates);
+    }
+    aliases
+        .candidates(specifier)
+        .iter()
+        .find_map(|target| find_ts_candidate(target, candidates))
 }
 
 /// A Python module path (dot-joined segments, e.g. `foo.bar`) turned into
@@ -299,7 +390,7 @@ mod tests {
     fn ts_relative_sibling_import_resolves() {
         let candidates = ["main.ts", "lib.ts"];
         assert_eq!(
-            resolve_ts_specifier("main.ts", "./lib", &candidates),
+            resolve_ts_specifier("main.ts", "./lib", &candidates, &TsPathAliases::default()),
             Some("lib.ts")
         );
     }
@@ -308,7 +399,12 @@ mod tests {
     fn ts_relative_parent_import_resolves() {
         let candidates = ["src/a.ts", "shared.ts"];
         assert_eq!(
-            resolve_ts_specifier("src/a.ts", "../shared", &candidates),
+            resolve_ts_specifier(
+                "src/a.ts",
+                "../shared",
+                &candidates,
+                &TsPathAliases::default()
+            ),
             Some("shared.ts")
         );
     }
@@ -317,15 +413,89 @@ mod tests {
     fn ts_relative_index_import_resolves() {
         let candidates = ["main.ts", "utils/index.ts"];
         assert_eq!(
-            resolve_ts_specifier("main.ts", "./utils", &candidates),
+            resolve_ts_specifier("main.ts", "./utils", &candidates, &TsPathAliases::default()),
             Some("utils/index.ts")
         );
     }
 
     #[test]
-    fn ts_bare_specifier_is_external() {
+    fn ts_bare_specifier_is_external_with_no_aliases_configured() {
         let candidates = ["main.ts", "react.ts"];
-        assert_eq!(resolve_ts_specifier("main.ts", "react", &candidates), None);
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "react", &candidates, &TsPathAliases::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn ts_wildcard_alias_resolves() {
+        // tsconfig.json: { "paths": { "@/*": ["src/*"] } }
+        let aliases = TsPathAliases::new(vec![("@/*".to_string(), vec!["src/*".to_string()])]);
+        let candidates = ["src/lib/foo.ts", "other.ts"];
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "@/lib/foo", &candidates, &aliases),
+            Some("src/lib/foo.ts")
+        );
+    }
+
+    #[test]
+    fn ts_wildcard_alias_resolves_to_an_index_file() {
+        let aliases = TsPathAliases::new(vec![("@/*".to_string(), vec!["src/*".to_string()])]);
+        let candidates = ["src/widgets/index.ts"];
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "@/widgets", &candidates, &aliases),
+            Some("src/widgets/index.ts")
+        );
+    }
+
+    #[test]
+    fn ts_alias_still_external_when_the_aliased_file_is_not_a_candidate() {
+        let aliases = TsPathAliases::new(vec![("@/*".to_string(), vec!["src/*".to_string()])]);
+        let candidates = ["other.ts"];
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "@/missing", &candidates, &aliases),
+            None
+        );
+    }
+
+    #[test]
+    fn ts_exact_alias_with_no_wildcard_resolves() {
+        // tsconfig.json: { "paths": { "config": ["src/config"] } }
+        let aliases =
+            TsPathAliases::new(vec![("config".to_string(), vec!["src/config".to_string()])]);
+        let candidates = ["src/config.ts"];
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "config", &candidates, &aliases),
+            Some("src/config.ts")
+        );
+    }
+
+    #[test]
+    fn ts_most_specific_alias_pattern_wins() {
+        // tsconfig.json: { "paths": { "@/*": ["src/*"], "@/widgets/*": ["src/ui/widgets/*"] } }
+        let aliases = TsPathAliases::new(vec![
+            ("@/*".to_string(), vec!["src/*".to_string()]),
+            ("@/widgets/*".to_string(), vec!["src/ui/widgets/*".to_string()]),
+        ]);
+        let candidates = ["src/widgets/button.ts", "src/ui/widgets/button.ts"];
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "@/widgets/button", &candidates, &aliases),
+            Some("src/ui/widgets/button.ts")
+        );
+    }
+
+    #[test]
+    fn ts_second_target_tried_when_first_does_not_resolve() {
+        // tsconfig.json: { "paths": { "@/*": ["src/*", "generated/*"] } }
+        let aliases = TsPathAliases::new(vec![(
+            "@/*".to_string(),
+            vec!["src/*".to_string(), "generated/*".to_string()],
+        )]);
+        let candidates = ["generated/api.ts"];
+        assert_eq!(
+            resolve_ts_specifier("main.ts", "@/api", &candidates, &aliases),
+            Some("generated/api.ts")
+        );
     }
 
     #[test]

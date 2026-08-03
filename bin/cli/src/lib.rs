@@ -364,6 +364,15 @@ pub async fn scan_with_profile(
             service = service.replace_rule(rule);
         }
     }
+    // Cheap (at most tsconfig.json + one `extends` hop) so it's always
+    // discovered, unlike `rust_crates` below — resolves TS/JS `@/`-style
+    // path-aliased imports for every architecture rule built on
+    // `ImportGraph`. Without this, a project whose imports go through such
+    // an alias looks like it has almost no import edges at all, silently
+    // hiding real cycles/instability/layer violations (`vord arch` shows
+    // the same gap for the same reason). An empty result (no tsconfig.json,
+    // or no `paths` declared) changes nothing below.
+    let ts_aliases = vord_infra_fs::discover_ts_path_aliases(path);
     let boundaries = architecture_config(architecture);
     if !boundaries.is_empty() {
         // Only discovered when there's a boundary to check against — this
@@ -371,14 +380,37 @@ pub async fn scan_with_profile(
         // with no `[architecture]` table declared.
         let rust_crates = vord_infra_fs::discover_rust_crates(path);
         service = service.register_cross_rule(Box::new(
-            vord_rules_architecture::BoundaryViolationRule::new(boundaries, rust_crates),
+            vord_rules_architecture::BoundaryViolationRule::new(boundaries, rust_crates)
+                .with_ts_aliases(ts_aliases.clone()),
         ));
+    }
+    if !ts_aliases.is_empty() {
+        service = service
+            .replace_cross_rule(Box::new(
+                vord_rules_architecture::DependencyCycleRule::new()
+                    .with_ts_aliases(ts_aliases.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_architecture::MainSequenceRule::default()
+                    .with_ts_aliases(ts_aliases.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_architecture::StableDependencyRule::default()
+                    .with_ts_aliases(ts_aliases.clone()),
+            ));
+        if architecture.layer.is_empty() {
+            service = service.replace_cross_rule(Box::new(
+                vord_rules_architecture::HexagonalLayerRule::new()
+                    .with_ts_aliases(ts_aliases.clone()),
+            ));
+        }
     }
     if !architecture.layer.is_empty() {
         let taxonomy = layer_taxonomy(architecture)?;
         service = service
             .replace_cross_rule(Box::new(
-                vord_rules_architecture::HexagonalLayerRule::with_taxonomy(taxonomy.clone()),
+                vord_rules_architecture::HexagonalLayerRule::with_taxonomy(taxonomy.clone())
+                    .with_ts_aliases(ts_aliases.clone()),
             ))
             .replace_rule(Box::new(
                 vord_rules_architecture::FrameworkInDomainRule::with_taxonomy(taxonomy.clone()),

@@ -3475,6 +3475,7 @@ dependencies = [
  "toml",
  "vord-agent",
  "vord-ast",
+ "vord-import-graph",
  "vord-remediation",
  "vord-rules-engine",
  "vord-swarm",

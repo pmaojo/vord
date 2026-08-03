@@ -29,6 +29,11 @@ pub struct ArchSummary {
 pub fn analyze(root: &Path) -> anyhow::Result<ArchSummary> {
     let sources = vord_infra_fs::collect_sources_scoped(root, &[], &[])?;
     let rust_crates = vord_infra_fs::discover_rust_crates(root);
+    // Resolves TS/JS `@/`-style path-aliased imports (tsconfig.json/
+    // jsconfig.json `compilerOptions.paths`) — without this, a project that
+    // imports through such an alias shows almost no edges at all here, the
+    // exact "128 files, 1 dependency" symptom this fixes.
+    let ts_aliases = vord_infra_fs::discover_ts_path_aliases(root);
 
     let mut parsed: Vec<(vord_ast::SourceFile, vord_ast::AstNode)> = Vec::new();
     let mut census: BTreeMap<String, TypeCensus> = BTreeMap::new();
@@ -52,7 +57,7 @@ pub fn analyze(root: &Path) -> anyhow::Result<ArchSummary> {
 
     let views: Vec<(&str, &vord_ast::AstNode)> =
         parsed.iter().map(|(f, a)| (f.path(), a)).collect();
-    let graph = ImportGraph::build_with_rust_crates(&views, &rust_crates);
+    let graph = ImportGraph::build_with_options(&views, &rust_crates, &ts_aliases);
     let components = component_metrics(&graph, &census);
     let cycles = graph.cycles();
     let edges: Vec<(String, String)> = graph.component_edges().into_iter().collect();

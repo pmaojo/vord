@@ -21,6 +21,7 @@ mod mutation;
 mod rust_crates;
 mod sarif;
 mod swarm_worktree;
+mod tsconfig;
 mod worktree;
 
 pub use agent_workspace::RepoWorkspace;
@@ -52,6 +53,7 @@ pub use sarif::{SarifError, SarifImport, parse_sarif, parse_sarif_relative_to};
 pub use swarm_worktree::{
     SwarmWorktreeError, WorktreeStatus, create_worktree, list_worktrees, remove_worktree,
 };
+pub use tsconfig::discover_ts_path_aliases;
 pub use worktree::WorktreeSandbox;
 
 use std::io::ErrorKind;

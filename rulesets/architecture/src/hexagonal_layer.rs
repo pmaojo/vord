@@ -17,12 +17,15 @@
 //! index, alongside TypeScript and Python relative/absolute imports.
 
 use vord_ast::{AstNode, SourceFile};
-use vord_import_graph::{ImportGraph, LayerTaxonomy, inward_dependency_violations_with_taxonomy};
+use vord_import_graph::{
+    ImportGraph, LayerTaxonomy, TsPathAliases, inward_dependency_violations_with_taxonomy,
+};
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct HexagonalLayerRule {
     id: RuleId,
     taxonomy: LayerTaxonomy,
+    ts_aliases: TsPathAliases,
 }
 
 impl HexagonalLayerRule {
@@ -38,7 +41,15 @@ impl HexagonalLayerRule {
         Self {
             id: RuleId::new("architecture:hexagonal-layer-violation").expect("valid rule id"),
             taxonomy,
+            ts_aliases: TsPathAliases::default(),
         }
+    }
+
+    /// See `DependencyCycleRule::with_ts_aliases` — same rationale, same
+    /// no-op-when-empty default. Chains onto either constructor above.
+    pub fn with_ts_aliases(mut self, ts_aliases: TsPathAliases) -> Self {
+        self.ts_aliases = ts_aliases;
+        self
     }
 }
 
@@ -82,7 +93,7 @@ impl CrossFileRule for HexagonalLayerRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> =
             files.iter().map(|(file, ast)| (file.path(), ast)).collect();
-        let graph = ImportGraph::build_with_rust_modules(&views);
+        let graph = ImportGraph::build_with_rust_modules_and_ts_aliases(&views, &self.ts_aliases);
         inward_dependency_violations_with_taxonomy(&graph, &self.taxonomy)
             .into_iter()
             .filter_map(|violation| {
