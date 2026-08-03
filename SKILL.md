@@ -29,7 +29,16 @@
    - Edit files inside `.vord/worktrees/<role>`.
 4. **Instant AST Verification**:
    - Run `vord scan` inside the worktree.
-   - `vord` runs Oxlint (JS/TS), Ruff (Python), Clippy (Rust), and custom React Doctor/OWASP/AI guardrails in < 30ms.
+   - `vord` runs its own AST rules (custom React Doctor/OWASP/AI guardrails,
+     architecture, complexity, duplication, ...) plus lightweight syntax
+     checks named after Oxlint/Ruff/Clippy (`typescript:oxlint-analyzer`,
+     `python:ruff-analyzer`, `rust:clippy-analyzer`) — those three only
+     catch parse errors, not each tool's full rule catalog. For the real
+     Oxlint/Ruff/Clippy/ESLint/gosec/bandit/semgrep/CodeQL rule sets, run
+     the tool itself and merge its SARIF output: `vord scan --sarif
+     ruff.sarif --sarif oxlint.sarif` (see README's "Importing another
+     analyzer's findings" section). All of this still finishes in < 30ms —
+     the SARIF merge is a fast local ingest, not a re-run of the tool.
 5. **Self-Correction & Automated Fixes**:
    - Run `vord scan --fix` to apply automated fixes.
    - If manual fixes are needed, inspect `vord`'s `file:line:col` findings and fix immediately.
