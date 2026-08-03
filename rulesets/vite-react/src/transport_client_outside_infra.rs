@@ -8,7 +8,7 @@ use globset::GlobSet;
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::{build_globset, is_excepted, is_infra_path};
+use crate::common::{build_globset, is_dev_only_path, is_excepted, is_infra_path};
 
 pub struct TransportClientOutsideInfraRule {
     id: RuleId,
@@ -113,7 +113,7 @@ impl Rule for TransportClientOutsideInfraRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if vord_rules_engine::is_test_only_path(file.path())
+        if is_dev_only_path(file.path())
             || is_infra_path(file.path())
             || is_excepted(file.path(), &self.exceptions)
         {
@@ -164,6 +164,17 @@ mod tests {
             ts(
                 "src/infra/http/client.ts",
                 "const client = axios.create({ baseURL: 'https://api.example.com' });\n",
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn silent_in_a_storybook_file() {
+        assert!(
+            ts(
+                "src/components/Widget.stories.tsx",
+                "const client = axios.create({ baseURL: 'https://demo.example.com' });\n",
             )
             .is_empty()
         );

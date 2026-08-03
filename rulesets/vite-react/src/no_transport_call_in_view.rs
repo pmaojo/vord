@@ -10,7 +10,7 @@ use globset::GlobSet;
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::{build_globset, is_excepted, is_feature_hooks_path, is_view_path};
+use crate::common::{build_globset, is_dev_only_path, is_excepted, is_feature_hooks_path, is_view_path};
 
 const AXIOS_VERBS: &[&str] = &[
     "get", "post", "put", "patch", "delete", "head", "options", "request",
@@ -103,7 +103,7 @@ impl Rule for NoTransportCallInViewRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if vord_rules_engine::is_test_only_path(file.path()) {
+        if is_dev_only_path(file.path()) {
             return Vec::new();
         }
         if !is_view_path(file.path()) && !is_feature_hooks_path(file.path()) {
@@ -177,6 +177,17 @@ mod tests {
             ts(
                 "src/features/auth/api/queries.ts",
                 "export const login = () => axios.post('/api/login');\n"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn silent_in_a_storybook_loader() {
+        assert!(
+            ts(
+                "src/components/Button/Button.stories.tsx",
+                "export const Loading = { loaders: [async () => { const r = await fetch('/mock-api/user'); return { user: await r.json() }; }] };\n"
             )
             .is_empty()
         );

@@ -111,6 +111,17 @@ pub(crate) fn is_type_only_import_span(ast: &AstNode, span: vord_ast::Span) -> b
     })
 }
 
+/// Test-only, or a Storybook story (`Button.stories.tsx`). A story's
+/// loaders/decorators routinely `fetch`/import a data-layer library to
+/// produce demo data for the story — dev-time wiring, not the shipped
+/// component's runtime code, so it must not be held to the same layering
+/// contract as `Button.tsx` itself. `is_test_only_path` doesn't recognize
+/// `.stories.` files (it's a shared, cross-language helper with no React
+/// vocabulary), so this crate's own rules check both.
+pub(crate) fn is_dev_only_path(path: &str) -> bool {
+    vord_rules_engine::is_test_only_path(path) || path.to_ascii_lowercase().contains(".stories.")
+}
+
 /// A path whose name marks it as configuration rather than application
 /// code (`vite.config.ts`, `src/config/env.ts`, `tailwind.config.js`) — the
 /// literal it holds is a deliberate, single-source-of-truth constant, not

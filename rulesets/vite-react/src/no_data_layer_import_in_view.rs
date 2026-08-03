@@ -13,7 +13,10 @@ use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
 use vord_import_graph::{imported_modules, matches_module};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::{build_globset, is_excepted, is_infra_specifier, is_view_path, is_type_only_import_span};
+use crate::common::{
+    build_globset, is_dev_only_path, is_excepted, is_infra_specifier, is_type_only_import_span,
+    is_view_path,
+};
 
 struct RosterEntry {
     module: &'static str,
@@ -106,7 +109,7 @@ impl Rule for NoDataLayerImportInViewRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if vord_rules_engine::is_test_only_path(file.path()) {
+        if is_dev_only_path(file.path()) {
             return Vec::new();
         }
         if !is_view_path(file.path()) || is_excepted(file.path(), &self.exceptions) {
@@ -236,6 +239,17 @@ mod tests {
             ts(
                 "src/components/UserCard.tsx",
                 "import type { InfraLogger } from '../infra/logger';\nexport type X = InfraLogger;\n"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn silent_in_a_storybook_file() {
+        assert!(
+            ts(
+                "src/components/LoginForm.stories.tsx",
+                "import { create } from 'zustand';\nexport const x = create;\n"
             )
             .is_empty()
         );

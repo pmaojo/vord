@@ -6,12 +6,17 @@
 //! Mixing the two makes a component's data dependency invisible from its
 //! import path alone.
 
+use std::collections::HashSet;
+
 use globset::GlobSet;
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_import_graph::{imported_modules, matches_module};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::{build_globset, is_excepted, is_feature_api_path, is_feature_hooks_path};
+use crate::common::{
+    build_globset, is_dev_only_path, is_excepted, is_feature_api_path, is_feature_hooks_path,
+    is_other,
+};
 
 const REACT_QUERY_HOOK_NAMES: &[&str] = &["useQuery", "useMutation", "useInfiniteQuery"];
 const REACT_QUERY_MODULES: &[&str] = &["@tanstack/react-query", "react-query"];
@@ -40,12 +45,55 @@ impl Default for DataHookOutsideApiDirRule {
     }
 }
 
-fn call_findings(ast: &AstNode, out: &mut Vec<Finding>) {
-    fn walk(node: &AstNode, out: &mut Vec<Finding>) {
+/// Local names an `import { a, b as c } from '<react-query module>'`
+/// statement binds — the same `useQuery` identifier is also the textbook
+/// name for React Router's "read the URL's search params" hook (it's in
+/// React Router's own docs), so a bare name match on the call would flag
+/// that unrelated hook too. Only a name this file itself imported from a
+/// real react-query module counts.
+fn react_query_bound_names(ast: &AstNode) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for node in ast.descendants() {
+        if !(is_other(node, "import_statement") || is_other(node, "export_statement")) {
+            continue;
+        }
+        let Some(source) = node
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::StringLiteral)
+        else {
+            continue;
+        };
+        let specifier = source.text().trim_matches(['\'', '"', '`']);
+        if !REACT_QUERY_MODULES
+            .iter()
+            .any(|module| matches_module(specifier, module))
+        {
+            continue;
+        }
+        for specifier_node in node
+            .descendants()
+            .filter(|n| is_other(n, "import_specifier"))
+        {
+            if let Some(bound) = specifier_node
+                .children()
+                .iter()
+                .rev()
+                .find(|c| *c.kind() == NodeKind::Identifier)
+            {
+                names.insert(bound.text().to_string());
+            }
+        }
+    }
+    names
+}
+
+fn call_findings(ast: &AstNode, bound_names: &HashSet<String>, out: &mut Vec<Finding>) {
+    fn walk(node: &AstNode, bound_names: &HashSet<String>, out: &mut Vec<Finding>) {
         if *node.kind() == NodeKind::Call {
             if let Some(callee) = node.first_child() {
                 if *callee.kind() == NodeKind::Identifier
                     && REACT_QUERY_HOOK_NAMES.contains(&callee.text())
+                    && bound_names.contains(callee.text())
                 {
                     out.push(Finding::new(
                         format!(
@@ -58,10 +106,10 @@ fn call_findings(ast: &AstNode, out: &mut Vec<Finding>) {
             }
         }
         for child in node.children() {
-            walk(child, out);
+            walk(child, bound_names, out);
         }
     }
-    walk(ast, out);
+    walk(ast, bound_names, out);
 }
 
 impl Rule for DataHookOutsideApiDirRule {
@@ -95,7 +143,7 @@ impl Rule for DataHookOutsideApiDirRule {
     }
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        if vord_rules_engine::is_test_only_path(file.path()) {
+        if is_dev_only_path(file.path()) {
             return Vec::new();
         }
         if !is_feature_hooks_path(file.path()) || is_feature_api_path(file.path()) {
@@ -105,7 +153,8 @@ impl Rule for DataHookOutsideApiDirRule {
             return Vec::new();
         }
         let mut findings = Vec::new();
-        call_findings(ast, &mut findings);
+        let bound_names = react_query_bound_names(ast);
+        call_findings(ast, &bound_names, &mut findings);
         for import in imported_modules(file, ast) {
             if REACT_QUERY_MODULES
                 .iter()
@@ -141,19 +190,39 @@ mod tests {
     fn flags_use_query_call_in_a_hooks_file() {
         let findings = ts(
             "src/features/user/hooks/useUser.ts",
-            "export function useUser() {\n  return useQuery(['user'], fetchUser);\n}\n",
+            "import { useQuery } from '@tanstack/react-query';\nexport function useUser() {\n  return useQuery(['user'], fetchUser);\n}\n",
         );
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("`useQuery`"));
+        assert_eq!(findings.len(), 2, "{findings:?}"); // the call, plus the import itself
+        assert!(findings.iter().any(|f| f.message.contains("`useQuery`")));
     }
 
     #[test]
     fn flags_use_mutation_call() {
         let findings = ts(
             "src/features/auth/hooks/useLogin.ts",
-            "export function useLogin() {\n  return useMutation(login);\n}\n",
+            "import { useMutation } from '@tanstack/react-query';\nexport function useLogin() {\n  return useMutation(login);\n}\n",
         );
-        assert_eq!(findings.len(), 1);
+        assert_eq!(findings.len(), 2, "{findings:?}");
+    }
+
+    #[test]
+    fn silent_on_a_same_named_hook_that_is_not_react_query() {
+        // React Router's own docs use exactly this name for "read the URL's
+        // search params" — nothing to do with TanStack Query.
+        assert!(
+            ts(
+                "src/features/search/hooks/useFilteredResults.ts",
+                "import { useQuery } from './useQuery';\nexport function useFilteredResults() {\n  const params = useQuery();\n  return params.get('q');\n}\n",
+            )
+            .is_empty()
+        );
+        assert!(
+            ts(
+                "src/features/search/hooks/useQuery.ts",
+                "import { useLocation } from 'react-router-dom';\nexport function useQuery() {\n  return new URLSearchParams(useLocation().search);\n}\n",
+            )
+            .is_empty()
+        );
     }
 
     #[test]

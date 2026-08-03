@@ -165,12 +165,34 @@ was considered ready:
   name that also mentions `base`/`api`/`server`/`backend` (`baseURL`,
   `apiUrl`, `serverUrl`, …).
 
-Both have regression tests (`silent_on_a_type_only_import`,
-`silent_on_a_presentational_url_binding`) alongside the rules' existing
-positive cases, but the heuristics are still name/shape-based and not
-exhaustive — treat a first run's findings as a starting point to triage, not
-as ground truth, and use `[vite_react.exceptions]` for anything that's a
-false positive this pass didn't anticipate.
+Two more were found in a second pass, hunting past just the shipped fixture:
+
+- **`vite-react:data-hook-outside-api-dir` and name collisions.** The rule
+  used to flag any call to an identifier literally named `useQuery` —
+  including React Router's own textbook "read the URL's search params" hook,
+  which real projects name exactly that. It now only flags a call when that
+  name is actually bound by an `import ... from` a react-query module in the
+  same file (the import-based check — "React Query is imported from a
+  `hooks/` file at all" — is unaffected, since that one was never
+  name-collision-prone).
+- **Storybook stories weren't excluded from any layering rule.** A story's
+  `loaders`/decorators routinely `fetch` or import a data-layer library to
+  produce demo data — standard Storybook practice, not the shipped
+  component's runtime code. `is_test_only_path` (the shared, cross-language
+  helper `vord-rules-engine` exposes) has no React vocabulary and doesn't
+  recognize `.stories.` files, so this crate now checks a local
+  `is_dev_only_path` (test-only OR `.stories.`) instead, in every rule that
+  reasons about a file's runtime layer.
+
+Both passes have regression tests (`silent_on_a_type_only_import`,
+`silent_on_a_presentational_url_binding`,
+`silent_on_a_same_named_hook_that_is_not_react_query`, and a
+`silent_in_a_storybook_file`/`silent_in_a_storybook_loader` test per rule)
+alongside the rules' existing positive cases, but the heuristics are still
+name/shape-based and not exhaustive — treat a first run's findings as a
+starting point to triage, not as ground truth, and use
+`[vite_react.exceptions]` for anything that's a false positive these passes
+didn't anticipate.
 
 ## Rolling this out
 
