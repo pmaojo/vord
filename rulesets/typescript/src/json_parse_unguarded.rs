@@ -91,7 +91,10 @@ impl Rule for JsonParseUnguardedRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        if vord_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         collect(ast, false, &mut out);
         out.into_iter()
@@ -136,5 +139,23 @@ mod tests {
     #[test]
     fn allows_string_literal_argument() {
         assert!(check("const x = JSON.parse('{\"a\":1}');\n").is_empty());
+    }
+
+    #[test]
+    fn silent_in_a_test_file() {
+        // The value being parsed is generated and controlled by the test
+        // itself (round-tripping a serialized chat message, say), not an
+        // untrusted external input — there's no production code path here
+        // for a malformed-input crash to reach.
+        let file = SourceFile::new(
+            "src/lib/message.test.ts",
+            "const x = JSON.parse(serialized);\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(JsonParseUnguardedRule::new().check(&file, &ast).is_empty());
     }
 }

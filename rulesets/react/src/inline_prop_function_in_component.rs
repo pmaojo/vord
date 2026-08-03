@@ -62,7 +62,10 @@ impl Rule for InlinePropFunctionInComponentRule {
         }
     }
 
-    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+    fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        if vord_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
         ast.descendants()
             .filter(|el| tag_name(el).is_some_and(|t| t.starts_with(|c: char| c.is_ascii_uppercase())))
             .flat_map(|el| {
@@ -132,5 +135,26 @@ mod tests {
     fn ignores_excluded_attributes() {
         let findings = check("const el = <Widget style={{color: 'red'}} />;\n");
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn silent_in_a_test_file() {
+        // Each test mounts an isolated instance of the component — there's
+        // no sustained user interaction for a defeated memoization to cost
+        // anything, unlike the same pattern in a real render tree.
+        let file = SourceFile::new(
+            "src/components/Row.test.tsx",
+            "const el = <Row onSelect={() => pick(id)} config={{size: 10}} />;\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(
+            InlinePropFunctionInComponentRule::new()
+                .check(&file, &ast)
+                .is_empty()
+        );
     }
 }

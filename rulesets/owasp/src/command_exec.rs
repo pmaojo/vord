@@ -58,6 +58,14 @@ impl Rule for CommandExecHotspotRule {
         let python = *file.language() == LanguageIdentifier::python();
         let ts = *file.language() == LanguageIdentifier::typescript();
         let java = *file.language() == LanguageIdentifier::java();
+        // `exec`/`execSync` collide head-on with `RegExp.prototype.exec` —
+        // an extremely common, entirely harmless call (`pattern.exec(str)`)
+        // that just happens to share the method name. Bare-name matching
+        // can't tell the two apart from the callee alone, so gate the TS
+        // sinks on the file actually importing/requiring `child_process`
+        // somewhere — the one thing every real `child_process.exec` call
+        // site has and essentially no `RegExp.exec` call site does.
+        let ts_child_process = ts && file.content().contains("child_process");
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Call)
             .filter_map(|call| {
@@ -71,7 +79,7 @@ impl Rule for CommandExecHotspotRule {
                     // Python: os.system/os.popen and the subprocess module.
                     || (python && (text.starts_with("os.system") || text.starts_with("os.popen") || text.starts_with("subprocess.")))
                     // TS: exec/execSync/spawn/spawnSync, bare or as method.
-                    || (ts && match callee.kind() {
+                    || (ts_child_process && match callee.kind() {
                         NodeKind::Identifier => TS_SINKS.contains(&text),
                         NodeKind::MemberAccess => callee
                             .children()
@@ -130,5 +138,36 @@ mod tests {
             .unwrap();
         let findings = CommandExecHotspotRule::new().check(&file, &ast);
         assert_eq!(findings.len(), 2);
+    }
+
+    #[test]
+    fn ignores_regexp_exec_without_child_process_imported() {
+        // Both real-world: chatgpt-next-web's ms_edge_tts.ts calls
+        // `pattern.exec(str)` twice (a bare regex literal and a named
+        // constant), neither anywhere near `child_process`.
+        let file = SourceFile::new(
+            "t.ts",
+            "const id = /X-RequestId:(.*?)\\r\\n/gm.exec(message)![1];\nconst m = MsEdgeTTS.VOICE_LANG_REGEX.exec(voice);\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert!(CommandExecHotspotRule::new().check(&file, &ast).is_empty());
+    }
+
+    #[test]
+    fn still_flags_bare_exec_when_child_process_is_required() {
+        let file = SourceFile::new(
+            "t.ts",
+            "const { exec } = require('child_process');\nexec(cmd);\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let ast = vord_parser_typescript::TypeScriptParser::new()
+            .parse(&file)
+            .unwrap();
+        assert_eq!(CommandExecHotspotRule::new().check(&file, &ast).len(), 1);
     }
 }
