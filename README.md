@@ -101,12 +101,13 @@ vord/
 │   ├── treesitter-python/
 │   ├── treesitter-go/
 │   └── ...                     # 20 more: c, cpp, csharp, java, kotlin, ruby, php, swift, scala, ...
-├── rulesets/                   # PLUGINS implementing the Rule trait — 150 rules, 15 crates
+├── rulesets/                   # PLUGINS implementing the Rule trait — 161 rules, 16 crates
 │   ├── owasp/                  # secrets, eval/exec, command-exec hotspots, taint injection (incl. cross-file)
 │   ├── code-smells/            # SOLID (see below), complexity (cyclomatic + cognitive), TODO/FIXME, long functions
 │   ├── architecture/           # hexagonal layering, framework purity, import cycles, Martin component metrics
 │   ├── ddd/                    # tactical DDD: anemic model, entity setters, primitive obsession, aggregate leaks
 │   ├── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
+│   ├── wordpress/              # WPCS-shaped: escaping, sanitization, nonces, prepared $wpdb, i18n, deprecated APIs
 │   └── ...                     # 10 more: python, go, typescript, react, reactive, iac, a11y, ai-agent, php, secrets
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
     ├── cli/                    # vord scan/hook/agent/swarm/fix — local end-to-end analysis
