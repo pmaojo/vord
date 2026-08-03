@@ -24,9 +24,11 @@ fn scan(name: &str) -> vord_rules_engine::AnalysisReport {
         None,
         &[],
         &[],
-        &Default::default(),
-        &Default::default(),
-        &Default::default(),
+        &vord_cli::ProjectSettings {
+            duplication: &Default::default(),
+            architecture: &Default::default(),
+            vite_react: &Default::default(),
+        },
         Some(profile),
     ))
     .unwrap()

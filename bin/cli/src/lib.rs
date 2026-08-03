@@ -313,12 +313,24 @@ pub async fn scan_with_project_config(
         cache,
         source_dirs,
         exclusions,
-        duplication,
-        architecture,
-        &Default::default(),
+        &ProjectSettings {
+            duplication,
+            architecture,
+            vite_react: &Default::default(),
+        },
         None,
     )
     .await
+}
+
+/// The `vord.toml` setting tables [`scan_with_profile`] needs beyond scope
+/// and cache — bundled purely to keep that function's argument count
+/// reasonable; each field is exactly the struct its own `vord.toml` section
+/// deserializes to.
+pub struct ProjectSettings<'a> {
+    pub duplication: &'a vord_infra_fs::DuplicationSettings,
+    pub architecture: &'a vord_infra_fs::ArchitectureSettings,
+    pub vite_react: &'a vord_infra_fs::ViteReactSettings,
 }
 
 /// Same as [`scan_with_project_config`], plus `vord.toml`'s
@@ -332,11 +344,12 @@ pub async fn scan_with_profile(
     cache: Option<Arc<FileAnalysisCache>>,
     source_dirs: &[String],
     exclusions: &[String],
-    duplication: &vord_infra_fs::DuplicationSettings,
-    architecture: &vord_infra_fs::ArchitectureSettings,
-    vite_react: &vord_infra_fs::ViteReactSettings,
+    settings: &ProjectSettings<'_>,
     profile: Option<vord_rules_engine::QualityProfile>,
 ) -> anyhow::Result<AnalysisReport> {
+    let duplication = settings.duplication;
+    let architecture = settings.architecture;
+    let vite_react = settings.vite_react;
     let sources = vord_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
     let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
         .with_duplication_config(duplication_config(duplication));

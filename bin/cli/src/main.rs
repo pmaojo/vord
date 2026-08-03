@@ -794,33 +794,34 @@ fn parse_fail_on_threshold(fail_on: Option<String>) -> anyhow::Result<Option<Sev
 
 /// `vord.toml`'s `[analysis] sources`/`exclusions`/`profile`/`[project] key`,
 /// or all empty when there's no project config (a bare directory/file scan).
-fn load_project_scope(
-    path: &std::path::Path,
-) -> (
-    Vec<String>,
-    Vec<String>,
-    Option<String>,
-    vord_infra_fs::DuplicationSettings,
-    vord_infra_fs::ArchitectureSettings,
-    vord_infra_fs::GateSettings,
-    Option<String>,
-    vord_infra_fs::ViteReactSettings,
-) {
+#[derive(Default)]
+struct ProjectScope {
+    source_dirs: Vec<String>,
+    exclusions: Vec<String>,
+    project_key: Option<String>,
+    duplication: vord_infra_fs::DuplicationSettings,
+    architecture: vord_infra_fs::ArchitectureSettings,
+    gate: vord_infra_fs::GateSettings,
+    config_profile: Option<String>,
+    vite_react: vord_infra_fs::ViteReactSettings,
+}
+
+fn load_project_scope(path: &std::path::Path) -> ProjectScope {
     vord_infra_fs::VordConfig::load_from_dir(path)
         .map(|config| {
             if let Some(key) = &config.project.key {
                 eprintln!("📋 Loaded project config ({key})");
             }
-            (
-                config.analysis.sources.unwrap_or_default(),
-                config.analysis.exclusions.unwrap_or_default(),
-                config.project.key,
-                config.duplication,
-                config.architecture,
-                config.gate,
-                config.analysis.profile,
-                config.vite_react,
-            )
+            ProjectScope {
+                source_dirs: config.analysis.sources.unwrap_or_default(),
+                exclusions: config.analysis.exclusions.unwrap_or_default(),
+                project_key: config.project.key,
+                duplication: config.duplication,
+                architecture: config.architecture,
+                gate: config.gate,
+                config_profile: config.analysis.profile,
+                vite_react: config.vite_react,
+            }
         })
         .unwrap_or_default()
 }
@@ -1469,16 +1470,16 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     }
 
     let threshold = parse_fail_on_threshold(args.fail_on.clone())?;
-    let (
+    let ProjectScope {
         source_dirs,
         exclusions,
-        config_project_key,
+        project_key: config_project_key,
         duplication,
         architecture,
-        gate_config,
-        _config_profile,
+        gate: gate_config,
+        config_profile: _config_profile,
         vite_react,
-    ) = load_project_scope(&args.path);
+    } = load_project_scope(&args.path);
     // `--profile` is the only trigger in this increment: `vord.toml`'s own
     // `[analysis] profile` stays parsed-but-unread (see `VordConfig`'s own
     // doc note), same as before this flag existed, so omitting `--profile`
@@ -1505,9 +1506,11 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         cache.clone(),
         &source_dirs,
         &exclusions,
-        &duplication,
-        &architecture,
-        &vite_react,
+        &vord_cli::ProjectSettings {
+            duplication: &duplication,
+            architecture: &architecture,
+            vite_react: &vite_react,
+        },
         profile,
     )
     .await?;
