@@ -239,6 +239,22 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         ),
         (rule("typescript:innerhtml-assignment"), Severity::Critical),
         (rule("typescript:swallowed-exception"), Severity::Major),
+        (
+            rule("typescript:prefer-globalthis-over-window"),
+            Severity::Minor,
+        ),
+        (rule("typescript:prefer-replaceall"), Severity::Minor),
+        (rule("typescript:sort-without-compare"), Severity::Major),
+        (
+            rule("typescript:prefer-default-parameters"),
+            Severity::Minor,
+        ),
+        (
+            rule("typescript:negated-ternary-condition"),
+            Severity::Minor,
+        ),
+        (rule("typescript:redundant-type-alias"), Severity::Minor),
+        (rule("typescript:constant-return-value"), Severity::Major),
         // rulesets/ai-agent — applies_to typescript/python.
         (rule("ai:llm-output-injection"), Severity::Blocker),
         // rulesets/architecture — per-file hexagonal purity check.
