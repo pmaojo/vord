@@ -87,6 +87,8 @@ vord/
 │   ├── swarm/                  # vord-swarm: worktree/handoff/topology computation for multi-agent runs
 │   ├── remediation/            # vord-remediation: generate → sandbox → re-scan → verdict
 │   ├── crap/                   # vord-crap: risk = complexity² × untestedness³ + complexity
+│   ├── flow-graph/             # vord-flow-graph: same-file function call graph over the neutral AST
+│   ├── flow-risk/              # vord-flow-risk: untested-sequence detection + [[flows]] evaluation
 │   └── duplication/            # vord-cpd: copy-paste detection (rolling-window hashes)
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
@@ -200,6 +202,7 @@ cargo run -p vord-cli -- scan fixtures --junit report.xml     # ingest JUnit tes
 cargo run -p vord-cli -- scan fixtures --compliance-pdf report.pdf --compliance-csv report.csv  # OWASP/CWE/PCI DSS evidence report
 cargo run -p vord-cli -- scan monorepo-root --monorepo         # discover + scan every vord.toml-configured project under a root
 cargo run -p vord-cli -- scan fixtures --mutation-report mutation.json  # ingest a Stryker-schema mutation report
+cargo run -p vord-cli -- flow add --name checkout --step src/checkout.ts:startCheckout --step src/payment.ts:chargeCard  # register a flow (see "Flow coverage")
 cargo run -p vord-cli -- scan fixtures --sarif ruff.sarif      # import another analyzer's findings
 cargo run -p vord-cli -- scan fixtures --sarif ruff.sarif --sarif eslint.sarif  # repeatable
 cargo run -p vord-cli -- arch                                  # component architecture: text summary
@@ -671,6 +674,72 @@ worth prioritizing.
 ```bash
 python3 scripts/correlate-mutation.py --vord vord.json --mutation reports/mutation-report.json --out overlap.csv
 ```
+
+## Flow coverage: "is this sequence tested", not just this line
+
+Line coverage, CRAP and mutation testing all answer questions about *one
+function*. None of them answer "function A is exercised, but does the
+sequence it triggers actually run end-to-end?" — a controller can show
+100% coverage while the service it calls, three hops down, never executes
+under test. Flow coverage closes that gap, two ways, both gated on a
+coverage report already having been ingested (`--coverage`/`--cobertura`/
+`--jacoco`/`--llvm-cov`/`--coverage-report`) — no new flag, same
+no-op-without-coverage posture CRAP already uses:
+
+- **Auto-detected** (`flow:untested-sequence`): for every same-file function
+  with no local caller (a plausible entry point) that coverage shows was
+  actually exercised, vord walks its call graph — same-file, name-resolved,
+  no type inference — for the shortest chain to a function whose own span
+  is *confirmed* unexecuted (0% covered, not merely "no data"). Zero
+  configuration; it runs on every file the ingested coverage report covers.
+- **Registered** (`flow:registered-gap`): for sequences static analysis
+  can't reconstruct at all — cross-file, cross-language, or dispatched
+  through a router/queue/cron rather than a direct call — declare the steps
+  explicitly:
+
+  ```toml
+  [[flows]]
+  name = "checkout-happy-path"
+
+    [[flows.steps]]
+    path = "src/checkout.ts"
+    function = "startCheckout"
+
+    [[flows.steps]]
+    path = "src/payment.ts"
+    function = "chargeCard"
+  ```
+
+  `vord scan` resolves each step's span and reports the first one that's
+  either missing (renamed/moved since it was registered) or confirmed at 0%
+  coverage — the flow's weakest verified link.
+
+Both sources fold into ordinary `Issue`s (`add_external_issues`, the same
+treatment SARIF import and CRAP already get), so a finding shows up in
+text/JSON output, SARIF export and PR decoration with no separate report to
+go look at. Neither source is wired into the default quality gate — both
+land at `Major`, not `Critical`/`Blocker` — so turning this on cannot newly
+fail a `--enforce-gate` build that previously passed.
+
+An agent that has just written a multi-function feature (or traced a bug
+across a call boundary) can register the flow it cares about without
+hand-editing TOML:
+
+```bash
+vord flow add --name checkout-happy-path \
+  --step src/checkout.ts:startCheckout \
+  --step src/payment.ts:chargeCard
+```
+
+This appends a `[[flows]]` block to `vord.toml` (or `.vord.toml`, matching
+whichever the project already has) as raw text — every existing comment and
+the rest of the file survive untouched — and refuses to exit non-zero
+without the new flow actually reparsing.
+
+Both sources share the same fail-open discipline `vord-crap` already
+commits to: a span with no instrumented line at all is "no evidence," never
+scored as "confirmed untested" — so a file that simply wasn't covered by a
+particular test run never produces a false accusation.
 
 ## Compliance reports
 

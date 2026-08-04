@@ -24,10 +24,12 @@ fn scan(name: &str) -> vord_rules_engine::AnalysisReport {
         None,
         &[],
         &[],
+        &[],
         &vord_cli::ProjectSettings {
             duplication: &Default::default(),
             architecture: &Default::default(),
             vite_react: &Default::default(),
+            rules_custom: &[],
         },
         Some(profile),
     ))
@@ -117,6 +119,7 @@ fn scanning_with_no_profile_selected_is_unaffected_by_this_starters_rules() {
     let report = futures::executor::block_on(vord_cli::scan_with_project_config(
         &fixture("dirty"),
         None,
+        &[],
         &[],
         &[],
         &Default::default(),

@@ -1,0 +1,16 @@
+[package]
+name = "vord-flow-risk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Flow-level (multi-function sequence) untested-code detection: auto-detected call chains and manually registered flows, joined against line coverage"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+vord-ast = { workspace = true }
+vord-crap = { workspace = true }
+vord-flow-graph = { workspace = true }

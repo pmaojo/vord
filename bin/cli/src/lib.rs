@@ -36,7 +36,7 @@ use vord_parser_xml::XmlParser;
 use vord_parser_yaml::YamlParser;
 use vord_rules_engine::{
     AnalysisReport, AnalyzerService, ComparisonOperator, Condition, HotspotStorage, IssueStorage,
-    MetricKey, MetricsTracker, QualityGate, Rule,
+    MetricKey, MetricsTracker, QualityGate, Rule, Severity,
 };
 
 pub mod agent;
@@ -46,8 +46,11 @@ pub mod swarm;
 
 /// Every parser the default service registers. Its own flat data literal
 /// (complexity 1) so `default_service` doesn't carry the whole fluent
-/// registration chain's line count.
-fn all_default_parsers() -> Vec<Box<dyn vord_rules_engine::AstParser>> {
+/// registration chain's line count. Public so callers that need a one-off
+/// parse outside `AnalyzerService`'s own pipeline (e.g. `bin/cli::flow`'s
+/// flow-coverage re-parse) can build the same registry without duplicating
+/// this list.
+pub fn all_default_parsers() -> Vec<Box<dyn vord_rules_engine::AstParser>> {
     vec![
         Box::new(TypeScriptParser::new()),
         Box::new(RustParser::new()),
@@ -287,6 +290,7 @@ pub async fn scan_with_exclusions(
         path,
         cache,
         &[],
+        &[],
         exclusions,
         &Default::default(),
         &Default::default(),
@@ -296,14 +300,16 @@ pub async fn scan_with_exclusions(
 
 /// Scans with an optional incremental cache, `vord.toml`'s
 /// `[analysis] sources` (directories to scan — the whole tree when empty),
-/// and its `[analysis] exclusions` globs (matched against each file's path
-/// relative to `path`). Always the "vord way" default profile with no
-/// `[vite_react.exceptions]` applied — see [`scan_with_profile`] for a
-/// caller that has resolved a `--profile` selection.
+/// `[analysis] inclusions` (a file must match at least one to be kept, when
+/// non-empty), and `[analysis] exclusions` globs (matched against each
+/// file's path relative to `path`). Always the "vord way" default profile
+/// with no `[vite_react.exceptions]` applied — see [`scan_with_profile`] for
+/// a caller that has resolved a `--profile` selection.
 pub async fn scan_with_project_config(
     path: &Path,
     cache: Option<Arc<FileAnalysisCache>>,
     source_dirs: &[String],
+    inclusions: &[String],
     exclusions: &[String],
     duplication: &vord_infra_fs::DuplicationSettings,
     architecture: &vord_infra_fs::ArchitectureSettings,
@@ -312,11 +318,13 @@ pub async fn scan_with_project_config(
         path,
         cache,
         source_dirs,
+        inclusions,
         exclusions,
         &ProjectSettings {
             duplication,
             architecture,
             vite_react: &Default::default(),
+            rules_custom: &[],
         },
         None,
     )
@@ -331,6 +339,16 @@ pub struct ProjectSettings<'a> {
     pub duplication: &'a vord_infra_fs::DuplicationSettings,
     pub architecture: &'a vord_infra_fs::ArchitectureSettings,
     pub vite_react: &'a vord_infra_fs::ViteReactSettings,
+    /// `[[rules.custom]]` — project-declared regex rules. Each entry is
+    /// registered as an ordinary `vord_rules_smells::CustomRule` *and*
+    /// explicitly activated on top of whatever profile is otherwise in
+    /// effect: a user-chosen rule id can never be pre-listed in the
+    /// built-in "vord way" profile (`core/profiles::default_profile` is a
+    /// hand-maintained literal list of vord's own shipped rule ids), so
+    /// without this a custom rule would register successfully and then be
+    /// silently filtered out by `QualityProfile::is_active` on every scan —
+    /// exactly the "config accepted, nothing happens" trap this closes.
+    pub rules_custom: &'a [vord_infra_fs::CustomRuleConfig],
 }
 
 /// Same as [`scan_with_project_config`], plus `vord.toml`'s
@@ -343,6 +361,7 @@ pub async fn scan_with_profile(
     path: &Path,
     cache: Option<Arc<FileAnalysisCache>>,
     source_dirs: &[String],
+    inclusions: &[String],
     exclusions: &[String],
     settings: &ProjectSettings<'_>,
     profile: Option<vord_rules_engine::QualityProfile>,
@@ -350,7 +369,8 @@ pub async fn scan_with_profile(
     let duplication = settings.duplication;
     let architecture = settings.architecture;
     let vite_react = settings.vite_react;
-    let sources = vord_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
+    let sources =
+        vord_infra_fs::collect_sources_scoped(path, source_dirs, inclusions, exclusions)?;
     let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
         .with_duplication_config(duplication_config(duplication));
     if let Some(profile) = profile {
@@ -361,6 +381,44 @@ pub async fn scan_with_profile(
             service = service.replace_rule(rule);
         }
     }
+    if !settings.rules_custom.is_empty() {
+        let mut profile = service.profile().clone();
+        for config in settings.rules_custom {
+            let severity = Severity::parse(&config.severity).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "[[rules.custom]] {:?} has an unknown severity {:?} (expected info|minor|major|critical|blocker)",
+                    config.id,
+                    config.severity
+                )
+            })?;
+            let rule = vord_rules_smells::CustomRule::new(
+                &config.id,
+                &config.message,
+                &config.pattern,
+                severity,
+            )
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "[[rules.custom]] {:?} is invalid: `id` must be `namespace:code` lowercase \
+                     kebab-case, and `pattern` must be a valid regex (got pattern {:?})",
+                    config.id,
+                    config.pattern
+                )
+            })?;
+            profile.activate(rule.id().clone(), severity);
+            service = service.register_rule(Box::new(rule));
+        }
+        service = service.with_profile(profile);
+    }
+    // Cheap (at most tsconfig.json + one `extends` hop) so it's always
+    // discovered, unlike `rust_crates` below — resolves TS/JS `@/`-style
+    // path-aliased imports for every architecture rule built on
+    // `ImportGraph`. Without this, a project whose imports go through such
+    // an alias looks like it has almost no import edges at all, silently
+    // hiding real cycles/instability/layer violations (`vord arch` shows
+    // the same gap for the same reason). An empty result (no tsconfig.json,
+    // or no `paths` declared) changes nothing below.
+    let ts_aliases = vord_infra_fs::discover_ts_path_aliases(path);
     let boundaries = architecture_config(architecture);
     if !boundaries.is_empty() {
         // Only discovered when there's a boundary to check against — this
@@ -368,14 +426,37 @@ pub async fn scan_with_profile(
         // with no `[architecture]` table declared.
         let rust_crates = vord_infra_fs::discover_rust_crates(path);
         service = service.register_cross_rule(Box::new(
-            vord_rules_architecture::BoundaryViolationRule::new(boundaries, rust_crates),
+            vord_rules_architecture::BoundaryViolationRule::new(boundaries, rust_crates)
+                .with_ts_aliases(ts_aliases.clone()),
         ));
+    }
+    if !ts_aliases.is_empty() {
+        service = service
+            .replace_cross_rule(Box::new(
+                vord_rules_architecture::DependencyCycleRule::new()
+                    .with_ts_aliases(ts_aliases.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_architecture::MainSequenceRule::default()
+                    .with_ts_aliases(ts_aliases.clone()),
+            ))
+            .replace_cross_rule(Box::new(
+                vord_rules_architecture::StableDependencyRule::default()
+                    .with_ts_aliases(ts_aliases.clone()),
+            ));
+        if architecture.layer.is_empty() {
+            service = service.replace_cross_rule(Box::new(
+                vord_rules_architecture::HexagonalLayerRule::new()
+                    .with_ts_aliases(ts_aliases.clone()),
+            ));
+        }
     }
     if !architecture.layer.is_empty() {
         let taxonomy = layer_taxonomy(architecture)?;
         service = service
             .replace_cross_rule(Box::new(
-                vord_rules_architecture::HexagonalLayerRule::with_taxonomy(taxonomy.clone()),
+                vord_rules_architecture::HexagonalLayerRule::with_taxonomy(taxonomy.clone())
+                    .with_ts_aliases(ts_aliases.clone()),
             ))
             .replace_rule(Box::new(
                 vord_rules_architecture::FrameworkInDomainRule::with_taxonomy(taxonomy.clone()),
@@ -642,5 +723,156 @@ mod tests {
                 r.id()
             );
         }
+    }
+
+    fn write_fixture(dir: &std::path::Path, relative: &str, content: &str) {
+        let path = dir.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    fn temp_fixture_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "vord-cli-custom-rule-test-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Proves `[[rules.custom]]` actually fires now — before this was
+    /// wired, a `CustomRuleConfig` was parsed from `vord.toml` and then
+    /// silently discarded: nothing in `bin/cli` ever constructed a `Rule`
+    /// from it, and even a directly `register_rule`-d instance would still
+    /// be filtered out by `QualityProfile::is_active` since a user-chosen
+    /// id is never pre-listed in the built-in "vord way" profile.
+    #[test]
+    fn a_configured_custom_rule_actually_fires() {
+        let dir = temp_fixture_dir("fires");
+        write_fixture(&dir, "a.ts", "console.log('debug');\nexport const x = 1;\n");
+        let custom = vec![vord_infra_fs::CustomRuleConfig {
+            id: "custom:no-console-log".to_string(),
+            message: "Remove console.log before merging".to_string(),
+            pattern: r"console\.log\(".to_string(),
+            severity: "minor".to_string(),
+        }];
+
+        let report = futures::executor::block_on(scan_with_profile(
+            &dir,
+            None,
+            &[],
+            &[],
+            &[],
+            &ProjectSettings {
+                duplication: &Default::default(),
+                architecture: &Default::default(),
+                vite_react: &Default::default(),
+                rules_custom: &custom,
+            },
+            None,
+        ))
+        .unwrap();
+
+        assert!(
+            report
+                .issues()
+                .iter()
+                .any(|i| i.rule().as_str() == "custom:no-console-log"),
+            "expected a custom:no-console-log issue, got: {:?}",
+            report.issues().iter().map(|i| i.rule().as_str()).collect::<Vec<_>>()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn no_custom_rules_configured_is_unaffected() {
+        let dir = temp_fixture_dir("empty");
+        write_fixture(&dir, "a.ts", "console.log('debug');\n");
+
+        let report = futures::executor::block_on(scan_with_profile(
+            &dir,
+            None,
+            &[],
+            &[],
+            &[],
+            &ProjectSettings {
+                duplication: &Default::default(),
+                architecture: &Default::default(),
+                vite_react: &Default::default(),
+                rules_custom: &[],
+            },
+            None,
+        ))
+        .unwrap();
+
+        assert!(
+            !report
+                .issues()
+                .iter()
+                .any(|i| i.rule().as_str().starts_with("custom:"))
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_invalid_custom_rule_pattern_fails_the_scan_loudly() {
+        let dir = temp_fixture_dir("bad-pattern");
+        write_fixture(&dir, "a.ts", "export const x = 1;\n");
+        let custom = vec![vord_infra_fs::CustomRuleConfig {
+            id: "custom:broken".to_string(),
+            message: "broken".to_string(),
+            pattern: "(unclosed".to_string(),
+            severity: "major".to_string(),
+        }];
+
+        let result = futures::executor::block_on(scan_with_profile(
+            &dir,
+            None,
+            &[],
+            &[],
+            &[],
+            &ProjectSettings {
+                duplication: &Default::default(),
+                architecture: &Default::default(),
+                vite_react: &Default::default(),
+                rules_custom: &custom,
+            },
+            None,
+        ));
+
+        assert!(result.is_err(), "an invalid regex must fail the scan, not silently do nothing");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_unknown_custom_rule_severity_fails_the_scan_loudly() {
+        let dir = temp_fixture_dir("bad-severity");
+        write_fixture(&dir, "a.ts", "export const x = 1;\n");
+        let custom = vec![vord_infra_fs::CustomRuleConfig {
+            id: "custom:broken".to_string(),
+            message: "broken".to_string(),
+            pattern: "x".to_string(),
+            severity: "extremely-bad".to_string(),
+        }];
+
+        let result = futures::executor::block_on(scan_with_profile(
+            &dir,
+            None,
+            &[],
+            &[],
+            &[],
+            &ProjectSettings {
+                duplication: &Default::default(),
+                architecture: &Default::default(),
+                vite_react: &Default::default(),
+                rules_custom: &custom,
+            },
+            None,
+        ));
+
+        assert!(result.is_err());
     }
 }

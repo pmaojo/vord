@@ -25,6 +25,38 @@ pub struct VordConfig {
     pub gate: GateSettings,
     #[serde(default)]
     pub vite_react: ViteReactSettings,
+    /// `[[flows]]` — named, explicitly ordered call sequences a human or an
+    /// AI agent has registered for `vord scan` to track. The escape hatch
+    /// for a flow static call-graph analysis cannot infer on its own
+    /// (cross-file, cross-language, dispatched through a router/queue/cron
+    /// rather than a direct call) — the same "declare what static analysis
+    /// can't reconstruct" role `[[gherkin_required]]` plays in
+    /// `vord-policy.toml` for feature-level coverage evidence, but at
+    /// function-sequence granularity and evaluated against ingested line
+    /// coverage rather than Gherkin tags. Empty by default — no `[[flows]]`
+    /// declared means nothing to evaluate, the same opt-in-until-configured
+    /// convention `[architecture]` and `[duplication]` already use.
+    #[serde(default)]
+    pub flows: Vec<FlowConfig>,
+}
+
+/// One `[[flows]]` entry: a name (used in the finding message) plus its
+/// ordered steps. `vord flow add` appends these; `vord scan` evaluates them
+/// once a coverage report has been ingested.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FlowConfig {
+    pub name: String,
+    #[serde(default)]
+    pub steps: Vec<FlowStepConfig>,
+}
+
+/// One step of a `[[flows]]` entry: `path` is repository-relative (the same
+/// convention ingested coverage reports and `Issue::file()` already use),
+/// `function` is that function's declared name in `path`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FlowStepConfig {
+    pub path: String,
+    pub function: String,
 }
 
 /// `[gate]` in `vord.toml` — quality-gate thresholds evaluated by
@@ -247,17 +279,36 @@ pub struct LayerConfig {
     pub patterns: Vec<String>,
 }
 
+/// `[rules]` in `vord.toml`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RulesConfig {
     #[serde(default)]
     pub custom: Vec<CustomRuleConfig>,
 }
 
+/// One `[[rules.custom]]` entry: a project-declared regex rule, for a
+/// convention vord has no built-in rule for. `bin/cli` builds a
+/// `vord_rules_smells::CustomRule` from each entry and activates it
+/// explicitly on top of whatever quality profile is otherwise in effect —
+/// a user-chosen `id` can never be pre-listed in the built-in "vord way"
+/// profile, so it would never fire through the ordinary registration path
+/// alone.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CustomRuleConfig {
+    /// `namespace:code` in lowercase kebab-case (e.g. `"custom:no-console-log"`),
+    /// the same format every built-in rule id uses. An invalid id fails
+    /// the scan at startup rather than being silently dropped.
     pub id: String,
+    /// The finding message shown for every match.
     pub message: String,
+    /// A real regex (not a literal substring), matched independently
+    /// against each line of every scanned file — a match anywhere on a
+    /// line reports that whole line. An invalid regex fails the scan at
+    /// startup rather than being silently dropped.
     pub pattern: String,
+    /// `info`/`minor`/`major`/`critical`/`blocker`, case-insensitive.
+    /// Defaults to `"major"`. An unrecognized value fails the scan at
+    /// startup.
     #[serde(default = "default_severity_str")]
     pub severity: String,
 }
@@ -513,5 +564,36 @@ reason = "QA is read-only"
         let config: VordConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
         assert_eq!(config.vite_react, ViteReactSettings::default());
         assert!(config.vite_react.exceptions.is_empty());
+    }
+
+    #[test]
+    fn parses_registered_flows() {
+        let toml_content = r#"
+[[flows]]
+name = "checkout-happy-path"
+
+  [[flows.steps]]
+  path = "src/checkout.ts"
+  function = "startCheckout"
+
+  [[flows.steps]]
+  path = "src/payment.ts"
+  function = "chargeCard"
+"#;
+        let config: VordConfig = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.flows.len(), 1);
+        let flow = &config.flows[0];
+        assert_eq!(flow.name, "checkout-happy-path");
+        assert_eq!(flow.steps.len(), 2);
+        assert_eq!(flow.steps[0].path, "src/checkout.ts");
+        assert_eq!(flow.steps[0].function, "startCheckout");
+        assert_eq!(flow.steps[1].path, "src/payment.ts");
+        assert_eq!(flow.steps[1].function, "chargeCard");
+    }
+
+    #[test]
+    fn the_flows_list_is_optional() {
+        let config: VordConfig = toml::from_str("[project]\nkey = \"x\"\n").unwrap();
+        assert!(config.flows.is_empty());
     }
 }

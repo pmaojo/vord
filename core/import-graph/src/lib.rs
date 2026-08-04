@@ -33,6 +33,7 @@ use vord_ast::{AstNode, NodeKind, Span};
 
 pub use boundary::{ArchitectureConfig, BoundaryViolation, DependencyEdge, ViolationKind};
 pub use component::component_of;
+pub use resolve::TsPathAliases;
 pub use infra::{ImportedModule, InfraModule, imported_modules, infra_roster, matches_module};
 pub use layer::{
     CustomLayerSpec, HexLayer, LayerTaxonomy, LayerTaxonomyError, LayerViolation,
@@ -98,7 +99,13 @@ fn is_other(node: &AstNode, kind: &str) -> bool {
     matches!(node.kind(), NodeKind::Other(k) if k.as_ref() == kind)
 }
 
-fn extract_ts_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut Vec<ImportEdge>) {
+fn extract_ts_edges(
+    path: &str,
+    ast: &AstNode,
+    candidates: &[&str],
+    aliases: &TsPathAliases,
+    edges: &mut Vec<ImportEdge>,
+) {
     for node in ast
         .descendants()
         .filter(|n| is_other(n, "import_statement") || is_other(n, "export_statement"))
@@ -110,7 +117,8 @@ fn extract_ts_edges(path: &str, ast: &AstNode, candidates: &[&str], edges: &mut 
             continue;
         };
         let specifier = strip_quotes(spec_node.text());
-        if let Some(target) = resolve::resolve_ts_specifier(path, &specifier, candidates) {
+        if let Some(target) = resolve::resolve_ts_specifier(path, &specifier, candidates, aliases)
+        {
             if target != path {
                 edges.push(ImportEdge {
                     from: path.to_string(),
@@ -422,7 +430,9 @@ impl ImportGraph {
     /// Builds the graph from a file set — the same `&[(path, ast)]` shape
     /// `core/taint::CrossFileTaint::find_flows` takes. Rust files contribute
     /// no edges this way (no crate index to resolve `use` paths against);
-    /// see [`Self::build_with_rust_crates`].
+    /// see [`Self::build_with_rust_crates`]. TS/JS bare specifiers
+    /// (`@/lib`-style aliases) are left external; see
+    /// [`Self::build_with_options`].
     pub fn build(files: &[(&str, &AstNode)]) -> Self {
         Self::build_with_rust_crates(files, &HashMap::new())
     }
@@ -438,11 +448,25 @@ impl ImportGraph {
         files: &[(&str, &AstNode)],
         rust_crates: &HashMap<String, String>,
     ) -> Self {
+        Self::build_with_options(files, rust_crates, &TsPathAliases::default())
+    }
+
+    /// Everything [`Self::build_with_rust_crates`] does, plus TS/JS bare
+    /// specifiers resolved against `ts_aliases`
+    /// (`vord_infra_fs::discover_ts_path_aliases`'s output — a `tsconfig.json`/
+    /// `jsconfig.json` `compilerOptions.paths` table). An empty
+    /// `TsPathAliases` behaves exactly like [`Self::build_with_rust_crates`]:
+    /// every bare specifier stays external.
+    pub fn build_with_options(
+        files: &[(&str, &AstNode)],
+        rust_crates: &HashMap<String, String>,
+        ts_aliases: &TsPathAliases,
+    ) -> Self {
         let candidates: Vec<&str> = files.iter().map(|(path, _)| *path).collect();
         let mut edges = Vec::new();
         for (path, ast) in files {
             if is_ts_like(path) {
-                extract_ts_edges(path, ast, &candidates, &mut edges);
+                extract_ts_edges(path, ast, &candidates, ts_aliases, &mut edges);
             } else if path.ends_with(".py") {
                 extract_py_edges(path, ast, &candidates, &mut edges);
             } else if path.ends_with(".rs") {
@@ -461,7 +485,16 @@ impl ImportGraph {
     /// a single-crate `src/domain` / `src/infrastructure` layout is a
     /// hexagon whether or not the workspace has more than one crate in it.
     pub fn build_with_rust_modules(files: &[(&str, &AstNode)]) -> Self {
-        let mut graph = Self::build(files);
+        Self::build_with_rust_modules_and_ts_aliases(files, &TsPathAliases::default())
+    }
+
+    /// Same as [`Self::build_with_rust_modules`], plus TS/JS bare specifiers
+    /// resolved against `ts_aliases` — see [`Self::build_with_options`].
+    pub fn build_with_rust_modules_and_ts_aliases(
+        files: &[(&str, &AstNode)],
+        ts_aliases: &TsPathAliases,
+    ) -> Self {
+        let mut graph = Self::build_with_options(files, &HashMap::new(), ts_aliases);
         let candidates: Vec<&str> = files.iter().map(|(path, _)| *path).collect();
         for (path, ast) in files {
             if path.ends_with(".rs") {
@@ -705,6 +738,45 @@ mod tests {
         let graph = ImportGraph::build(&files);
         assert_eq!(graph.edges().len(), 1);
         assert!(graph.cycles().is_empty());
+    }
+
+    #[test]
+    fn plain_build_leaves_a_path_aliased_import_external() {
+        let a = parse_ts("src/a.ts", "import { b } from '@/lib/b';\n");
+        let b = parse_ts("src/lib/b.ts", "export const b = 1;\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1)];
+        assert_eq!(ImportGraph::build(&files).edges().len(), 0);
+    }
+
+    #[test]
+    fn build_with_options_resolves_a_configured_path_alias() {
+        // tsconfig.json: { "compilerOptions": { "paths": { "@/*": ["src/*"] } } }
+        let a = parse_ts("src/a.ts", "import { b } from '@/lib/b';\n");
+        let b = parse_ts("src/lib/b.ts", "export const b = 1;\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1)];
+        let aliases = TsPathAliases::new(vec![("@/*".to_string(), vec!["src/*".to_string()])]);
+
+        let graph = ImportGraph::build_with_options(&files, &HashMap::new(), &aliases);
+
+        assert_eq!(graph.edges().len(), 1);
+        assert_eq!(graph.edges()[0].from, "src/a.ts");
+        assert_eq!(graph.edges()[0].to, "src/lib/b.ts");
+    }
+
+    #[test]
+    fn a_path_aliased_cycle_is_only_detected_once_aliases_are_supplied() {
+        // Without aliases, both edges are invisible (silently "external"),
+        // so no cycle is reported — the exact false-negative a real project
+        // with unresolved `@/` imports hits, and why using this analysis as
+        // a quality gate is misleading until aliases are wired in.
+        let a = parse_ts("src/a.ts", "import { b } from '@/b';\n");
+        let b = parse_ts("src/b.ts", "import { a } from '@/a';\n");
+        let files: Vec<(&str, &AstNode)> = vec![(a.0.path(), &a.1), (b.0.path(), &b.1)];
+        assert!(ImportGraph::build(&files).cycles().is_empty());
+
+        let aliases = TsPathAliases::new(vec![("@/*".to_string(), vec!["src/*".to_string()])]);
+        let graph = ImportGraph::build_with_options(&files, &HashMap::new(), &aliases);
+        assert_eq!(graph.cycles().len(), 1);
     }
 
     #[test]

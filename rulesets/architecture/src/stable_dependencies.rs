@@ -17,7 +17,9 @@
 //! integers where one import can move it 0.1.
 
 use vord_ast::{AstNode, SourceFile};
-use vord_import_graph::{ImportGraph, component_metrics, component_of, stability_violations};
+use vord_import_graph::{
+    ImportGraph, TsPathAliases, component_metrics, component_of, stability_violations,
+};
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 use crate::census::component_census;
@@ -26,6 +28,7 @@ pub struct StableDependencyRule {
     id: RuleId,
     margin: f64,
     min_afferent: usize,
+    ts_aliases: TsPathAliases,
 }
 
 impl StableDependencyRule {
@@ -34,7 +37,15 @@ impl StableDependencyRule {
             id: RuleId::new("architecture:stable-dependency-violation").expect("valid rule id"),
             margin,
             min_afferent,
+            ts_aliases: TsPathAliases::default(),
         }
+    }
+
+    /// See `DependencyCycleRule::with_ts_aliases` — same rationale, same
+    /// no-op-when-empty default.
+    pub fn with_ts_aliases(mut self, ts_aliases: TsPathAliases) -> Self {
+        self.ts_aliases = ts_aliases;
+        self
     }
 }
 
@@ -82,7 +93,7 @@ impl CrossFileRule for StableDependencyRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> =
             files.iter().map(|(file, ast)| (file.path(), ast)).collect();
-        let graph = ImportGraph::build_with_rust_modules(&views);
+        let graph = ImportGraph::build_with_rust_modules_and_ts_aliases(&views, &self.ts_aliases);
         let metrics = component_metrics(&graph, &component_census(files));
         let mut findings = Vec::new();
         for violation in stability_violations(&graph, &metrics, self.margin) {

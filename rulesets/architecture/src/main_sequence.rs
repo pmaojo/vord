@@ -28,7 +28,9 @@
 //! carry `min_couplings` component-level dependencies before it is judged.
 
 use vord_ast::{AstNode, SourceFile, Span};
-use vord_import_graph::{ComponentMetrics, ImportGraph, component_metrics, component_of};
+use vord_import_graph::{
+    ComponentMetrics, ImportGraph, TsPathAliases, component_metrics, component_of,
+};
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 use crate::census::component_census;
@@ -38,6 +40,7 @@ pub struct MainSequenceRule {
     max_distance: f64,
     min_types: usize,
     min_couplings: usize,
+    ts_aliases: TsPathAliases,
 }
 
 impl MainSequenceRule {
@@ -47,7 +50,15 @@ impl MainSequenceRule {
             max_distance,
             min_types,
             min_couplings,
+            ts_aliases: TsPathAliases::default(),
         }
+    }
+
+    /// See `DependencyCycleRule::with_ts_aliases` — same rationale, same
+    /// no-op-when-empty default.
+    pub fn with_ts_aliases(mut self, ts_aliases: TsPathAliases) -> Self {
+        self.ts_aliases = ts_aliases;
+        self
     }
 }
 
@@ -120,7 +131,7 @@ impl CrossFileRule for MainSequenceRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> =
             files.iter().map(|(file, ast)| (file.path(), ast)).collect();
-        let graph = ImportGraph::build_with_rust_modules(&views);
+        let graph = ImportGraph::build_with_rust_modules_and_ts_aliases(&views, &self.ts_aliases);
         let census = component_census(files);
         let metrics = component_metrics(&graph, &census);
         metrics

@@ -13,6 +13,7 @@ mod arch;
 mod blame;
 mod ci_detect;
 mod crap;
+mod flow;
 mod hook_install;
 mod kickoff;
 mod mcp;
@@ -72,6 +73,13 @@ enum Command {
     Swarm {
         #[command(subcommand)]
         action: SwarmAction,
+    },
+    /// Register or evaluate `[[flows]]`: named call sequences to track for
+    /// end-to-end test coverage, beyond what a single function's own
+    /// coverage percentage can say.
+    Flow {
+        #[command(subcommand)]
+        action: FlowAction,
     },
     /// Kickoff a new project template for AI-driven development.
     Kickoff {
@@ -236,6 +244,30 @@ enum SwarmAction {
     },
     /// Interactive spec-driven Swarm & Worktree Ratatui Dashboard (Offline / LLM-less).
     Tui,
+}
+
+#[derive(Subcommand)]
+enum FlowAction {
+    /// Register a named call sequence in `vord.toml` for `vord scan` to
+    /// track — the manual escape hatch for a flow static call-graph
+    /// analysis can't infer on its own (cross-file, cross-language, or
+    /// dispatched through a router/queue/cron rather than a direct call).
+    /// An agent that has just identified such a sequence calls this once,
+    /// instead of hand-editing TOML; a second `scan` then reports whether
+    /// every step is actually exercised, once coverage has been ingested.
+    Add {
+        /// Flow name, used in the finding message when a step turns out
+        /// untested.
+        #[arg(long)]
+        name: String,
+        /// One step per flag, earliest first, as `path:function` — e.g.
+        /// `--step src/checkout.ts:startCheckout --step src/payment.ts:chargeCard`.
+        #[arg(long = "step", required = true)]
+        steps: Vec<String>,
+        /// Directory containing (or to receive) `vord.toml`.
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -461,6 +493,33 @@ enum Format {
     Sarif,
 }
 
+/// `vord flow add`: parses each `--step path:function` (splitting on the
+/// last `:`, since a function name never contains one) and registers the
+/// flow via `flow::register`.
+fn run_flow(action: FlowAction) -> anyhow::Result<ExitCode> {
+    match action {
+        FlowAction::Add { name, steps, path } => {
+            let parsed: Vec<(String, String)> = steps
+                .iter()
+                .map(|step| {
+                    step.rsplit_once(':')
+                        .map(|(file, function)| (file.to_string(), function.to_string()))
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--step {step:?} must be `path:function`")
+                        })
+                })
+                .collect::<anyhow::Result<_>>()?;
+            flow::register(&path, &name, &parsed)?;
+            println!(
+                "registered flow {name:?} with {} step(s) in {}",
+                parsed.len(),
+                path.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -480,6 +539,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Scan(args)) => run_scan(*args).await,
         Some(Command::Fix { path, issue, model }) => run_fix(path, issue, model).await,
         Some(Command::Hook { action }) => run_hook(action).await,
+        Some(Command::Flow { action }) => run_flow(action),
         Some(Command::Agent { action }) => run_agent(action).await,
         Some(Command::Swarm { action }) => run_swarm(action).await,
         Some(Command::Kickoff { template, path }) => {
@@ -792,11 +852,13 @@ fn parse_fail_on_threshold(fail_on: Option<String>) -> anyhow::Result<Option<Sev
         .transpose()
 }
 
-/// `vord.toml`'s `[analysis] sources`/`exclusions`/`profile`/`[project] key`,
-/// or all empty when there's no project config (a bare directory/file scan).
+/// `vord.toml`'s `[analysis] sources`/`inclusions`/`exclusions`/`profile`/
+/// `[project] key`, or all empty when there's no project config (a bare
+/// directory/file scan).
 #[derive(Default)]
 struct ProjectScope {
     source_dirs: Vec<String>,
+    inclusions: Vec<String>,
     exclusions: Vec<String>,
     project_key: Option<String>,
     duplication: vord_infra_fs::DuplicationSettings,
@@ -804,6 +866,8 @@ struct ProjectScope {
     gate: vord_infra_fs::GateSettings,
     config_profile: Option<String>,
     vite_react: vord_infra_fs::ViteReactSettings,
+    flows: Vec<vord_infra_fs::FlowConfig>,
+    rules_custom: Vec<vord_infra_fs::CustomRuleConfig>,
 }
 
 fn load_project_scope(path: &std::path::Path) -> ProjectScope {
@@ -814,6 +878,7 @@ fn load_project_scope(path: &std::path::Path) -> ProjectScope {
             }
             ProjectScope {
                 source_dirs: config.analysis.sources.unwrap_or_default(),
+                inclusions: config.analysis.inclusions.unwrap_or_default(),
                 exclusions: config.analysis.exclusions.unwrap_or_default(),
                 project_key: config.project.key,
                 duplication: config.duplication,
@@ -821,6 +886,8 @@ fn load_project_scope(path: &std::path::Path) -> ProjectScope {
                 gate: config.gate,
                 config_profile: config.analysis.profile,
                 vite_react: config.vite_react,
+                flows: config.flows,
+                rules_custom: config.rules.custom,
             }
         })
         .unwrap_or_default()
@@ -1086,7 +1153,7 @@ fn ingest_sarif(
     } else {
         tools.join(", ")
     };
-    println!(
+    eprintln!(
         "📥 Imported {imported} issue(s) from {} SARIF report(s) [{tools}]{}",
         args.reports.sarif.len(),
         if skipped > 0 {
@@ -1472,6 +1539,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let threshold = parse_fail_on_threshold(args.fail_on.clone())?;
     let ProjectScope {
         source_dirs,
+        inclusions,
         exclusions,
         project_key: config_project_key,
         duplication,
@@ -1479,6 +1547,8 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         gate: gate_config,
         config_profile: _config_profile,
         vite_react,
+        flows,
+        rules_custom,
     } = load_project_scope(&args.path);
     // `--profile` is the only trigger in this increment: `vord.toml`'s own
     // `[analysis] profile` stays parsed-but-unread (see `VordConfig`'s own
@@ -1505,11 +1575,13 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         &args.path,
         cache.clone(),
         &source_dirs,
+        &inclusions,
         &exclusions,
         &vord_cli::ProjectSettings {
             duplication: &duplication,
             architecture: &architecture,
             vite_react: &vite_react,
+            rules_custom: &rules_custom,
         },
         profile,
     )
@@ -1522,6 +1594,8 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let coverage_new_code =
         coverage_new_code_measure(args.coverage.coverage_diff.clone(), &report)?;
     crap::apply(&mut report);
+    flow::apply_auto_detected(&mut report, &args.path);
+    flow::apply_registered(&mut report, &args.path, &flows);
 
     let test_report = load_test_report(args.reports.junit.clone())?;
     if let Some(summary) = &test_report {

@@ -4,18 +4,31 @@
 //! `owasp:cross-file-injection`), built on `vord_import_graph::ImportGraph`.
 
 use vord_ast::{AstNode, SourceFile, Span};
-use vord_import_graph::ImportGraph;
+use vord_import_graph::{ImportGraph, TsPathAliases};
 use vord_rules_engine::{CrossFileRule, Finding, IssueType, RuleId, RuleMetadata, Severity};
 
 pub struct DependencyCycleRule {
     id: RuleId,
+    ts_aliases: TsPathAliases,
 }
 
 impl DependencyCycleRule {
     pub fn new() -> Self {
         Self {
             id: RuleId::new("architecture:dependency-cycle").expect("valid rule id"),
+            ts_aliases: TsPathAliases::default(),
         }
+    }
+
+    /// Resolves TS/JS `@/`-style path-aliased imports against `ts_aliases`
+    /// (`vord_infra_fs::discover_ts_path_aliases`'s output) before building
+    /// the import graph this rule walks — without it, a project whose
+    /// imports go through a `tsconfig.json` alias looks like it has no
+    /// edges at all, silently hiding real cycles. An empty `TsPathAliases`
+    /// (the default) changes nothing.
+    pub fn with_ts_aliases(mut self, ts_aliases: TsPathAliases) -> Self {
+        self.ts_aliases = ts_aliases;
+        self
     }
 }
 
@@ -54,7 +67,7 @@ impl CrossFileRule for DependencyCycleRule {
     fn check(&self, files: &[(SourceFile, AstNode)]) -> Vec<(usize, Finding)> {
         let views: Vec<(&str, &AstNode)> =
             files.iter().map(|(file, ast)| (file.path(), ast)).collect();
-        let graph = ImportGraph::build_with_rust_modules(&views);
+        let graph = ImportGraph::build_with_rust_modules_and_ts_aliases(&views, &self.ts_aliases);
         let mut findings = Vec::new();
         for cycle in graph.cycles() {
             let chain = cycle.join(" -> ");
@@ -112,6 +125,35 @@ mod tests {
                 .iter()
                 .all(|(_, f)| f.message.contains("import cycle"))
         );
+    }
+
+    #[test]
+    fn a_path_aliased_cycle_is_invisible_without_ts_aliases_but_flagged_with_them() {
+        let a = SourceFile::new(
+            "src/a.ts",
+            "import { b } from '@/b';\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let b = SourceFile::new(
+            "src/b.ts",
+            "import { a } from '@/a';\n",
+            LanguageIdentifier::typescript(),
+        )
+        .unwrap();
+        let parser = vord_parser_typescript::TypeScriptParser::new();
+        let files = vec![
+            (a.clone(), parser.parse(&a).unwrap()),
+            (b.clone(), parser.parse(&b).unwrap()),
+        ];
+
+        assert!(DependencyCycleRule::new().check(&files).is_empty());
+
+        let aliases = TsPathAliases::new(vec![("@/*".to_string(), vec!["src/*".to_string()])]);
+        let findings = DependencyCycleRule::new()
+            .with_ts_aliases(aliases)
+            .check(&files);
+        assert_eq!(findings.len(), 2);
     }
 
     #[test]

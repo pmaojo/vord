@@ -21,6 +21,7 @@ mod mutation;
 mod rust_crates;
 mod sarif;
 mod swarm_worktree;
+mod tsconfig;
 mod worktree;
 
 pub use agent_workspace::RepoWorkspace;
@@ -28,8 +29,9 @@ pub use baseline::BaselineStore;
 pub use cache::FileAnalysisCache;
 pub use cobertura::{CoberturaError, parse_cobertura, parse_cobertura_report};
 pub use config::{
-    AgentSettings, ArchitectureSettings, DependencyEdgeConfig, DuplicationSettings, GateSettings,
-    LayerConfig, RoleProtectedPath, RoleSettings, SwarmSettings, ViteReactSettings, VordConfig,
+    AgentSettings, ArchitectureSettings, CustomRuleConfig, DependencyEdgeConfig,
+    DuplicationSettings, FlowConfig, FlowStepConfig, GateSettings, LayerConfig, RoleProtectedPath,
+    RoleSettings, RulesConfig, SwarmSettings, ViteReactSettings, VordConfig,
 };
 pub use coverage::{
     CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report,
@@ -51,6 +53,7 @@ pub use sarif::{SarifError, SarifImport, parse_sarif, parse_sarif_relative_to};
 pub use swarm_worktree::{
     SwarmWorktreeError, WorktreeStatus, create_worktree, list_worktrees, remove_worktree,
 };
+pub use tsconfig::discover_ts_path_aliases;
 pub use worktree::WorktreeSandbox;
 
 use std::io::ErrorKind;
@@ -81,18 +84,29 @@ pub fn collect_sources_excluding(
     root: &Path,
     exclusions: &[String],
 ) -> Result<Vec<SourceFile>, SourceLoadError> {
-    collect_sources_scoped(root, &[], exclusions)
+    collect_sources_scoped(root, &[], &[], exclusions)
 }
 
 /// Same as [`collect_sources_excluding`], but when `source_dirs` is
 /// non-empty only walks those directories (relative to `root`) instead of
 /// the whole tree — `vord.toml`'s `[analysis] sources`. An empty
 /// `source_dirs` walks all of `root`, same as before.
+///
+/// `inclusions` is `vord.toml`'s `[analysis] inclusions`: when non-empty, a
+/// file must match at least one of these globs (relative to `root`) to be
+/// kept, same convention as `sonar.inclusions` in `sonar-project.properties`
+/// — it narrows the walk, `exclusions` further narrows what's left. An
+/// empty `inclusions` keeps every file, same as before this parameter
+/// existed.
 pub fn collect_sources_scoped(
     root: &Path,
     source_dirs: &[String],
+    inclusions: &[String],
     exclusions: &[String],
 ) -> Result<Vec<SourceFile>, SourceLoadError> {
+    let includes = (!inclusions.is_empty())
+        .then(|| build_globset(inclusions))
+        .transpose()?;
     let excludes = build_globset(exclusions)?;
     let roots: Vec<std::path::PathBuf> = if source_dirs.is_empty() {
         vec![root.to_path_buf()]
@@ -104,7 +118,7 @@ pub fn collect_sources_scoped(
     for walk_root in &roots {
         for entry in WalkBuilder::new(walk_root).build() {
             let entry = entry.map_err(|e| SourceLoadError::Walk(e.to_string()))?;
-            if let Some(source) = load_source_entry(&entry, root, &excludes)? {
+            if let Some(source) = load_source_entry(&entry, root, includes.as_ref(), &excludes)? {
                 sources.push(source);
             }
         }
@@ -114,12 +128,13 @@ pub fn collect_sources_scoped(
 }
 
 /// Loads one walk entry into a [`SourceFile`], or `None` if it's not a
-/// regular file, has an unsupported extension, matches an exclusion glob,
-/// or isn't valid UTF-8 — every case `collect_sources_scoped`'s loop body
-/// used to skip inline via `continue`.
+/// regular file, has an unsupported extension, fails an inclusion/exclusion
+/// glob, or isn't valid UTF-8 — every case `collect_sources_scoped`'s loop
+/// body used to skip inline via `continue`.
 fn load_source_entry(
     entry: &ignore::DirEntry,
     root: &Path,
+    includes: Option<&GlobSet>,
     excludes: &GlobSet,
 ) -> Result<Option<SourceFile>, SourceLoadError> {
     if !entry.file_type().is_some_and(|t| t.is_file()) {
@@ -134,6 +149,11 @@ fn load_source_entry(
         return Ok(None);
     };
     let relative = path.strip_prefix(root).unwrap_or(path);
+    if let Some(includes) = includes
+        && !includes.is_match(relative)
+    {
+        return Ok(None);
+    }
     if is_excluded(relative, excludes) {
         return Ok(None);
     }
@@ -230,6 +250,33 @@ mod tests {
 
         // With no exclusions, both files are collected.
         assert_eq!(collect_sources(&dir).unwrap().len(), 2);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn inclusions_keep_only_matching_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "vord-collect-sources-incl-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        std::fs::write(dir.join("src/app.ts"), "const x = 1;\n").unwrap();
+        std::fs::write(dir.join("scripts/build.ts"), "const y = 2;\n").unwrap();
+
+        let included = vec!["src/**".to_string()];
+        let sources = collect_sources_scoped(&dir, &[], &included, &[]).unwrap();
+
+        assert_eq!(sources.len(), 1, "expected only the included file");
+        assert_eq!(sources[0].path(), "src/app.ts");
+
+        // An empty `inclusions` keeps every file, same as before this
+        // parameter existed.
+        assert_eq!(collect_sources_scoped(&dir, &[], &[], &[]).unwrap().len(), 2);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
