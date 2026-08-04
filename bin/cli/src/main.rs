@@ -852,11 +852,13 @@ fn parse_fail_on_threshold(fail_on: Option<String>) -> anyhow::Result<Option<Sev
         .transpose()
 }
 
-/// `vord.toml`'s `[analysis] sources`/`exclusions`/`profile`/`[project] key`,
-/// or all empty when there's no project config (a bare directory/file scan).
+/// `vord.toml`'s `[analysis] sources`/`inclusions`/`exclusions`/`profile`/
+/// `[project] key`, or all empty when there's no project config (a bare
+/// directory/file scan).
 #[derive(Default)]
 struct ProjectScope {
     source_dirs: Vec<String>,
+    inclusions: Vec<String>,
     exclusions: Vec<String>,
     project_key: Option<String>,
     duplication: vord_infra_fs::DuplicationSettings,
@@ -876,6 +878,7 @@ fn load_project_scope(path: &std::path::Path) -> ProjectScope {
             }
             ProjectScope {
                 source_dirs: config.analysis.sources.unwrap_or_default(),
+                inclusions: config.analysis.inclusions.unwrap_or_default(),
                 exclusions: config.analysis.exclusions.unwrap_or_default(),
                 project_key: config.project.key,
                 duplication: config.duplication,
@@ -1536,6 +1539,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let threshold = parse_fail_on_threshold(args.fail_on.clone())?;
     let ProjectScope {
         source_dirs,
+        inclusions,
         exclusions,
         project_key: config_project_key,
         duplication,
@@ -1571,6 +1575,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         &args.path,
         cache.clone(),
         &source_dirs,
+        &inclusions,
         &exclusions,
         &vord_cli::ProjectSettings {
             duplication: &duplication,

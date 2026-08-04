@@ -18,6 +18,7 @@ fn fired_rules(architecture: &ArchitectureSettings) -> BTreeSet<String> {
         None,
         &[],
         &[],
+        &[],
         &Default::default(),
         architecture,
     ))
@@ -76,6 +77,7 @@ fn an_unknown_parent_ring_fails_the_scan_instead_of_silently_classifying_nothing
     let result = futures::executor::block_on(vord_cli::scan_with_project_config(
         &fixture(),
         None,
+        &[],
         &[],
         &[],
         &Default::default(),

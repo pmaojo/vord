@@ -290,6 +290,7 @@ pub async fn scan_with_exclusions(
         path,
         cache,
         &[],
+        &[],
         exclusions,
         &Default::default(),
         &Default::default(),
@@ -299,14 +300,16 @@ pub async fn scan_with_exclusions(
 
 /// Scans with an optional incremental cache, `vord.toml`'s
 /// `[analysis] sources` (directories to scan — the whole tree when empty),
-/// and its `[analysis] exclusions` globs (matched against each file's path
-/// relative to `path`). Always the "vord way" default profile with no
-/// `[vite_react.exceptions]` applied — see [`scan_with_profile`] for a
-/// caller that has resolved a `--profile` selection.
+/// `[analysis] inclusions` (a file must match at least one to be kept, when
+/// non-empty), and `[analysis] exclusions` globs (matched against each
+/// file's path relative to `path`). Always the "vord way" default profile
+/// with no `[vite_react.exceptions]` applied — see [`scan_with_profile`] for
+/// a caller that has resolved a `--profile` selection.
 pub async fn scan_with_project_config(
     path: &Path,
     cache: Option<Arc<FileAnalysisCache>>,
     source_dirs: &[String],
+    inclusions: &[String],
     exclusions: &[String],
     duplication: &vord_infra_fs::DuplicationSettings,
     architecture: &vord_infra_fs::ArchitectureSettings,
@@ -315,6 +318,7 @@ pub async fn scan_with_project_config(
         path,
         cache,
         source_dirs,
+        inclusions,
         exclusions,
         &ProjectSettings {
             duplication,
@@ -357,6 +361,7 @@ pub async fn scan_with_profile(
     path: &Path,
     cache: Option<Arc<FileAnalysisCache>>,
     source_dirs: &[String],
+    inclusions: &[String],
     exclusions: &[String],
     settings: &ProjectSettings<'_>,
     profile: Option<vord_rules_engine::QualityProfile>,
@@ -364,7 +369,8 @@ pub async fn scan_with_profile(
     let duplication = settings.duplication;
     let architecture = settings.architecture;
     let vite_react = settings.vite_react;
-    let sources = vord_infra_fs::collect_sources_scoped(path, source_dirs, exclusions)?;
+    let sources =
+        vord_infra_fs::collect_sources_scoped(path, source_dirs, inclusions, exclusions)?;
     let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
         .with_duplication_config(duplication_config(duplication));
     if let Some(profile) = profile {
@@ -759,6 +765,7 @@ mod tests {
             None,
             &[],
             &[],
+            &[],
             &ProjectSettings {
                 duplication: &Default::default(),
                 architecture: &Default::default(),
@@ -788,6 +795,7 @@ mod tests {
         let report = futures::executor::block_on(scan_with_profile(
             &dir,
             None,
+            &[],
             &[],
             &[],
             &ProjectSettings {
@@ -825,6 +833,7 @@ mod tests {
             None,
             &[],
             &[],
+            &[],
             &ProjectSettings {
                 duplication: &Default::default(),
                 architecture: &Default::default(),
@@ -852,6 +861,7 @@ mod tests {
         let result = futures::executor::block_on(scan_with_profile(
             &dir,
             None,
+            &[],
             &[],
             &[],
             &ProjectSettings {

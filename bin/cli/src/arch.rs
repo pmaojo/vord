@@ -27,7 +27,7 @@ pub struct ArchSummary {
 /// `A`/`D` are real. Files that fail to parse are skipped silently (a parse
 /// error is an analysis signal, not an architecture one).
 pub fn analyze(root: &Path) -> anyhow::Result<ArchSummary> {
-    let sources = vord_infra_fs::collect_sources_scoped(root, &[], &[])?;
+    let sources = vord_infra_fs::collect_sources_scoped(root, &[], &[], &[])?;
     let rust_crates = vord_infra_fs::discover_rust_crates(root);
     // Resolves TS/JS `@/`-style path-aliased imports (tsconfig.json/
     // jsconfig.json `compilerOptions.paths`) — without this, a project that

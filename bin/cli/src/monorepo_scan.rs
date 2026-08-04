@@ -57,6 +57,7 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
     for project_dir in &projects {
         let config = vord_infra_fs::VordConfig::load_from_dir(project_dir).unwrap_or_default();
         let source_dirs = config.analysis.sources.clone().unwrap_or_default();
+        let inclusions = config.analysis.inclusions.clone().unwrap_or_default();
         let exclusions = config.analysis.exclusions.clone().unwrap_or_default();
 
         let cache = (!args.no_cache).then(|| {
@@ -71,6 +72,7 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
             project_dir,
             cache.clone(),
             &source_dirs,
+            &inclusions,
             &exclusions,
             &config.duplication,
             &config.architecture,

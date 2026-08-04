@@ -74,6 +74,7 @@ impl WriteJudge for HookWriteJudge {
 pub struct RepoAnalyzer {
     root: PathBuf,
     sources: Vec<String>,
+    inclusions: Vec<String>,
     exclusions: Vec<String>,
 }
 
@@ -83,6 +84,9 @@ impl RepoAnalyzer {
         Self {
             root: root.into(),
             sources: analysis.and_then(|a| a.sources.clone()).unwrap_or_default(),
+            inclusions: analysis
+                .and_then(|a| a.inclusions.clone())
+                .unwrap_or_default(),
             exclusions: analysis
                 .and_then(|a| a.exclusions.clone())
                 .unwrap_or_default(),
@@ -101,6 +105,7 @@ impl Analyzer for RepoAnalyzer {
             &target,
             None,
             sources,
+            &self.inclusions,
             &self.exclusions,
             &Default::default(),
             &Default::default(),
