@@ -29,6 +29,21 @@ Fixer), because "verify" collapses into a re-run of stage 1's test plus
 the remediation engine's existing verify-before-suggest loop — nothing
 new to build there, just a new caller.
 
+## Status
+
+- **Built**: `core/triage` — [`TriageLabel`], [`TriageEvent`]/[`FixVerdict`],
+  and `next_triage_state`. The actual shape landed slightly differently
+  from the sketch below: `next_triage_state(current: TriageLabel, event:
+  TriageEvent)` (one active label, not a slice — an issue is only ever in
+  one stage at a time) returning `Result<TriageLabel, InvalidTransition>`.
+  15 unit tests; `vord scan core/triage` is clean (100/100, 0 issues).
+- **Not built yet**: the `TRIAGE_PACK` swarm topology, the `infra/github`
+  issue-side I/O, the `bin/cli` entry point, and the
+  `core/remediation::Sandbox` test-runner extension the "honest limit"
+  section below flags as still undecided. Each depends on that sandbox
+  decision before it can be wired up for real, so this first slice stops
+  at the pure state machine.
+
 ## Where it lives
 
 No new judgement primitive is needed — `RemediationEngine`,
@@ -38,7 +53,7 @@ gate decides if it lands." This is a new *front door* onto that
 machinery (a GitHub issue instead of a lint finding), not a new kind of
 gate.
 
-- **`core/triage`** (new, pure — same shape as `core/swarm`): the label
+- **`core/triage`** (built, pure — same shape as `core/swarm`): the label
   state machine itself.
   ```rust
   enum TriageLabel {
@@ -47,13 +62,16 @@ gate.
       Fixing, FixReady, GateRejected,
   }
 
-  fn next_triage_state(current: &[TriageLabel], event: TriageEvent) -> TriageTransition;
+  fn next_triage_state(current: TriageLabel, event: TriageEvent) -> Result<TriageLabel, InvalidTransition>;
   ```
-  Pure function of current labels + event in, transition out — no
+  Pure function of current label + event in, next label out — no
   fetches, no clock, no process spawning, matching every other `core/`
   crate in this workspace. `TriageEvent` carries the test's exit status
-  and, where relevant, the `RemediationVerdict`; it never carries an
-  LLM's self-report of success.
+  and, where relevant, a `FixVerdict` (this crate's own two-variant
+  stand-in for `RemediationVerdict`, kept dependency-free of
+  `core/remediation` the same way `core/agent-policy::Finding` stays
+  independent of `vord_rules_engine::Issue`); it never carries an LLM's
+  self-report of success.
 
 - **`core/swarm`**: a third topology, `TRIAGE_PACK = [Reproducer,
   Diagnostician, Fixer]`, alongside the existing `TWO_PACK`/`FOUR_PACK`

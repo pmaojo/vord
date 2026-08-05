@@ -25,6 +25,7 @@ vord-import-graph = { path = "core/import-graph", version = "0.9.0" }
 vord-agent-policy = { path = "core/agent-policy", version = "0.9.0" }
 vord-agent = { path = "core/agent", version = "0.9.0" }
 vord-swarm = { path = "core/swarm", version = "0.9.0" }
+vord-triage = { path = "core/triage", version = "0.9.0" }
 vord-parser-typescript = { path = "parsers/treesitter-typescript", version = "0.9.0" }
 vord-parser-rust = { path = "parsers/treesitter-rust", version = "0.9.0" }
 vord-parser-python = { path = "parsers/treesitter-python", version = "0.9.0" }
