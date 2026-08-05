@@ -85,6 +85,7 @@ vord/
 │   ├── agent-policy/           # vord-agent-policy: Agent Permission Policy — may this agent write land?
 │   ├── agent/                  # vord-agent: the agent runtime — session loop, write gate, analyzer-as-done
 │   ├── swarm/                  # vord-swarm: worktree/handoff/topology computation for multi-agent runs
+│   ├── triage/                 # vord-triage: Issue Triage Factory label state machine (reproduce → diagnose → fix)
 │   ├── remediation/            # vord-remediation: generate → sandbox → re-scan → verdict
 │   ├── crap/                   # vord-crap: risk = complexity² × untestedness³ + complexity
 │   ├── flow-graph/             # vord-flow-graph: same-file function call graph over the neutral AST
@@ -112,7 +113,7 @@ vord/
 │   ├── wordpress/              # WPCS-shaped: escaping, sanitization, nonces, prepared $wpdb, i18n, deprecated APIs
 │   └── ...                     # 10 more: python, go, typescript, react, reactive, iac, a11y, ai-agent, php, secrets
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
-    ├── cli/                    # vord scan/hook/agent/swarm/fix — local end-to-end analysis
+    ├── cli/                    # vord scan/hook/agent/swarm/triage/fix — local end-to-end analysis
     └── lsp/                    # editor-facing language server
 ```
 
@@ -569,6 +570,37 @@ name = "cleaner"
 pattern = ".github/workflows/**"
 reason = "CI definitions need human review."
 ```
+
+## `vord triage` — the Issue Triage Factory
+
+Inspired by Cloudflare/Astro's `triagebot-action`: drive a GitHub issue
+through reproduce → diagnose → fix instead of leaving it for a human to
+pick up. Where it differs is the same place `vord agent` differs from an
+ordinary coding agent — nothing advances on a model's opinion of its own
+work. `vord_triage::TriageEvent` only ever carries facts a runtime
+observed (a regression test's exit code, a re-scan's verdict), and
+`core/agent/src/prompt.rs`'s rule that the model never decides completion
+applies here too.
+
+```sh
+vord triage advance --issue 42                                        # advance a wait state
+vord triage advance --issue 42 --repro-command "npm test -- -t bug"   # advance triage:reproducing
+```
+
+Each call advances the issue's `triage:*` label by exactly one step —
+re-run it for the next step, the same way the label state machine
+underneath is meant to be driven (from a GitHub Action on a label change,
+or by hand). Needs `GITHUB_TOKEN`/`GITHUB_REPOSITORY` (same as any other
+`vord` GitHub integration) and a `[[swarm.role]] name = "reproducer"`
+entry so the Reproducer has a worktree to run its command in.
+
+Currently wired end-to-end: advancing a wait state
+(`New`/`Reproduced`/`Diagnosed`/`GateRejected`), and the Reproduce stage
+itself — run `--repro-command`, classify its exit code, advance. Diagnose
+and Fix return a clear error naming the stage rather than a silent no-op;
+driving them for real needs a live agent session plus `core/remediation`
+wired in behind the same verify-before-suggest loop `vord fix` already
+uses. Full design and status: `docs/design/issue-triage-factory.md`.
 
 ## `vord kickoff` — AI-driven project templates
 

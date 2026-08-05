@@ -171,7 +171,23 @@ vord swarm handoff-deliver        # Deliver queued outbox handoffs into inboxes
 vord swarm handoff-inbox --role coder    # Read role inbox
 vord swarm handoff-ack --role coder --id <id> # Acknowledge handoff
 vord swarm run --task "Ship feature"     # Drive full pipeline (with Assistant prompt fallbacks)
+
+# 🩺 4. Issue Triage Factory (roadmap C) — reproduce -> diagnose -> fix a
+# GitHub issue, one step at a time, gated by exit codes and re-scans
+# instead of a model's self-assessment. Reads/writes the issue's
+# `triage:*` label; needs GITHUB_TOKEN + GITHUB_REPOSITORY set (same as
+# any other `vord` GitHub integration).
+vord triage advance --issue 42                                 # advance a wait state (New/Reproduced/Diagnosed/GateRejected)
+vord triage advance --issue 42 --repro-command "npm test -- -t bug"  # advance triage:reproducing
 ```
+
+`vord triage advance` only drives the Reproduce stage and the label
+handoffs between stages today — Diagnose and Fix return a clear
+"not yet implemented" error rather than a silent no-op (see
+`docs/design/issue-triage-factory.md`). Needs a `[[swarm.role]] name =
+"reproducer"` entry in `vord.toml` (and `topology = "triage-pack"` if
+you also want `vord swarm` to see it as a topology) so the Reproducer has
+a worktree to run its command in.
 
 ---
 
