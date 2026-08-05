@@ -20,6 +20,16 @@
 //! writing the label on the actual GitHub issue is I/O and belongs in
 //! `infra/github`, the same split `core/swarm` draws for worktrees and
 //! handoffs.
+//!
+//! The design doc's "how does Reproduce actually run a test suite" question
+//! turned out not to need a new port at all: `vord_agent::runtime::Workspace`
+//! (implemented by `infra/fs::RepoWorkspace`) already sandboxes a command
+//! with a wall-clock timeout and reports back a `CommandOutput` — the exact
+//! shape `vord agent`'s own `run` tool uses. Reproduce is a new *caller* of
+//! that `run`, not a new adapter. [`repro_event_from_exit_code`] is the pure
+//! sliver of judgement this crate needs to consume its result: this crate
+//! stays free of a `vord-agent` dependency by taking the bare `Option<i32>`
+//! rather than the `CommandOutput` type itself.
 
 use std::fmt;
 
@@ -154,6 +164,18 @@ pub enum TriageEvent {
     /// The Fixer's attempt went through `core/remediation`'s
     /// verify-before-suggest loop.
     FixAttempted { verdict: FixVerdict },
+}
+
+/// Classifies a sandboxed regression-test run into the
+/// [`TriageEvent::ReproAttempted`] this crate accepts. `exit_code` is the
+/// same `Option<i32>` `vord_agent::runtime::CommandOutput` carries: `Some(0)`
+/// is a clean pass (no repro — the described bug did not happen), any other
+/// `Some(code)` is a failing test (a real repro), and `None` — a process
+/// killed by a signal rather than exiting — counts as a repro too: a crash
+/// is still evidence the bug is real, not silence to read as a pass.
+pub fn repro_event_from_exit_code(exit_code: Option<i32>) -> TriageEvent {
+    let test_failed = exit_code != Some(0);
+    TriageEvent::ReproAttempted { test_failed }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -391,5 +413,42 @@ mod tests {
             let expected = matches!(stage, TriageLabel::NeedsInfo | TriageLabel::FixReady);
             assert_eq!(stage.is_terminal(), expected, "{stage}");
         }
+    }
+
+    #[test]
+    fn a_clean_exit_means_no_repro() {
+        assert_eq!(
+            repro_event_from_exit_code(Some(0)),
+            TriageEvent::ReproAttempted { test_failed: false }
+        );
+    }
+
+    #[test]
+    fn a_nonzero_exit_is_a_real_repro() {
+        assert_eq!(
+            repro_event_from_exit_code(Some(1)),
+            TriageEvent::ReproAttempted { test_failed: true }
+        );
+        assert_eq!(
+            repro_event_from_exit_code(Some(101)),
+            TriageEvent::ReproAttempted { test_failed: true }
+        );
+    }
+
+    #[test]
+    fn a_process_killed_by_a_signal_counts_as_a_repro_not_a_silent_pass() {
+        assert_eq!(
+            repro_event_from_exit_code(None),
+            TriageEvent::ReproAttempted { test_failed: true }
+        );
+    }
+
+    #[test]
+    fn the_classified_event_feeds_reproducing_the_same_as_any_other_repro_attempt() {
+        let event = repro_event_from_exit_code(Some(1));
+        assert_eq!(
+            next_triage_state(TriageLabel::Reproducing, event),
+            Ok(TriageLabel::Reproduced)
+        );
     }
 }

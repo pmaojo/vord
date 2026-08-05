@@ -24,5 +24,5 @@ pub mod topology;
 pub mod worktree;
 
 pub use handoff::{Handoff, HandoffError, parse_handoff};
-pub use topology::{FOUR_PACK, TWO_PACK, TopologyError, next_role, resolve_topology};
+pub use topology::{FOUR_PACK, TRIAGE_PACK, TWO_PACK, TopologyError, next_role, resolve_topology};
 pub use worktree::{DEFAULT_WORKTREE_ROOT, RoleWorktreeConfig, WorktreePlan, plan_worktree};

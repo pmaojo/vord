@@ -32,17 +32,31 @@ new to build there, just a new caller.
 ## Status
 
 - **Built**: `core/triage` — [`TriageLabel`], [`TriageEvent`]/[`FixVerdict`],
-  and `next_triage_state`. The actual shape landed slightly differently
-  from the sketch below: `next_triage_state(current: TriageLabel, event:
-  TriageEvent)` (one active label, not a slice — an issue is only ever in
-  one stage at a time) returning `Result<TriageLabel, InvalidTransition>`.
-  15 unit tests; `vord scan core/triage` is clean (100/100, 0 issues).
-- **Not built yet**: the `TRIAGE_PACK` swarm topology, the `infra/github`
-  issue-side I/O, the `bin/cli` entry point, and the
-  `core/remediation::Sandbox` test-runner extension the "honest limit"
-  section below flags as still undecided. Each depends on that sandbox
-  decision before it can be wired up for real, so this first slice stops
-  at the pure state machine.
+  `next_triage_state`, and `repro_event_from_exit_code`. The actual shape
+  landed slightly differently from the sketch below:
+  `next_triage_state(current: TriageLabel, event: TriageEvent)` (one active
+  label, not a slice — an issue is only ever in one stage at a time)
+  returning `Result<TriageLabel, InvalidTransition>`. 19 unit tests; `vord
+  scan core/triage` is clean (100/100, 0 issues).
+- **Built**: `core/swarm`'s `TRIAGE_PACK` preset
+  (`core/swarm/src/topology.rs`), resolvable via `topology = "triage-pack"`
+  the same way `two-pack`/`four-pack` are. A test on each crate pins the
+  role-name string agreement between `TriageLabel::active_role` and
+  `TRIAGE_PACK` without either crate depending on the other.
+- **Resolved without new code**: the sandbox open question below. Reproduce
+  doesn't need a new port — `vord_agent::runtime::Workspace::run`
+  (`infra/fs::RepoWorkspace`) already sandboxes an arbitrary command with a
+  wall-clock timeout and reports `CommandOutput { exit_code, stdout,
+  stderr }`, the same primitive `vord agent`'s own `run` tool uses.
+  `repro_event_from_exit_code` is the pure sliver that turns that result
+  into a `TriageEvent` (`Some(0)` → no repro, anything else including a
+  signal-killed `None` → a real repro).
+- **Not built yet**: the `infra/github` issue-side I/O (label read/write,
+  issue comments — `AlmGateway` still only knows `decorate_pr`/
+  `upsert_check_run`) and the `bin/cli` composition root that would drive a
+  `TRIAGE_PACK` run against a real GitHub issue using `RepoWorkspace::run`
+  for the Reproducer. Nothing design-level blocks either anymore; they're
+  sized like a normal feature PR each, not a research question.
 
 ## Where it lives
 
@@ -114,8 +128,3 @@ after it is allowed to advance the state machine on an LLM's say-so.
   route to `NeedsInfo` / a human? Leaning toward the former long-term —
   it's a free source of rule candidates — but it's out of scope for a
   first cut.
-- Sandbox choice for running arbitrary project test suites (as opposed
-  to `vord scan`, which is language-aware but doesn't execute anything)
-  isn't decided. `core/remediation::Sandbox` is currently scoped to
-  applying/reading file edits, not running a project's test runner —
-  that trait likely needs a `run_tests` method, or a sibling port.
