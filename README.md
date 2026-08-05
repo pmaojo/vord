@@ -584,23 +584,26 @@ applies here too.
 
 ```sh
 vord triage advance --issue 42                                        # advance a wait state
-vord triage advance --issue 42 --repro-command "npm test -- -t bug"   # advance triage:reproducing
+vord triage advance --issue 42 --repro-command "npm test -- -t bug"   # advance triage:reproducing or triage:fixing
 ```
 
 Each call advances the issue's `triage:*` label by exactly one step —
 re-run it for the next step, the same way the label state machine
 underneath is meant to be driven (from a GitHub Action on a label change,
 or by hand). Needs `GITHUB_TOKEN`/`GITHUB_REPOSITORY` (same as any other
-`vord` GitHub integration) and a `[[swarm.role]] name = "reproducer"`
-entry so the Reproducer has a worktree to run its command in.
+`vord` GitHub integration) and `[[swarm.role]]` entries named
+`reproducer`, `diagnostician` and `fixer` so each role has a worktree to
+run in.
 
-Currently wired end-to-end: advancing a wait state
-(`New`/`Reproduced`/`Diagnosed`/`GateRejected`), and the Reproduce stage
-itself — run `--repro-command`, classify its exit code, advance. Diagnose
-and Fix return a clear error naming the stage rather than a silent no-op;
-driving them for real needs a live agent session plus `core/remediation`
-wired in behind the same verify-before-suggest loop `vord fix` already
-uses. Full design and status: `docs/design/issue-triage-factory.md`.
+All three worker stages are wired: Reproduce runs `--repro-command`
+directly (no LLM involved) and classifies its exit code; Diagnose and Fix
+each run one live `vord agent` turn, verified without trusting the
+model's own account of what it did — Diagnose's transition never depends
+on the agent's output (`grounded_in_finding` is informational), and Fix
+is accepted only if the agent's own session completed regression-free
+*and* a re-run of `--repro-command` now exits `0`. What's left: opening a
+pull request from a verified fix. Full design and status:
+`docs/design/issue-triage-factory.md`.
 
 ## `vord kickoff` — AI-driven project templates
 

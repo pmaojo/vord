@@ -178,16 +178,20 @@ vord swarm run --task "Ship feature"     # Drive full pipeline (with Assistant p
 # `triage:*` label; needs GITHUB_TOKEN + GITHUB_REPOSITORY set (same as
 # any other `vord` GitHub integration).
 vord triage advance --issue 42                                 # advance a wait state (New/Reproduced/Diagnosed/GateRejected)
-vord triage advance --issue 42 --repro-command "npm test -- -t bug"  # advance triage:reproducing
+vord triage advance --issue 42 --repro-command "npm test -- -t bug"  # advance triage:reproducing or triage:fixing
 ```
 
-`vord triage advance` only drives the Reproduce stage and the label
-handoffs between stages today — Diagnose and Fix return a clear
-"not yet implemented" error rather than a silent no-op (see
-`docs/design/issue-triage-factory.md`). Needs a `[[swarm.role]] name =
-"reproducer"` entry in `vord.toml` (and `topology = "triage-pack"` if
-you also want `vord swarm` to see it as a topology) so the Reproducer has
-a worktree to run its command in.
+Every stage is wired: Reproduce runs `--repro-command` and needs no LLM;
+Diagnose and Fix each run one live `vord agent` turn
+(`diagnostician`/`fixer` roles) and are verified without trusting the
+model's own account — Diagnose's transition doesn't depend on the agent's
+output at all, and Fix is only accepted if the agent's own regression-free
+completion *and* a re-run of `--repro-command` both hold. Needs
+`[[swarm.role]]` entries named `reproducer`, `diagnostician` and `fixer`
+in `vord.toml` (and `topology = "triage-pack"` if you also want `vord
+swarm` to see it as a topology) so each role has a worktree to run in.
+Opening a PR from a verified fix isn't built yet — see
+`docs/design/issue-triage-factory.md`.
 
 ---
 

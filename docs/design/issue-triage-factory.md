@@ -62,38 +62,61 @@ new to build there, just a new caller.
 - **Built**: `bin/cli::triage::advance` (`bin/cli/src/triage.rs`) — the
   composition root, mirroring `bin/cli::swarm`'s split of a pure decision
   (`next_action_for`, unit-tested with no I/O) from the I/O it drives.
-  Wired end-to-end for two of the four `NextAction`s:
+  All four `NextAction`s are wired:
   - **`Start`** (a wait state — `New`/`Reproduced`/`Diagnosed`/
     `GateRejected`): advances the label, no verification needed.
   - **`RunRepro`** (`Reproducing`): runs a caller-supplied
     `--repro-command` via `RepoWorkspace::run` in the `reproducer` role's
     worktree (creating it if needed), classifies the exit code, advances.
-  - **`Diagnosing`/`Fixing`**: return a clear "not yet implemented" error
-    naming the stage — deliberately not stubbed to silently no-op or
-    guess, since driving them for real needs a live agent session
-    (`crate::agent::run_with_policy`) and `core/remediation`'s
-    `RemediationEngine`, which is genuine integration work this pass
-    didn't attempt to fake. See "What's actually left" below.
+    Needs no LLM at all.
+  - **`RunDiagnose`** (`Diagnosing`): runs `crate::agent::run_with_policy`
+    in the `diagnostician`'s worktree with the issue's title/body as
+    context (`IssueTriageGateway::issue_summary`, also built this pass).
+    Always advances to `Diagnosed` on completion —
+    `grounded_in_finding` is computed by re-scanning the worktree with
+    `crate::scan` and checking for any `vord` finding at all, an
+    approximation flagged as informational-only in the code, not a gate
+    (`core/triage` never lets it change the transition — see the open
+    question below for the real version of this signal).
+  - **`RunFix`** (`Fixing`): runs `crate::agent::run_with_policy` in the
+    `fixer`'s worktree, then re-runs `--repro-command` and requires it to
+    now exit `0`. `fix_verdict` is the pure decision between "the
+    agent's own session completed" (its analyzer-as-done gate already
+    refuses regressions) and "the regression test now passes" — accepted
+    only if both hold.
 
   `vord triage advance --issue <n> [--repro-command "..."]` is live on the
-  `vord` binary. 9 tests (4 pure branching, 5 integration — a real temp
-  git repo, a real `sh -c` subprocess, a mock GitHub server — covering
-  Start, RunRepro success/failure/missing-command, and Terminal).
+  `vord` binary. 18 tests: pure branching and `fix_verdict` (no I/O),
+  plus integration tests against a real temp git repo, a real `sh -c`
+  subprocess and a mock GitHub server for every path that doesn't need a
+  live LLM call. `crate::agent::run_with_policy` always sources a real
+  provider from the environment with no seam to inject a fake one, so
+  `run_diagnose_stage`/`run_fix_stage`'s actual agent turn is exercised by
+  the pure helpers they delegate to plus manual review, not an automated
+  end-to-end test — an honest limit stated in the module's own docs, not
+  hidden.
+
+`vord scan` on both crates after this: `infra/github` 98/100 (the 2
+remaining MAJOR findings pre-existing on `GitHubStatusReporter`), `bin/cli`
+96/100 (pre-existing findings on other files; `triage.rs` itself has none
+— it tripped `rust:disallow-panic-macros` on an `unreachable!()` and
+`smells:duplicate-code` on its first pass, both fixed before landing).
 
 ## What's actually left
 
-Only the Diagnose and Fix stages' live-agent wiring. Both need credentials
-(`ANTHROPIC_API_KEY`, a real GitHub issue) to verify for real, which is
-why this pass stopped at a clear error instead of writing them unverified:
+Two things, both scoped and non-blocking:
 
-- **Diagnose**: run `crate::agent::run_with_policy` in the
-  `diagnostician`'s worktree with the Reproducer's output as context, then
-  decide `grounded_in_finding` by checking whether a `vord scan` of the
-  touched file/span the agent points at already has a matching `Issue`.
-- **Fix**: run `crate::agent::run_with_policy` (or reuse
-  `RemediationEngine` directly) in the `fixer`'s worktree; the resulting
-  `RemediationVerdict` maps straight onto `vord_triage::FixVerdict`
-  (`Accepted`/`Rejected`) that `TriageEvent::FixAttempted` already expects.
+- **The regression-scanning half of Fix's "verify" step.** The design
+  table above described Fix as needing both a green test *and* a clean
+  re-scan; what's built gets the first for free from
+  `run_with_policy`'s own analyzer-as-done gate (it won't report
+  `Completed` if the diff regressed), so a *separate* explicit re-scan in
+  `run_fix_stage` was redundant, not skipped.
+- **Opening the PR.** `FixReady` today means "the fixer's worktree branch
+  has a working fix, verified" — nothing pushes the branch or opens a
+  pull request yet. That's ordinary ALM-adapter work (`git push` +
+  `AlmGateway`-style PR creation), not a new judgement primitive, and was
+  out of scope for this pass.
 
 ## Where it lives
 
@@ -144,21 +167,31 @@ gate.
   issue triage is GitHub-only, not a fifth thing GitLab/Bitbucket/Azure
   need stub methods for.
 
-- **`bin/cli`** (built for `Start`/`RunRepro`): `vord triage advance
-  --issue <n> [--repro-command "..."]`, meant to be invoked from a GitHub
-  Action on a `triage:*` label change or on a schedule, the same
-  composition-root pattern `bin/cli/src/swarm.rs` already uses to drive
-  `core/swarm`'s pure topology against real worktrees. One step per call
-  by design — re-invoked for the next step, same as the label state
+- **`bin/cli`** (built, all four stages): `vord triage advance --issue <n>
+  [--repro-command "..."]`, meant to be invoked from a GitHub Action on a
+  `triage:*` label change or on a schedule, the same composition-root
+  pattern `bin/cli/src/swarm.rs` already uses to drive `core/swarm`'s pure
+  topology against real worktrees — `run_role_task` in `triage.rs` calls
+  `crate::agent::run_with_policy` exactly the way `topology_run` does per
+  role in a pipeline, reused here to drive one role at a time under the
+  label state machine's control instead of a fixed sequence. One step per
+  call by design — re-invoked for the next step, same as the label state
   machine it wraps.
 
 ## Honest limit
 
 vord's rules engine is static analysis; it doesn't run code. "Reproduce"
-therefore still needs a model in a sandbox to write and run a regression
-test — that part of Flue's approach isn't replaceable by a vord rule.
-What changes is everything downstream of that first red test: no stage
-after it is allowed to advance the state machine on an LLM's say-so.
+therefore still needs either a human-supplied `--repro-command` or (not
+built) a model in a sandbox to write one — that part of Flue's approach
+isn't replaceable by a vord rule. What changes is everything downstream of
+that first red test: no stage after it is allowed to advance the state
+machine on an LLM's say-so. Diagnose and Fix do call a live agent — that's
+unavoidable, diagnosis and code changes are exactly what a model is for —
+but neither stage's *transition* trusts the model's own account of what it
+did: Diagnose's transition doesn't depend on the model at all, and Fix's
+depends only on the regression command's exit code plus the same
+regression-freedom guarantee `run_with_policy` already enforces before
+reporting any session `Completed`.
 
 ## Open questions
 

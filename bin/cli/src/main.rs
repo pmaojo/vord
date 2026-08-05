@@ -263,10 +263,11 @@ enum TriageAction {
         /// The GitHub issue number.
         #[arg(long)]
         issue: u64,
-        /// Required while the issue is `triage:reproducing`: the shell
-        /// command that reproduces the reported bug (run via `sh -c` in the
-        /// `reproducer` role's worktree). An agent that derives this from
-        /// the issue body on its own is not built yet.
+        /// Required while the issue is `triage:reproducing` or
+        /// `triage:fixing`: the shell command that reproduces the reported
+        /// bug, run via `sh -c` in the `reproducer`/`fixer` role's
+        /// worktree — to classify a repro attempt, or to verify a fix now
+        /// makes it pass.
         #[arg(long)]
         repro_command: Option<String>,
     },
@@ -530,9 +531,7 @@ fn run_flow(action: FlowAction) -> anyhow::Result<ExitCode> {
                 .map(|step| {
                     step.rsplit_once(':')
                         .map(|(file, function)| (file.to_string(), function.to_string()))
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("--step {step:?} must be `path:function`")
-                        })
+                        .ok_or_else(|| anyhow::anyhow!("--step {step:?} must be `path:function`"))
                 })
                 .collect::<anyhow::Result<_>>()?;
             flow::register(&path, &name, &parsed)?;

@@ -119,6 +119,29 @@ impl IssueTriageGateway {
         Ok(self.triage_labels(issue).await?.into_iter().next())
     }
 
+    /// `issue`'s title and body — the context a Diagnostician or Fixer
+    /// agent session needs that a label alone can't carry. `body` is
+    /// `String::new()` for an issue opened with no description, same as
+    /// GitHub's own `null` for that field.
+    pub async fn issue_summary(&self, issue: u64) -> Result<IssueSummary, AlmError> {
+        let url = format!(
+            "{}/repos/{}/{}/issues/{}",
+            self.api_base, self.owner, self.repo, issue
+        );
+        let response = self.send(self.client.get(&url)).await?;
+        if !response.status().is_success() {
+            return Err(Self::error_for(response).await);
+        }
+        let raw: IssueResponse = response
+            .json()
+            .await
+            .map_err(|e| AlmError(format!("failed to parse GitHub issue response: {e}")))?;
+        Ok(IssueSummary {
+            title: raw.title,
+            body: raw.body.unwrap_or_default(),
+        })
+    }
+
     /// Moves `issue`'s label to `label`, removing whichever `triage:*`
     /// label it carried before. A no-op when `label` is already the issue's
     /// only triage label, so a caller can call this unconditionally after
@@ -209,6 +232,20 @@ struct CommentRequest<'a> {
     body: &'a str,
 }
 
+/// An issue's title and body — enough context for an agent session to work
+/// from without dragging in comments, labels or any other issue metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IssueSummary {
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(Deserialize)]
+struct IssueResponse {
+    title: String,
+    body: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -293,6 +330,40 @@ mod tests {
 
     fn gateway(base: String) -> IssueTriageGateway {
         IssueTriageGateway::new("t", "acme", "widgets").with_api_base(base)
+    }
+
+    async fn start_issue_mock_server(body: serde_json::Value) -> String {
+        let app = Router::new().route(
+            "/repos/{owner}/{repo}/issues/{issue}",
+            axum::routing::get(move || {
+                let body = body.clone();
+                async move { Json(body) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn issue_summary_reads_the_title_and_body() {
+        let base = start_issue_mock_server(
+            serde_json::json!({"title": "crash on empty input", "body": "steps: ..."}),
+        )
+        .await;
+        let summary = gateway(base).issue_summary(42).await.unwrap();
+        assert_eq!(summary.title, "crash on empty input");
+        assert_eq!(summary.body, "steps: ...");
+    }
+
+    #[tokio::test]
+    async fn issue_summary_defaults_a_null_body_to_an_empty_string() {
+        let base =
+            start_issue_mock_server(serde_json::json!({"title": "no description", "body": null}))
+                .await;
+        let summary = gateway(base).issue_summary(42).await.unwrap();
+        assert_eq!(summary.body, "");
     }
 
     #[tokio::test]
