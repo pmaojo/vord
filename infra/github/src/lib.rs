@@ -7,8 +7,10 @@
 //! PAT with "Commit statuses: write"), via `GITHUB_TOKEN` — exactly what
 //! GitHub Actions injects into every workflow run for free.
 
+pub mod issue_triage;
 pub mod pr_feedback;
 
+pub use issue_triage::IssueTriageGateway;
 pub use pr_feedback::PullRequestFeedbackReader;
 
 use base64::Engine;

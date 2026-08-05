@@ -74,6 +74,12 @@ enum Command {
         #[command(subcommand)]
         action: SwarmAction,
     },
+    /// Issue Triage Factory: drive a GitHub issue through reproduce →
+    /// diagnose → fix, one step at a time (roadmap C).
+    Triage {
+        #[command(subcommand)]
+        action: TriageAction,
+    },
     /// Register or evaluate `[[flows]]`: named call sequences to track for
     /// end-to-end test coverage, beyond what a single function's own
     /// coverage percentage can say.
@@ -244,6 +250,26 @@ enum SwarmAction {
     },
     /// Interactive spec-driven Swarm & Worktree Ratatui Dashboard (Offline / LLM-less).
     Tui,
+}
+
+#[derive(Subcommand)]
+enum TriageAction {
+    /// Advance one GitHub issue by exactly one Issue Triage Factory step
+    /// (roadmap C — `docs/design/issue-triage-factory.md`): reads its
+    /// current `triage:*` label, does whatever that label calls for, and
+    /// writes the resulting label back. Re-run for the next step — this
+    /// never advances more than one at a time.
+    Advance {
+        /// The GitHub issue number.
+        #[arg(long)]
+        issue: u64,
+        /// Required while the issue is `triage:reproducing`: the shell
+        /// command that reproduces the reported bug (run via `sh -c` in the
+        /// `reproducer` role's worktree). An agent that derives this from
+        /// the issue body on its own is not built yet.
+        #[arg(long)]
+        repro_command: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -542,6 +568,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Flow { action }) => run_flow(action),
         Some(Command::Agent { action }) => run_agent(action).await,
         Some(Command::Swarm { action }) => run_swarm(action).await,
+        Some(Command::Triage { action }) => run_triage(action).await,
         Some(Command::Kickoff { template, path }) => {
             kickoff::run_kickoff(&template, &path)?;
             Ok(ExitCode::SUCCESS)
@@ -771,6 +798,20 @@ async fn run_swarm(action: SwarmAction) -> anyhow::Result<ExitCode> {
         SwarmAction::Run { task } => run_topology(&root, &task).await,
         SwarmAction::Tui => {
             vord_cli::swarm::run_swarm_tui(&root)?;
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+async fn run_triage(action: TriageAction) -> anyhow::Result<ExitCode> {
+    let root = std::env::current_dir()?;
+    match action {
+        TriageAction::Advance {
+            issue,
+            repro_command,
+        } => {
+            let report = vord_cli::triage::advance(&root, issue, repro_command.as_deref()).await?;
+            println!("{}", report.message);
             Ok(ExitCode::SUCCESS)
         }
     }

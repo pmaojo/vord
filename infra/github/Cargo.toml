@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 vord-rules-engine = { workspace = true }
 vord-agent = { workspace = true }
+vord-triage = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

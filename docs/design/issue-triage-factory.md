@@ -51,12 +51,49 @@ new to build there, just a new caller.
   `repro_event_from_exit_code` is the pure sliver that turns that result
   into a `TriageEvent` (`Some(0)` → no repro, anything else including a
   signal-killed `None` → a real repro).
-- **Not built yet**: the `infra/github` issue-side I/O (label read/write,
-  issue comments — `AlmGateway` still only knows `decorate_pr`/
-  `upsert_check_run`) and the `bin/cli` composition root that would drive a
-  `TRIAGE_PACK` run against a real GitHub issue using `RepoWorkspace::run`
-  for the Reproducer. Nothing design-level blocks either anymore; they're
-  sized like a normal feature PR each, not a research question.
+- **Built**: `infra/github::IssueTriageGateway` (`infra/github/src/issue_triage.rs`)
+  — a GitHub-only type, deliberately not folded into the multi-provider
+  `AlmGateway`/`GitHubStatusReporter`. Reads/writes the `triage:*` label
+  (`current_label`, `set_label` — removes the stale label, adds the new
+  one, no-ops if already correct) and posts issue comments
+  (`post_comment`). 29 tests in the crate, all passing; `vord scan
+  infra/github` is clean (98/100 — the 2 remaining MAJOR findings are
+  pre-existing on `GitHubStatusReporter`, unrelated to this addition).
+- **Built**: `bin/cli::triage::advance` (`bin/cli/src/triage.rs`) — the
+  composition root, mirroring `bin/cli::swarm`'s split of a pure decision
+  (`next_action_for`, unit-tested with no I/O) from the I/O it drives.
+  Wired end-to-end for two of the four `NextAction`s:
+  - **`Start`** (a wait state — `New`/`Reproduced`/`Diagnosed`/
+    `GateRejected`): advances the label, no verification needed.
+  - **`RunRepro`** (`Reproducing`): runs a caller-supplied
+    `--repro-command` via `RepoWorkspace::run` in the `reproducer` role's
+    worktree (creating it if needed), classifies the exit code, advances.
+  - **`Diagnosing`/`Fixing`**: return a clear "not yet implemented" error
+    naming the stage — deliberately not stubbed to silently no-op or
+    guess, since driving them for real needs a live agent session
+    (`crate::agent::run_with_policy`) and `core/remediation`'s
+    `RemediationEngine`, which is genuine integration work this pass
+    didn't attempt to fake. See "What's actually left" below.
+
+  `vord triage advance --issue <n> [--repro-command "..."]` is live on the
+  `vord` binary. 9 tests (4 pure branching, 5 integration — a real temp
+  git repo, a real `sh -c` subprocess, a mock GitHub server — covering
+  Start, RunRepro success/failure/missing-command, and Terminal).
+
+## What's actually left
+
+Only the Diagnose and Fix stages' live-agent wiring. Both need credentials
+(`ANTHROPIC_API_KEY`, a real GitHub issue) to verify for real, which is
+why this pass stopped at a clear error instead of writing them unverified:
+
+- **Diagnose**: run `crate::agent::run_with_policy` in the
+  `diagnostician`'s worktree with the Reproducer's output as context, then
+  decide `grounded_in_finding` by checking whether a `vord scan` of the
+  touched file/span the agent points at already has a matching `Issue`.
+- **Fix**: run `crate::agent::run_with_policy` (or reuse
+  `RemediationEngine` directly) in the `fixer`'s worktree; the resulting
+  `RemediationVerdict` maps straight onto `vord_triage::FixVerdict`
+  (`Accepted`/`Rejected`) that `TriageEvent::FixAttempted` already expects.
 
 ## Where it lives
 
@@ -100,18 +137,20 @@ gate.
   autonomous fix is still an agent write; protected paths and blocking
   rules apply exactly as they do to `vord agent` today.
 
-- **`infra/github`**: new `issue_triage.rs` alongside the existing
-  `pr_feedback.rs`, generalizing the comment-posting patterns already in
-  `lib.rs` (`post_issue_review_comment`'s update-or-create logic) from PR
-  review comments to issue comments, and adding label read/write. This
-  is the one genuinely new I/O surface — `AlmGateway`
-  (`core/rules-engine/src/alm_gateway.rs`) today only knows `decorate_pr`
-  and `upsert_check_run`; it has no issue-side methods at all.
+- **`infra/github`** (built): `issue_triage.rs` alongside the existing
+  `pr_feedback.rs` — its own `IssueTriageGateway` type rather than more
+  methods on `AlmGateway` (`core/rules-engine/src/alm_gateway.rs`), which
+  today only knows `decorate_pr`/`upsert_check_run` and stays that way;
+  issue triage is GitHub-only, not a fifth thing GitLab/Bitbucket/Azure
+  need stub methods for.
 
-- **`bin/cli`**: `vord triage run --issue <n>`, invoked from a GitHub
-  Action on the `issues.opened` and `issue_comment` webhooks, the same
+- **`bin/cli`** (built for `Start`/`RunRepro`): `vord triage advance
+  --issue <n> [--repro-command "..."]`, meant to be invoked from a GitHub
+  Action on a `triage:*` label change or on a schedule, the same
   composition-root pattern `bin/cli/src/swarm.rs` already uses to drive
-  `core/swarm`'s pure topology against real worktrees.
+  `core/swarm`'s pure topology against real worktrees. One step per call
+  by design — re-invoked for the next step, same as the label state
+  machine it wraps.
 
 ## Honest limit
 
