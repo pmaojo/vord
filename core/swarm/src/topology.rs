@@ -16,6 +16,15 @@ pub const TWO_PACK: &[&str] = &["coder", "reviewer"];
 /// cleaner removes what the first pass left behind, QA has the last word.
 pub const FOUR_PACK: &[&str] = &["architect", "coder", "cleaner", "qa"];
 
+/// The Issue Triage Factory's team shape (roadmap C —
+/// `docs/design/issue-triage-factory.md`): reproducer writes the failing
+/// regression test, diagnostician maps it to a root cause, fixer drives
+/// `core/remediation`'s verify-before-suggest loop against it. Names match
+/// `vord_triage::TriageLabel::active_role` exactly — `core/triage` can't
+/// depend on this crate to enforce that at compile time (it stays
+/// dependency-free by design), so a test on each side pins the string.
+pub const TRIAGE_PACK: &[&str] = &["reproducer", "diagnostician", "fixer"];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TopologyError {
     /// Neither a named preset nor an explicit pipeline was configured.
@@ -36,12 +45,12 @@ impl std::fmt::Display for TopologyError {
         match self {
             Self::Unconfigured => write!(
                 f,
-                "no topology configured — set [swarm] topology = \"two-pack\"/\"four-pack\" or pipeline = [...]"
+                "no topology configured — set [swarm] topology = \"two-pack\"/\"four-pack\"/\"triage-pack\" or pipeline = [...]"
             ),
             Self::UnknownPreset(name) => {
                 write!(
                     f,
-                    "unknown topology preset {name:?} — expected \"two-pack\" or \"four-pack\""
+                    "unknown topology preset {name:?} — expected \"two-pack\", \"four-pack\" or \"triage-pack\""
                 )
             }
             Self::Empty => write!(f, "pipeline is empty — a topology needs at least one role"),
@@ -64,6 +73,7 @@ fn preset_order(name: &str) -> Result<Vec<String>, TopologyError> {
     match name {
         "two-pack" => Ok(TWO_PACK.iter().map(|s| s.to_string()).collect()),
         "four-pack" => Ok(FOUR_PACK.iter().map(|s| s.to_string()).collect()),
+        "triage-pack" => Ok(TRIAGE_PACK.iter().map(|s| s.to_string()).collect()),
         other => Err(TopologyError::UnknownPreset(other.to_string())),
     }
 }
@@ -131,6 +141,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(order, vec!["architect", "coder", "cleaner", "qa"]);
+    }
+
+    #[test]
+    fn the_triage_pack_preset_resolves_in_reproducer_diagnostician_fixer_order() {
+        let order = resolve_topology(
+            Some("triage-pack"),
+            None,
+            &roles(&["reproducer", "diagnostician", "fixer"]),
+        )
+        .unwrap();
+        assert_eq!(order, vec!["reproducer", "diagnostician", "fixer"]);
+    }
+
+    #[test]
+    fn the_triage_pack_role_names_match_vord_triage_active_role_exactly() {
+        // core/triage can't depend on this crate to check this at compile
+        // time (it stays dependency-free by design — see its module doc),
+        // so this is the other half of that pin: TriageLabel::active_role
+        // returns "reproducer"/"diagnostician"/"fixer" for its three worker
+        // stages, and TRIAGE_PACK must name the same three roles in the
+        // same order a pipeline runs them.
+        assert_eq!(TRIAGE_PACK, &["reproducer", "diagnostician", "fixer"]);
     }
 
     #[test]

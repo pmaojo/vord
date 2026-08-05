@@ -17,8 +17,12 @@ impl fmt::Display for KickoffError {
                 "unknown template {:?}. Supported templates: react-bulletproof, rust-clean, python-clean, typescript-clean",
                 t
             ),
-            Self::CreateDirFailed(dir, err) => write!(f, "failed to create directory {:?}: {}", dir, err),
-            Self::WriteFileFailed(file, err) => write!(f, "failed to write file {:?}: {}", file, err),
+            Self::CreateDirFailed(dir, err) => {
+                write!(f, "failed to create directory {:?}: {}", dir, err)
+            }
+            Self::WriteFileFailed(file, err) => {
+                write!(f, "failed to write file {:?}: {}", file, err)
+            }
         }
     }
 }
@@ -55,7 +59,8 @@ fn kickoff_react_bulletproof(base: &Path) -> Result<(), KickoffError> {
 
     for d in &dirs {
         let p = base.join(d);
-        fs::create_dir_all(&p).map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
+        fs::create_dir_all(&p)
+            .map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
     }
 
     let auth_index = base.join("src/features/auth/index.ts");
@@ -81,7 +86,10 @@ name = "recommended"
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
-    println!("Successfully initialized Bulletproof React template at {:?}", base);
+    println!(
+        "Successfully initialized Bulletproof React template at {:?}",
+        base
+    );
     Ok(())
 }
 
@@ -90,7 +98,8 @@ fn kickoff_rust_clean(base: &Path) -> Result<(), KickoffError> {
 
     for d in &dirs {
         let p = base.join(d);
-        fs::create_dir_all(&p).map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
+        fs::create_dir_all(&p)
+            .map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
     }
 
     let lib_rs = base.join("core/src/lib.rs");
@@ -121,7 +130,8 @@ fn kickoff_python_clean(base: &Path) -> Result<(), KickoffError> {
 
     for d in &dirs {
         let p = base.join(d);
-        fs::create_dir_all(&p).map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
+        fs::create_dir_all(&p)
+            .map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
         let init_file = p.join("__init__.py");
         fs::write(&init_file, "")
             .map_err(|e| KickoffError::WriteFileFailed(init_file.display().to_string(), e))?;
@@ -142,16 +152,26 @@ name = "recommended"
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
-    println!("Successfully initialized clean Python template at {:?}", base);
+    println!(
+        "Successfully initialized clean Python template at {:?}",
+        base
+    );
     Ok(())
 }
 
 fn kickoff_typescript_clean(base: &Path) -> Result<(), KickoffError> {
-    let dirs = ["src/domain", "src/infrastructure", "src/api", "src/types", "tests"];
+    let dirs = [
+        "src/domain",
+        "src/infrastructure",
+        "src/api",
+        "src/types",
+        "tests",
+    ];
 
     for d in &dirs {
         let p = base.join(d);
-        fs::create_dir_all(&p).map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
+        fs::create_dir_all(&p)
+            .map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
     }
 
     let vord_toml = base.join("vord.toml");
@@ -168,7 +188,10 @@ name = "recommended"
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
-    println!("Successfully initialized clean TypeScript template at {:?}", base);
+    println!(
+        "Successfully initialized clean TypeScript template at {:?}",
+        base
+    );
     Ok(())
 }
 
@@ -185,7 +208,8 @@ fn kickoff_fullstack_hexagonal(base: &Path) -> Result<(), KickoffError> {
 
     for d in &dirs {
         let p = base.join(d);
-        fs::create_dir_all(&p).map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
+        fs::create_dir_all(&p)
+            .map_err(|e| KickoffError::CreateDirFailed(p.display().to_string(), e))?;
     }
 
     let spec_yaml = base.join("spec/architecture.yaml");
@@ -220,6 +244,9 @@ name = "recommended"
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
-    println!("Successfully initialized Fullstack Hexagonal template at {:?}", base);
+    println!(
+        "Successfully initialized Fullstack Hexagonal template at {:?}",
+        base
+    );
     Ok(())
 }

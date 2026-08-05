@@ -73,6 +73,7 @@ vord-rules-go = { workspace = true }
 vord-agent-policy = { workspace = true }
 vord-agent = { workspace = true }
 vord-swarm = { workspace = true }
+vord-triage = { workspace = true }
 vord-infra-memory = { workspace = true }
 vord-infra-fs = { workspace = true }
 vord-infra-github = { workspace = true }
@@ -89,3 +90,6 @@ dialoguer = { workspace = true }
 chrono = { workspace = true }
 ratatui = "0.29.0"
 crossterm = "0.29.0"
+
+[dev-dependencies]
+axum = { workspace = true }

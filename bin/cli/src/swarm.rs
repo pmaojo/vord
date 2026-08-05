@@ -229,8 +229,11 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
 /// Creates this role's worktree if it doesn't already have one — `vord swarm
 /// worktree-create` stays the explicit, one-role-at-a-time entry point;
 /// this is what lets `topology_run` re-drive the same pipeline on a later
-/// run without failing on "worktree already exists".
-fn ensure_worktree(root: &Path, plan: &WorktreePlan) -> anyhow::Result<()> {
+/// run without failing on "worktree already exists". `pub(crate)` rather
+/// than private: `crate::triage::advance` (roadmap C) drives a single role
+/// the same way `topology_run` drives a whole pipeline, and needs the same
+/// "create it if it's not there yet" behaviour.
+pub(crate) fn ensure_worktree(root: &Path, plan: &WorktreePlan) -> anyhow::Result<()> {
     let existing = vord_infra_fs::list_worktrees(root)?;
     let already_there = existing.iter().any(|w| Path::new(&w.path) == plan.path);
     if already_there {

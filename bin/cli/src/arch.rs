@@ -47,7 +47,9 @@ pub fn analyze(root: &Path) -> anyhow::Result<ArchSummary> {
             _ => None,
         };
         let Some(parser) = parser else { continue };
-        let Ok(ast) = parser.parse(file) else { continue };
+        let Ok(ast) = parser.parse(file) else {
+            continue;
+        };
         census
             .entry(component_of(file.path()))
             .or_default()
@@ -78,7 +80,9 @@ fn type_census(ast: &vord_ast::AstNode) -> TypeCensus {
     let mut abstractions = 0usize;
     let mut total = 0usize;
     for node in ast.descendants() {
-        let vord_ast::NodeKind::Other(kind) = node.kind() else { continue };
+        let vord_ast::NodeKind::Other(kind) = node.kind() else {
+            continue;
+        };
         let kind = kind.as_ref();
         let is_type = matches!(
             kind,
@@ -99,7 +103,10 @@ fn type_census(ast: &vord_ast::AstNode) -> TypeCensus {
         total += 1;
         if matches!(
             kind,
-            "interface_declaration" | "abstract_class_declaration" | "trait_item" | "interface_type"
+            "interface_declaration"
+                | "abstract_class_declaration"
+                | "trait_item"
+                | "interface_type"
         ) {
             abstractions += 1;
         }
@@ -145,7 +152,13 @@ pub fn render_mermaid(summary: &ArchSummary) -> String {
     let mut out = String::from("flowchart LR\n");
     let id = |name: &str| {
         name.chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>()
     };
     let in_cycle: std::collections::BTreeSet<&str> = summary
@@ -330,7 +343,8 @@ for (let i = 0; i < 700; i++) tick();
 requestAnimationFrame(function loop() {{ draw(); requestAnimationFrame(loop); }});
 </script>
 </body>
-</html>"#))
+</html>"#
+    ))
 }
 
 #[cfg(test)]

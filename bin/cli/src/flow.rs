@@ -165,11 +165,8 @@ pub fn apply_registered(
                 })
                 .collect(),
         };
-        let result = vord_flow_risk::evaluate_registered_flow(
-            &registered,
-            &function_index,
-            &file_lines,
-        );
+        let result =
+            vord_flow_risk::evaluate_registered_flow(&registered, &function_index, &file_lines);
         let Some(gap) = result.first_confirmed_gap() else {
             continue;
         };
@@ -199,7 +196,13 @@ pub fn apply_registered(
             ),
         };
         issues.push(ExternalIssue::new(
-            Issue::new(rule_id(REGISTERED_GAP_RULE_ID), Severity::Major, message, path, span),
+            Issue::new(
+                rule_id(REGISTERED_GAP_RULE_ID),
+                Severity::Major,
+                message,
+                path,
+                span,
+            ),
             IssueType::CodeSmell,
         ));
     }
@@ -292,7 +295,8 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vord-flow-test-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("vord-flow-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -328,7 +332,10 @@ mod tests {
         assert_eq!(findings[0].entry().function, "entry");
         assert_eq!(findings[0].weak_link().function, "helper");
         assert_eq!(report.issues().len(), 1);
-        assert_eq!(report.issues()[0].rule().as_str(), UNTESTED_SEQUENCE_RULE_ID);
+        assert_eq!(
+            report.issues()[0].rule().as_str(),
+            UNTESTED_SEQUENCE_RULE_ID
+        );
         assert_eq!(report.issues()[0].severity(), Severity::Major);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -432,18 +439,8 @@ mod tests {
     #[test]
     fn register_can_be_called_more_than_once() {
         let dir = temp_dir("register-twice");
-        register(
-            &dir,
-            "flow-one",
-            &[("a.ts".to_string(), "f1".to_string())],
-        )
-        .unwrap();
-        register(
-            &dir,
-            "flow-two",
-            &[("b.ts".to_string(), "f2".to_string())],
-        )
-        .unwrap();
+        register(&dir, "flow-one", &[("a.ts".to_string(), "f1".to_string())]).unwrap();
+        register(&dir, "flow-two", &[("b.ts".to_string(), "f2".to_string())]).unwrap();
 
         let config = vord_infra_fs::VordConfig::load_from_dir(&dir).unwrap();
         assert_eq!(config.flows.len(), 2);
