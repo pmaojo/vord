@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "vord-guardrail",
+  "version": "0.1.1",
+  "description": "Gates every Edit/Write in this session against vord's Agent Permission Policy (vord-policy.toml) before the bytes reach disk.",
+  "author": { "name": "vord" },
+  "homepage": "https://github.com/pmaojo/vord",
+  "repository": "https://github.com/pmaojo/vord",
+  "license": "MIT",
+  "keywords": ["static-analysis", "security", "guardrail", "agent-policy", "rust", "mcp"],
+  "extensions": {
+    "com.anthropic.claude-code": {
+      "manifest": "./.claude-plugin/plugin.json"
+    }
+  }
+}
