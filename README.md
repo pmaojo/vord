@@ -69,6 +69,20 @@ policy is versioned and reviewed in the same pull request as the code it
 governs, on every teammate's machine and in CI. A plugin lives in one user's
 configuration, where turning it off leaves no trace in a diff.
 
+### As an [Agent Plugins](https://github.com/agentplugins/agent-plugins-spec) package
+
+Both this repository root and `integrations/claude-code-plugin/` are also
+plugins under the [Agent Plugins Specification](https://agent-plugins.org)
+v1.0.0: a root `plugin.json` manifest, a `skills/` directory (the guardrail
+and general static-analysis capabilities as `SKILL.md` files), and an
+`mcp.json` exposing `vord mcp` — vord's own stdio MCP server — as the
+`vord` server. Any spec-conformant client can discover and load these
+without Claude Code-specific knowledge. Claude Code's own loading
+mechanism (`.claude-plugin/plugin.json`, `hooks/hooks.json`) is unchanged
+and lives alongside these files; it's referenced for spec-aware tooling
+under `extensions.com.anthropic.claude-code` in `plugin.json`, since
+Claude Code requires those files at their current, fixed locations.
+
 ## Topology
 
 The directory structure *is* the architecture — nested workspace globs define the boundaries:

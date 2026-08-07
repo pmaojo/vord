@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "vord-guardrail",
+  "version": "0.9.0",
+  "description": "Denies an agent's write before it reaches disk when it introduces a security finding or touches a protected path. Deterministic: the verdict comes from a static analyzer, not from a model asked to check its own work.",
+  "license": "MIT",
+  "homepage": "https://github.com/pmaojo/vord",
+  "repository": "https://github.com/pmaojo/vord",
+  "author": {
+    "name": "pmaojo"
+  },
+  "keywords": [
+    "security",
+    "static-analysis",
+    "guardrail",
+    "sast",
+    "policy",
+    "hooks",
+    "mcp"
+  ],
+  "extensions": {
+    "com.anthropic.claude-code": {
+      "manifest": "./.claude-plugin/plugin.json",
+      "marketplace": "./.claude-plugin/marketplace.json"
+    }
+  }
+}
