@@ -34,7 +34,7 @@ use std::fmt;
 
 /// A validated rule identifier in `namespace:code` form, e.g. `owasp:eval-usage`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RuleId(String);
+pub struct RuleId(std::sync::Arc<str>);
 
 #[derive(Debug, thiserror::Error)]
 #[error("rule id must be `namespace:code` in lowercase kebab-case, got {0:?}")]
@@ -48,7 +48,7 @@ impl RuleId {
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         };
         match raw.split_once(':') {
-            Some((ns, code)) if valid_part(ns) && valid_part(code) => Ok(Self(raw.to_string())),
+            Some((ns, code)) if valid_part(ns) && valid_part(code) => Ok(Self(raw.into())),
             _ => Err(InvalidRuleIdError(raw.to_string())),
         }
     }
