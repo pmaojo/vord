@@ -31,6 +31,7 @@ mod no_children_prop;
 mod no_default_export_component;
 mod no_fetch_in_useeffect;
 mod no_nested_components;
+mod no_static_element_interactions;
 mod no_unstable_default_props;
 mod no_useless_fragment;
 mod no_useless_memo;
@@ -64,6 +65,7 @@ pub use no_children_prop::NoChildrenPropRule;
 pub use no_default_export_component::NoDefaultExportComponentRule;
 pub use no_fetch_in_useeffect::NoFetchInUseEffectRule;
 pub use no_nested_components::NoNestedComponentsRule;
+pub use no_static_element_interactions::NoStaticElementInteractionsRule;
 pub use no_unstable_default_props::NoUnstableDefaultPropsRule;
 pub use no_useless_fragment::NoUselessFragmentRule;
 pub use no_useless_memo::NoUselessMemoRule;
@@ -111,5 +113,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(NoUnstableDefaultPropsRule::new()),
         Box::new(NoAsyncClientComponentRule::new()),
         Box::new(NoChildrenPropRule::new()),
+        Box::new(NoStaticElementInteractionsRule::new()),
     ]
 }
