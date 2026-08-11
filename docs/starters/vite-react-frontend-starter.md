@@ -47,6 +47,7 @@ than folded into a language ruleset. The profile composes
 | `vite-react:data-hook-outside-api-dir` | Major | AST call/import, per-file | a `useQuery`/`useMutation`/`useInfiniteQuery` call, or a React Query import, inside `features/**/hooks/**` instead of `features/**/api/**` |
 | `vite-react:hardcoded-base-url` | Major | AST binding, per-file | a `baseURL`/`endpoint`/`url`-named binding holding a hardcoded `http(s)://` literal outside `src/infra/**` and config files |
 | `vite-react:tailwind-space-between` | Minor | JSX attribute, per-file | `space-x-*`/`space-y-*` in a `className`/`class` — Tailwind deprecated `space-between` utilities in favor of `gap-*` |
+| `vite-react:tailwind-redundant-size` | Minor | JSX attribute, per-file | matching `h-<n>` and `w-<n>` in a `className`/`class` — use `size-<n>` instead |
 
 Reused as-is from the rest of the platform (no new code, same severities the
 "vord way" profile already gives them where applicable):
