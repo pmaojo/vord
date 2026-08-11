@@ -199,6 +199,10 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         ),
         (rule("react:exhaustive-deps"), Severity::Major),
         (rule("react:unused-state"), Severity::Minor),
+        (
+            rule("react:no-static-element-interactions"),
+            Severity::Major,
+        ),
         // rulesets/code-smells — applies_to typescript/python/rust or
         // typescript/python.
         (rule("smells:god-class"), Severity::Major),
@@ -255,6 +259,17 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         ),
         (rule("typescript:redundant-type-alias"), Severity::Minor),
         (rule("typescript:constant-return-value"), Severity::Major),
+        (rule("typescript:nested-ternary"), Severity::Major),
+        (
+            rule("typescript:max-function-nesting-depth"),
+            Severity::Major,
+        ),
+        (rule("typescript:prefer-array-at"), Severity::Minor),
+        (rule("typescript:prefer-regexp-exec"), Severity::Minor),
+        (
+            rule("typescript:redundant-type-assertion"),
+            Severity::Minor,
+        ),
         // rulesets/ai-agent — applies_to typescript/python.
         (rule("ai:llm-output-injection"), Severity::Blocker),
         // rulesets/architecture — per-file hexagonal purity check.

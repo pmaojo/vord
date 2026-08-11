@@ -31,6 +31,16 @@ fn is_length_access_of(node: &AstNode, base: &str) -> bool {
         && object.text() == base
 }
 
+/// True for a plain decimal integer literal of at least 1 — `array.at(-N)`
+/// integer-truncates and treats `-0` as `0`, so `N` has to be a genuine
+/// positive integer for the rewrite to mean the same thing: `array[array.length - 0]`
+/// is one past the end (`undefined`), not the last element `.at(-0)` (`.at(0)`)
+/// would return, and a decimal like `1.5` doesn't survive `.at()`'s truncation
+/// the same way it does plain subtraction.
+fn is_positive_integer_literal(node: &AstNode) -> bool {
+    is_other(node, "number") && node.text().parse::<u64>().is_ok_and(|n| n >= 1)
+}
+
 fn flagged_index(el: &AstNode) -> Option<&AstNode> {
     if *el.kind() != NodeKind::MemberAccess {
         return None;
@@ -50,7 +60,7 @@ fn flagged_index(el: &AstNode) -> Option<&AstNode> {
     if !is_length_access_of(left, object.text()) {
         return None;
     }
-    is_other(right, "number").then_some(el)
+    is_positive_integer_literal(right).then_some(el)
 }
 
 pub struct PreferArrayAtRule {
@@ -151,5 +161,18 @@ mod tests {
     #[test]
     fn allows_mismatched_base_expressions() {
         assert!(check("const x = items[other.length - 1];\n").is_empty());
+    }
+
+    #[test]
+    fn allows_length_minus_zero() {
+        // `.at(-0)` returns the first element, not the one-past-the-end
+        // `undefined` that `array[array.length - 0]` produces — not an
+        // equivalent rewrite.
+        assert!(check("const x = items[items.length - 0];\n").is_empty());
+    }
+
+    #[test]
+    fn allows_decimal_offset() {
+        assert!(check("const x = items[items.length - 1.5];\n").is_empty());
     }
 }

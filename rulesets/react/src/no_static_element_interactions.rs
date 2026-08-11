@@ -29,11 +29,13 @@ fn has_event_handler(el: &AstNode) -> bool {
         .any(|name| EVENT_HANDLER_PREFIXES.contains(&name))
 }
 
-fn has_interactive_role_or_tabindex(el: &AstNode) -> bool {
-    attributes(el)
-        .into_iter()
-        .filter_map(attribute_name)
-        .any(|name| name == "role" || name == "tabIndex")
+/// Both `role` (so assistive technology announces the element as
+/// interactive) and `tabIndex` (so keyboard users can reach it) are
+/// required — either alone leaves the other gap open, so this only
+/// suppresses a finding when the element has opted into both.
+fn has_interactive_role_and_tabindex(el: &AstNode) -> bool {
+    let names: Vec<&str> = attributes(el).into_iter().filter_map(attribute_name).collect();
+    names.contains(&"role") && names.contains(&"tabIndex")
 }
 
 fn flagged_element(el: &AstNode) -> Option<&AstNode> {
@@ -52,7 +54,7 @@ fn flagged_element(el: &AstNode) -> Option<&AstNode> {
     if !has_event_handler(el) {
         return None;
     }
-    (!has_interactive_role_or_tabindex(el)).then_some(el)
+    (!has_interactive_role_and_tabindex(el)).then_some(el)
 }
 
 pub struct NoStaticElementInteractionsRule {
@@ -144,6 +146,24 @@ mod tests {
             "const el = <article role=\"button\" tabIndex={0} onClick={handleClick} onKeyDown={handleKey}>text</article>;\n",
         );
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn flags_article_with_role_but_no_tabindex() {
+        // `role` alone announces the semantic but keyboard users still
+        // can't tab to it.
+        let findings =
+            check("const el = <article role=\"button\" onClick={handleClick}>text</article>;\n");
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn flags_article_with_tabindex_but_no_role() {
+        // `tabIndex` alone makes it reachable but assistive technology
+        // still doesn't know it's interactive.
+        let findings =
+            check("const el = <article tabIndex={0} onClick={handleClick}>text</article>;\n");
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]
