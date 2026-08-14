@@ -9,6 +9,7 @@ mod dynamic_regexp_source;
 mod innerhtml_assignment;
 mod json_parse_unguarded;
 mod leftover_debug_statement;
+mod long_if_else_chain;
 mod loose_equality;
 mod mass_assignment_from_request_body;
 mod math_random_for_token;
@@ -20,6 +21,7 @@ mod open_redirect_location_assignment;
 mod oxlint_adapter;
 mod prefer_array_at;
 mod prefer_default_parameters;
+mod prefer_export_from;
 mod prefer_globalthis_over_window;
 mod prefer_regexp_exec;
 mod prefer_replaceall;
@@ -30,6 +32,7 @@ mod redundant_type_assertion;
 mod sensitive_data_in_web_storage;
 mod sort_without_compare;
 mod swallowed_exception;
+mod unguarded_last_element_access;
 mod var_declaration;
 
 pub use boolean_naming::BooleanNamingRule;
@@ -39,6 +42,7 @@ pub use dynamic_regexp_source::DynamicRegexpSourceRule;
 pub use innerhtml_assignment::InnerHtmlAssignmentRule;
 pub use json_parse_unguarded::JsonParseUnguardedRule;
 pub use leftover_debug_statement::LeftoverDebugStatementRule;
+pub use long_if_else_chain::LongIfElseChainRule;
 pub use loose_equality::LooseEqualityRule;
 pub use mass_assignment_from_request_body::MassAssignmentFromRequestBodyRule;
 pub use math_random_for_token::MathRandomForTokenRule;
@@ -50,6 +54,7 @@ pub use open_redirect_location_assignment::OpenRedirectLocationAssignmentRule;
 pub use oxlint_adapter::OxlintAdapterRule;
 pub use prefer_array_at::PreferArrayAtRule;
 pub use prefer_default_parameters::PreferDefaultParametersRule;
+pub use prefer_export_from::PreferExportFromRule;
 pub use prefer_globalthis_over_window::PreferGlobalThisOverWindowRule;
 pub use prefer_regexp_exec::PreferRegExpExecRule;
 pub use prefer_replaceall::PreferReplaceAllRule;
@@ -60,6 +65,7 @@ pub use redundant_type_assertion::RedundantTypeAssertionRule;
 pub use sensitive_data_in_web_storage::SensitiveDataInWebStorageRule;
 pub use sort_without_compare::SortWithoutCompareRule;
 pub use swallowed_exception::SwallowedExceptionRule;
+pub use unguarded_last_element_access::UnguardedLastElementAccessRule;
 pub use var_declaration::VarDeclarationRule;
 
 use vord_rules_engine::Rule;
@@ -96,5 +102,8 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(PreferArrayAtRule::new()),
         Box::new(PreferRegExpExecRule::new()),
         Box::new(RedundantTypeAssertionRule::new()),
+        Box::new(PreferExportFromRule::new()),
+        Box::new(UnguardedLastElementAccessRule::new()),
+        Box::new(LongIfElseChainRule::default()),
     ]
 }
