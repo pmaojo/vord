@@ -12,6 +12,9 @@ mod auth_token_in_web_storage;
 mod bulletproof_react_folders;
 mod component_pascal_case;
 mod context_provider_memo;
+mod css_absolute_text_unit;
+mod css_hardcoded_hex_color;
+mod css_svh_viewport_unit;
 mod dangerously_set_inner_html;
 mod direct_state_mutation;
 mod effect_derives_state;
@@ -21,6 +24,8 @@ mod event_handler_prefix;
 mod exhaustive_deps;
 mod feature_directory_isolation;
 mod hook_missing_deps_array;
+mod i18n_dynamic_t_outside_component;
+mod i18n_hardcoded_fallback;
 mod inline_prop_function_in_component;
 mod jsx_img_missing_alt;
 mod jsx_no_script_url;
@@ -46,6 +51,9 @@ pub use auth_token_in_web_storage::AuthTokenInWebStorageRule;
 pub use bulletproof_react_folders::BulletproofReactFolderRule;
 pub use component_pascal_case::ComponentPascalCaseRule;
 pub use context_provider_memo::ContextProviderMemoRule;
+pub use css_absolute_text_unit::CssAbsoluteTextUnitRule;
+pub use css_hardcoded_hex_color::CssHardcodedHexColorRule;
+pub use css_svh_viewport_unit::CssSvhViewportUnitRule;
 pub use dangerously_set_inner_html::DangerouslySetInnerHtmlRule;
 pub use direct_state_mutation::DirectStateMutationRule;
 pub use effect_derives_state::EffectDerivesStateRule;
@@ -55,6 +63,8 @@ pub use event_handler_prefix::EventHandlerPrefixRule;
 pub use exhaustive_deps::ExhaustiveDepsRule;
 pub use feature_directory_isolation::FeatureDirectoryIsolationRule;
 pub use hook_missing_deps_array::HookMissingDepsArrayRule;
+pub use i18n_dynamic_t_outside_component::I18nDynamicTOutsideComponentRule;
+pub use i18n_hardcoded_fallback::I18nHardcodedFallbackRule;
 pub use inline_prop_function_in_component::InlinePropFunctionInComponentRule;
 pub use jsx_img_missing_alt::JsxImgMissingAltRule;
 pub use jsx_no_script_url::JsxNoScriptUrlRule;
@@ -114,5 +124,10 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(NoAsyncClientComponentRule::new()),
         Box::new(NoChildrenPropRule::new()),
         Box::new(NoStaticElementInteractionsRule::new()),
+        Box::new(CssAbsoluteTextUnitRule::new()),
+        Box::new(CssHardcodedHexColorRule::new()),
+        Box::new(CssSvhViewportUnitRule::new()),
+        Box::new(I18nDynamicTOutsideComponentRule::new()),
+        Box::new(I18nHardcodedFallbackRule::new()),
     ]
 }
