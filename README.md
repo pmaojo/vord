@@ -83,6 +83,14 @@ and lives alongside these files; it's referenced for spec-aware tooling
 under `extensions.com.anthropic.claude-code` in `plugin.json`, since
 Claude Code requires those files at their current, fixed locations.
 
+`skills/old-coder/` is a third skill in that directory, vendored (MIT) from
+[AmazingAng/old-coder](https://github.com/AmazingAng/old-coder): an
+evidence-first development loop (SPEC → RED → GREEN → REFACTOR → GAUNTLET →
+EVIDENCE) for tasks where the human wants to approve a test plan and read
+an evidence report instead of the code itself. Its GAUNTLET step composes
+with vord's own gate — see "Using this with vord" at the end of that
+skill's `SKILL.md`.
+
 ## Topology
 
 The directory structure *is* the architecture — nested workspace globs define the boundaries:

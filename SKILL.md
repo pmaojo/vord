@@ -100,6 +100,20 @@ without stripping anything first.
 
 ---
 
+## 🧪 High-Assurance / Evidence-First Tasks
+
+For work the human explicitly wants proven rather than reviewed line by
+line — "reliable", "TDD", "prove it works" — or that touches money, auth,
+data loss, concurrency, or a public API, use the `old-coder` skill
+(`skills/old-coder/SKILL.md`): a SPEC → RED → GREEN → REFACTOR → GAUNTLET →
+EVIDENCE loop where the human approves a test plan up front and reads a
+numbers-only evidence report afterward instead of the diff. Its GAUNTLET
+step can use `vord scan --enforce-gate` as one of its static-analysis
+layers — see that skill's own "Using this with vord" section. For routine
+changes, write good tests directly instead of invoking the loop.
+
+---
+
 ## ✅ Finishing a Task: Version Bump Convention
 
 Once a change is actually done — implemented, tested, and you have
