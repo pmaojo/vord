@@ -58,11 +58,20 @@ impl CrossFileRule for CkMetricsRule {
         registry
             .iter()
             .filter_map(|class| {
-                let method_count = class.methods.len();
-                let field_count = class.fields.len();
-
-                // 1. WMC: Weighted Methods per Class (methods + complexity proxy)
-                let wmc = method_count + (field_count / 2);
+                // 1. WMC: Weighted Methods per Class — CK's definition is the
+                // *sum* of each method's cyclomatic complexity, not a flat
+                // per-method count (a class with ten trivial getters and a
+                // class with ten branch-heavy methods are not equally
+                // complex). Reuse the same CFG builder `smells:maintainability-
+                // index` uses for its own cyclomatic term, applied per method
+                // body instead of per file.
+                let wmc: usize = class
+                    .methods
+                    .iter()
+                    .map(|method| {
+                        vord_cfg::ControlFlowGraph::build(method.node).cyclomatic_complexity()
+                    })
+                    .sum();
                 let high_wmc = wmc > self.max_wmc;
 
                 // 2. CBO: Coupling Between Objects (distinct parameter and field type references)

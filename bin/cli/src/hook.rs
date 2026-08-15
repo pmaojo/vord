@@ -1000,6 +1000,42 @@ fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &s
     }
 }
 
+/// Rule ids whose finding summarizes the *whole file* as a single score —
+/// `smells:maintainability-index`'s Maintainability Index, `smells:ck-oo-
+/// metrics`'s WMC/CBO — rather than pinpointing a specific line-level
+/// pattern. At most one finding per file per rule, so there is no
+/// "unrelated line" for an edit elsewhere in the file to avoid: any write
+/// moves the score by some amount, and the message text (`13.0/100`, `WMC =
+/// 49`) drifts on every single edit even when the file's actual shape barely
+/// changed. Without this list, a file that has ever crossed one of these
+/// thresholds is blocked from every future write, forever, regardless of
+/// relevance — see [`drop_preexisting_whole_file_findings`].
+const WHOLE_FILE_METRIC_RULES: &[&str] = &["smells:maintainability-index", "smells:ck-oo-metrics"];
+
+/// Drops any [`WHOLE_FILE_METRIC_RULES`] finding in `findings` whose rule
+/// already fired on `old_findings` — the file already violated that
+/// threshold before this write landed, so this write did not introduce the
+/// violation and should not be denied over it. A rule with no matching prior
+/// finding (this write is what pushes the file over the threshold) is left
+/// in place: that is a genuinely new violation this write is responsible
+/// for. This is the file-level analogue of `core/rules-engine`'s New Code
+/// baseline (`Baseline`/`NewCodeAnalysis`): that machinery diffs against a
+/// stored analysis snapshot for the quality *gate*; this diffs against the
+/// content on disk a write is about to replace, for the agent *hook*, where
+/// no persisted baseline exists — the previous write's content already
+/// serves as one.
+fn drop_preexisting_whole_file_findings(findings: &mut Vec<Finding>, old_findings: &[Finding]) {
+    let already_present: HashSet<&str> = old_findings
+        .iter()
+        .map(|f| f.rule.as_str())
+        .filter(|rule| WHOLE_FILE_METRIC_RULES.contains(rule))
+        .collect();
+    findings.retain(|f| {
+        !WHOLE_FILE_METRIC_RULES.contains(&f.rule.as_str())
+            || !already_present.contains(f.rule.as_str())
+    });
+}
+
 /// Judges one proposed write end to end: policy, path, and (when content is
 /// available and parseable) findings.
 ///
@@ -1044,6 +1080,10 @@ pub async fn judge(
     // `hook check`), disk already matches `content` and the diff is empty.
     if let Some(content) = content {
         let old_content = std::fs::read_to_string(file).ok();
+        if let Some(old) = old_content.as_deref() {
+            let old_findings = analyze_content(&relative, old).await?;
+            drop_preexisting_whole_file_findings(&mut findings, &old_findings);
+        }
         findings.extend(new_dependency_findings(
             &relative,
             old_content.as_deref(),
@@ -2111,6 +2151,118 @@ mod tests {
             .await
             .expect("judged");
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn preexisting_whole_file_metric_findings_are_dropped_but_new_ones_kept() {
+        let mi = RuleId::new("smells:maintainability-index").unwrap();
+        let wmc = RuleId::new("smells:ck-oo-metrics").unwrap();
+        let long_fn = RuleId::new("smells:long-function").unwrap();
+
+        // Same rule already fired before this write — the message's own
+        // score has drifted (18.0 -> 17.5), the ordinary "unrelated edit"
+        // case, and must not make this look like a new violation.
+        let old_findings = vec![Finding {
+            rule: mi.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: "Low Maintainability Index: `18.0/100` (threshold = 20.0).".into(),
+            line: 1,
+        }];
+
+        let mut findings = vec![
+            Finding {
+                rule: mi.clone(),
+                severity: vord_rules_engine::Severity::Major,
+                message: "Low Maintainability Index: `17.5/100` (threshold = 20.0).".into(),
+                line: 1,
+            },
+            Finding {
+                rule: wmc.clone(),
+                severity: vord_rules_engine::Severity::Major,
+                message: "CK Metric Violation: high WMC".into(),
+                line: 3,
+            },
+            Finding {
+                rule: long_fn.clone(),
+                severity: vord_rules_engine::Severity::Minor,
+                message: "function spans 60 lines (max 50)".into(),
+                line: 10,
+            },
+        ];
+
+        drop_preexisting_whole_file_findings(&mut findings, &old_findings);
+
+        let rules: Vec<&str> = findings.iter().map(|f| f.rule.as_str()).collect();
+        assert!(
+            !rules.contains(&mi.as_str()),
+            "the pre-existing MI finding must be dropped, got {rules:?}"
+        );
+        assert!(
+            rules.contains(&wmc.as_str()),
+            "a whole-file rule with no prior finding is a genuinely new violation and must stay, got {rules:?}"
+        );
+        assert!(
+            rules.contains(&long_fn.as_str()),
+            "rules outside WHOLE_FILE_METRIC_RULES are untouched, got {rules:?}"
+        );
+    }
+
+    /// A class whose methods' cyclomatic complexities sum past the default
+    /// `smells:ck-oo-metrics` WMC threshold (25) — 15 methods at complexity 2
+    /// each (a single `if`) sum to 30.
+    fn high_wmc_class(name: &str) -> String {
+        let methods: String = (0..15)
+            .map(|i| format!("    m{i}(a) {{ if (a) {{ return 1; }} return 0; }}\n"))
+            .collect();
+        format!("class {name} {{\n{methods}}}\n")
+    }
+
+    #[tokio::test]
+    async fn a_preexisting_whole_file_metric_finding_does_not_block_an_unrelated_edit() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-wmc-preexisting-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("big.ts");
+        let old_content = high_wmc_class("Big");
+        std::fs::write(&file, &old_content).expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:ck-oo-metrics\"]\n")
+            .expect("parses");
+
+        // Append an unrelated top-level declaration; `Big`'s own methods,
+        // and therefore its WMC, are untouched.
+        let new_content = format!("{old_content}\nconst unrelated = 1;\n");
+        let verdict = judge(&policy, &dir, &file, Some(&new_content))
+            .await
+            .expect("judged");
+        assert!(
+            !matches!(verdict, Verdict::Deny { .. }),
+            "an unrelated edit to a file that already violated WMC must not be denied, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_newly_introduced_whole_file_metric_finding_still_blocks() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-wmc-new-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("big.ts");
+        // Clean before this write: a single trivial method, WMC = 1.
+        std::fs::write(&file, "class Big {\n    m0() { return 0; }\n}\n").expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:ck-oo-metrics\"]\n")
+            .expect("parses");
+
+        let new_content = high_wmc_class("Big");
+        let verdict = judge(&policy, &dir, &file, Some(&new_content))
+            .await
+            .expect("judged");
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "a write that newly crosses the WMC threshold must still be denied, got {verdict:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
