@@ -129,13 +129,25 @@ pub fn calculate_halstead_mi(ast: &AstNode, loc: u32) -> HalsteadMetrics {
     let estimated_bugs = volume / 3000.0;
     let time_seconds = effort / 18.0;
 
-    // McCabe's M, derived from the real control flow graph (`E − N + 2`,
-    // `vord_cfg::ControlFlowGraph::cyclomatic_complexity`) instead of the
-    // syntactic `n1 + N1/4` operator proxy the original formula fell back
-    // on. Building the CFG over the whole file yields exactly `1 + total
-    // decision points` across every function — the "program complexity"
-    // term the Microsoft MI formula's `M` parameter is defined to be.
-    let cyclomatic = vord_cfg::ControlFlowGraph::build(ast).cyclomatic_complexity() as f64;
+    // McCabe's M, averaged across the file's functions/methods. The Coleman
+    // et al. (1994) whitepaper that defines the Microsoft Maintainability
+    // Index — and radon's widely-used reference implementation — both treat
+    // the module-level `G` term as the *average* extended cyclomatic
+    // complexity of the module's blocks, not a file-wide total. Building one
+    // CFG over the *whole file* AST (the previous approach here) instead
+    // summed decision points across every function in it, so the score fell
+    // as more functions were added regardless of how simple each one was —
+    // a file with thirty small, well-tested functions scored far worse than
+    // one ten-times-as-complex function, which is backwards. A file with no
+    // functions at all (a top-level script) falls back to the whole-file
+    // CFG, since there is nothing to average.
+    let functions = vord_rules_engine::function_complexities(ast);
+    let cyclomatic = if functions.is_empty() {
+        vord_cfg::ControlFlowGraph::build(ast).cyclomatic_complexity() as f64
+    } else {
+        let total: u32 = functions.iter().map(|f| f.cyclomatic).sum();
+        total as f64 / functions.len() as f64
+    };
     let loc_safe = (loc as f64).max(1.0);
 
     let mi = 171.0 - 5.2 * volume.max(1.0).ln() - 0.23 * cyclomatic - 16.2 * loc_safe.ln();

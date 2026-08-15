@@ -258,6 +258,16 @@ Every other entry point above answers *"what is wrong with this code?"* after
 the fact. `vord hook` answers *"may this write happen?"* — inside an
 autonomous agent's edit loop, before the bytes reach disk.
 
+**What this does not replace.** Every finding here comes from parsing
+syntax — cyclomatic complexity, coupling, layering, naming, duplicated
+logic. `vord` has no type checker and no borrow checker, so a write that
+passes every rule below can still fail `cargo build`/`tsc`/`mypy`: a borrow
+conflict, a missing `mod` declaration, a struct literal missing a field the
+tests expect — none of that is visible from the tree alone. This guardrail
+complements the compiler and test suite, it does not stand in for either;
+an agent loop should still run its own language's build and test commands
+before treating a write as done.
+
 ```sh
 cargo run -p vord-cli -- hook install        # write vord-policy.toml + .claude/settings.json
 cargo run -p vord-cli -- hook check file.py  # judge one file: exit 0 / 2 (denied) / 1 (vord failed)
