@@ -50,7 +50,7 @@
 //! callers (CI, `pre-commit`) can tell exit 1 (vord broke) from exit 2
 //! (policy denied) and decide for themselves.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -1003,36 +1003,70 @@ fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &s
 /// Rule ids whose finding summarizes the *whole file* as a single score —
 /// `smells:maintainability-index`'s Maintainability Index, `smells:ck-oo-
 /// metrics`'s WMC/CBO — rather than pinpointing a specific line-level
-/// pattern. At most one finding per file per rule, so there is no
-/// "unrelated line" for an edit elsewhere in the file to avoid: any write
-/// moves the score by some amount, and the message text (`13.0/100`, `WMC =
-/// 49`) drifts on every single edit even when the file's actual shape barely
-/// changed. Without this list, a file that has ever crossed one of these
-/// thresholds is blocked from every future write, forever, regardless of
-/// relevance — see [`drop_preexisting_whole_file_findings`].
+/// pattern. At most one finding per file per rule, and the message text
+/// itself (`13.0/100`, `WMC = 49`) drifts on every single edit even when the
+/// file's actual shape barely changed, so these are matched by rule alone —
+/// see [`drop_preexisting_findings`].
 const WHOLE_FILE_METRIC_RULES: &[&str] = &["smells:maintainability-index", "smells:ck-oo-metrics"];
 
-/// Drops any [`WHOLE_FILE_METRIC_RULES`] finding in `findings` whose rule
-/// already fired on `old_findings` — the file already violated that
-/// threshold before this write landed, so this write did not introduce the
-/// violation and should not be denied over it. A rule with no matching prior
-/// finding (this write is what pushes the file over the threshold) is left
-/// in place: that is a genuinely new violation this write is responsible
-/// for. This is the file-level analogue of `core/rules-engine`'s New Code
-/// baseline (`Baseline`/`NewCodeAnalysis`): that machinery diffs against a
-/// stored analysis snapshot for the quality *gate*; this diffs against the
+/// Drops any finding in `findings` that already fired, unchanged, on
+/// `old_findings` before this write landed — so a write is only ever denied
+/// for a violation it actually introduced, never for one the file already
+/// contained. This is the file-level analogue of `core/rules-engine`'s New
+/// Code baseline (`Baseline`/`NewCodeAnalysis`): that machinery diffs against
+/// a stored analysis snapshot for the quality *gate*; this diffs against the
 /// content on disk a write is about to replace, for the agent *hook*, where
 /// no persisted baseline exists — the previous write's content already
 /// serves as one.
-fn drop_preexisting_whole_file_findings(findings: &mut Vec<Finding>, old_findings: &[Finding]) {
-    let already_present: HashSet<&str> = old_findings
+///
+/// Two matching strategies, chosen per rule:
+///
+/// - [`WHOLE_FILE_METRIC_RULES`]: matched by rule alone (message text drifts
+///   on every edit, see above), dropped once if the rule fired at all before
+///   this write. A rule with no matching prior finding (this write is what
+///   pushes the file over the threshold) is left in place — a genuinely new
+///   violation this write is responsible for.
+/// - Every other rule (e.g. per-function complexity, "do not call eval"):
+///   matched by the exact `(rule, message)` pair, as a multiset rather than
+///   a set, and deliberately *not* by line. A finding's `line` shifts under
+///   an edit elsewhere in the file — an inserted comment pushes every line
+///   below it down — so a pure comment addition must not turn an untouched
+///   function's pre-existing complexity finding into an apparently "new"
+///   one just because it now sits three lines lower. Several of these
+///   messages also are not unique per occurrence (e.g. "function has
+///   cyclomatic complexity 7 (max 10)" says nothing about *which*
+///   function), so matching drops only as many occurrences of an identical
+///   `(rule, message)` as already existed; the Nth occurrence beyond that
+///   count is a genuinely new violation and stays.
+fn drop_preexisting_findings(findings: &mut Vec<Finding>, old_findings: &[Finding]) {
+    let whole_file_present: HashSet<&str> = old_findings
         .iter()
         .map(|f| f.rule.as_str())
         .filter(|rule| WHOLE_FILE_METRIC_RULES.contains(rule))
         .collect();
+
+    let mut remaining: HashMap<(String, String), usize> = HashMap::new();
+    for f in old_findings {
+        if WHOLE_FILE_METRIC_RULES.contains(&f.rule.as_str()) {
+            continue;
+        }
+        *remaining
+            .entry((f.rule.as_str().to_string(), f.message.clone()))
+            .or_insert(0) += 1;
+    }
+
     findings.retain(|f| {
-        !WHOLE_FILE_METRIC_RULES.contains(&f.rule.as_str())
-            || !already_present.contains(f.rule.as_str())
+        if WHOLE_FILE_METRIC_RULES.contains(&f.rule.as_str()) {
+            return !whole_file_present.contains(f.rule.as_str());
+        }
+        let key = (f.rule.as_str().to_string(), f.message.clone());
+        match remaining.get_mut(&key) {
+            Some(count) if *count > 0 => {
+                *count -= 1;
+                false
+            }
+            _ => true,
+        }
     });
 }
 
@@ -1082,7 +1116,7 @@ pub async fn judge(
         let old_content = std::fs::read_to_string(file).ok();
         if let Some(old) = old_content.as_deref() {
             let old_findings = analyze_content(&relative, old).await?;
-            drop_preexisting_whole_file_findings(&mut findings, &old_findings);
+            drop_preexisting_findings(&mut findings, &old_findings);
         }
         findings.extend(new_dependency_findings(
             &relative,
@@ -2192,7 +2226,7 @@ mod tests {
             },
         ];
 
-        drop_preexisting_whole_file_findings(&mut findings, &old_findings);
+        drop_preexisting_findings(&mut findings, &old_findings);
 
         let rules: Vec<&str> = findings.iter().map(|f| f.rule.as_str()).collect();
         assert!(
@@ -2205,7 +2239,80 @@ mod tests {
         );
         assert!(
             rules.contains(&long_fn.as_str()),
-            "rules outside WHOLE_FILE_METRIC_RULES are untouched, got {rules:?}"
+            "a rule with no matching prior finding has nothing to drop and must stay, got {rules:?}"
+        );
+    }
+
+    #[test]
+    fn preexisting_per_function_complexity_findings_survive_an_unrelated_line_shift() {
+        // Reproduces the reported bug: a pure comment addition earlier in the
+        // file shifts every finding below it down by one line, and a
+        // per-function rule's message (unlike the whole-file metrics above)
+        // says nothing that identifies *which* function it is about — so a
+        // naive (rule, message, line) match would see "new" findings on
+        // every single write to a file that has any pre-existing complexity
+        // violation anywhere in it.
+        let complexity = RuleId::new("smells:high-complexity").unwrap();
+        let old_findings = vec![Finding {
+            rule: complexity.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: "function has cyclomatic complexity 12 (max 10)".into(),
+            line: 40,
+        }];
+
+        // Same finding, same message, but three lines lower — as if three
+        // comment lines were inserted above it — and nothing else changed.
+        let mut findings = vec![Finding {
+            rule: complexity.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: "function has cyclomatic complexity 12 (max 10)".into(),
+            line: 43,
+        }];
+
+        drop_preexisting_findings(&mut findings, &old_findings);
+
+        assert!(
+            findings.is_empty(),
+            "an unrelated line shift must not turn a pre-existing complexity finding into a new one, got {findings:?}"
+        );
+    }
+
+    #[test]
+    fn a_second_identically_worded_complexity_finding_is_still_new() {
+        // Per-function complexity messages don't name the function, so two
+        // functions at the same complexity produce byte-identical messages.
+        // Only as many occurrences as already existed may be dropped — the
+        // extra one is a genuinely new violation and must still block.
+        let complexity = RuleId::new("smells:high-complexity").unwrap();
+        let message = "function has cyclomatic complexity 12 (max 10)";
+        let old_findings = vec![Finding {
+            rule: complexity.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: message.into(),
+            line: 10,
+        }];
+
+        let mut findings = vec![
+            Finding {
+                rule: complexity.clone(),
+                severity: vord_rules_engine::Severity::Major,
+                message: message.into(),
+                line: 10,
+            },
+            Finding {
+                rule: complexity.clone(),
+                severity: vord_rules_engine::Severity::Major,
+                message: message.into(),
+                line: 55,
+            },
+        ];
+
+        drop_preexisting_findings(&mut findings, &old_findings);
+
+        assert_eq!(
+            findings.len(),
+            1,
+            "only the previously-existing occurrence may be dropped, got {findings:?}"
         );
     }
 
@@ -2262,6 +2369,70 @@ mod tests {
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
             "a write that newly crosses the WMC threshold must still be denied, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A JS/TS function whose cyclomatic complexity (11) exceeds the default
+    /// `smells:high-complexity` threshold (10) — ten `if`s plus the implicit
+    /// entry path.
+    fn high_complexity_function(name: &str) -> String {
+        let ifs: String = (0..10)
+            .map(|i| format!("    if (a > {i}) {{ return {i}; }}\n"))
+            .collect();
+        format!("function {name}(a) {{\n{ifs}    return -1;\n}}\n")
+    }
+
+    #[tokio::test]
+    async fn a_preexisting_complexity_finding_does_not_block_a_pure_comment_addition() {
+        // Reproduces the reported bug end to end: a comment-only edit above
+        // an untouched, already-too-complex function must not be denied over
+        // that function's pre-existing finding, even though inserting the
+        // comment shifts the function (and its finding's line) down.
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-complexity-preexisting-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("busy.ts");
+        let old_content = high_complexity_function("busy");
+        std::fs::write(&file, &old_content).expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:high-complexity\"]\n")
+            .expect("parses");
+
+        // A pure comment addition at the top of the file — no function body
+        // is touched, but every line below it, including `busy`'s, shifts
+        // down by one.
+        let new_content = format!("// explains the module\n{old_content}");
+        let verdict = judge(&policy, &dir, &file, Some(&new_content))
+            .await
+            .expect("judged");
+        assert!(
+            !matches!(verdict, Verdict::Deny { .. }),
+            "a pure comment addition must not be denied over an unrelated pre-existing complexity finding, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_newly_introduced_complexity_finding_still_blocks() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-complexity-new-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("busy.ts");
+        // Clean before this write: no branches at all.
+        std::fs::write(&file, "function busy(a) {\n    return -1;\n}\n").expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:high-complexity\"]\n")
+            .expect("parses");
+
+        let new_content = high_complexity_function("busy");
+        let verdict = judge(&policy, &dir, &file, Some(&new_content))
+            .await
+            .expect("judged");
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "a write that newly introduces a high-complexity function must still be denied, got {verdict:?}"
         );
 
         std::fs::remove_dir_all(&dir).ok();
