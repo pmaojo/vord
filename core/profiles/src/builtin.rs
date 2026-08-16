@@ -144,6 +144,8 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("rust:suspicious-arithmetic-impl"), Severity::Major),
         (rule("rust:lock-held-across-await"), Severity::Critical),
         (rule("rust:disallow-panic-macros"), Severity::Major),
+        (rule("rust:unchecked-convergence-bool"), Severity::Major),
+        (rule("rust:route-without-test-coverage"), Severity::Major),
         // rulesets/code-smells — applies_to rust only.
         (rule("smells:unwrap-usage"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/python/rust.
