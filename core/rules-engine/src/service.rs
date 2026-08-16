@@ -223,7 +223,8 @@ where
                 }
             })
             .collect();
-        vord_cpd::find_duplicates(&tokenized, self.duplication)
+        let report = vord_cpd::find_duplicates(&tokenized, self.duplication);
+        suppress_duplication(report, files)
     }
 
     /// Cross-file rules (e.g. inter-procedural taint) need every AST at
@@ -543,6 +544,46 @@ where
         file.language().as_str().hash(&mut hasher);
         file.content().hash(&mut hasher);
         hasher.finish()
+    }
+}
+
+/// Drops any clone-set region whose first line carries a `// vord-ignore`
+/// (or `// vord-ignore: duplication`) comment — the same escape hatch every
+/// other rule honors (see [`crate::is_suppressed`]), for the case where an
+/// overlap is intentional convention-mirroring rather than accidental
+/// copy-paste. A set that drops below two regions is no longer a
+/// *duplicate* of anything and is dropped entirely; the `duplicated_lines`
+/// metric is recomputed so it never counts a suppressed region.
+fn suppress_duplication(
+    report: vord_cpd::DuplicationReport,
+    files: &[SourceFile],
+) -> vord_cpd::DuplicationReport {
+    const DUPLICATION_RULE_ID: &str = "duplication";
+    let content_of = |path: &str| files.iter().find(|f| f.path() == path).map(|f| f.content());
+
+    let clone_sets: Vec<vord_cpd::CloneSet> = report
+        .clone_sets
+        .into_iter()
+        .filter_map(|mut set| {
+            set.regions.retain(|region| {
+                !content_of(&region.file).is_some_and(|content| {
+                    crate::is_suppressed(content, region.start_line, DUPLICATION_RULE_ID)
+                })
+            });
+            (set.regions.len() >= 2).then_some(set)
+        })
+        .collect();
+
+    let duplicated_lines = clone_sets
+        .iter()
+        .flat_map(|set| &set.regions)
+        .flat_map(|r| (r.start_line..=r.end_line).map(move |line| (r.file.as_str(), line)))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+
+    vord_cpd::DuplicationReport {
+        clone_sets,
+        duplicated_lines,
     }
 }
 
@@ -1015,5 +1056,130 @@ mod tests {
         let key = |raw: &str| vord_profiles::MetricKey::new(raw).unwrap();
         assert_eq!(report.measure(&key("reliability_rating")), Some(5.0));
         assert_eq!(report.measure(&key("security_rating")), Some(1.0));
+    }
+
+    fn clone_set(regions: Vec<vord_cpd::CloneRegion>) -> vord_cpd::CloneSet {
+        vord_cpd::CloneSet { regions, lines: 5 }
+    }
+
+    fn region(file: &str, start_line: u32, end_line: u32) -> vord_cpd::CloneRegion {
+        vord_cpd::CloneRegion {
+            file: file.to_string(),
+            start_line,
+            end_line,
+        }
+    }
+
+    #[test]
+    fn vord_ignore_on_a_region_start_line_drops_only_that_region() {
+        let a = SourceFile::new(
+            "a.rs",
+            "fn one() {\n    shared_body(); // vord-ignore: duplication\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let b = SourceFile::new(
+            "b.rs",
+            "fn two() {\n    shared_body();\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let c = SourceFile::new(
+            "c.rs",
+            "fn three() {\n    shared_body();\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let report = vord_cpd::DuplicationReport {
+            clone_sets: vec![clone_set(vec![
+                region("a.rs", 2, 2),
+                region("b.rs", 2, 2),
+                region("c.rs", 2, 2),
+            ])],
+            duplicated_lines: 3,
+        };
+
+        let suppressed = suppress_duplication(report, &[a, b, c]);
+
+        assert_eq!(suppressed.clone_sets.len(), 1);
+        let regions = &suppressed.clone_sets[0].regions;
+        assert_eq!(regions.len(), 2);
+        assert!(regions.iter().all(|r| r.file != "a.rs"));
+        assert_eq!(suppressed.duplicated_lines, 2);
+    }
+
+    #[test]
+    fn a_set_suppressed_down_to_one_region_is_dropped_entirely() {
+        let a = SourceFile::new(
+            "a.rs",
+            "fn one() {\n    shared_body(); // vord-ignore: duplication\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let b = SourceFile::new(
+            "b.rs",
+            "fn two() {\n    shared_body(); // vord-ignore: duplication\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let report = vord_cpd::DuplicationReport {
+            clone_sets: vec![clone_set(vec![region("a.rs", 2, 2), region("b.rs", 2, 2)])],
+            duplicated_lines: 2,
+        };
+
+        let suppressed = suppress_duplication(report, &[a, b]);
+
+        assert!(suppressed.clone_sets.is_empty());
+        assert_eq!(suppressed.duplicated_lines, 0);
+    }
+
+    #[test]
+    fn a_bare_vord_ignore_also_suppresses_duplication() {
+        let a = SourceFile::new(
+            "a.rs",
+            "fn one() {\n    shared_body(); // vord-ignore\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let b = SourceFile::new(
+            "b.rs",
+            "fn two() {\n    shared_body();\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let report = vord_cpd::DuplicationReport {
+            clone_sets: vec![clone_set(vec![region("a.rs", 2, 2), region("b.rs", 2, 2)])],
+            duplicated_lines: 2,
+        };
+
+        let suppressed = suppress_duplication(report, &[a, b]);
+
+        assert!(suppressed.clone_sets.is_empty());
+    }
+
+    #[test]
+    fn duplication_without_any_suppression_comment_is_untouched() {
+        let a = SourceFile::new(
+            "a.rs",
+            "fn one() {\n    shared_body();\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let b = SourceFile::new(
+            "b.rs",
+            "fn two() {\n    shared_body();\n}\n",
+            LanguageIdentifier::rust(),
+        )
+        .unwrap();
+        let report = vord_cpd::DuplicationReport {
+            clone_sets: vec![clone_set(vec![region("a.rs", 2, 2), region("b.rs", 2, 2)])],
+            duplicated_lines: 2,
+        };
+
+        let suppressed = suppress_duplication(report, &[a, b]);
+
+        assert_eq!(suppressed.clone_sets.len(), 1);
+        assert_eq!(suppressed.clone_sets[0].regions.len(), 2);
+        assert_eq!(suppressed.duplicated_lines, 2);
     }
 }

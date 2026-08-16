@@ -24,11 +24,13 @@ mod mutex_atomic_candidate;
 mod nll_borrow_check;
 mod panic_in_drop;
 mod process_exit;
+mod route_without_test_coverage;
 mod rust_naming_convention;
 mod self_comparison;
 mod static_mut;
 mod suspicious_arithmetic_impl;
 mod typeshare_dto_sync;
+mod unchecked_convergence_bool;
 mod unsafe_send_sync_impl;
 mod unsafe_undocumented;
 
@@ -53,15 +55,17 @@ pub use mutex_atomic_candidate::MutexAtomicCandidateRule;
 pub use nll_borrow_check::NllBorrowCheckRule;
 pub use panic_in_drop::PanicInDropRule;
 pub use process_exit::ProcessExitRule;
+pub use route_without_test_coverage::RouteWithoutTestCoverageRule;
 pub use rust_naming_convention::RustNamingConventionRule;
 pub use self_comparison::SelfComparisonRule;
 pub use static_mut::StaticMutRule;
 pub use suspicious_arithmetic_impl::SuspiciousArithmeticImplRule;
 pub use typeshare_dto_sync::TypeshareDtoSyncRule;
+pub use unchecked_convergence_bool::UncheckedConvergenceBoolRule;
 pub use unsafe_send_sync_impl::UnsafeSendSyncImplRule;
 pub use unsafe_undocumented::UnsafeUndocumentedRule;
 
-use vord_rules_engine::Rule;
+use vord_rules_engine::{CrossFileRule, Rule};
 
 /// Every rule in this ruleset, for composition roots.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
@@ -94,5 +98,11 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(DisallowPanicMacrosRule::new()),
         Box::new(RustClippyAdapterRule::new()),
         Box::new(TypeshareDtoSyncRule::new()),
+        Box::new(UncheckedConvergenceBoolRule::new()),
     ]
+}
+
+/// Every cross-file rule in this ruleset, for composition roots.
+pub fn all_cross_rules() -> Vec<Box<dyn CrossFileRule>> {
+    vec![Box::new(RouteWithoutTestCoverageRule::new())]
 }

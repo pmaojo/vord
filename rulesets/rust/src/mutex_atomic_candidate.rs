@@ -172,7 +172,8 @@ mod tests {
 
     #[test]
     fn ignores_mutex_atomic_candidate_inside_a_cfg_test_module() {
-        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    struct S { counter: Mutex<u32> }\n}\n";
+        let code =
+            "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    struct S { counter: Mutex<u32> }\n}\n";
         assert!(check(code).is_empty());
     }
 }

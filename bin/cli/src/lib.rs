@@ -126,6 +126,7 @@ where
             .chain(vord_rules_architecture::all_cross_rules())
             .chain(vord_rules_smells::all_cross_rules())
             .chain(vord_rules_ddd::all_cross_rules())
+            .chain(vord_rules_rust::all_cross_rules())
             .collect();
     let profile = vord_rules_engine::default_profile();
 
@@ -370,8 +371,7 @@ pub async fn scan_with_profile(
     let duplication = settings.duplication;
     let architecture = settings.architecture;
     let vite_react = settings.vite_react;
-    let sources =
-        vord_infra_fs::collect_sources_scoped(path, source_dirs, inclusions, exclusions)?;
+    let sources = vord_infra_fs::collect_sources_scoped(path, source_dirs, inclusions, exclusions)?;
     let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
         .with_duplication_config(duplication_config(duplication));
     if let Some(profile) = profile {
@@ -783,7 +783,11 @@ mod tests {
                 .iter()
                 .any(|i| i.rule().as_str() == "custom:no-console-log"),
             "expected a custom:no-console-log issue, got: {:?}",
-            report.issues().iter().map(|i| i.rule().as_str()).collect::<Vec<_>>()
+            report
+                .issues()
+                .iter()
+                .map(|i| i.rule().as_str())
+                .collect::<Vec<_>>()
         );
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -844,7 +848,10 @@ mod tests {
             None,
         ));
 
-        assert!(result.is_err(), "an invalid regex must fail the scan, not silently do nothing");
+        assert!(
+            result.is_err(),
+            "an invalid regex must fail the scan, not silently do nothing"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

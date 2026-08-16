@@ -114,7 +114,8 @@ mod tests {
 
     #[test]
     fn ignores_static_mut_inside_a_cfg_test_module() {
-        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    static mut COUNTER: u32 = 0;\n}\n";
+        let code =
+            "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    static mut COUNTER: u32 = 0;\n}\n";
         assert!(check(code).is_empty());
     }
 }

@@ -58,8 +58,34 @@ fn rule_file_key(issue: &Issue) -> u64 {
     hasher.finish()
 }
 
+/// Enough of a baseline issue's identity to display it once it's gone —
+/// present in the previous analysis, absent from this one. `None` on a
+/// [`BaselineEntry`] recovered from a legacy (summary-less) baseline file,
+/// or built through [`Baseline::from_fingerprints`]/[`Baseline::from_entries`]
+/// with no summary supplied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IssueSummary {
+    pub rule: String,
+    pub severity: Severity,
+    pub file: String,
+    pub line: u32,
+    pub message: String,
+}
+
+impl IssueSummary {
+    fn from_issue(issue: &Issue) -> Self {
+        Self {
+            rule: issue.rule().as_str().to_string(),
+            severity: issue.severity(),
+            file: issue.file().to_string(),
+            line: issue.span().start_line,
+            message: issue.message().to_string(),
+        }
+    }
+}
+
 /// One tracked occurrence from a previous analysis.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct BaselineEntry {
     rule_file: u64,
     fingerprint: u64,
@@ -67,6 +93,9 @@ struct BaselineEntry {
     /// baseline file, or captured without source access: such entries can
     /// only ever match via the fingerprint fallback.
     line_hash: Option<u64>,
+    /// Display data for `--show-resolved`; independent of the matching
+    /// cascade above, which runs on hashes alone.
+    summary: Option<IssueSummary>,
 }
 
 /// The tracked issues from a previous analysis, matched against the current
@@ -88,6 +117,7 @@ impl Baseline {
                     rule_file: 0,
                     fingerprint,
                     line_hash: None,
+                    summary: None,
                 })
                 .collect(),
         )
@@ -112,6 +142,7 @@ impl Baseline {
                     rule_file: rule_file_key(issue),
                     fingerprint: issue_fingerprint(issue),
                     line_hash: source(issue.file(), issue.span().start_line),
+                    summary: Some(IssueSummary::from_issue(issue)),
                 })
                 .collect(),
         )
@@ -141,24 +172,66 @@ impl Baseline {
         self.0.iter().map(|e| e.fingerprint)
     }
 
-    /// Raw `(rule_file, fingerprint, line_hash)` triples for persistence.
-    /// Keeps this crate free of a serialization dependency: a storage
-    /// adapter owns the on-disk schema and rebuilds via `from_entries`.
-    pub fn entries(&self) -> impl Iterator<Item = (u64, u64, Option<u64>)> + '_ {
+    /// Baseline entries with no matching issue in `report` — issues that
+    /// existed in the previous analysis and are gone from this one, run
+    /// through the same content-hash-first / fingerprint-fallback cascade
+    /// as [`Baseline::matches`], just in the opposite direction. Entries
+    /// with no stored [`IssueSummary`] (a legacy or summary-less baseline)
+    /// have nothing to display and are skipped.
+    pub fn resolved_since(
+        &self,
+        report: &AnalysisReport,
+        source: impl Fn(&str, u32) -> Option<u64>,
+    ) -> Vec<IssueSummary> {
+        let current_hashes: std::collections::HashSet<(u64, u64)> = report
+            .issues()
+            .iter()
+            .filter_map(|issue| {
+                source(issue.file(), issue.span().start_line)
+                    .map(|hash| (rule_file_key(issue), hash))
+            })
+            .collect();
+        let current_fingerprints: std::collections::HashSet<u64> =
+            report.issues().iter().map(issue_fingerprint).collect();
+
         self.0
             .iter()
-            .map(|e| (e.rule_file, e.fingerprint, e.line_hash))
+            .filter(|e| {
+                let hash_match = e
+                    .line_hash
+                    .is_some_and(|hash| current_hashes.contains(&(e.rule_file, hash)));
+                !hash_match && !current_fingerprints.contains(&e.fingerprint)
+            })
+            .filter_map(|e| e.summary.clone())
+            .collect()
     }
 
-    pub fn from_entries(entries: impl IntoIterator<Item = (u64, u64, Option<u64>)>) -> Self {
+    /// Raw `(rule_file, fingerprint, line_hash, summary)` tuples for
+    /// persistence. Keeps this crate free of a serialization dependency: a
+    /// storage adapter owns the on-disk schema and rebuilds via
+    /// `from_entries`.
+    pub fn entries(
+        &self,
+    ) -> impl Iterator<Item = (u64, u64, Option<u64>, Option<IssueSummary>)> + '_ {
+        self.0
+            .iter()
+            .map(|e| (e.rule_file, e.fingerprint, e.line_hash, e.summary.clone()))
+    }
+
+    pub fn from_entries(
+        entries: impl IntoIterator<Item = (u64, u64, Option<u64>, Option<IssueSummary>)>,
+    ) -> Self {
         Self(
             entries
                 .into_iter()
-                .map(|(rule_file, fingerprint, line_hash)| BaselineEntry {
-                    rule_file,
-                    fingerprint,
-                    line_hash,
-                })
+                .map(
+                    |(rule_file, fingerprint, line_hash, summary)| BaselineEntry {
+                        rule_file,
+                        fingerprint,
+                        line_hash,
+                        summary,
+                    },
+                )
                 .collect(),
         )
     }
@@ -176,6 +249,7 @@ impl Baseline {
 #[derive(Clone, Debug)]
 pub struct NewCodeAnalysis {
     new_issues: Vec<Issue>,
+    resolved_issues: Vec<IssueSummary>,
 }
 
 impl NewCodeAnalysis {
@@ -199,11 +273,22 @@ impl NewCodeAnalysis {
             .filter(|i| !baseline.matches(i, source(i.file(), i.span().start_line)))
             .cloned()
             .collect();
-        Self { new_issues }
+        let resolved_issues = baseline.resolved_since(report, &source);
+        Self {
+            new_issues,
+            resolved_issues,
+        }
     }
 
     pub fn new_issues(&self) -> &[Issue] {
         &self.new_issues
+    }
+
+    /// Issues tracked in the baseline that no longer appear in this
+    /// analysis — the `vord scan --show-resolved` closing half of the New
+    /// Code delta (`new_issues` is the opening half).
+    pub fn resolved_issues(&self) -> &[IssueSummary] {
+        &self.resolved_issues
     }
 
     /// `new_*` measures for gate conditions on new code; other keys → None
@@ -417,5 +502,92 @@ mod tests {
             Some(line_hash(source_line))
         });
         assert!(tracked.new_issues().is_empty());
+    }
+
+    #[test]
+    fn resolved_issues_lists_a_baseline_issue_absent_from_the_current_report() {
+        let gone = issue("cyclomatic complexity too high", Severity::Major);
+        let still_here = Issue::new(
+            RuleId::new("test:other-rule").unwrap(),
+            Severity::Minor,
+            "still here",
+            "b.rs",
+            Span::new(3, 1, 3, 2),
+        );
+        let baseline_report = AnalysisReport::new(
+            vec![gone.clone(), still_here.clone()],
+            vec![],
+            Metrics::new(),
+        );
+        let baseline = Baseline::from_report(&baseline_report);
+
+        let current_report = AnalysisReport::new(vec![still_here], vec![], Metrics::new());
+        let classified = NewCodeAnalysis::classify(&current_report, &baseline);
+
+        assert!(classified.new_issues().is_empty());
+        assert_eq!(classified.resolved_issues().len(), 1);
+        let resolved = &classified.resolved_issues()[0];
+        assert_eq!(resolved.rule, "test:rule");
+        assert_eq!(resolved.file, "a.rs");
+        assert_eq!(resolved.severity, Severity::Major);
+        assert_eq!(resolved.message, "cyclomatic complexity too high");
+    }
+
+    #[test]
+    fn resolved_issues_is_empty_when_nothing_closed() {
+        let old = issue("still open", Severity::Minor);
+        let baseline = Baseline::from_report(&AnalysisReport::new(
+            vec![old.clone()],
+            vec![],
+            Metrics::new(),
+        ));
+        let current_report = AnalysisReport::new(vec![old], vec![], Metrics::new());
+
+        let classified = NewCodeAnalysis::classify(&current_report, &baseline);
+        assert!(classified.resolved_issues().is_empty());
+    }
+
+    #[test]
+    fn resolved_issues_tracks_through_a_moved_line_via_content_hash() {
+        let source_line = "    fn handler(a, b, c, d, e, f) {";
+        let old = Issue::new(
+            RuleId::new("test:complexity").unwrap(),
+            Severity::Major,
+            "Cognitive Complexity of this function is 7, decrease it",
+            "a.rs",
+            Span::new(10, 1, 10, 2),
+        );
+        let baseline_report = AnalysisReport::new(vec![old.clone()], vec![], Metrics::new());
+        let baseline = Baseline::from_report_with_source(&baseline_report, |file, line| {
+            (file == "a.rs" && line == 10).then(|| line_hash(source_line))
+        });
+
+        // Same rule, same line content, just shifted down — still open, not resolved.
+        let moved = Issue::new(
+            old.rule().clone(),
+            old.severity(),
+            "Cognitive Complexity of this function is 8, decrease it",
+            old.file(),
+            Span::new(25, 1, 25, 2),
+        );
+        let current_report = AnalysisReport::new(vec![moved], vec![], Metrics::new());
+
+        let classified =
+            NewCodeAnalysis::classify_with_source(&current_report, &baseline, |file, line| {
+                (file == "a.rs" && line == 25).then(|| line_hash(source_line))
+            });
+        assert!(classified.resolved_issues().is_empty());
+    }
+
+    #[test]
+    fn legacy_fingerprint_only_baseline_has_no_displayable_resolved_issues() {
+        let old = issue("old problem", Severity::Major);
+        let baseline_report = AnalysisReport::new(vec![old], vec![], Metrics::new());
+        let baseline =
+            Baseline::from_fingerprints(Baseline::from_report(&baseline_report).fingerprints());
+
+        let current_report = AnalysisReport::new(vec![], vec![], Metrics::new());
+        let classified = NewCodeAnalysis::classify(&current_report, &baseline);
+        assert!(classified.resolved_issues().is_empty());
     }
 }

@@ -1,5 +1,5 @@
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(RustNamingConventionRule, "naming:rust-convention");
 
@@ -30,7 +30,10 @@ impl Rule for RustNamingConventionRule {
             };
 
             if kind_str == "struct_item" || kind_str == "enum_item" || kind_str == "trait_item" {
-                if let Some(name_node) = node.children().iter().find(|c| *c.kind() == NodeKind::Identifier || matches!(c.kind(), NodeKind::Other(k) if k.as_ref() == "type_identifier")) {
+                if let Some(name_node) = node.children().iter().find(|c| {
+                    *c.kind() == NodeKind::Identifier
+                        || matches!(c.kind(), NodeKind::Other(k) if k.as_ref() == "type_identifier")
+                }) {
                     let name = name_node.text();
                     if !is_pascal_case(name) {
                         out.push(Finding::new(
@@ -40,7 +43,11 @@ impl Rule for RustNamingConventionRule {
                     }
                 }
             } else if kind_str == "function_item" {
-                if let Some(name_node) = node.children().iter().find(|c| *c.kind() == NodeKind::Identifier) {
+                if let Some(name_node) = node
+                    .children()
+                    .iter()
+                    .find(|c| *c.kind() == NodeKind::Identifier)
+                {
                     let name = name_node.text();
                     if !is_snake_case(name) && !name.starts_with("test_") {
                         out.push(Finding::new(
@@ -70,5 +77,6 @@ fn is_pascal_case(s: &str) -> bool {
 }
 
 fn is_snake_case(s: &str) -> bool {
-    s.chars().all(|c| c.is_lowercase() || c.is_numeric() || c == '_')
+    s.chars()
+        .all(|c| c.is_lowercase() || c.is_numeric() || c == '_')
 }
