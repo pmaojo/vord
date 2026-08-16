@@ -4,7 +4,7 @@
 use serde::Serialize;
 use vord_rules_engine::{
     AnalysisReport, CloneSet, ConditionStatus, CoverageSummary, CrapFinding, GateEvaluation,
-    GateStatus, Hotspot, Issue, Metrics, MutationSummary, NewCodeAnalysis,
+    GateStatus, Hotspot, Issue, IssueSummary, Metrics, MutationSummary, NewCodeAnalysis,
     RemediationEffortSummary, Severity, TestReportSummary,
 };
 
@@ -28,6 +28,12 @@ pub struct ReportDto {
     pub quality_gate: GateDto,
     /// Issues not present in the previous analysis (None on first scan).
     pub new_issue_total: Option<usize>,
+    /// Baseline issues no longer present in this analysis (None on first
+    /// scan, same as `new_issue_total`).
+    pub resolved_issue_total: Option<usize>,
+    /// Full detail for each resolved issue — populated only when
+    /// `--show-resolved` is passed; empty otherwise (or with no baseline).
+    pub resolved_issues: Vec<ResolvedIssueDto>,
     pub duplications: Vec<DuplicationDto>,
     /// The CRAP-ranked refactor list (roadmap item C3), worst score first.
     /// Empty until a coverage report is ingested — see
@@ -245,6 +251,30 @@ pub struct IssueDto {
     pub message: String,
 }
 
+/// An issue tracked in the previous baseline that no longer appears in this
+/// analysis — `--show-resolved`'s payload. No `column`: the baseline only
+/// ever tracked a line (see `IssueSummary`).
+#[derive(Serialize)]
+pub struct ResolvedIssueDto {
+    pub rule: String,
+    pub severity: String,
+    pub file: String,
+    pub line: u32,
+    pub message: String,
+}
+
+impl From<&IssueSummary> for ResolvedIssueDto {
+    fn from(summary: &IssueSummary) -> Self {
+        Self {
+            rule: summary.rule.clone(),
+            severity: summary.severity.to_string(),
+            file: summary.file.clone(),
+            line: summary.line,
+            message: summary.message.clone(),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct MetricsDto {
     pub files_scanned: usize,
@@ -402,10 +432,14 @@ impl ReportDto {
         test_report: Option<&TestReportSummary>,
         coverage_new_code: Option<f64>,
         context: ScanContextDto,
+        show_resolved: bool,
     ) -> Self {
         let all: Vec<IssueDto> = report.issues().iter().map(IssueDto::from).collect();
         let mutation_gaps_count = all.iter().filter(|i| is_mutation_rule(&i.rule)).count();
-        let issues: Vec<IssueDto> = all.into_iter().filter(|i| !is_mutation_rule(&i.rule)).collect();
+        let issues: Vec<IssueDto> = all
+            .into_iter()
+            .filter(|i| !is_mutation_rule(&i.rule))
+            .collect();
         Self {
             issues,
             hotspots: report.hotspots().iter().map(HotspotDto::from).collect(),
@@ -415,6 +449,19 @@ impl ReportDto {
             security_rating: report.security_rating().to_string(),
             quality_gate: gate_dto(gate),
             new_issue_total: new_code.map(|nc| nc.new_issues().len()),
+            resolved_issue_total: new_code.map(|nc| nc.resolved_issues().len()),
+            resolved_issues: if show_resolved {
+                new_code
+                    .map(|nc| {
+                        nc.resolved_issues()
+                            .iter()
+                            .map(ResolvedIssueDto::from)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            },
             coverage: report.coverage().map(CoverageDto::from),
             test_report: test_report.map(TestReportDto::from),
             mutation: report.mutation().map(MutationDto::from),
@@ -492,6 +539,27 @@ fn render_issues_text(out: &mut String, report: &AnalysisReport) {
                 issue.message(),
             ));
         }
+    }
+}
+
+/// `--show-resolved`'s detail listing: one line per baseline issue absent
+/// from this analysis, ordered by file then line so it reads like a diff of
+/// what closed rather than an arbitrary bag of fingerprints.
+fn render_resolved_issues_text(out: &mut String, resolved: &[IssueSummary]) {
+    if resolved.is_empty() {
+        return;
+    }
+    let mut sorted: Vec<&IssueSummary> = resolved.iter().collect();
+    sorted.sort_by(|a, b| a.file.cmp(&b.file).then_with(|| a.line.cmp(&b.line)));
+    for issue in sorted {
+        out.push_str(&format!(
+            "  {} ({}, {}:{}) — resolved: {}\n",
+            issue.rule,
+            issue.severity.to_string().to_uppercase(),
+            issue.file,
+            issue.line,
+            issue.message,
+        ));
     }
 }
 
@@ -714,6 +782,7 @@ pub fn render_text(
     test_report: Option<&TestReportSummary>,
     coverage_new_code: Option<f64>,
     context: &ScanContextDto,
+    show_resolved: bool,
 ) -> String {
     let mut out = String::new();
     render_context_text(&mut out, context);
@@ -738,6 +807,13 @@ pub fn render_text(
             "New issues since previous analysis: {}\n",
             new_code.new_issues().len()
         ));
+        out.push_str(&format!(
+            "Resolved since previous analysis: {}\n",
+            new_code.resolved_issues().len()
+        ));
+        if show_resolved {
+            render_resolved_issues_text(&mut out, new_code.resolved_issues());
+        }
     }
     render_test_report_text(&mut out, test_report);
     render_mutation_text(&mut out, report);
@@ -869,6 +945,7 @@ pub fn render_json(
     test_report: Option<&TestReportSummary>,
     coverage_new_code: Option<f64>,
     context: ScanContextDto,
+    show_resolved: bool,
 ) -> serde_json::Result<String> {
     serde_json::to_string_pretty(&ReportDto::build(
         report,
@@ -877,6 +954,7 @@ pub fn render_json(
         test_report,
         coverage_new_code,
         context,
+        show_resolved,
     ))
 }
 
@@ -993,4 +1071,132 @@ pub fn render_sarif(report: &AnalysisReport) -> serde_json::Result<String> {
     };
 
     serde_json::to_string_pretty(&sarif)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vord_rules_engine::{
+        Baseline, ComparisonOperator, Condition, MetricKey, Metrics, QualityGate, RuleId,
+    };
+
+    fn empty_context() -> ScanContextDto {
+        ScanContextDto {
+            project: None,
+            branch: None,
+            pull_request: None,
+        }
+    }
+
+    fn passing_gate() -> GateEvaluation {
+        let metric = MetricKey::new("blocker_issues").unwrap();
+        QualityGate::new("test")
+            .with_condition(Condition::new(metric, ComparisonOperator::GreaterThan, 0.0))
+            .evaluate(|_| Some(0.0))
+    }
+
+    fn issue(message: &str) -> Issue {
+        Issue::new(
+            RuleId::new("smells:high-complexity").unwrap(),
+            Severity::Major,
+            message,
+            "src/lib.rs",
+            vord_ast::Span::new(42, 1, 42, 2),
+        )
+    }
+
+    /// A baseline with one issue that has since been fixed, and the
+    /// now-empty current report — reproduces the `vord scan --show-resolved`
+    /// scenario from the feedback: confirming which specific prior issue
+    /// closed, not just a bare "new issues: 0" count.
+    fn new_code_with_one_resolved_issue() -> NewCodeAnalysis {
+        let baseline_report = AnalysisReport::new(
+            vec![issue("cyclomatic complexity 11 (max 10)")],
+            vec![],
+            Metrics::new(),
+        );
+        let baseline = Baseline::from_report(&baseline_report);
+        let current_report = AnalysisReport::new(vec![], vec![], Metrics::new());
+        NewCodeAnalysis::classify(&current_report, &baseline)
+    }
+
+    #[test]
+    fn render_text_always_prints_the_resolved_count() {
+        let report = AnalysisReport::new(vec![], vec![], Metrics::new());
+        let gate = passing_gate();
+        let new_code = new_code_with_one_resolved_issue();
+
+        let out = render_text(
+            &report,
+            &gate,
+            Some(&new_code),
+            None,
+            None,
+            &empty_context(),
+            false,
+        );
+
+        assert!(out.contains("Resolved since previous analysis: 1"));
+        // Without --show-resolved, the detail line is not printed.
+        assert!(!out.contains("resolved: cyclomatic complexity 11"));
+    }
+
+    #[test]
+    fn render_text_show_resolved_lists_the_closed_issue() {
+        let report = AnalysisReport::new(vec![], vec![], Metrics::new());
+        let gate = passing_gate();
+        let new_code = new_code_with_one_resolved_issue();
+
+        let out = render_text(
+            &report,
+            &gate,
+            Some(&new_code),
+            None,
+            None,
+            &empty_context(),
+            true,
+        );
+
+        assert!(out.contains("smells:high-complexity"));
+        assert!(out.contains("src/lib.rs:42"));
+        assert!(out.contains("resolved: cyclomatic complexity 11 (max 10)"));
+    }
+
+    #[test]
+    fn render_json_resolved_issues_populated_only_when_requested() {
+        let report = AnalysisReport::new(vec![], vec![], Metrics::new());
+        let gate = passing_gate();
+        let new_code = new_code_with_one_resolved_issue();
+
+        let without = render_json(
+            &report,
+            &gate,
+            Some(&new_code),
+            None,
+            None,
+            empty_context(),
+            false,
+        )
+        .unwrap();
+        let dto_without: serde_json::Value = serde_json::from_str(&without).unwrap();
+        assert_eq!(dto_without["resolved_issue_total"], 1);
+        assert_eq!(dto_without["resolved_issues"].as_array().unwrap().len(), 0);
+
+        let with = render_json(
+            &report,
+            &gate,
+            Some(&new_code),
+            None,
+            None,
+            empty_context(),
+            true,
+        )
+        .unwrap();
+        let dto_with: serde_json::Value = serde_json::from_str(&with).unwrap();
+        assert_eq!(dto_with["resolved_issues"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            dto_with["resolved_issues"][0]["rule"],
+            "smells:high-complexity"
+        );
+    }
 }

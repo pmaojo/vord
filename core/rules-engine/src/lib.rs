@@ -39,9 +39,11 @@ pub use domain::{
     MutationSummary, Resolution, ScanJob, StoredHotspot, StoredIssue, TestReportSummary,
     TestSuiteSummary,
 };
-pub use function_complexity::{FunctionComplexity, compute as function_complexities};
+pub use function_complexity::{
+    ComplexityBreakdown, FunctionComplexity, compute as function_complexities,
+};
 pub use gate_defaults::default_gate;
-pub use new_code::{Baseline, NewCodeAnalysis, issue_fingerprint, line_hash};
+pub use new_code::{Baseline, IssueSummary, NewCodeAnalysis, issue_fingerprint, line_hash};
 pub use new_code_overrides::{
     NewCodeOverride, OverrideScope, OverrideSource, resolve_baseline,
     resolve_baseline_for_new_code_definition, resolve_new_code_definition,
@@ -64,7 +66,9 @@ pub use project::{
 pub use rule::{CrossFileRule, Finding, FindingKind, Rule, RuleMetadata};
 pub use structural_metrics::StructuralCounts;
 pub use suppression::is_suppressed;
-pub use test_code::{LineRange, in_ranges, is_test_only_path, is_vendored_path, rust_test_module_ranges};
+pub use test_code::{
+    LineRange, in_ranges, is_test_only_path, is_vendored_path, rust_test_module_ranges,
+};
 
 // Re-export duplication vocabulary so consumers depend on one facade.
 pub use vord_cpd::{CloneRegion, CloneSet, DuplicationConfig, TokenNormalization};

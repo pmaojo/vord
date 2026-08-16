@@ -2328,7 +2328,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_preexisting_whole_file_metric_finding_does_not_block_an_unrelated_edit() {
-        let dir = std::env::temp_dir().join(format!("vord-hook-wmc-preexisting-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-wmc-preexisting-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let file = dir.join("big.ts");
         let old_content = high_wmc_class("Big");
@@ -2390,8 +2391,10 @@ mod tests {
         // an untouched, already-too-complex function must not be denied over
         // that function's pre-existing finding, even though inserting the
         // comment shifts the function (and its finding's line) down.
-        let dir =
-            std::env::temp_dir().join(format!("vord-hook-complexity-preexisting-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "vord-hook-complexity-preexisting-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let file = dir.join("busy.ts");
         let old_content = high_complexity_function("busy");
@@ -2417,7 +2420,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_newly_introduced_complexity_finding_still_blocks() {
-        let dir = std::env::temp_dir().join(format!("vord-hook-complexity-new-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-complexity-new-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let file = dir.join("busy.ts");
         // Clean before this write: no branches at all.

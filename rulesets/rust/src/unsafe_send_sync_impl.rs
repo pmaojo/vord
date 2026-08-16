@@ -151,7 +151,8 @@ mod tests {
 
     #[test]
     fn ignores_unsafe_send_sync_impl_inside_a_cfg_test_module() {
-        let code = "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    unsafe impl Send for Wrapper {}\n}\n";
+        let code =
+            "fn prod() {}\n\n#[cfg(test)]\nmod tests {\n    unsafe impl Send for Wrapper {}\n}\n";
         assert!(check(code).is_empty());
     }
 }

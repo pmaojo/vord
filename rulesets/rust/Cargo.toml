@@ -19,3 +19,4 @@ proc-macro2 = "1.0"
 
 [dev-dependencies]
 vord-parser-rust = { workspace = true }
+vord-parser-typescript = { workspace = true }
