@@ -132,7 +132,7 @@ fn worst_function_breakdown(ast: &AstNode) -> String {
     if functions.is_empty() {
         return String::new();
     }
-    functions.sort_by(|a, b| b.cyclomatic.cmp(&a.cyclomatic));
+    functions.sort_by_key(|f| std::cmp::Reverse(f.cyclomatic));
     let entries: Vec<String> = functions
         .iter()
         .take(3)
