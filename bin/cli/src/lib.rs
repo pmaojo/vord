@@ -598,6 +598,9 @@ fn vite_react_rule_with_exceptions(rule_id: &str, globs: Vec<String>) -> Option<
         "vite-react:tailwind-space-between" => Some(Box::new(
             vord_rules_vite_react::TailwindSpaceBetweenRule::with_exceptions(globs),
         )),
+        "vite-react:tailwind-redundant-size" => Some(Box::new(
+            vord_rules_vite_react::TailwindRedundantSizeRule::with_exceptions(globs),
+        )),
         _ => None,
     }
 }
