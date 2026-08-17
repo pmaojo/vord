@@ -346,10 +346,9 @@ not "who gets credit".
 procedures" gauntlet: `[[gherkin_required]]` names glob patterns an agent may
 only write to if at least one Gherkin scenario somewhere in the repository's
 `.feature` files is tagged `@covers(<glob matching this path>)` — feature-
-level or scenario-level, either counts. `vord hook` scans `.feature` files for
-that tag (no Gherkin execution, no cucumber-rust dependency — just the tag
-lines, which are mechanically easy to find without a full parser) and denies
-a matching write with no AST finding needed, the same "deny on path alone"
+level or scenario-level, either counts. `vord hook` reads `.feature` files
+directly (no Gherkin execution, no cucumber-rust dependency) and denies a
+matching write with no AST finding needed, the same "deny on path alone"
 shape `protected_path` already uses. Off by default and commented out in the
 installed template, unlike `protected_path`: turning it on immediately denies
 every matching write until real `.feature` coverage exists, so it is opt-in
@@ -357,6 +356,24 @@ per repository once that coverage is ready, not a default anyone gets for
 free. The scan itself is skipped entirely (no filesystem walk at all) when no
 `[[gherkin_required]]` glob is configured, keeping the common case as fast as
 before this landed.
+
+The tag by itself is *not* the evidence, because this is the one control an
+agent can lift by writing a file, and a tag costs one line while the scenario
+it claims costs real work. `@covers(core/domain/**)` over a `Feature:` with no
+scenario under it would otherwise wave through every future write to that
+subtree forever. So a claim is credited only when the block carrying it
+describes behaviour concretely: at least one `When` and one `Then` step (a
+`Scenario Outline` also needs an `Examples:` row), and a glob narrower than
+`**`. `Given` is deliberately not required — a `Background:` commonly supplies
+the setup, and honest `When`/`Then` scenarios are everywhere — and steps
+inside a doc string are data, not steps. Keywords are matched in English only:
+a translated `.feature` file gets no credit rather than wrong credit, which
+fails toward denial. Writing an uncredited claim is itself reportable, so the
+agent learns why rather than inferring it from a denial elsewhere:
+`bdd:unverified-scenario` for a tag with no scenario behind it,
+`bdd:overbroad-covers` for a `**`-shaped claim. Both report nothing by
+default — opt in via `advisory_rules`/`blocking_rules` — but the *gate* refuses
+those claims regardless of what either list says.
 
 **Circuit breaker.** An agent that cannot resolve a finding — a false
 positive, or a vulnerability it does not know how to fix — will otherwise

@@ -40,7 +40,8 @@ pub use coverage::{
 pub use dependency_graph::{ParsedImportGraph, build as build_dependency_graph};
 pub use diff::changed_lines_from_unified_diff;
 pub use gherkin::{
-    COVERS_TAG, GherkinCoverageError, GherkinCoverageIndex, extract_covers_patterns,
+    COVERS_TAG, CoversClaim, GherkinCoverageError, GherkinCoverageIndex, extract_covers_patterns,
+    scan_covers_claims,
 };
 pub use handoff::{HandoffIoError, ack, deliver, inbox, send as send_handoff};
 pub use istanbul::{IstanbulError, parse_istanbul, parse_istanbul_report};

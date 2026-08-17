@@ -68,7 +68,13 @@ blocking_rules = [
 # (a test newly marked #[ignore]/skip in this write) — never denies by
 # default, since a suppression or a skipped test is sometimes the right call
 # and this is the mechanism to surface it for human review rather than ban it
-# outright.
+# outright. The same applies to the two BDD-evidence rules, which fire on a
+# .feature file whose @covers(...) tag claims more than the scenarios under
+# it prove: "bdd:unverified-scenario" (the block carrying the tag has no
+# When/Then pair, or is a Scenario Outline with no Examples row) and
+# "bdd:overbroad-covers" (the glob is `**` or a synonym). Neither claim is
+# ever credited as evidence by [[gherkin_required]] below whatever this list
+# says — listing them here only decides whether writing one is *reported*.
 advisory_rules = []
 
 # Rules that block like `blocking_rules`, but a human can lift the block for
@@ -107,7 +113,11 @@ reason = "Quality-gate thresholds and exclusions live here; loosening them is a 
 
 # Requires at least one Gherkin scenario tagged `@covers(<glob>)` somewhere
 # in the repository's .feature files before an agent may write to a matching
-# path — vord scans for the tag, it does not run the scenario. Commented out
+# path — vord reads the scenario's structure, it does not run it. The tag
+# alone is not evidence: it counts only when the block carrying it has a
+# When/Then pair (an Examples row too, for a Scenario Outline) and the glob
+# is narrower than `**`, so the gate cannot be lifted by writing a tag over
+# an empty feature file. Commented out
 # by default: unlike protected_path, turning this on immediately denies every
 # matching write until real .feature coverage exists, so it needs the
 # repository to already have (or be ready to add) BDD scenarios, not just a

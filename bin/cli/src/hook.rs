@@ -1033,6 +1033,93 @@ fn test_skip_added_findings(
         .collect()
 }
 
+/// Findings for a `.feature` file whose `@covers(...)` tags claim more than
+/// the scenarios under them actually prove. The `[[gherkin_required]]`
+/// evidence gate is the one control in this module an agent can lift *by
+/// writing a file*, which makes the cheapest way past it a one-line bypass:
+///
+/// ```gherkin
+/// @covers(core/domain/**)
+/// Feature: Domain
+/// ```
+///
+/// No scenario, no steps, no behaviour — and every future write to
+/// `core/domain/**` waved through. `vord_infra_fs::scan_covers_claims`
+/// already refuses to credit such a claim, so the gate itself holds without
+/// this function; what this adds is the *explanation*. Silently crediting
+/// nothing would deny the agent's next source write with "no Gherkin scenario
+/// covers this path" while a file it just wrote appears, to it, to say
+/// otherwise — an agent given a contradiction retries it. Two rules, matching
+/// the two ways a claim outruns its evidence:
+///
+/// - `bdd:unverified-scenario` — the block carrying the tag has no
+///   `When`/`Then` pair (or is a `Scenario Outline` with no `Examples:` row).
+/// - `bdd:overbroad-covers` — the glob is `**` or a synonym, one scenario
+///   claiming an entire repository.
+///
+/// Diff-aware in the same spirit as [`drop_preexisting_findings`]: a claim
+/// that was already in the file, unchanged, is not this write's doing, so
+/// editing a scenario in a `.feature` file that has an unrelated stub
+/// elsewhere in it is not blocked on cleaning up the stub. Neither rule is in
+/// the default policy's `blocking_rules` — see `vord-policy.toml`'s template
+/// for how to opt in.
+fn bdd_feature_findings(
+    relative: &str,
+    old_content: Option<&str>,
+    new_content: &str,
+) -> Vec<Finding> {
+    if !relative.ends_with(".feature") {
+        return Vec::new();
+    }
+    let already_claimed: HashSet<String> = old_content
+        .map(|old| {
+            vord_infra_fs::scan_covers_claims(old)
+                .into_iter()
+                .filter(|claim| !claim.is_credited())
+                .map(|claim| claim.pattern)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let unverified = RuleId::new("bdd:unverified-scenario").expect("valid rule id");
+    let overbroad = RuleId::new("bdd:overbroad-covers").expect("valid rule id");
+    vord_infra_fs::scan_covers_claims(new_content)
+        .into_iter()
+        .filter(|claim| !claim.is_credited())
+        .filter(|claim| !already_claimed.contains(&claim.pattern))
+        .map(|claim| {
+            let (rule, message) = if claim.overbroad {
+                (
+                    overbroad.clone(),
+                    format!(
+                        "`@covers({})` in {relative} claims the whole repository — no single scenario exercises \
+                         every path, so this claim is not credited as Gherkin evidence; scope the glob to the \
+                         paths this scenario actually drives",
+                        claim.pattern
+                    ),
+                )
+            } else {
+                (
+                    unverified.clone(),
+                    format!(
+                        "`@covers({})` in {relative} is not backed by a scenario: the block carrying it has no \
+                         When/Then pair (a Scenario Outline also needs an Examples row), so it is not credited as \
+                         Gherkin evidence and will not satisfy `[[gherkin_required]]` — write the steps that \
+                         describe the behaviour, not just the tag that claims it",
+                        claim.pattern
+                    ),
+                )
+            };
+            Finding {
+                rule,
+                severity: vord_rules_engine::Severity::Major,
+                message,
+                line: u32::try_from(claim.line).unwrap_or(u32::MAX),
+            }
+        })
+        .collect()
+}
+
 /// Whether `relative` already has a covering Gherkin scenario, per
 /// `[[gherkin_required]]`'s evidence gate. Skips the `.feature`-file scan
 /// entirely (returning `true`, i.e. "assume covered") when the policy has no
@@ -1134,7 +1221,10 @@ fn drop_preexisting_findings(findings: &mut Vec<Finding>, old_findings: &[Findin
 /// finding needed, via [`has_covering_gherkin_scenario`] and
 /// [`AgentPolicy::evaluate_with_evidence`] — the mechanical version of
 /// Uncle Bob's "surround the agent with constraints" gauntlet: no scenario,
-/// no landed write.
+/// no landed write. Only a claim `vord_infra_fs::scan_covers_claims` credits
+/// counts, so the gate cannot be lifted by writing a tag over an empty
+/// feature file; [`bdd_feature_findings`] tells the agent when it has written
+/// one.
 ///
 /// Before evaluating, the path's [`Provenance`] is looked up in the AI-touch
 /// ledger (`.vord-provenance.json`) and passed to
@@ -1185,6 +1275,11 @@ pub async fn judge(
             content,
         ));
         findings.extend(test_skip_added_findings(
+            &relative,
+            old_content.as_deref(),
+            content,
+        ));
+        findings.extend(bdd_feature_findings(
             &relative,
             old_content.as_deref(),
             content,
@@ -1693,12 +1788,9 @@ mod tests {
         // does load the whole project) passes clean.
         let root = cross_file_route_fixture(
             "covered",
-            Some(
-                "#[test]\nfn hits_it() {\n    client.get(\"/api/v1/widgets\").send();\n}\n",
-            ),
+            Some("#[test]\nfn hits_it() {\n    client.get(\"/api/v1/widgets\").send();\n}\n"),
         );
-        let content =
-            "fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/widgets\", get(list_widgets))\n}\n";
+        let content = "fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/widgets\", get(list_widgets))\n}\n";
         let findings = analyze_content(&root, "src/main.rs", content)
             .await
             .expect("analysis runs");
@@ -1716,8 +1808,7 @@ mod tests {
         // The other half of the same fix: pulling in the rest of the
         // project must not swallow a genuinely uncovered route.
         let root = cross_file_route_fixture("uncovered", None);
-        let content =
-            "fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/widgets\", get(list_widgets))\n}\n";
+        let content = "fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/widgets\", get(list_widgets))\n}\n";
         let findings = analyze_content(&root, "src/main.rs", content)
             .await
             .expect("analysis runs");
@@ -2275,6 +2366,85 @@ mod tests {
         assert!(test_skip_added_findings("src/lib.rs", Some(content), content).is_empty());
     }
 
+    const REAL_SCENARIO: &str = "\
+@covers(core/domain/**)
+Feature: Orders
+
+  Scenario: Checkout
+    Given a cart
+    When I check out
+    Then the order is placed
+";
+
+    #[test]
+    fn a_covers_tag_over_an_empty_feature_is_flagged_as_unverified() {
+        let findings = bdd_feature_findings(
+            "features/orders.feature",
+            None,
+            "@covers(core/domain/**)\nFeature: Orders\n",
+        );
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "bdd:unverified-scenario");
+        assert_eq!(findings[0].line, 1);
+        assert!(
+            findings[0].message.contains("core/domain/**"),
+            "{}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn a_real_scenario_is_not_flagged() {
+        assert!(bdd_feature_findings("features/orders.feature", None, REAL_SCENARIO).is_empty());
+    }
+
+    #[test]
+    fn an_overbroad_covers_glob_is_flagged_under_its_own_rule() {
+        let content = REAL_SCENARIO.replace("core/domain/**", "**");
+        let findings = bdd_feature_findings("features/orders.feature", None, &content);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "bdd:overbroad-covers");
+    }
+
+    #[test]
+    fn a_non_feature_file_is_never_scanned_for_covers_claims() {
+        // The tag text can legitimately appear in prose or in this very
+        // module's own documentation; only `.feature` files make a claim.
+        assert!(bdd_feature_findings("README.md", None, "@covers(**)\nFeature: x\n").is_empty());
+    }
+
+    #[test]
+    fn a_pre_existing_unverified_claim_is_not_re_flagged() {
+        let old = "@covers(core/domain/**)\nFeature: Orders\n";
+        let new = format!("{old}\n  Scenario: A start\n    Given a cart\n");
+        assert!(bdd_feature_findings("features/orders.feature", Some(old), &new).is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unbacked_covers_claim_is_wired_into_the_full_judge_pipeline() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-bdd-claim-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("features")).expect("temp dir");
+        let file = dir.join("features/orders.feature");
+
+        let policy =
+            AgentPolicy::parse("[agent]\nblocking_rules = [\"bdd:unverified-scenario\"]\n")
+                .expect("parses");
+        let verdict = judge(
+            &policy,
+            &dir,
+            &file,
+            Some("@covers(core/domain/**)\nFeature: Orders\n"),
+        )
+        .await
+        .expect("judged");
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "an opted-in repository denies the claim, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[tokio::test]
     async fn a_new_suppression_is_wired_into_the_full_judge_pipeline() {
         let dir =
@@ -2605,7 +2775,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("features")).expect("features dir");
         std::fs::write(
             dir.join("features/orders.feature"),
-            "@covers(core/domain/**)\nFeature: Orders\n  Scenario: Place an order\n    Given a cart\n",
+            "@covers(core/domain/**)\nFeature: Orders\n  Scenario: Place an order\n    Given a cart\n    When I check out\n    Then the order is placed\n",
         )
         .expect("write feature file");
         let file = dir.join("core/domain/order.rs");
@@ -2626,6 +2796,43 @@ mod tests {
                 "{evaluation:?}"
             );
         }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_feature_file_with_a_tag_but_no_scenario_does_not_lift_the_evidence_gate() {
+        // The one-line bypass: the cheapest way past `[[gherkin_required]]`
+        // is a tag over an empty feature file. If that worked, the gate
+        // would be advisory in practice.
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-gherkin-stub-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
+        std::fs::create_dir_all(dir.join("features")).expect("features dir");
+        std::fs::write(
+            dir.join("features/orders.feature"),
+            "@covers(core/domain/**)\nFeature: Orders\n",
+        )
+        .expect("write feature file");
+        let file = dir.join("core/domain/order.rs");
+
+        let policy = AgentPolicy::parse(
+            "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
+        )
+        .expect("parses");
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n"))
+            .await
+            .expect("judged");
+        let Verdict::Deny { evaluation, .. } = &verdict else {
+            panic!("expected a denial, got {verdict:?}")
+        };
+        assert!(
+            evaluation
+                .violations
+                .iter()
+                .any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
+            "{evaluation:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
