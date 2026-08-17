@@ -11,8 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use vord_import_graph::{ImportGraph, TypeCensus, component_metrics, component_of};
-use vord_rules_engine::AstParser;
+use vord_import_graph::{TypeCensus, component_metrics, component_of};
 
 pub struct ArchSummary {
     pub files: usize,
@@ -22,50 +21,27 @@ pub struct ArchSummary {
 }
 
 /// Parses every import-graph-supported file under `root` (TS/JS/TSX/JSX,
-/// Python, Rust, Go — the four languages `ImportGraph` resolves), builds the
-/// component graph, and folds per-component type counts into the census so
-/// `A`/`D` are real. Files that fail to parse are skipped silently (a parse
-/// error is an analysis signal, not an architecture one).
+/// Python, Rust, Go — the four languages `ImportGraph` resolves; parsing and
+/// graph-building is shared with `vord agent`'s `graph` tool, see
+/// `vord_infra_fs::build_dependency_graph`), builds the component graph, and
+/// folds per-component type counts into the census so `A`/`D` are real.
 pub fn analyze(root: &Path) -> anyhow::Result<ArchSummary> {
-    let sources = vord_infra_fs::collect_sources_scoped(root, &[], &[], &[])?;
-    let rust_crates = vord_infra_fs::discover_rust_crates(root);
-    // Resolves TS/JS `@/`-style path-aliased imports (tsconfig.json/
-    // jsconfig.json `compilerOptions.paths`) — without this, a project that
-    // imports through such an alias shows almost no edges at all here, the
-    // exact "128 files, 1 dependency" symptom this fixes.
-    let ts_aliases = vord_infra_fs::discover_ts_path_aliases(root);
+    let built = vord_infra_fs::build_dependency_graph(root)?;
 
-    let mut parsed: Vec<(vord_ast::SourceFile, vord_ast::AstNode)> = Vec::new();
     let mut census: BTreeMap<String, TypeCensus> = BTreeMap::new();
-
-    for file in &sources {
-        let parser: Option<Box<dyn AstParser>> = match file.language().as_str() {
-            "typescript" => Some(Box::new(vord_parser_typescript::TypeScriptParser::new())),
-            "rust" => Some(Box::new(vord_parser_rust::RustParser::new())),
-            "python" => Some(Box::new(vord_parser_python::PythonParser::new())),
-            "go" => Some(Box::new(vord_parser_go::GoParser::new())),
-            _ => None,
-        };
-        let Some(parser) = parser else { continue };
-        let Ok(ast) = parser.parse(file) else {
-            continue;
-        };
+    for (file, ast) in &built.files {
         census
             .entry(component_of(file.path()))
             .or_default()
-            .add(type_census(&ast));
-        parsed.push((file.clone(), ast));
+            .add(type_census(ast));
     }
 
-    let views: Vec<(&str, &vord_ast::AstNode)> =
-        parsed.iter().map(|(f, a)| (f.path(), a)).collect();
-    let graph = ImportGraph::build_with_options(&views, &rust_crates, &ts_aliases);
-    let components = component_metrics(&graph, &census);
-    let cycles = graph.cycles();
-    let edges: Vec<(String, String)> = graph.component_edges().into_iter().collect();
+    let components = component_metrics(&built.graph, &census);
+    let cycles = built.graph.cycles();
+    let edges: Vec<(String, String)> = built.graph.component_edges().into_iter().collect();
 
     Ok(ArchSummary {
-        files: parsed.len(),
+        files: built.files.len(),
         components,
         edges,
         cycles,
@@ -351,6 +327,7 @@ requestAnimationFrame(function loop() {{ draw(); requestAnimationFrame(loop); }}
 mod tests {
     use super::*;
     use vord_ast::{LanguageIdentifier, SourceFile};
+    use vord_rules_engine::AstParser;
 
     fn parse_ts(path: &str, code: &str) -> (SourceFile, vord_ast::AstNode) {
         let file = SourceFile::new(path, code, LanguageIdentifier::typescript()).unwrap();

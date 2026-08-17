@@ -19,6 +19,7 @@ use vord_profiles::RuleId;
 use crate::budget::{Budget, Exhaustion, Ledger, RepeatGuard};
 use crate::completion::{self, Completion, LocatedFinding};
 use crate::gate::{advisory_note, denial_feedback};
+use crate::graph::GraphSnapshot;
 use crate::observer::{AgentEvent, NoopObserver, Observer};
 use crate::prompt::{system_prompt, task_prompt};
 use crate::session::{AssistantTurn, ToolCall, ToolResult, Transcript};
@@ -83,6 +84,12 @@ pub trait Workspace: Send + Sync {
     fn write(&self, path: &str, content: &str) -> Result<(), WorkspaceError>;
     fn search(&self, pattern: &str, path: Option<&str>) -> Result<String, WorkspaceError>;
     fn run(&self, program: &str, args: &[String]) -> Result<CommandOutput, WorkspaceError>;
+    /// Builds the repository's import/dependency graph for the `graph`
+    /// tool — as heavy as `search` (it parses every source file the same
+    /// way `search` reads every file), so kept synchronous for the same
+    /// reason: this is CPU and disk, never network, and adding a fifth port
+    /// just to make it `async` would buy nothing a real adapter needs.
+    fn dependency_graph(&self) -> Result<GraphSnapshot, WorkspaceError>;
 }
 
 /// Outbound port: the Agent Permission Policy, evaluated on proposed content
@@ -449,6 +456,9 @@ where
                 Step::Answer(self.tools.run_command(&call.id, &command))
             }
             ToolInvocation::Scan { path } => Step::Answer(self.scan(&call.id, &path).await),
+            ToolInvocation::Graph { kind, path } => {
+                Step::Answer(self.tools.graph(&call.id, kind, path.as_deref()))
+            }
             ToolInvocation::Write { path, content } => {
                 self.apply_write(&call.id, &path, content, state).await
             }
@@ -575,6 +585,22 @@ impl<W: Workspace> WorkspaceTools<W> {
     fn search(&self, call_id: &str, pattern: &str, path: Option<&str>) -> ToolResult {
         match self.workspace.search(pattern, path) {
             Ok(hits) => ToolResult::ok(call_id, hits),
+            Err(error) => ToolResult::error(call_id, error.to_string()),
+        }
+    }
+
+    fn graph(
+        &self,
+        call_id: &str,
+        kind: crate::graph::GraphQueryKind,
+        path: Option<&str>,
+    ) -> ToolResult {
+        let snapshot = match self.workspace.dependency_graph() {
+            Ok(snapshot) => snapshot,
+            Err(error) => return ToolResult::error(call_id, error.to_string()),
+        };
+        match snapshot.answer(kind, path) {
+            Ok(text) => ToolResult::ok(call_id, text),
             Err(error) => ToolResult::error(call_id, error.to_string()),
         }
     }

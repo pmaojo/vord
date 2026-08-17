@@ -28,6 +28,7 @@ pub mod budget;
 pub mod completion;
 pub mod feedback;
 pub mod gate;
+pub mod graph;
 pub mod observer;
 pub mod prompt;
 pub mod runtime;
@@ -36,6 +37,7 @@ pub mod tools;
 
 pub use budget::{Budget, Exhaustion, Ledger, RepeatGuard};
 pub use completion::{Completion, LocatedFinding};
+pub use graph::{GraphEdge, GraphQueryError, GraphQueryKind, GraphSnapshot};
 pub use observer::{AgentEvent, NoopObserver, Observer};
 pub use runtime::{
     AgentRuntime, AnalysisError, Analyzer, ChatModel, CommandOutput, JudgeError, ModelError,

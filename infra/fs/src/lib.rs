@@ -8,6 +8,7 @@ mod cache;
 mod cobertura;
 mod config;
 mod coverage;
+mod dependency_graph;
 mod diff;
 mod gherkin;
 mod handoff;
@@ -36,6 +37,7 @@ pub use config::{
 pub use coverage::{
     CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report,
 };
+pub use dependency_graph::{ParsedImportGraph, build as build_dependency_graph};
 pub use diff::changed_lines_from_unified_diff;
 pub use gherkin::{
     COVERS_TAG, GherkinCoverageError, GherkinCoverageIndex, extract_covers_patterns,
@@ -276,7 +278,10 @@ mod tests {
 
         // An empty `inclusions` keeps every file, same as before this
         // parameter existed.
-        assert_eq!(collect_sources_scoped(&dir, &[], &[], &[]).unwrap().len(), 2);
+        assert_eq!(
+            collect_sources_scoped(&dir, &[], &[], &[]).unwrap().len(),
+            2
+        );
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
