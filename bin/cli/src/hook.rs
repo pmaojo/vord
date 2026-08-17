@@ -721,12 +721,40 @@ pub fn proposed_content(
     }
 }
 
-/// Runs the full analyzer over a single in-memory file and maps its issues
-/// *and hotspots* into policy findings.
+/// Runs the full analyzer over one file and maps its issues *and hotspots*
+/// into policy findings.
 ///
 /// `relative` must be repository-relative: `SourceFile` rejects absolute
 /// paths, and the policy's path globs are written against repository-relative
 /// paths too.
+///
+/// `root`'s rest of the project is loaded alongside `relative`/`content` and
+/// fed into the same analysis run — not just `relative` on its own. A
+/// `CrossFileRule` (`rust:route-without-test-coverage`, `owasp:cross-file-
+/// injection`, every architecture/DDD cross-file rule) judges `relative` by
+/// evidence that lives in *other* files, e.g. a route string that only a
+/// separate `tests/*.rs` proves is exercised. Handing the engine `relative`
+/// alone starves every such rule of that evidence unconditionally: it cannot
+/// see a covering test no matter how long it has sat committed on disk, so
+/// the hook denies writes a full `vord scan .` — which does load the whole
+/// project — passes clean. This is what made the discrepancy look like a
+/// stale incremental cache from the outside: nothing here is cached or
+/// invalidated at all, the single-file call just never had the other file in
+/// scope to begin with. Project files are loaded via `vord_infra_fs::
+/// collect_sources`, gitignore-aware the same way a full scan is; a load
+/// failure (e.g. `root` doesn't exist, as in tests that pass a fake path)
+/// degrades to single-file analysis rather than erroring, matching this
+/// function's pre-existing behavior. `relative`'s own on-disk copy, if any,
+/// is excluded from that set so `content` (which may be proposed, not-yet-
+/// written content) is never shadowed by a stale duplicate.
+///
+/// A `.vord-cache.json` cache (same file, same format `vord scan .` reads
+/// and writes) is attached so unchanged project files reuse their prior
+/// single-file `Rule` results instead of being fully re-analyzed on every
+/// single Edit/Write hook call — `CrossFileRule`s are never cached (see
+/// `AnalyzerService::run_cross_file_rules`) and are always freshly
+/// recomputed from the full parsed file set, exactly as a full scan already
+/// does, so correctness here costs no more than `vord scan .` already pays.
 ///
 /// Returns an empty vector for a file whose extension maps to no language —
 /// there is nothing to parse, which is not an error, and the path half of
@@ -744,7 +772,11 @@ pub fn proposed_content(
 /// ordinary issue, via the same quality profile the analyzer ran with;
 /// `blocking_rules`/`escalate_rules` match by rule id regardless of
 /// severity, so this only matters for `block_at_or_above`.
-pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Vec<Finding>> {
+pub async fn analyze_content(
+    root: &Path,
+    relative: &str,
+    content: &str,
+) -> anyhow::Result<Vec<Finding>> {
     let extension = Path::new(relative)
         .extension()
         .and_then(|e| e.to_str())
@@ -755,25 +787,49 @@ pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Ve
     let source = vord_ast::SourceFile::new(relative.to_string(), content.to_string(), language)
         .map_err(|e| anyhow::anyhow!("invalid source path {relative:?}: {e}"))?;
 
+    let mut sources = vec![source];
+    if let Ok(project_sources) = vord_infra_fs::collect_sources(root) {
+        sources.extend(
+            project_sources
+                .into_iter()
+                .filter(|file| file.path() != relative),
+        );
+    }
+
+    let cache = std::sync::Arc::new(vord_infra_fs::FileAnalysisCache::open(
+        root.join(".vord-cache.json"),
+    ));
     let service =
-        crate::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
-    let report = service.analyze_files(std::slice::from_ref(&source)).await?;
+        crate::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
+            .with_cache(cache.clone());
+    let report = service.analyze_files(&sources).await?;
+    if let Err(e) = cache.persist() {
+        eprintln!("warning: could not persist analysis cache: {e}");
+    }
     let profile = vord_rules_engine::default_profile();
 
-    let issue_findings = report.issues().iter().map(|issue| Finding {
-        rule: issue.rule().clone(),
-        severity: issue.severity(),
-        message: issue.message().to_string(),
-        line: issue.span().start_line,
-    });
-    let hotspot_findings = report.hotspots().iter().map(|hotspot| Finding {
-        rule: hotspot.rule().clone(),
-        severity: profile
-            .severity_of(hotspot.rule())
-            .unwrap_or(vord_rules_engine::Severity::Major),
-        message: hotspot.message().to_string(),
-        line: hotspot.span().start_line,
-    });
+    let issue_findings = report
+        .issues()
+        .iter()
+        .filter(|issue| issue.file() == relative)
+        .map(|issue| Finding {
+            rule: issue.rule().clone(),
+            severity: issue.severity(),
+            message: issue.message().to_string(),
+            line: issue.span().start_line,
+        });
+    let hotspot_findings = report
+        .hotspots()
+        .iter()
+        .filter(|hotspot| hotspot.file() == relative)
+        .map(|hotspot| Finding {
+            rule: hotspot.rule().clone(),
+            severity: profile
+                .severity_of(hotspot.rule())
+                .unwrap_or(vord_rules_engine::Severity::Major),
+            message: hotspot.message().to_string(),
+            line: hotspot.span().start_line,
+        });
 
     Ok(issue_findings.chain(hotspot_findings).collect())
 }
@@ -1106,7 +1162,7 @@ pub async fn judge(
 ) -> anyhow::Result<Verdict> {
     let relative = relative_to(root, file);
     let mut findings = match content {
-        Some(content) => analyze_content(&relative, content).await?,
+        Some(content) => analyze_content(root, &relative, content).await?,
         None => Vec::new(),
     };
     // Only meaningful `PreToolUse`-side, where disk still holds the
@@ -1115,7 +1171,7 @@ pub async fn judge(
     if let Some(content) = content {
         let old_content = std::fs::read_to_string(file).ok();
         if let Some(old) = old_content.as_deref() {
-            let old_findings = analyze_content(&relative, old).await?;
+            let old_findings = analyze_content(root, &relative, old).await?;
             drop_preexisting_findings(&mut findings, &old_findings);
         }
         findings.extend(new_dependency_findings(
@@ -1564,7 +1620,7 @@ mod tests {
     #[tokio::test]
     async fn a_file_with_no_known_extension_analyses_to_no_findings() {
         assert!(
-            analyze_content("notes.unknownext", "whatever")
+            analyze_content(Path::new("/repo"), "notes.unknownext", "whatever")
                 .await
                 .expect("ok")
                 .is_empty()
@@ -1574,6 +1630,7 @@ mod tests {
     #[tokio::test]
     async fn a_real_vulnerability_in_proposed_content_is_found() {
         let findings = analyze_content(
+            Path::new("/repo"),
             "app.py",
             "import subprocess\nsubprocess.run(cmd, shell=True)\n",
         )
@@ -1592,14 +1649,84 @@ mod tests {
         // `owasp:command-execution` is `FindingKind::Hotspot`, not `Issue` —
         // it must still reach the agent policy, or the shipped default
         // `blocking_rules` entry naming it can never actually deny anything.
-        let findings = analyze_content("app.py", "import os\nos.system(user_input)\n")
-            .await
-            .expect("analysis runs");
+        let findings = analyze_content(
+            Path::new("/repo"),
+            "app.py",
+            "import os\nos.system(user_input)\n",
+        )
+        .await
+        .expect("analysis runs");
         assert!(
             findings
                 .iter()
                 .any(|f| f.rule.as_str() == "owasp:command-execution"),
             "hotspot-classified rules must still reach the agent policy, got {findings:?}"
+        );
+    }
+
+    /// Sets up a throwaway directory under the OS temp dir (no `tempfile`
+    /// dependency in this crate) with `src/main.rs` containing one axum
+    /// route and, when `covering_test` is `Some`, a `tests/covers.rs`
+    /// referencing that exact route path — the two-file shape the reported
+    /// bug needed to reproduce, since `rust:route-without-test-coverage`
+    /// only sees coverage that lives in a *different* file from the route.
+    fn cross_file_route_fixture(test_name: &str, covering_test: Option<&str>) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "vord-hook-cross-file-test-{test_name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        if let Some(test_body) = covering_test {
+            std::fs::create_dir_all(root.join("tests")).unwrap();
+            std::fs::write(root.join("tests/covers.rs"), test_body).unwrap();
+        }
+        root
+    }
+
+    #[tokio::test]
+    async fn a_route_covered_only_by_a_separate_test_file_is_not_flagged() {
+        // Regression test: `analyze_content` used to hand the engine only
+        // the one file being judged, so `rust:route-without-test-coverage`
+        // (a `CrossFileRule`) could never see a covering test that lives in
+        // a different file — denying writes a full `vord scan .` (which
+        // does load the whole project) passes clean.
+        let root = cross_file_route_fixture(
+            "covered",
+            Some(
+                "#[test]\nfn hits_it() {\n    client.get(\"/api/v1/widgets\").send();\n}\n",
+            ),
+        );
+        let content =
+            "fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/widgets\", get(list_widgets))\n}\n";
+        let findings = analyze_content(&root, "src/main.rs", content)
+            .await
+            .expect("analysis runs");
+        std::fs::remove_dir_all(&root).ok();
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.rule.as_str() == "rust:route-without-test-coverage"),
+            "route covered by a separate test file must not be flagged, got {findings:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_route_with_no_test_anywhere_in_the_project_is_still_flagged() {
+        // The other half of the same fix: pulling in the rest of the
+        // project must not swallow a genuinely uncovered route.
+        let root = cross_file_route_fixture("uncovered", None);
+        let content =
+            "fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/widgets\", get(list_widgets))\n}\n";
+        let findings = analyze_content(&root, "src/main.rs", content)
+            .await
+            .expect("analysis runs");
+        std::fs::remove_dir_all(&root).ok();
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.rule.as_str() == "rust:route-without-test-coverage"),
+            "route with no test anywhere must still be flagged, got {findings:?}"
         );
     }
 
