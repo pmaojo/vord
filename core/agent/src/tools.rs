@@ -11,6 +11,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::graph::GraphQueryKind;
+
 /// Every tool the runtime will execute. Adding a variant is a deliberate,
 /// reviewable act — which is the point.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -21,16 +23,18 @@ pub enum ToolName {
     Search,
     Run,
     Scan,
+    Graph,
 }
 
 impl ToolName {
-    pub const ALL: [ToolName; 6] = [
+    pub const ALL: [ToolName; 7] = [
         ToolName::Read,
         ToolName::Write,
         ToolName::Edit,
         ToolName::Search,
         ToolName::Run,
         ToolName::Scan,
+        ToolName::Graph,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -41,6 +45,7 @@ impl ToolName {
             ToolName::Search => "search",
             ToolName::Run => "run",
             ToolName::Scan => "scan",
+            ToolName::Graph => "graph",
         }
     }
 
@@ -137,17 +142,45 @@ pub fn tool_specs() -> Vec<ToolSpec> {
                 &["path"],
             ),
         },
+        ToolSpec {
+            name: ToolName::Graph,
+            description: "Query the repository's import/dependency graph. `query` is one of: \
+                          `dependents` (files that import `path`), `dependencies` (files `path` \
+                          imports), `cycles` (import cycles, narrowed to `path` when given, every \
+                          cycle otherwise), or `components` (component-level coupling across the \
+                          whole repository, `path` ignored). `path` is required for `dependents` \
+                          and `dependencies`.",
+            input_schema: object_schema(
+                serde_json::json!({
+                    "query": {
+                        "type": "string",
+                        "enum": ["dependents", "dependencies", "cycles", "components"],
+                    },
+                    "path": { "type": "string" },
+                }),
+                &["query"],
+            ),
+        },
     ]
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ToolInputError {
-    #[error("no such tool `{0}` — this agent's tools are: read, write, edit, search, run, scan")]
+    #[error(
+        "no such tool `{0}` — this agent's tools are: read, write, edit, search, run, scan, graph"
+    )]
     UnknownTool(String),
     #[error("tool `{tool}` requires a string field `{field}`")]
     MissingField {
         tool: &'static str,
         field: &'static str,
+    },
+    #[error("tool `{tool}` field `{field}` must be one of {allowed} — got `{value}`")]
+    InvalidChoice {
+        tool: &'static str,
+        field: &'static str,
+        value: String,
+        allowed: &'static str,
     },
 }
 
@@ -176,6 +209,10 @@ pub enum ToolInvocation {
     },
     Scan {
         path: String,
+    },
+    Graph {
+        kind: GraphQueryKind,
+        path: Option<String>,
     },
 }
 
@@ -229,6 +266,23 @@ impl ToolInvocation {
             ToolName::Scan => Ok(Self::Scan {
                 path: text("path")?,
             }),
+            ToolName::Graph => {
+                let raw = text("query")?;
+                let kind =
+                    GraphQueryKind::parse(&raw).ok_or_else(|| ToolInputError::InvalidChoice {
+                        tool: tool.as_str(),
+                        field: "query",
+                        value: raw,
+                        allowed: "dependents, dependencies, cycles, components",
+                    })?;
+                Ok(Self::Graph {
+                    kind,
+                    path: input
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                })
+            }
         }
     }
 
@@ -240,6 +294,7 @@ impl ToolInvocation {
             Self::Search { .. } => ToolName::Search,
             Self::Run { .. } => ToolName::Run,
             Self::Scan { .. } => ToolName::Scan,
+            Self::Graph { .. } => ToolName::Graph,
         }
     }
 }
@@ -405,6 +460,51 @@ mod tests {
             ToolInvocation::Search {
                 pattern: "TODO".into(),
                 path: None
+            }
+        );
+    }
+
+    #[test]
+    fn a_graph_call_parses_its_kind_and_optional_path() {
+        let call = ToolInvocation::parse(
+            "graph",
+            &serde_json::json!({ "query": "dependents", "path": "src/a.rs" }),
+        )
+        .unwrap();
+        assert_eq!(
+            call,
+            ToolInvocation::Graph {
+                kind: GraphQueryKind::Dependents,
+                path: Some("src/a.rs".into())
+            }
+        );
+        assert_eq!(call.name(), ToolName::Graph);
+    }
+
+    #[test]
+    fn a_graph_call_without_a_path_is_valid_at_parse_time() {
+        let call =
+            ToolInvocation::parse("graph", &serde_json::json!({ "query": "cycles" })).unwrap();
+        assert_eq!(
+            call,
+            ToolInvocation::Graph {
+                kind: GraphQueryKind::Cycles,
+                path: None
+            }
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_graph_query_names_the_allowed_values() {
+        let error = ToolInvocation::parse("graph", &serde_json::json!({ "query": "neighbors" }))
+            .unwrap_err();
+        assert_eq!(
+            error,
+            ToolInputError::InvalidChoice {
+                tool: "graph",
+                field: "query",
+                value: "neighbors".to_string(),
+                allowed: "dependents, dependencies, cycles, components",
             }
         );
     }

