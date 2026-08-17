@@ -69,6 +69,15 @@ policy is versioned and reviewed in the same pull request as the code it
 governs, on every teammate's machine and in CI. A plugin lives in one user's
 configuration, where turning it off leaves no trace in a diff.
 
+### As a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin
+
+DeepSeek Harness's official `dsh-hooks-claude-code` bridge runs the exact
+`PreToolUse`/`PostToolUse` payload shape `vord hook claude-code` already
+speaks — no new vord code needed, just wiring. See
+[`integrations/deepseek-harness/`](integrations/deepseek-harness/) for the
+verified compatibility notes, the one tool-naming gotcha, and a ready-to-mount
+`cordis.yml` entry.
+
 ### As an [Agent Plugins](https://github.com/agentplugins/agent-plugins-spec) package
 
 Both this repository root and `integrations/claude-code-plugin/` are also
@@ -464,6 +473,7 @@ reason = "CI definitions gate every other control; changes need human review."
 |---|---|---|
 | **Claude Code** | `PreToolUse` on `Edit\|Write` | **Yes** — the write is prevented |
 | **Claude Code** | `PostToolUse` on `Edit\|Write` | No — the write landed; feeds the finding back as context |
+| **DeepSeek Harness** | `dsh-hooks-claude-code` bridge, same `PreToolUse`/`PostToolUse` payloads | **Yes** — see [`integrations/deepseek-harness/`](integrations/deepseek-harness/) |
 | **Codex CLI** | `vord hook check` | Its tool hooks fire for shell commands only, not file writes |
 | **pre-commit / CI** | `vord hook check` | Exit 2 fails the commit or the job |
 
