@@ -264,6 +264,18 @@ mod tests {
     }
 
     #[test]
+    fn does_not_confuse_an_object_literal_property_key_with_a_captured_identifier() {
+        // `productIds` is the shorthand-less object key in `form.reset({
+        // productIds: initialProductIds })`, not a reference — only
+        // `initialProductIds` and `form` are actually captured, and both
+        // are listed, so this must not flag a missing `productIds` dep.
+        let findings = check(
+            "function Comp({ isEditing, initialProductIds, form }) {\n  useEffect(() => {\n    if (isEditing) form.reset({ productIds: initialProductIds });\n  }, [isEditing, initialProductIds, form]);\n}\n",
+        );
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
     fn catches_dependency_captured_through_a_nested_helper() {
         let findings = check(
             "function Comp({ value }) {\n  useEffect(() => {\n    function helper() {\n      doThing(value);\n    }\n    helper();\n  }, []);\n}\n",
