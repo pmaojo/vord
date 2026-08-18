@@ -26,6 +26,32 @@
             "statusMessage": "vord guardrail"
           }
         ]
+      },
+      {
+        "matcher": "Bash|bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "vord",
+            "args": ["hook", "claude-code"],
+            "timeout": 30,
+            "statusMessage": "vord guardrail"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "vord",
+            "args": ["hook", "claude-code"],
+            "timeout": 30,
+            "statusMessage": "vord guardrail"
+          }
+        ]
       }
     ]
   }

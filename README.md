@@ -375,6 +375,45 @@ agent learns why rather than inferring it from a denial elsewhere:
 default — opt in via `advisory_rules`/`blocking_rules` — but the *gate* refuses
 those claims regardless of what either list says.
 
+**Execution enforcement: `[[test_required]]`.** Writing a passing Gherkin
+scenario proves an agent *described* the behaviour it changed; it proves
+nothing about whether the change actually works — an agent can satisfy
+`[[gherkin_required]]` in full and never run the suite the scenario
+describes. `[[test_required]]` closes that gap at the one point in a session
+where it can be closed without per-write false positives: session end. A
+single write cannot attest that a test suite passed — only a completed run
+can — so this is not a `PreToolUse`/`PostToolUse` check like every other
+guard in this document. Instead, `vord hook` maintains a small ledger
+(`.vord-execution-ledger.json`, gitignored): every write to a
+`[[test_required]]`-matching path adds that path to it, and every `Bash`
+command matching `[agent]`'s `test_command_patterns` (`cargo test`, `pytest`,
+`npm test`, and a dozen other per-ecosystem defaults — override the list
+entirely for an unusual test command) that does not visibly fail clears it.
+When the agent's session ends (`Stop`), a non-empty ledger blocks — the same
+`{"decision":"block","reason":...}` shape `PostToolUse` already uses — naming
+every still-unproven path and the command that would clear it. Deliberately
+coarse: one passing run clears every pending path, not just the ones its
+command line happens to name, since there is no general way to know which
+files a given test invocation actually exercised — a scoped-but-wrong signal
+would be worse than a coarse-but-honest one. Off by default, same reasoning
+as `[[gherkin_required]]`: turning it on immediately blocks session end until
+a real test run happens.
+
+**Soft gate: `bdd:uncovered-public-api`.** `[[gherkin_required]]` and
+`[[test_required]]` are both opt-in, per-directory hard gates. This is their
+advisory, repo-wide counterpart: a write that adds a brand-new top-level
+public function to a file no `@covers(...)` claim in the repository names is
+reported as an ordinary finding, regardless of whether that file sits under
+a configured glob. Detection is structural, not textual — Rust's `pub`
+keyword and Go's upper-case-name convention are both unambiguous at the
+single-function level, so only those two languages are covered; every other
+language reports nothing rather than guess at what "exported" means for it
+(TypeScript/JavaScript needs an `export` keyword tracked on the surrounding
+statement, Python's leading-underscore convention says nothing about
+`__all__`), which fails toward under-reporting, never a wrong claim. Reports
+nothing by default, like the other gate-gaming/evidence rules — opt in via
+`advisory_rules`/`blocking_rules`.
+
 **Circuit breaker.** An agent that cannot resolve a finding — a false
 positive, or a vulnerability it does not know how to fix — will otherwise
 retry the same write indefinitely, burning tokens against a wall. `vord hook`
@@ -490,6 +529,8 @@ reason = "CI definitions gate every other control; changes need human review."
 |---|---|---|
 | **Claude Code** | `PreToolUse` on `Edit\|Write` | **Yes** — the write is prevented |
 | **Claude Code** | `PostToolUse` on `Edit\|Write` | No — the write landed; feeds the finding back as context |
+| **Claude Code** | `PostToolUse` on `Bash` | No — never denies; feeds `[[test_required]]`'s execution ledger |
+| **Claude Code** | `Stop` | **Yes** — blocks session end while `[[test_required]]`'s ledger is non-empty |
 | **DeepSeek Harness** | `dsh-hooks-claude-code` bridge, same `PreToolUse`/`PostToolUse` payloads | **Yes** — see [`integrations/deepseek-harness/`](integrations/deepseek-harness/) |
 | **Codex CLI** | `vord hook check` | Its tool hooks fire for shell commands only, not file writes |
 | **pre-commit / CI** | `vord hook check` | Exit 2 fails the commit or the job |
