@@ -48,7 +48,15 @@ fn is_blocking_io_call(callee_text: &str) -> bool {
             && !callee_text.contains("async_std::fs")
             && !callee_text.contains("smol::fs");
     }
-    callee_text.ends_with("io::stdin") || callee_text.ends_with("io::stdout")
+    (callee_text.ends_with("io::stdin") || callee_text.ends_with("io::stdout"))
+        // `tokio::io::stdin`/`tokio::io::stdout` (and the `async_std`/`smol`
+        // equivalents) are async-safe wrappers over the same file
+        // descriptor, not the blocking `std::io` handles — the whole point
+        // of reaching for them in async code. Only the bare `std`/unqualified
+        // form (whose blocking nature is why this rule exists) counts.
+        && !callee_text.contains("tokio::io")
+        && !callee_text.contains("async_std::io")
+        && !callee_text.contains("smol::io")
 }
 
 /// Collects blocking I/O calls reachable from `node` without crossing into a
@@ -210,6 +218,17 @@ mod tests {
     #[test]
     fn ignores_async_fs_call() {
         assert!(check("async fn f() { let _ = tokio::fs::read(\"x\").await; }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_tokio_async_stdin_and_stdout() {
+        // `tokio::io::stdin`/`tokio::io::stdout` are async-safe wrappers
+        // (the whole reason to reach for them in async code), unlike the
+        // blocking `std::io::stdin`/`std::io::stdout` this rule targets.
+        let findings = check(
+            "async fn f() { let stdin = tokio::io::stdin(); let stdout = tokio::io::stdout(); let _ = (stdin, stdout); }\n",
+        );
+        assert!(findings.is_empty());
     }
 
     #[test]

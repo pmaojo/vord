@@ -20,8 +20,15 @@ static LOG_CALL: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Identifier fragments that suggest a credential/secret value.
+///
+/// Anchored with `\b` on both ends so this only matches a credential word
+/// as its own token, not as a substring of some larger, unrelated
+/// camelCase/PascalCase identifier — `secretsManager` (the common AWS SDK
+/// client name), `tokenCount`, `apiKeyLength`, and `credentialsProvider`
+/// all contain one of these words as a substring but aren't themselves a
+/// logged secret value; unanchored matching flagged every one of them.
 static CREDENTIAL_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(password|passwd|pwd|token|secret|api[_-]?key|apikey|credential|private[_-]?key)")
+    Regex::new(r"(?i)\b(password|passwd|pwd|token|secret|api[_-]?key|apikey|credential|private[_-]?key)\b")
         .expect("valid regex")
 });
 
@@ -148,5 +155,33 @@ mod tests {
     fn ignores_commented_out_line() {
         let code = "// console.log('token', token);\n";
         assert!(check("app.ts", LanguageIdentifier::typescript(), code).is_empty());
+    }
+
+    #[test]
+    fn ignores_aws_secrets_manager_client_name() {
+        // `secretsManager`/`SecretsManagerClient` is the AWS SDK's own
+        // class name, not a logged secret value — "secret" only appears as
+        // a substring of a larger identifier here.
+        let code = "console.log(\"secretsManager client initialized\");\n";
+        assert!(check("app.ts", LanguageIdentifier::typescript(), code).is_empty());
+    }
+
+    #[test]
+    fn ignores_token_count_metadata_not_a_token_value() {
+        // Logging a count/length about tokens is not logging a token.
+        let code = "console.log(\"tokenCount:\", tokenCount);\n";
+        assert!(check("app.ts", LanguageIdentifier::typescript(), code).is_empty());
+    }
+
+    #[test]
+    fn still_flags_token_as_its_own_word_in_camelcase_call_site() {
+        // A real leak still fires when the credential word is its own
+        // token (space/punctuation-delimited), matching the pre-existing
+        // `flags_console_log_of_token` shape.
+        let code = "console.log(\"api key:\", apiKey);\n";
+        assert_eq!(
+            check("app.ts", LanguageIdentifier::typescript(), code).len(),
+            1
+        );
     }
 }

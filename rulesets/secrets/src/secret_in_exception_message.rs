@@ -11,15 +11,27 @@ use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 /// Exception/error construction and re-raising markers across common
 /// languages: `throw`, `raise`, `Exception(`, `Error(`, `panic!`, `.unwrap()`.
 static EXCEPTION_MARKER: LazyLock<Regex> = LazyLock::new(|| {
+    // No leading `\b` on the whole alternation: it would sit right before
+    // the literal `.` in `\.unwrap\(`/`\.expect\(`, and `\b` can only hold
+    // there when the character right before the `.` is a word character —
+    // never true for the extremely common chained-call shape
+    // `some_call().unwrap()`, where a `)` (non-word) precedes the `.` and
+    // silently defeated the match. Each alternative that needs a boundary
+    // (`throw`, `raise`) still carries its own trailing `\b`.
     Regex::new(
-        r"(?i)\b(throw\b|raise\b|panic!|\.unwrap\(|\.expect\(|new\s+\w*(Exception|Error)\s*\(|\w*(Exception|Error)\s*\()",
+        r"(?i)(throw\b|raise\b|panic!|\.unwrap\(|\.expect\(|new\s+\w*(Exception|Error)\s*\(|\w*(Exception|Error)\s*\()",
     )
     .expect("valid regex")
 });
 
 /// Identifier fragments that suggest a credential/secret value.
+///
+/// Anchored with `\b` on both ends — see the identical rationale on
+/// `secret_in_log_message::CREDENTIAL_KEYWORD` — so `token_provider.expect(...)`
+/// or `secretsConfig.unwrap()` (the credential word only as part of a
+/// larger, unrelated identifier) don't match.
 static CREDENTIAL_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(password|passwd|pwd|token|secret|api[_-]?key|apikey|credential|private[_-]?key)")
+    Regex::new(r"(?i)\b(password|passwd|pwd|token|secret|api[_-]?key|apikey|credential|private[_-]?key)\b")
         .expect("valid regex")
 });
 
@@ -140,5 +152,20 @@ mod tests {
     fn ignores_credential_keyword_without_exception_marker() {
         let code = "const token = getToken();\n";
         assert!(check("app.ts", LanguageIdentifier::typescript(), code).is_empty());
+    }
+
+    #[test]
+    fn ignores_unwrap_on_unrelated_object_named_after_a_credential() {
+        // `.unwrap()`/`.expect()` on a config/provider object whose *name*
+        // happens to contain a credential word isn't leaking a secret
+        // value — no secret ever appears in the panic message.
+        let code = "let cfg = token_provider.expect(\"provider must be configured\");\n";
+        assert!(check("main.rs", LanguageIdentifier::rust(), code).is_empty());
+    }
+
+    #[test]
+    fn still_flags_unwrap_with_credential_word_as_its_own_token() {
+        let code = "let secret = std::env::var(\"API_SECRET\").unwrap();\n";
+        assert_eq!(check("main.rs", LanguageIdentifier::rust(), code).len(), 1);
     }
 }

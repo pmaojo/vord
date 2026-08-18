@@ -63,6 +63,13 @@ impl Rule for ApiKeyInQueryStringRule {
         if *ast.kind() != NodeKind::SourceUnit {
             return Vec::new();
         }
+        // A test asserting this exact vulnerable shape is rejected (e.g.
+        // a red-team fixture, or an `expect(...).toThrow()` covering the
+        // attack) would otherwise be flagged as if the vulnerability were
+        // live in production code.
+        if vord_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
@@ -128,5 +135,15 @@ mod tests {
     fn ignores_unrelated_query_params() {
         let code = "fetch(`https://api.example.com/data?page=2&limit=10`);\n";
         assert!(check("app.ts", LanguageIdentifier::typescript(), code).is_empty());
+    }
+
+    #[test]
+    fn ignores_finding_inside_a_test_file() {
+        // A security test that exercises this exact vulnerable shape (e.g.
+        // asserting the attack is rejected, or as a red-team fixture) is
+        // not itself the vulnerability — production-code paths are where
+        // this rule's finding matters.
+        let code = "fetch(`https://api.example.com/data?api_key=${key}`);\n";
+        assert!(check("app.test.ts", LanguageIdentifier::typescript(), code).is_empty());
     }
 }

@@ -79,6 +79,13 @@ impl Rule for CorsCredentialsRule {
         if *ast.kind() != NodeKind::SourceUnit {
             return Vec::new();
         }
+        // A test asserting this exact vulnerable shape is rejected (e.g.
+        // a red-team fixture, or an `expect(...).toThrow()` covering the
+        // attack) would otherwise be flagged as if the vulnerability were
+        // live in production code.
+        if vord_rules_engine::is_test_only_path(file.path()) {
+            return Vec::new();
+        }
 
         let content = file.content();
         // Scan with a small sliding window (current + next few lines) so a
@@ -165,5 +172,15 @@ mod tests {
     fn ignores_credentials_with_specific_origin() {
         let code = "app.use(cors({\n  origin: 'https://example.com',\n  credentials: true,\n}));\n";
         assert!(check("app.ts", LanguageIdentifier::typescript(), code).is_empty());
+    }
+
+    #[test]
+    fn ignores_finding_inside_a_test_file() {
+        // A security test that exercises this exact vulnerable shape (e.g.
+        // asserting the attack is rejected, or as a red-team fixture) is
+        // not itself the vulnerability — production-code paths are where
+        // this rule's finding matters.
+        let code = "app.use(cors({\n  origin: true,\n  credentials: true,\n}));\n";
+        assert!(check("app.test.ts", LanguageIdentifier::typescript(), code).is_empty());
     }
 }

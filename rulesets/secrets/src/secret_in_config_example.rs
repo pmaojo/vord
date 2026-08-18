@@ -10,13 +10,19 @@ use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 
 use crate::secret_literal::{CREDENTIAL_ASSIGNMENT, assignment_value, looks_like_real_secret};
 
-/// Filename markers (substring, case-insensitive) identifying an
-/// example/template config file.
-const EXAMPLE_FILE_MARKERS: &[&str] = &[".example", ".sample", ".dist", ".template"];
+/// Filename markers identifying an example/template config file. Each is
+/// matched as its own dot-delimited segment of the filename (`app.env.dist`,
+/// `config.sample.yaml`), not a bare substring — `.dist` as a plain
+/// substring would also match an unrelated file like `config.distutils.py`,
+/// where "dist" is just the start of a different word, not the Symfony-style
+/// `.dist` template marker.
+const EXAMPLE_FILE_MARKERS: &[&str] = &["example", "sample", "dist", "template"];
 
 fn is_example_config_filename(filename: &str) -> bool {
-    let lower = filename.to_lowercase();
-    EXAMPLE_FILE_MARKERS.iter().any(|m| lower.contains(m))
+    filename
+        .to_lowercase()
+        .split('.')
+        .any(|segment| EXAMPLE_FILE_MARKERS.contains(&segment))
 }
 
 pub struct SecretInConfigExampleRule {
@@ -137,5 +143,13 @@ mod tests {
     fn ignores_real_secret_shaped_value_outside_example_files() {
         let code = "API_TOKEN=aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\n";
         assert!(check(".env", LanguageIdentifier::bash(), code).is_empty());
+    }
+
+    #[test]
+    fn ignores_filename_that_merely_contains_dist_as_a_substring() {
+        // `distutils` starts with "dist" but isn't the Symfony-style
+        // `.dist` template marker — this is an ordinary production file.
+        let code = "API_TOKEN=aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\n";
+        assert!(check("config.distutils.py", LanguageIdentifier::python(), code).is_empty());
     }
 }

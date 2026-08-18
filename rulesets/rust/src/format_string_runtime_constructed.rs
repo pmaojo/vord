@@ -147,6 +147,15 @@ impl Rule for FormatStringRuntimeConstructedRule {
                 if close <= open {
                     return None;
                 }
+                // A macro invocation (`write!(..)`) always carries a `!`
+                // between the callee path and the opening paren. A plain
+                // function/method call that merely shares a macro's name —
+                // `std::fs::write(path, data)`, `File::write(buf)`, the
+                // `Write` trait's `.write(buf)` — has no `!` there, and its
+                // arguments (e.g. file contents) are not a format string.
+                if !text[..open].contains('!') {
+                    return None;
+                }
                 let args = top_level_args(&text[open + 1..close]);
                 let fmt_arg = format_string_arg(macro_name, &args)?;
                 if fmt_arg.is_empty() || is_string_literal(fmt_arg) {
@@ -216,6 +225,27 @@ mod tests {
     #[test]
     fn ignores_unrelated_macro() {
         assert!(check("fn f(v: Vec<i32>) { let _ = vec![v]; }\n").is_empty());
+    }
+
+    #[test]
+    fn ignores_std_fs_write_which_only_shares_the_macro_name() {
+        // `std::fs::write(path, contents)` is a plain two-argument function,
+        // not the `write!` macro — its second argument is file contents,
+        // not a format string, and must not be flagged.
+        let findings = check(
+            "fn f(path: &std::path::Path, raw: String) -> std::io::Result<()> {\n    std::fs::write(path, raw)\n}\n",
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn ignores_write_trait_method_call_which_only_shares_the_macro_name() {
+        // `writer.write(buf)` (the `std::io::Write`/`Write` trait method) is
+        // a method call, not the `write!` macro invocation.
+        let findings = check(
+            "fn f(w: &mut dyn std::io::Write, buf: &[u8]) -> std::io::Result<usize> {\n    w.write(buf)\n}\n",
+        );
+        assert!(findings.is_empty());
     }
 
     #[test]

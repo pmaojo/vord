@@ -9,13 +9,46 @@ use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 
 use crate::secret_literal::{CREDENTIAL_ASSIGNMENT, assignment_value, looks_like_real_secret};
 
-/// Path segments (case-insensitive, substring match against the whole
-/// forward-slash-normalized path) that mark a file as test-related.
-const TEST_PATH_MARKERS: &[&str] = &["test", "spec", "fixture", "__mocks__", "__fixtures__"];
+/// Path *component* names (case-insensitive, exact match against a whole
+/// `/`-separated segment) that mark a file as test-related.
+const TEST_PATH_COMPONENTS: &[&str] = &[
+    "test",
+    "tests",
+    "spec",
+    "specs",
+    "fixture",
+    "fixtures",
+    "__mocks__",
+    "__fixtures__",
+    "__tests__",
+];
 
+/// Filename infixes (case-insensitive) that mark a file as test-related
+/// even when it lives alongside production code rather than in its own
+/// directory — `auth.spec.ts`, `user_test.py`, `config.fixture.json`.
+const TEST_FILENAME_INFIXES: &[&str] = &[".test.", ".spec.", "_test.", "_spec.", ".fixture."];
+
+/// True when `path` is itself test-related: a whole path *component* is
+/// `test`/`spec`/`fixture`/... (not merely a substring of some unrelated
+/// segment — `src/latest_price_service.rs`, `src/attestation.py`, and
+/// `src/spectrum_config.ts` all contain "test"/"spec" as a substring of a
+/// larger word without being test files at all), or the filename itself
+/// carries a recognized test infix/suffix.
 fn is_test_related_path(path: &str) -> bool {
     let normalized = path.replace('\\', "/").to_lowercase();
-    TEST_PATH_MARKERS.iter().any(|m| normalized.contains(m))
+
+    if normalized
+        .split('/')
+        .any(|segment| TEST_PATH_COMPONENTS.contains(&segment))
+    {
+        return true;
+    }
+
+    let filename = normalized.rsplit('/').next().unwrap_or(&normalized);
+    if TEST_FILENAME_INFIXES.iter().any(|i| filename.contains(i)) {
+        return true;
+    }
+    filename.starts_with("test_") || filename.ends_with("_test")
 }
 
 pub struct SecretInTestFixtureRule {
@@ -139,6 +172,33 @@ mod tests {
         let code = "const apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
         assert!(
             check("src/auth.ts", LanguageIdentifier::typescript(), code).is_empty()
+        );
+    }
+
+    #[test]
+    fn ignores_production_file_whose_name_merely_contains_the_word_test_as_a_substring() {
+        // "latest" contains "test", "attestation" contains "test" — neither
+        // file is a test file and must not be treated as one.
+        let code = "let apiToken = \"aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\";\n";
+        assert!(
+            check(
+                "src/latest_price_service.rs",
+                LanguageIdentifier::rust(),
+                code
+            )
+            .is_empty()
+        );
+        assert!(
+            check("src/attestation_service.py", LanguageIdentifier::python(), code).is_empty()
+        );
+    }
+
+    #[test]
+    fn ignores_production_file_whose_name_merely_contains_the_word_spec_as_a_substring() {
+        // "spectrum" contains "spec" but is not a spec/test file.
+        let code = "password = \"Xk9pQz2mWv7RtYc4Ln8B\"\n";
+        assert!(
+            check("src/spectrum_config.py", LanguageIdentifier::python(), code).is_empty()
         );
     }
 

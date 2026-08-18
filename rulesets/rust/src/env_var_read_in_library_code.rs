@@ -13,17 +13,37 @@ fn fn_name(fn_node: &AstNode) -> Option<&str> {
         .map(AstNode::text)
 }
 
+/// Whether `name` marks a function as its own composition root for
+/// environment configuration, exactly like `main` does.
+///
+/// Beyond `main` itself, this covers the idiomatic `from_env`/`from_env_os`/
+/// `try_from_env`(`_os`) constructor family (`Config::from_env()`,
+/// `Adapter::try_from_env()`, ...): a type built entirely from environment
+/// variables and named to say so *is* "read it once at startup and pass the
+/// value down" — the value gets bundled into the returned struct right
+/// there instead of being read again by scattered helpers. Flagging it
+/// would fault the very pattern this rule's own guidance recommends.
+fn is_composition_root_fn_name(name: &str) -> bool {
+    name == "main"
+        || name == "from_env"
+        || name == "from_env_os"
+        || name == "try_from_env"
+        || name == "try_from_env_os"
+}
+
 /// Collects `env::var`/`env::var_os` calls in `node`, tracking whether the
-/// walk is currently inside a named function called `main`: a closure
-/// (`NodeKind::FunctionDef` with no leading name) inherits the enclosing
-/// context, but entering any other named function resets it — reading an
-/// env var from a helper function called *from* `main` is exactly the
-/// "buried in library logic" shape this rule targets.
+/// walk is currently inside a function that is its own composition root
+/// (`main`, or a `from_env`-family constructor — see
+/// [`is_composition_root_fn_name`]): a closure (`NodeKind::FunctionDef` with
+/// no leading name) inherits the enclosing context, but entering any other
+/// named function resets it — reading an env var from a helper function
+/// called *from* `main` is exactly the "buried in library logic" shape this
+/// rule targets.
 fn collect<'a>(node: &'a AstNode, in_main: bool, out: &mut Vec<&'a AstNode>) {
     for child in node.children() {
         let child_in_main = if *child.kind() == NodeKind::FunctionDef {
             match fn_name(child) {
-                Some(name) => name == "main",
+                Some(name) => is_composition_root_fn_name(name),
                 None => in_main, // closure: inherits the enclosing context
             }
         } else {
@@ -186,6 +206,37 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn ignores_env_var_in_from_env_constructor() {
+        // `T::from_env()` is the idiomatic "read config from the process
+        // environment once, bundle it into a struct" composition root —
+        // exactly what the rule's own guidance recommends, not a violation.
+        let findings = check(
+            "impl Config {\n    pub fn from_env() -> Self {\n        let key = std::env::var(\"API_KEY\").unwrap_or_default();\n        Self { key }\n    }\n}\n",
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn ignores_env_var_in_try_from_env_os_constructor() {
+        let findings = check(
+            "impl Config {\n    pub fn try_from_env_os() -> Option<Self> {\n        let key = std::env::var_os(\"API_KEY\")?;\n        Some(Self { key })\n    }\n}\n",
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn still_flags_env_var_in_a_differently_named_constructor() {
+        // Only the recognized `from_env`-family names are exempted — an
+        // unrelated helper that happens to also build a config from env
+        // vars deep in the call graph is still exactly the smell this rule
+        // targets.
+        let findings = check(
+            "impl Config {\n    pub fn load() -> Self {\n        let key = std::env::var(\"API_KEY\").unwrap_or_default();\n        Self { key }\n    }\n}\n",
+        );
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]
