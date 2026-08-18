@@ -29,6 +29,47 @@ impl fmt::Display for KickoffError {
 
 impl std::error::Error for KickoffError {}
 
+/// Writes `features/<slug>.feature`: a Gherkin BDD scaffold with a TODO
+/// banner telling the agent to replace the placeholder scenario with the
+/// real ones derived from the project's known plan/requirements before
+/// writing implementation code. Never overwrites an existing feature file,
+/// so re-running `kickoff` on a project the agent already fleshed out is
+/// a no-op here.
+fn write_gherkin_scaffold(
+    base: &Path,
+    slug: &str,
+    feature_name: &str,
+) -> Result<(), KickoffError> {
+    let features_dir = base.join("features");
+    fs::create_dir_all(&features_dir)
+        .map_err(|e| KickoffError::CreateDirFailed(features_dir.display().to_string(), e))?;
+
+    let feature_file = features_dir.join(format!("{slug}.feature"));
+    if !feature_file.exists() {
+        let content = format!(
+            r#"# TODO(agent): This is a scaffold, not a spec. Before writing any
+# implementation code, replace the scenario below with the real
+# acceptance criteria for this project's known plan/requirements —
+# one Scenario per behavior the plan commits to. Delete this banner
+# once the feature file reflects the actual plan.
+Feature: {feature_name}
+  As a stakeholder of this project
+  I want the behaviors in the project plan captured as executable scenarios
+  So that implementation can be verified against agreed requirements
+
+  Scenario: Replace me with a real acceptance scenario
+    Given a requirement from the project's known plan
+    When the described behavior is implemented
+    Then the scenario's outcome is verifiable and matches the plan
+"#
+        );
+        fs::write(&feature_file, content)
+            .map_err(|e| KickoffError::WriteFileFailed(feature_file.display().to_string(), e))?;
+    }
+
+    Ok(())
+}
+
 pub fn run_kickoff(template: &str, target_dir: &Path) -> Result<(), KickoffError> {
     match template.to_lowercase().as_str() {
         "react-bulletproof" | "react" => kickoff_react_bulletproof(target_dir),
@@ -86,6 +127,8 @@ name = "recommended"
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
+    write_gherkin_scaffold(base, "app", "Bulletproof React application")?;
+
     println!(
         "Successfully initialized Bulletproof React template at {:?}",
         base
@@ -121,6 +164,8 @@ name = "recommended"
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
+    write_gherkin_scaffold(base, "core", "Clean Rust core")?;
+
     println!("Successfully initialized clean Rust template at {:?}", base);
     Ok(())
 }
@@ -151,6 +196,8 @@ name = "recommended"
         fs::write(&vord_toml, default_config)
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
+
+    write_gherkin_scaffold(base, "app", "Clean Python application")?;
 
     println!(
         "Successfully initialized clean Python template at {:?}",
@@ -187,6 +234,8 @@ name = "recommended"
         fs::write(&vord_toml, default_config)
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
+
+    write_gherkin_scaffold(base, "app", "Clean TypeScript application")?;
 
     println!(
         "Successfully initialized clean TypeScript template at {:?}",
@@ -244,9 +293,85 @@ name = "recommended"
             .map_err(|e| KickoffError::WriteFileFailed(vord_toml.display().to_string(), e))?;
     }
 
+    write_gherkin_scaffold(base, "app", "Fullstack Hexagonal application")?;
+
     println!(
         "Successfully initialized Fullstack Hexagonal template at {:?}",
         base
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "vord-kickoff-test-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn every_template_writes_a_gherkin_scaffold() {
+        for template in [
+            "react-bulletproof",
+            "rust-clean",
+            "python-clean",
+            "typescript-clean",
+            "fullstack-hexagonal",
+        ] {
+            let dir = temp_dir(template);
+            run_kickoff(template, &dir).unwrap();
+
+            let features_dir = dir.join("features");
+            let feature_files: Vec<_> = fs::read_dir(&features_dir)
+                .unwrap_or_else(|e| panic!("{template}: no features/ dir: {e}"))
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("feature"))
+                .collect();
+            assert_eq!(
+                feature_files.len(),
+                1,
+                "{template}: expected exactly one .feature file in {:?}",
+                features_dir
+            );
+
+            let content = fs::read_to_string(feature_files[0].path()).unwrap();
+            assert!(
+                content.contains("TODO(agent)"),
+                "{template}: feature scaffold should tell the agent to fill in real scenarios"
+            );
+            assert!(
+                content.contains("Feature:"),
+                "{template}: scaffold should be valid Gherkin with a Feature: line"
+            );
+            assert!(
+                content.contains("Scenario:"),
+                "{template}: scaffold should include a placeholder Scenario:"
+            );
+
+            fs::remove_dir_all(&dir).ok();
+        }
+    }
+
+    #[test]
+    fn gherkin_scaffold_does_not_overwrite_existing_feature_file() {
+        let dir = temp_dir("no-overwrite");
+        let features_dir = dir.join("features");
+        fs::create_dir_all(&features_dir).unwrap();
+        let feature_file = features_dir.join("app.feature");
+        fs::write(&feature_file, "Feature: Already written by the agent\n").unwrap();
+
+        write_gherkin_scaffold(&dir, "app", "Should not appear").unwrap();
+
+        let content = fs::read_to_string(&feature_file).unwrap();
+        assert_eq!(content, "Feature: Already written by the agent\n");
+
+        fs::remove_dir_all(&dir).ok();
+    }
 }

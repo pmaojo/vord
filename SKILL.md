@@ -13,8 +13,20 @@
 
 ### Phase 1: Onboarding & Repository Kickoff
 1. **Initialize Project / Feature**:
-   - Run `vord kickoff react-bulletproof` (or `rust-clean`, `python-clean`, `typescript-clean`) to generate a clean, modular structure.
+   - Run `vord kickoff react-bulletproof` (or `rust-clean`, `python-clean`, `typescript-clean`, `fullstack-hexagonal`) to generate a clean, modular structure.
    - Or run `vord init` to generate a project-tailored `vord.toml`.
+2. **Turn the plan into Gherkin BDD scenarios before writing code**:
+   - Kickoff also writes `features/*.feature` — a Gherkin scaffold with one
+     placeholder `Scenario:` and a `TODO(agent)` banner. It is not a real
+     spec yet.
+   - Before touching implementation code, replace the placeholder with real
+     `Scenario:` blocks derived from the task's known plan/requirements —
+     one scenario per behavior the plan actually commits to (happy path,
+     each stated edge case, each acceptance criterion the human gave you).
+     Delete the `TODO(agent)` banner once the file reflects the real plan.
+   - Treat these scenarios as the acceptance contract for the work: come
+     back to `features/*.feature` when a requirement changes, and use it as
+     the checklist when deciding the task is done.
 
 ---
 
