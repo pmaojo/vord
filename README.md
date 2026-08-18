@@ -734,6 +734,8 @@ pull request from a verified fix. Full design and status:
 
 `vord kickoff` scaffolds new project templates that are pre-configured with rules to enforce clean architecture and best practices from day one. Instead of fighting technical debt later, the templates ship with a `vord.toml` configuration that holds AI agents and human developers to strict architectural boundaries.
 
+Every template also writes a `features/*.feature` Gherkin BDD scaffold, with a placeholder scenario and a `TODO(agent)` banner. An AI agent driving the kickoff is expected to replace that placeholder with real `Scenario:` blocks derived from the task's known plan/requirements before writing any implementation code — kickoff never overwrites a feature file that's already been filled in.
+
 ```sh
 vord kickoff --template react-bulletproof .
 vord kickoff --template rust-clean .
