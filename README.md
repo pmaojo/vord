@@ -136,7 +136,7 @@ vord/
 │   ├── treesitter-python/
 │   ├── treesitter-go/
 │   └── ...                     # 20 more: c, cpp, csharp, java, kotlin, ruby, php, swift, scala, ...
-├── rulesets/                   # PLUGINS implementing the Rule trait — 284 rules, 18 crates
+├── rulesets/                   # PLUGINS implementing the Rule trait — 328 rules, 18 crates
 │   ├── owasp/                  # secrets, eval/exec, command-exec hotspots, taint injection (incl. cross-file)
 │   ├── code-smells/            # SOLID (see below), complexity (cyclomatic + cognitive), TODO/FIXME, long functions
 │   ├── architecture/           # hexagonal layering, framework purity, import cycles, Martin component metrics
