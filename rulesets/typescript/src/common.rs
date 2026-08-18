@@ -18,6 +18,30 @@ pub(crate) fn is_other(node: &AstNode, kind: &str) -> bool {
     other_kind_name(node) == Some(kind)
 }
 
+/// Whether `word` occurs in `haystack` as a whole identifier (not as a
+/// substring of a longer identifier) — a plain `str::contains` would also
+/// match `T` inside `TFoo` or `NotT`.
+pub(crate) fn contains_word(haystack: &str, word: &str) -> bool {
+    if word.is_empty() {
+        return false;
+    }
+    let bytes = haystack.as_bytes();
+    let wbytes = word.as_bytes();
+    let wlen = wbytes.len();
+    if wlen > bytes.len() {
+        return false;
+    }
+    (0..=bytes.len() - wlen).any(|i| {
+        &bytes[i..i + wlen] == wbytes
+            && (i == 0 || !is_ident_byte(bytes[i - 1]))
+            && (i + wlen == bytes.len() || !is_ident_byte(bytes[i + wlen]))
+    })
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+}
+
 /// The actual argument expressions of a `Call` node. tree-sitter-typescript
 /// nests a single unnamed-in-the-neutral-vocabulary `arguments` wrapper
 /// between the callee and the argument list, so `Call`'s own children are
@@ -61,5 +85,13 @@ mod tests {
             .find(|n| *n.kind() == NodeKind::Call)
             .unwrap();
         assert!(call_arguments(call).is_empty());
+    }
+
+    #[test]
+    fn contains_word_matches_whole_identifier_only() {
+        assert!(contains_word("value: T;", "T"));
+        assert!(!contains_word("value: TFoo;", "T"));
+        assert!(!contains_word("value: NotT;", "T"));
+        assert!(contains_word("a, T, b", "T"));
     }
 }
