@@ -68,7 +68,19 @@ blocking_rules = [
 # (a test newly marked #[ignore]/skip in this write) — never denies by
 # default, since a suppression or a skipped test is sometimes the right call
 # and this is the mechanism to surface it for human review rather than ban it
-# outright.
+# outright. The same applies to the two BDD-evidence rules, which fire on a
+# .feature file whose @covers(...) tag claims more than the scenarios under
+# it prove: "bdd:unverified-scenario" (the block carrying the tag has no
+# When/Then pair, or is a Scenario Outline with no Examples row) and
+# "bdd:overbroad-covers" (the glob is `**` or a synonym). Neither claim is
+# ever credited as evidence by [[gherkin_required]] below whatever this list
+# says — listing them here only decides whether writing one is *reported*.
+# "bdd:uncovered-public-api" is the soft-gate counterpart to
+# [[gherkin_required]]: it fires repo-wide (not only under a configured
+# glob) when a write adds a new top-level public function (Rust/Go only —
+# see the rule's own doc comment for why) to a file no @covers(...) claim
+# names. Never denies on its own; list it here to have it reported, or in
+# blocking_rules to require coverage before the write lands.
 advisory_rules = []
 
 # Rules that block like `blocking_rules`, but a human can lift the block for
@@ -107,7 +119,11 @@ reason = "Quality-gate thresholds and exclusions live here; loosening them is a 
 
 # Requires at least one Gherkin scenario tagged `@covers(<glob>)` somewhere
 # in the repository's .feature files before an agent may write to a matching
-# path — vord scans for the tag, it does not run the scenario. Commented out
+# path — vord reads the scenario's structure, it does not run it. The tag
+# alone is not evidence: it counts only when the block carrying it has a
+# When/Then pair (an Examples row too, for a Scenario Outline) and the glob
+# is narrower than `**`, so the gate cannot be lifted by writing a tag over
+# an empty feature file. Commented out
 # by default: unlike protected_path, turning this on immediately denies every
 # matching write until real .feature coverage exists, so it needs the
 # repository to already have (or be ready to add) BDD scenarios, not just a
@@ -116,7 +132,42 @@ reason = "Quality-gate thresholds and exclusions live here; loosening them is a 
 # [[gherkin_required]]
 # pattern = "core/domain/**"
 # reason = "Domain logic changes must be described by a Gherkin scenario before an agent may land them."
+
+# Requires the repository's test/acceptance suite to have run and passed
+# since a matching path was last written, checked when the agent's session
+# ends (Stop) rather than per-write — a single write cannot attest a suite
+# result, only a completed run can. `vord hook` watches every `Bash` command
+# for a substring match against `test_command_patterns` below (or the
+# built-in per-ecosystem defaults when that list is empty) and clears the
+# pending set the moment one runs without a visibly nonzero exit code.
+# Writing a passing Gherkin scenario (above) is not enough on its own: this
+# is what actually proves the code does what the scenario says. Commented
+# out by default for the same reason as gherkin_required: turning it on
+# immediately blocks session end until a test run happens, which needs a
+# working test command in place, not just a glob.
+#
+# [[test_required]]
+# pattern = "core/domain/**"
+# reason = "Domain logic changes must be proven by a passing test run before the agent may finish."
 "#;
+
+/// The `(event, matcher)` pairs `vord hook install` wires up. Three events,
+/// not the historical two: `PreToolUse`/`PostToolUse` on `Edit|Write` judge
+/// a write itself; `PostToolUse` on `Bash` feeds `[[test_required]]`'s
+/// execution ledger a command line to check for a passing test run
+/// (`record_bash_test_run` in `bin/cli/src/hook.rs`); `Stop` (no matcher —
+/// it fires with no tool involved) is where that ledger is actually
+/// enforced. The last two are cheap no-ops on a repository that has not
+/// opted into `[[test_required]]`, so they are installed unconditionally
+/// rather than gated on the policy file's contents, the same "always wired,
+/// individually opt-in" shape `protected_path`/`gherkin_required` already
+/// use.
+const HOOK_MATCHERS: &[(&str, &str)] = &[
+    ("PreToolUse", "Edit|Write"),
+    ("PostToolUse", "Edit|Write"),
+    ("PostToolUse", "Bash"),
+    ("Stop", ""),
+];
 
 /// Merges vord's hooks into an existing `.claude/settings.json` value.
 ///
@@ -138,20 +189,20 @@ pub fn merge_hooks(mut settings: Value, command: &str) -> (Value, bool) {
     let hooks = hooks.as_object_mut().expect("just ensured object");
 
     let mut changed = false;
-    for event in ["PreToolUse", "PostToolUse"] {
+    for (event, matcher) in HOOK_MATCHERS {
         let entry = hooks
-            .entry(event)
+            .entry(*event)
             .or_insert_with(|| Value::Array(Vec::new()));
         if !entry.is_array() {
             *entry = Value::Array(Vec::new());
         }
         let matchers = entry.as_array_mut().expect("just ensured array");
 
-        if already_installed(matchers, command) {
+        if already_installed(matchers, matcher, command) {
             continue;
         }
         matchers.push(json!({
-            "matcher": "Edit|Write",
+            "matcher": matcher,
             "hooks": [{
                 "type": "command",
                 "command": command,
@@ -167,12 +218,25 @@ pub fn merge_hooks(mut settings: Value, command: &str) -> (Value, bool) {
     (settings, changed)
 }
 
-/// True when any matcher group already runs `command` — the idempotency
-/// check. Matches on the command string rather than the matcher pattern so a
-/// user who narrowed the matcher (say, to `Write` only) does not get a
-/// second, wider hook silently appended on the next install.
-fn already_installed(matchers: &[Value], command: &str) -> bool {
-    matchers.iter().any(|group| {
+/// True when `command` is already installed for `matcher` on this event —
+/// the idempotency check, with one deliberate asymmetry between the
+/// original matcher and the two added alongside `[[test_required]]`.
+///
+/// For `Edit|Write` — the matcher every `vord hook install` before this one
+/// ever wrote — presence is checked loosely, across every matcher group on
+/// the event: a user who narrowed it (say, to `Write` only) is respected on
+/// reinstall rather than getting a second, wider hook silently appended
+/// alongside their choice.
+///
+/// `Bash` and the empty `Stop` matcher have no such history to preserve —
+/// no version of `vord hook install` wrote them before this one — so they
+/// match on the exact matcher instead. That precision is what lets them
+/// coexist with an `Edit|Write` group already sitting on the very same
+/// `PostToolUse` event: a loose, command-only check there would see the
+/// pre-existing `Edit|Write` entry's command and wrongly conclude the
+/// unrelated `Bash` entry was already present too.
+fn already_installed(matchers: &[Value], matcher: &str, command: &str) -> bool {
+    let runs_command = |group: &Value| {
         group
             .get("hooks")
             .and_then(|h| h.as_array())
@@ -181,7 +245,14 @@ fn already_installed(matchers: &[Value], command: &str) -> bool {
                     .iter()
                     .any(|h| h.get("command").and_then(|c| c.as_str()) == Some(command))
             })
-    })
+    };
+    if matcher == "Edit|Write" {
+        matchers.iter().any(runs_command)
+    } else {
+        matchers.iter().any(|group| {
+            group.get("matcher").and_then(|m| m.as_str()) == Some(matcher) && runs_command(group)
+        })
+    }
 }
 
 /// Writes both artifacts into `root`, reporting what it did.
@@ -231,7 +302,7 @@ pub fn install(root: &Path, command: &str) -> anyhow::Result<()> {
         )
         .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", settings_path.display()))?;
         println!(
-            "🪝 Installed PreToolUse + PostToolUse hooks in {}",
+            "🪝 Installed PreToolUse, PostToolUse and Stop hooks in {}",
             settings_path.display()
         );
     } else {
@@ -253,7 +324,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn installing_into_empty_settings_adds_both_events() {
+    fn installing_into_empty_settings_adds_every_event() {
         let (merged, changed) = merge_hooks(json!({}), DEFAULT_HOOK_COMMAND);
         assert!(changed);
         assert_eq!(merged["hooks"]["PreToolUse"][0]["matcher"], "Edit|Write");
@@ -261,8 +332,15 @@ mod tests {
             merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
             DEFAULT_HOOK_COMMAND
         );
+        let post = merged["hooks"]["PostToolUse"].as_array().expect("array");
+        assert_eq!(post.len(), 2, "Edit|Write and Bash, same event");
+        assert_eq!(post[0]["matcher"], "Edit|Write");
+        assert_eq!(post[0]["hooks"][0]["command"], DEFAULT_HOOK_COMMAND);
+        assert_eq!(post[1]["matcher"], "Bash");
+        assert_eq!(post[1]["hooks"][0]["command"], DEFAULT_HOOK_COMMAND);
+        assert_eq!(merged["hooks"]["Stop"][0]["matcher"], "");
         assert_eq!(
-            merged["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+            merged["hooks"]["Stop"][0]["hooks"][0]["command"],
             DEFAULT_HOOK_COMMAND
         );
     }
@@ -286,9 +364,14 @@ mod tests {
         assert!(changed);
         assert_eq!(merged["model"], "opus");
         assert_eq!(merged["permissions"]["allow"][0], "Bash(git status)");
+        let stop = merged["hooks"]["Stop"].as_array().expect("array");
         assert_eq!(
-            merged["hooks"]["Stop"][0]["hooks"][0]["command"], "notify",
-            "other events untouched"
+            stop[0]["hooks"][0]["command"], "notify",
+            "the pre-existing Stop hook is kept, not replaced"
+        );
+        assert_eq!(
+            stop[1]["hooks"][0]["command"], DEFAULT_HOOK_COMMAND,
+            "vord's own Stop hook is added alongside it"
         );
         assert_eq!(
             merged["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
