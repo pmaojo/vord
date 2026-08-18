@@ -9,6 +9,7 @@ use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 
 use crate::common::{
     find_attribute, is_jsx_kind, is_other, map_callback_functions, own_scope_descendants, tag_name,
+    unwrap_parentheses,
 };
 
 /// True for a shorthand `<>...</>` fragment: tree-sitter-typescript parses
@@ -17,6 +18,47 @@ use crate::common::{
 /// version, only the empty tag name distinguishes it from a real element.
 fn is_fragment_shorthand(el: &AstNode) -> bool {
     is_other(el, "jsx_fragment") || (is_other(el, "jsx_element") && tag_name(el).is_none())
+}
+
+/// The JSX element(s) a `.map()` callback actually hands back to React as
+/// list children: the callback's own return value(s), unwrapped of
+/// parentheses and (for an array-literal return) expanded one level. A JSX
+/// element that merely appears *inside* the callback — e.g. tucked into an
+/// object literal's property, to be rendered later by something else
+/// entirely — is not a returned list child and must not be treated as one;
+/// that mismatch is exactly what previously false-positived on a `.map()`
+/// callback returning `{ key, card: <Foo/> }`.
+fn map_callback_returned_roots(arrow: &AstNode) -> Vec<&AstNode> {
+    let Some(body) = arrow.children().last() else {
+        return Vec::new();
+    };
+
+    let return_values: Vec<&AstNode> = if is_other(body, "statement_block") {
+        own_scope_descendants(body)
+            .into_iter()
+            .filter(|n| is_other(n, "return_statement"))
+            .filter_map(|ret| ret.first_child())
+            .collect()
+    } else {
+        vec![body]
+    };
+
+    let mut roots = Vec::new();
+    for value in return_values {
+        let value = unwrap_parentheses(value);
+        if is_jsx_kind(value) {
+            roots.push(value);
+        } else if is_other(value, "array") {
+            roots.extend(
+                value
+                    .children()
+                    .iter()
+                    .map(unwrap_parentheses)
+                    .filter(|c| is_jsx_kind(c)),
+            );
+        }
+    }
+    roots
 }
 
 pub struct MissingListKeyRule {
@@ -66,11 +108,7 @@ impl Rule for MissingListKeyRule {
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         map_callback_functions(ast)
             .into_iter()
-            // The first JSX node in source order within the callback's own
-            // scope is its returned element — a parent always precedes its
-            // children in this pre-order walk, so nested JSX inside it never
-            // gets considered as its own separate candidate.
-            .filter_map(|arrow| own_scope_descendants(arrow).into_iter().find(|n| is_jsx_kind(n)))
+            .flat_map(map_callback_returned_roots)
             .filter_map(|root| {
                 if is_fragment_shorthand(root) {
                     return Some(Finding::new(
@@ -134,5 +172,32 @@ mod tests {
             "const els = items.map(item => <li key={item.id}><span>{item.name}</span></li>);\n",
         );
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn ignores_jsx_tucked_into_an_object_literal_property_instead_of_returned_as_a_list_child() {
+        // The callback returns an object `{ key, card }`; the JSX lives in a
+        // property value, not as the list child itself — rendered later
+        // elsewhere with its own `key={key}`.
+        let findings = check(
+            "const cards = items.map((item) => ({\n  key: getRenderableCardKey(item),\n  card: <RenderableCard item={item} />,\n}));\n",
+        );
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn flags_jsx_returned_from_inside_a_block_bodied_map_callback() {
+        let findings = check(
+            "const els = items.map((item) => {\n  return <li>{item.name}</li>;\n});\n",
+        );
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn flags_each_jsx_element_of_a_directly_returned_array() {
+        let findings = check(
+            "const els = items.map((item) => [<li>{item.name}</li>, <span>{item.id}</span>]);\n",
+        );
+        assert_eq!(findings.len(), 2);
     }
 }
