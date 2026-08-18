@@ -25,6 +25,49 @@ fn scope_has_closing_call(scope_text: &str, var: &str) -> bool {
         .any(|method| scope_text.contains(&format!("{var}.{method}(")))
 }
 
+/// Whether `var` occurs as a whole word anywhere in a `return` statement's
+/// text within `scope_text`. A function that hands the `Popen` result back
+/// to its caller (`p = subprocess.Popen(cmd); return p`) transfers
+/// ownership — the caller is now responsible for waiting on/terminating
+/// it, and this function has no way to close something it no longer
+/// owns. Deliberately permissive (any `return` line mentioning the name,
+/// not just a bare `return var`) to also cover `return p, other`,
+/// `return {"proc": p}`, and similar shapes without needing full
+/// structural analysis.
+fn scope_returns(scope_text: &str, var: &str) -> bool {
+    scope_text.lines().any(|line| {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("return") {
+            return false;
+        }
+        contains_word(trimmed, var)
+    })
+}
+
+/// Whether `word` occurs in `haystack` as a bare identifier — not as a
+/// substring of a longer identifier (`p` inside `pipe`), and not as an
+/// attribute *of* or *on* something else (`p` inside `self.p` or `p.pid`).
+/// The latter matters here specifically: `return p.pid` returns an `int`
+/// attribute, not the `Popen` object itself, so it must not be mistaken
+/// for `return p` transferring ownership of the process handle.
+fn contains_word(haystack: &str, word: &str) -> bool {
+    if word.is_empty() {
+        return false;
+    }
+    let bytes = haystack.as_bytes();
+    let wbytes = word.as_bytes();
+    let wlen = wbytes.len();
+    if wlen > bytes.len() {
+        return false;
+    }
+    let is_boundary_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'.';
+    (0..=bytes.len() - wlen).any(|i| {
+        &bytes[i..i + wlen] == wbytes
+            && !bytes.get(i.wrapping_sub(1)).is_some_and(|b| is_boundary_char(*b))
+            && !bytes.get(i + wlen).is_some_and(|b| is_boundary_char(*b))
+    })
+}
+
 /// Walks the tree tracking the nearest enclosing function/module text (to
 /// search for a later closing call) and whether we're inside a `with`
 /// clause (where `Popen` is already scoped by the context manager).
@@ -34,7 +77,9 @@ fn walk(node: &AstNode, in_with_clause: bool, scope_text: &str, out: &mut Vec<Fi
     if !in_with_clause && node.kind() == &NodeKind::Assignment {
         if let (Some(target), Some(value)) = (node.children().first(), node.children().last()) {
             if target.kind() == &NodeKind::Identifier && is_popen_call(value) {
-                if !scope_has_closing_call(scope_text, target.text()) {
+                if !scope_has_closing_call(scope_text, target.text())
+                    && !scope_returns(scope_text, target.text())
+                {
                     out.push(Finding::new(
                         "subprocess.Popen result is never waited on, communicated with, or terminated; use it as a `with` context manager, or call .wait()/.communicate() so the child process doesn't leak",
                         node.span(),
@@ -149,5 +194,30 @@ mod tests {
     fn allows_popen_as_context_manager() {
         let code = "def f():\n    with subprocess.Popen(['ls']) as p:\n        p.stdout.read()\n";
         assert!(findings(code).is_empty());
+    }
+
+    /// Regression: a factory function that hands the live `Popen` handle
+    /// back to its caller transfers ownership — the caller is now
+    /// responsible for waiting on/terminating it, and this function
+    /// cannot close something it no longer owns.
+    #[test]
+    fn allows_popen_returned_to_caller() {
+        let code = "def start_process(cmd):\n    p = subprocess.Popen(cmd)\n    return p\n";
+        assert!(findings(code).is_empty());
+    }
+
+    #[test]
+    fn allows_popen_returned_as_part_of_a_tuple() {
+        let code = "def start_process(cmd):\n    p = subprocess.Popen(cmd)\n    return p, cmd\n";
+        assert!(findings(code).is_empty());
+    }
+
+    /// Returning just an *attribute* of the Popen result (`p.pid`, an
+    /// `int`) does not transfer ownership of the process handle itself —
+    /// this must still be flagged.
+    #[test]
+    fn flags_popen_when_only_an_attribute_is_returned() {
+        let code = "def f():\n    p = subprocess.Popen(['ls'])\n    return p.pid\n";
+        assert_eq!(findings(code).len(), 1);
     }
 }

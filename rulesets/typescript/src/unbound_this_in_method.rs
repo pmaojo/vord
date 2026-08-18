@@ -15,14 +15,21 @@ use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity
 use crate::common::{call_arguments, is_other};
 
 /// Names of non-static, non-arrow class methods whose own body reads
-/// `this`. `NodeKind::FunctionDef` collapses `method_definition` together
-/// with function declarations and arrow functions, so class methods are
-/// found structurally instead — as the direct `FunctionDef` children of a
-/// `class_body`, which is where the grammar puts them and nothing else.
-fn this_using_method_names(ast: &AstNode) -> HashSet<&str> {
-    ast.descendants()
-        .filter(|n| is_other(n, "class_body"))
-        .flat_map(|body| body.children().iter())
+/// `this`, scoped to *one* `class_body`. `NodeKind::FunctionDef` collapses
+/// `method_definition` together with function declarations and arrow
+/// functions, so class methods are found structurally instead — as the
+/// direct `FunctionDef` children of a `class_body`, which is where the
+/// grammar puts them and nothing else.
+///
+/// Deliberately scoped per class rather than pooled across the whole file:
+/// two unrelated classes can each declare a same-named method (`handle`,
+/// `render`, ...) where only one of them actually reads `this` — pooling
+/// their names into one file-wide set would flag the other class's
+/// unrelated, perfectly safe callback reference too.
+fn this_using_method_names(class_body: &AstNode) -> HashSet<&str> {
+    class_body
+        .children()
+        .iter()
         .filter(|n| *n.kind() == NodeKind::FunctionDef)
         .filter(|n| n.subtree_contains_text("this"))
         .filter_map(|n| n.first_child())
@@ -99,13 +106,19 @@ impl Rule for UnboundThisInMethodRule {
     }
 
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
-        let method_names = this_using_method_names(ast);
-        if method_names.is_empty() {
-            return Vec::new();
-        }
         ast.descendants()
-            .filter(|n| *n.kind() == NodeKind::Call)
-            .flat_map(|call| flagged(call, &method_names))
+            .filter(|n| is_other(n, "class_body"))
+            .flat_map(|class_body| {
+                let method_names = this_using_method_names(class_body);
+                if method_names.is_empty() {
+                    return Vec::new();
+                }
+                class_body
+                    .descendants()
+                    .filter(|n| *n.kind() == NodeKind::Call)
+                    .flat_map(|call| flagged(call, &method_names))
+                    .collect::<Vec<_>>()
+            })
             .map(|n| {
                 Finding::new(
                     format!(
@@ -162,6 +175,17 @@ mod tests {
     #[test]
     fn allows_arrow_wrapped_reference() {
         let code = "class C {\n  method() { this.x = 1; }\n  other() {\n    setTimeout(() => this.method(), 10);\n  }\n}\n";
+        assert!(check(code).is_empty());
+    }
+
+    /// Regression: an unrelated class in the same file declaring a
+    /// same-named method that DOES use `this` must not cause a different
+    /// class's same-named-but-`this`-free method to be flagged when it's
+    /// passed as a bare callback. Method-name usage must be scoped per
+    /// class, not pooled file-wide.
+    #[test]
+    fn allows_bare_reference_when_a_different_class_has_a_same_named_method_using_this() {
+        let code = "class A {\n  handle() { this.x = 1; }\n  x = 0;\n}\nclass B {\n  x = 0;\n  handle() { return 1; }\n  wire() {\n    setTimeout(this.handle, 10);\n  }\n}\n";
         assert!(check(code).is_empty());
     }
 }

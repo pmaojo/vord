@@ -43,13 +43,92 @@ fn module_level_assignments(source_unit: &AstNode) -> impl Iterator<Item = &AstN
         .filter(|n| n.kind() == &NodeKind::Assignment)
 }
 
-/// Names any function in this file declares `global` for.
+const MUTATING_METHODS: &[&str] = &[
+    "append",
+    "extend",
+    "update",
+    "pop",
+    "remove",
+    "add",
+    "clear",
+    "insert",
+    "discard",
+    "popitem",
+    "setdefault",
+    "sort",
+    "reverse",
+];
+
+/// Whether `body` actually rebinds or mutates `name` somewhere — a direct
+/// reassignment (`name = ...`), a subscript/attribute write
+/// (`name[k] = v`, `name.attr = v`), a known mutating method call
+/// (`name.append(...)`), an augmented assignment (`name += ...`), or
+/// `del name[...]`. Merely declaring `global name` to *read* module state
+/// (`global _cache; return _cache.get(key)`) does none of these and is not
+/// the mutable-singleton anti-pattern this rule targets.
+fn rebinds_or_mutates(body: &AstNode, name: &str) -> bool {
+    let structural = body.descendants().any(|n| {
+        if n.kind() == &NodeKind::Assignment {
+            if let Some(target) = n.children().first() {
+                if target.kind() == &NodeKind::Identifier && target.text() == name {
+                    return true;
+                }
+                if target.kind() == &NodeKind::MemberAccess
+                    && target.first_child().is_some_and(|obj| obj.text() == name)
+                {
+                    return true;
+                }
+            }
+        }
+        if n.kind() == &NodeKind::Call {
+            if let Some(callee) = n.first_child() {
+                if callee.kind() == &NodeKind::MemberAccess {
+                    let object_matches =
+                        callee.first_child().is_some_and(|obj| obj.text() == name);
+                    let method_matches = callee
+                        .children()
+                        .last()
+                        .is_some_and(|m| MUTATING_METHODS.contains(&m.text()));
+                    if object_matches && method_matches {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    });
+    // Augmented assignment (`name += ...`) and `del name[...]` have no
+    // dedicated structural check here; a conservative textual fallback
+    // still catches them without needing a new node-kind mapping.
+    structural
+        || body.text().contains(&format!("{name} +="))
+        || body.text().contains(&format!("{name} -="))
+        || body.text().contains(&format!("del {name}"))
+}
+
+/// Names any function in this file declares `global` for *and actually
+/// rebinds or mutates* somewhere in its body — not just reads. Scoped per
+/// function (rather than pooled file-wide) since only the declaring
+/// function's own body can be checked for a matching mutation.
 fn globally_declared_names(ast: &AstNode) -> Vec<&str> {
     ast.descendants()
-        .filter(|n| other_kind_name(n) == Some("global_statement"))
-        .flat_map(|n| n.children().iter())
-        .filter(|c| c.kind() == &NodeKind::Identifier)
-        .map(|c| c.text())
+        .filter(|n| *n.kind() == NodeKind::FunctionDef)
+        .filter_map(|func| {
+            let body = func.children().iter().find(|c| other_kind_name(c) == Some("block"))?;
+            Some(body)
+        })
+        .flat_map(|body| {
+            let names: Vec<&str> = body
+                .descendants()
+                .filter(|n| other_kind_name(n) == Some("global_statement"))
+                .flat_map(|n| n.children().iter())
+                .filter(|c| c.kind() == &NodeKind::Identifier)
+                .map(|c| c.text())
+                .collect();
+            names
+                .into_iter()
+                .filter(move |name| rebinds_or_mutates(body, name))
+        })
         .collect()
 }
 
@@ -149,5 +228,32 @@ mod tests {
     fn allows_immutable_module_constant_declared_global() {
         let code = "COUNT = 0\n\ndef bump():\n    global COUNT\n    COUNT += 1\n";
         assert!(findings(code).is_empty());
+    }
+
+    /// Regression: declaring `global` to *read* a module-level dict (no
+    /// reassignment, no mutation) is not the mutable-singleton
+    /// anti-pattern — the message even claimed it was "rebound", which
+    /// was simply false for this shape.
+    #[test]
+    fn allows_module_dict_declared_global_but_only_read() {
+        let code = "_cache = {}\n\ndef read(key):\n    global _cache\n    return _cache.get(key)\n";
+        assert!(findings(code).is_empty());
+    }
+
+    /// A mutating *method call* (`.update(...)`) through `global`, with no
+    /// reassignment of the name itself, is still the same anti-pattern
+    /// and must be flagged.
+    #[test]
+    fn flags_module_dict_mutated_via_method_call_through_global() {
+        let code = "_cache = {}\n\ndef put(key, value):\n    global _cache\n    _cache.update({key: value})\n";
+        assert_eq!(findings(code).len(), 1);
+    }
+
+    /// A subscript write (`_cache[key] = value`) through `global` is also
+    /// a real mutation and must be flagged.
+    #[test]
+    fn flags_module_dict_mutated_via_subscript_through_global() {
+        let code = "_cache = {}\n\ndef put(key, value):\n    global _cache\n    _cache[key] = value\n";
+        assert_eq!(findings(code).len(), 1);
     }
 }

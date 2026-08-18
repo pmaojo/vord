@@ -30,15 +30,20 @@ fn unused_type_params(decl: &AstNode) -> Vec<&AstNode> {
     else {
         return Vec::new();
     };
-    // Everything else this declaration's own text says, once its own
-    // `<...>` parameter list is removed — the one place each name is
-    // guaranteed to appear without "using" it.
-    let rest = decl.text().replacen(type_params.text(), "", 1);
+    // For each parameter, remove only *that parameter's own* text from the
+    // declaration before checking for other occurrences of its name —
+    // never the whole `<...>` list. A sibling type parameter's constraint
+    // or default (`K = T`, `K extends T`) is a real use of `T` and must
+    // stay visible in the "rest" text; stripping the entire parameter
+    // list would erase that use and misreport `T` as unused.
     type_params
         .children()
         .iter()
         .filter(|p| is_other(p, "type_parameter"))
-        .filter(|p| !contains_word(&rest, type_parameter_name(p)))
+        .filter(|p| {
+            let rest = decl.text().replacen(p.text(), "", 1);
+            !contains_word(&rest, type_parameter_name(p))
+        })
         .collect()
 }
 
@@ -149,5 +154,23 @@ mod tests {
     #[test]
     fn allows_declaration_with_no_type_parameters() {
         assert!(check("function f(x: number): number { return x; }\n").is_empty());
+    }
+
+    /// Regression: a type parameter used only as another type parameter's
+    /// default (`K = T`) is a real use of `T`, not an unused parameter.
+    /// Stripping the whole `<...>` list before searching for uses used to
+    /// erase this and misreport `T` as unused.
+    #[test]
+    fn allows_type_parameter_used_as_sibling_default() {
+        let code = "class Container<T, K = T> {\n  value!: K;\n}\n";
+        assert!(check(code).is_empty());
+    }
+
+    /// Same false positive via an `extends` constraint referencing a
+    /// sibling parameter instead of a default value.
+    #[test]
+    fn allows_type_parameter_used_in_sibling_constraint() {
+        let code = "interface Pair<A, B extends A> {\n  first: A;\n  second: B;\n}\n";
+        assert!(check(code).is_empty());
     }
 }

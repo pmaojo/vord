@@ -42,12 +42,33 @@ fn is_untyped_arrow(func: &AstNode) -> bool {
     params_untyped
 }
 
+/// Collects only the `export`ed variable declarator(s) themselves —
+/// `export const f = ...`, `export const a = 1, b = 2` — never a nested
+/// `const` declared *inside* an exported function's body. A plain
+/// `.descendants()` walk would also match a local helper like
+/// `const handleSave = () => {...}` declared inside an exported
+/// component's body, misreporting an unrelated, unexported local as if it
+/// were the file's public API. Stopping the walk at each `FunctionDef` it
+/// finds (without descending into it) keeps the search to the export
+/// statement's own top-level declarator(s).
+fn top_level_var_decls<'a>(node: &'a AstNode, out: &mut Vec<&'a AstNode>) {
+    for child in node.children() {
+        if *child.kind() == NodeKind::VariableDecl {
+            out.push(child);
+        } else if *child.kind() != NodeKind::FunctionDef {
+            top_level_var_decls(child, out);
+        }
+    }
+}
+
 fn flagged_export(node: &AstNode) -> Vec<&AstNode> {
     if !is_other(node, "export_statement") {
         return Vec::new();
     }
-    node.descendants()
-        .filter(|n| *n.kind() == NodeKind::VariableDecl)
+    let mut decls = Vec::new();
+    top_level_var_decls(node, &mut decls);
+    decls
+        .into_iter()
         .filter_map(|decl| decl.children().get(1))
         .filter(|value| is_untyped_arrow(value))
         .collect()
@@ -153,5 +174,15 @@ mod tests {
     #[test]
     fn allows_exported_function_declaration() {
         assert!(check("export function f(x) { return x + 1; }\n").is_empty());
+    }
+
+    /// Regression: a local helper `const` declared *inside* an exported
+    /// component's body (typed params, typed return) is not itself
+    /// exported and must not be flagged just because a plain descendants
+    /// walk would find it nested under the `export_statement`.
+    #[test]
+    fn allows_untyped_local_const_nested_inside_an_exported_typed_component() {
+        let code = "export const UserProfile = (props: { id: string }): JSX.Element => {\n  const handleSave = () => {\n    save(props.id);\n  };\n  return handleSave as unknown as JSX.Element;\n};\n";
+        assert!(check(code).is_empty());
     }
 }

@@ -10,6 +10,17 @@
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
+/// Whether this file imports `pandas` at all (`import pandas`, `import
+/// pandas as pd`, `from pandas import ...`). A plain text search over the
+/// whole source is deliberately used instead of walking `import_statement`
+/// nodes structurally: it's simpler, and a false match would require the
+/// literal word "pandas" to appear somewhere it doesn't actually name the
+/// import (astronomically unlikely in real source), while a structural
+/// walk buys no real precision here.
+fn imports_pandas(ast: &AstNode) -> bool {
+    ast.text().contains("pandas")
+}
+
 fn is_chained_string_indexed_target(target: &AstNode) -> bool {
     if target.kind() != &NodeKind::MemberAccess || target.children().len() != 2 {
         return false;
@@ -68,6 +79,20 @@ impl Rule for PandasChainedAssignmentRule {
     }
 
     fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        // A double-subscript assignment with a string-literal outer key
+        // (`x['a']['b'] = 1`) is *also* exactly what plain nested-dict
+        // assignment looks like (`config['section']['key'] = value`) —
+        // an extremely common, completely safe idiom with nothing to do
+        // with pandas. There's no type checker here to tell a DataFrame
+        // from a dict, but a file that never imports pandas at all
+        // provably cannot contain a `SettingWithCopyWarning`-prone
+        // DataFrame in the first place, so gating on the import cuts out
+        // the single biggest source of false positives on ordinary
+        // config/dict-manipulation code without losing any real pandas
+        // case (pandas code always imports pandas).
+        if !imports_pandas(ast) {
+            return Vec::new();
+        }
         ast.descendants()
             .filter(|n| *n.kind() == NodeKind::Assignment)
             .filter_map(|assignment| assignment.children().first())
@@ -93,12 +118,24 @@ mod tests {
 
     #[test]
     fn flags_chained_string_indexed_assignment() {
-        assert_eq!(findings("df['a']['b'] = 1\n").len(), 1);
+        let code = "import pandas as pd\ndf['a']['b'] = 1\n";
+        assert_eq!(findings(code).len(), 1);
     }
 
     #[test]
     fn allows_single_loc_assignment() {
-        assert!(findings("df.loc['b', 'a'] = 1\n").is_empty());
+        let code = "import pandas as pd\ndf.loc['b', 'a'] = 1\n";
+        assert!(findings(code).is_empty());
+    }
+
+    /// Regression: `x['a']['b'] = value` is also exactly what plain
+    /// nested-dict assignment looks like (`config['section']['key'] =
+    /// value`) — an extremely common, completely safe idiom with nothing
+    /// to do with pandas. A file that never imports pandas provably
+    /// cannot contain a pandas `SettingWithCopyWarning` case.
+    #[test]
+    fn allows_nested_dict_assignment_when_pandas_is_not_imported() {
+        assert!(findings("config['section']['key'] = 'value'\n").is_empty());
     }
 
     #[test]

@@ -6,7 +6,7 @@
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::is_other;
+use crate::common::{is_generator, is_other};
 
 fn is_async(func: &AstNode) -> bool {
     func.text().trim_start().starts_with("async")
@@ -16,8 +16,15 @@ fn has_await(func: &AstNode) -> bool {
     func.descendants().any(|n| is_other(n, "await_expression"))
 }
 
+/// `async function*` generators legitimately drive their control flow with
+/// `yield`, not `await` — an async generator that only ever yields (never
+/// awaits) is completely normal and not the "unnecessary microtask tick"
+/// this rule targets, so generators are excluded entirely.
 fn flagged(node: &AstNode) -> bool {
-    *node.kind() == NodeKind::FunctionDef && is_async(node) && !has_await(node)
+    *node.kind() == NodeKind::FunctionDef
+        && is_async(node)
+        && !is_generator(node)
+        && !has_await(node)
 }
 
 pub struct AsyncFunctionWithoutAwaitRule {
@@ -126,5 +133,13 @@ mod tests {
     #[test]
     fn allows_async_function_awaiting_in_nested_expression() {
         assert!(check("async function f() {\n  const x = [await g()];\n  return x;\n}\n").is_empty());
+    }
+
+    /// Regression: `async function*` generators legitimately use `yield`
+    /// instead of `await` as their primary control-flow keyword — flagging
+    /// them here was a false positive.
+    #[test]
+    fn allows_async_generator_without_await() {
+        assert!(check("async function* gen() {\n  yield 1;\n}\n").is_empty());
     }
 }

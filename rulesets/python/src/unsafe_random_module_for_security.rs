@@ -12,10 +12,53 @@ const SENSITIVE_WORDS: &[&str] = &[
     "token", "password", "passwd", "secret", "apikey", "api_key", "otp", "nonce", "salt", "csrf",
 ];
 
+/// Compound names built on "key" with an ordinary data-structure or
+/// database meaning, not a cryptographic one — `primary_key`/`sort_key`/
+/// `cache_key` and friends are everyday DB/dict/sort vocabulary that has
+/// nothing to do with security, and blanket-matching any name containing
+/// "key" flagged these at the rule's default Critical severity.
+const BENIGN_KEY_COMPOUNDS: &[&str] = &[
+    "primary_key",
+    "primarykey",
+    "foreign_key",
+    "foreignkey",
+    "sort_key",
+    "sortkey",
+    "cache_key",
+    "cachekey",
+    "partition_key",
+    "partitionkey",
+    "shard_key",
+    "shardkey",
+    "hash_key",
+    "hashkey",
+    "dict_key",
+    "dictkey",
+    "map_key",
+    "mapkey",
+    "lookup_key",
+    "lookupkey",
+    "index_key",
+    "indexkey",
+    "composite_key",
+    "compositekey",
+    "unique_key",
+    "uniquekey",
+    "row_key",
+    "rowkey",
+    "group_key",
+    "groupkey",
+];
+
 fn looks_security_sensitive(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    SENSITIVE_WORDS.iter().any(|w| lower.contains(w))
-        || (lower.contains("key") && !lower.ends_with("keys"))
+    if SENSITIVE_WORDS.iter().any(|w| lower.contains(w)) {
+        return true;
+    }
+    if !lower.contains("key") || lower.ends_with("keys") {
+        return false;
+    }
+    !BENIGN_KEY_COMPOUNDS.iter().any(|c| lower.contains(c))
 }
 
 fn is_insecure_random_call(value: &AstNode) -> bool {
@@ -132,5 +175,38 @@ mod tests {
     #[test]
     fn allows_system_random() {
         assert!(findings("token = random.SystemRandom().choice(alphabet)\n").is_empty());
+    }
+
+    /// Regression: `primary_key`/`sort_key`/etc. are ordinary DB/dict/sort
+    /// vocabulary, not cryptographic material — the blanket "contains
+    /// key" check used to flag these at Critical severity.
+    #[test]
+    fn allows_primary_key_from_random() {
+        assert!(findings("primary_key = random.randint(1, 1000000)\n").is_empty());
+    }
+
+    #[test]
+    fn allows_sort_key_from_random() {
+        assert!(findings("sort_key = random.random()\n").is_empty());
+    }
+
+    #[test]
+    fn allows_cache_key_from_random() {
+        assert!(findings("cache_key = random.randint(1, 100)\n").is_empty());
+    }
+
+    /// A genuine security-sensitive "key" name must still be flagged —
+    /// the benign-compound exclusion must not swallow real positives.
+    #[test]
+    fn flags_secret_key_from_random() {
+        assert_eq!(findings("secret_key = random.choice(alphabet)\n").len(), 1);
+    }
+
+    #[test]
+    fn flags_encryption_key_from_random() {
+        assert_eq!(
+            findings("encryption_key = random.randbytes(32)\n").len(),
+            1
+        );
     }
 }

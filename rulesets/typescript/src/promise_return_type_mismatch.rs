@@ -9,7 +9,7 @@
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, RuleMetadata, Severity};
 
-use crate::common::is_other;
+use crate::common::{is_generator, is_other};
 
 fn is_async(func: &AstNode) -> bool {
     func.text().trim_start().starts_with("async")
@@ -20,7 +20,12 @@ fn return_type_annotation(func: &AstNode) -> Option<&AstNode> {
 }
 
 fn flagged(func: &AstNode) -> Option<&AstNode> {
-    if *func.kind() != NodeKind::FunctionDef || !is_async(func) {
+    // `async function*` generators really do return `AsyncGenerator<T>` /
+    // `AsyncIterableIterator<T>`, never `Promise<T>` — this rule's premise
+    // ("an `async` function always returns a `Promise` at runtime") simply
+    // doesn't hold for generators, so they're excluded to avoid flagging a
+    // correct annotation as a mismatch.
+    if *func.kind() != NodeKind::FunctionDef || !is_async(func) || is_generator(func) {
         return None;
     }
     let annotation = return_type_annotation(func)?;
@@ -126,5 +131,20 @@ mod tests {
     #[test]
     fn allows_non_async_function_annotated_with_non_promise_type() {
         assert!(check("function f(): number {\n  return 1;\n}\n").is_empty());
+    }
+
+    /// Regression: `async function*` generators really do return
+    /// `AsyncGenerator<T>`/`AsyncIterableIterator<T>` at runtime, not a
+    /// `Promise` — this must not be flagged as a mismatch.
+    #[test]
+    fn allows_async_generator_annotated_with_async_generator_type() {
+        let code = "async function* gen(): AsyncGenerator<number> {\n  yield 1;\n}\n";
+        assert!(check(code).is_empty());
+    }
+
+    #[test]
+    fn allows_async_generator_annotated_with_async_iterable_iterator_type() {
+        let code = "async function* gen(): AsyncIterableIterator<number> {\n  yield 1;\n}\n";
+        assert!(check(code).is_empty());
     }
 }

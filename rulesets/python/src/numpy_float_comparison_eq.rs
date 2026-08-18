@@ -10,22 +10,54 @@ use vord_rules_engine::{Finding, Rule, RuleId, Severity};
 
 use crate::common::other_kind_name;
 
-const NUMPY_FLOAT_CALLEES: &[&str] = &[
-    "np.array",
-    "numpy.array",
-    "np.float32",
-    "np.float64",
-    "numpy.float32",
-    "numpy.float64",
-    "np.asarray",
-    "numpy.asarray",
-];
+// `np.float32`/`np.float64` unambiguously construct a float value: always
+// the "float rounding error" risk this rule targets.
+const UNAMBIGUOUS_FLOAT_CALLEES: &[&str] =
+    &["np.float32", "np.float64", "numpy.float32", "numpy.float64"];
+
+// `np.array`/`np.asarray` build whatever dtype their contents imply — an
+// integer array (`np.array([1, 2, 3])`) compares exactly with `==` just
+// fine, so these only count as the float-comparison risk when there's
+// actual textual evidence the array holds floats.
+const GENERIC_ARRAY_CALLEES: &[&str] = &["np.array", "numpy.array", "np.asarray", "numpy.asarray"];
+
+/// Whether `call`'s own argument text gives any evidence it builds a
+/// floating-point array: a decimal-point/exponent numeric literal
+/// (`1.0`, `1e-3`), or an explicit `dtype=float`/`dtype=np.float32`/etc.
+/// keyword argument. Best-effort and text-based — this can't resolve a
+/// dtype that comes from a variable — but it's enough to stop flagging
+/// the common, unambiguous integer-array case (`np.array([1, 2, 3])`)
+/// while still catching the equally common float-literal case.
+fn args_suggest_float_dtype(call: &AstNode) -> bool {
+    let text = call.text();
+    if text.contains("dtype") && (text.contains("float") || text.contains("f4") || text.contains("f8")) {
+        return true;
+    }
+    // A float literal contains a `.` or an exponent marker next to
+    // digits; integer literals and identifiers don't. Scanning the raw
+    // text for a digit-adjacent `.` is a simple, reliable enough proxy
+    // without needing to parse each array element individually.
+    let bytes = text.as_bytes();
+    bytes.iter().enumerate().any(|(i, &b)| {
+        b == b'.'
+            && i > 0
+            && bytes[i - 1].is_ascii_digit()
+            && bytes.get(i + 1).is_some_and(|b| b.is_ascii_digit())
+    })
+}
 
 fn is_numpy_float_construct(node: &AstNode) -> bool {
-    node.kind() == &NodeKind::Call
-        && node
-            .first_child()
-            .is_some_and(|callee| NUMPY_FLOAT_CALLEES.contains(&callee.text()))
+    if node.kind() != &NodeKind::Call {
+        return false;
+    }
+    let Some(callee) = node.first_child() else {
+        return false;
+    };
+    let text = callee.text();
+    if UNAMBIGUOUS_FLOAT_CALLEES.contains(&text) {
+        return true;
+    }
+    GENERIC_ARRAY_CALLEES.contains(&text) && args_suggest_float_dtype(node)
 }
 
 fn is_equality_operator(op_text: &str) -> bool {
@@ -136,5 +168,28 @@ mod tests {
     #[test]
     fn ignores_ordering_comparison() {
         assert!(findings("if np.array([1.0]) < expected:\n    pass\n").is_empty());
+    }
+
+    /// Regression: `np.array([1, 2, 3])` builds an *integer* array by
+    /// default — comparing it with `==` is exact and completely valid,
+    /// not the float-rounding-error risk this rule targets. The old
+    /// blanket "any np.array(...) call" check flagged this too.
+    #[test]
+    fn allows_integer_array_equality() {
+        assert!(findings("if np.array([1, 2, 3]) == expected:\n    pass\n").is_empty());
+    }
+
+    #[test]
+    fn allows_integer_array_equality_with_variable() {
+        assert!(findings("if np.array(values) == expected:\n    pass\n").is_empty());
+    }
+
+    /// An explicit `dtype=float` (or `np.float32`/`np.float64`) keyword
+    /// is real evidence of a float array even without a float literal in
+    /// the contents, and must still be flagged.
+    #[test]
+    fn flags_array_with_explicit_float_dtype() {
+        let code = "if np.array([1, 2, 3], dtype=float) == expected:\n    pass\n";
+        assert_eq!(findings(code).len(), 1);
     }
 }

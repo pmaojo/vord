@@ -16,7 +16,21 @@ fn is_eager_built_string(arg: &AstNode) -> bool {
             other_kind_name(start) == Some("string_start")
                 && start.text().trim_start().starts_with(['f', 'F'])
         }),
-        NodeKind::Other(name) => name.as_ref() == "binary_operator",
+        // A `+`/`%` expression is only the injection-risk shape this rule
+        // targets when it actually interpolates something other than
+        // string literals — pure literal-to-literal concatenation, used
+        // purely to split a long query across lines
+        // (`"SELECT ..." + "WHERE ..."`), builds the exact same static
+        // string every time and carries no more risk than a single
+        // literal. Only the operator's own immediate operands are
+        // checked (not a full recursive descent), since descending into a
+        // `StringLiteral` operand would otherwise walk into its own
+        // `string_content`/`string_start` children and misread those as
+        // "non-literal".
+        NodeKind::Other(name) => {
+            name.as_ref() == "binary_operator"
+                && arg.children().iter().any(|c| c.kind() != &NodeKind::StringLiteral)
+        }
         _ => false,
     }
 }
@@ -131,5 +145,16 @@ mod tests {
     #[test]
     fn ignores_unrelated_calls() {
         assert!(findings("stmt = format_message(f'hello {name}')\n").is_empty());
+    }
+
+    /// Regression: `+` used purely to concatenate two string *literals*
+    /// (a common way to split a long, fully-static query across lines)
+    /// builds the exact same static string every time — no interpolated
+    /// value is involved, so this is not the injection-risk shape the
+    /// rule targets.
+    #[test]
+    fn allows_pure_literal_concatenation() {
+        let code = "stmt = text('SELECT * FROM t ' + 'WHERE id = :id').bindparams(id=id)\n";
+        assert!(findings(code).is_empty());
     }
 }

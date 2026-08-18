@@ -18,6 +18,25 @@ pub(crate) fn is_other(node: &AstNode, kind: &str) -> bool {
     other_kind_name(node) == Some(kind)
 }
 
+/// Whether a `FunctionDef` node is a generator (`function* name() {}` /
+/// `async function* name() {}`). Generators use `yield` instead of
+/// `await`/`return` as their primary control-flow keyword and their real
+/// return type is `(Async)Generator`/`(Async)IterableIterator`, not
+/// `Promise<T>` — rules built around "async functions always return a
+/// `Promise`" or "an async function should `await` something" must exclude
+/// generators to avoid false positives on legitimate `async function*`.
+/// Detected from the node's own text (no dedicated `NodeKind` for the `*`
+/// token): the `*` appears right after the `function` keyword, before the
+/// name and parameter list.
+pub(crate) fn is_generator(func: &AstNode) -> bool {
+    let text = func.text().trim_start();
+    let text = text.strip_prefix("async").map(str::trim_start).unwrap_or(text);
+    let Some(rest) = text.strip_prefix("function") else {
+        return false;
+    };
+    rest.trim_start().starts_with('*')
+}
+
 /// Whether `word` occurs in `haystack` as a whole identifier (not as a
 /// substring of a longer identifier) — a plain `str::contains` would also
 /// match `T` inside `TFoo` or `NotT`.

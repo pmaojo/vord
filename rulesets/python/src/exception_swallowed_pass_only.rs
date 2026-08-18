@@ -13,6 +13,16 @@ use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 const BROAD_TYPES: &[&str] = &["Exception", "BaseException"];
 
+/// Narrow exception types with a well-established idiom of silent
+/// swallowing: probing for an optional dependency
+/// (`try: import foo\nexcept ImportError: pass`) or a Python-version-gated
+/// import (`ModuleNotFoundError`, added in 3.6 as `ImportError`'s more
+/// specific subclass) is extremely common, deliberate, and not the
+/// "narrow type that still hides a real failure" pattern this rule
+/// targets — the "failure" here is the expected, handled case that the
+/// optional feature just isn't available.
+const IDIOMATIC_OPTIONAL_DEPENDENCY_TYPES: &[&str] = &["ImportError", "ModuleNotFoundError"];
+
 fn other_kind_name(node: &AstNode) -> Option<&str> {
     match node.kind() {
         NodeKind::Other(name) => Some(name.as_ref()),
@@ -30,6 +40,23 @@ fn names_narrow_type(except_clause: &AstNode) -> bool {
         && except_clause.children().iter().any(|c| {
             c.kind() == &NodeKind::Identifier && !BROAD_TYPES.contains(&c.text())
         })
+}
+
+/// Whether the *sole* named exception type is `ImportError` or
+/// `ModuleNotFoundError` — the idiomatic "probe for an optional
+/// dependency" shape (`except ImportError:` / `except ImportError as e:`).
+/// Checked from the clause's own text (trimmed to the part between
+/// `except` and `as`/`:`) rather than node structure, since a tuple of
+/// several types (`except (ImportError, ValueError):`) is a different,
+/// still-worth-flagging shape and must not match here.
+fn only_type_is_idiomatic_optional_dependency(except_clause: &AstNode) -> bool {
+    let text = except_clause.text();
+    let Some(rest) = text.trim_start().strip_prefix("except") else {
+        return false;
+    };
+    let rest = rest.split(" as ").next().unwrap_or(rest);
+    let type_expr = rest.split(':').next().unwrap_or(rest).trim();
+    IDIOMATIC_OPTIONAL_DEPENDENCY_TYPES.contains(&type_expr)
 }
 
 fn block_only_passes(block: &AstNode) -> bool {
@@ -92,6 +119,7 @@ impl Rule for ExceptionSwallowedPassOnlyRule {
         ast.descendants()
             .filter(|n| other_kind_name(n) == Some("except_clause"))
             .filter(|n| names_narrow_type(n))
+            .filter(|n| !only_type_is_idiomatic_optional_dependency(n))
             .filter_map(|n| {
                 let block = n.children().iter().find(|c| other_kind_name(c) == Some("block"))?;
                 block_only_passes(block).then(|| Finding::new("except clause names a specific exception type but its body is only `pass`; the failure is discarded with no logging, re-raise, or recovery", n.span()))
@@ -136,5 +164,28 @@ mod tests {
     #[test]
     fn does_not_double_report_bare_except() {
         assert!(findings("try:\n    f()\nexcept:\n    pass\n").is_empty());
+    }
+
+    /// Regression: `except ImportError: pass` is the standard idiom for
+    /// probing an optional dependency and must not be flagged.
+    #[test]
+    fn allows_import_error_optional_dependency_idiom() {
+        let code = "try:\n    import ujson\nexcept ImportError:\n    pass\n";
+        assert!(findings(code).is_empty());
+    }
+
+    /// Same idiom with the exception bound to a name.
+    #[test]
+    fn allows_import_error_idiom_with_as_binding() {
+        let code = "try:\n    import ujson\nexcept ImportError as e:\n    pass\n";
+        assert!(findings(code).is_empty());
+    }
+
+    /// `ModuleNotFoundError` (Python 3.6+'s more specific `ImportError`
+    /// subclass) is the same idiom and must also be exempt.
+    #[test]
+    fn allows_module_not_found_error_idiom() {
+        let code = "try:\n    import ujson\nexcept ModuleNotFoundError:\n    pass\n";
+        assert!(findings(code).is_empty());
     }
 }
