@@ -121,6 +121,7 @@ vord/
 │   ├── crap/                   # vord-crap: risk = complexity² × untestedness³ + complexity
 │   ├── flow-graph/             # vord-flow-graph: same-file function call graph over the neutral AST
 │   ├── flow-risk/              # vord-flow-risk: untested-sequence detection + [[flows]] evaluation
+│   ├── cfg/                    # vord-cfg: control-flow/SSA/control-dependence graphs (feeds taint + CK/Halstead metrics)
 │   └── duplication/            # vord-cpd: copy-paste detection (rolling-window hashes)
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
@@ -135,13 +136,17 @@ vord/
 │   ├── treesitter-python/
 │   ├── treesitter-go/
 │   └── ...                     # 20 more: c, cpp, csharp, java, kotlin, ruby, php, swift, scala, ...
-├── rulesets/                   # PLUGINS implementing the Rule trait — 161 rules, 16 crates
+├── rulesets/                   # PLUGINS implementing the Rule trait — 244 rules, 18 crates
 │   ├── owasp/                  # secrets, eval/exec, command-exec hotspots, taint injection (incl. cross-file)
 │   ├── code-smells/            # SOLID (see below), complexity (cyclomatic + cognitive), TODO/FIXME, long functions
 │   ├── architecture/           # hexagonal layering, framework purity, import cycles, Martin component metrics
 │   ├── ddd/                    # tactical DDD: anemic model, entity setters, primitive obsession, aggregate leaks
 │   ├── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
 │   ├── wordpress/              # WPCS-shaped: escaping, sanitization, nonces, prepared $wpdb, i18n, deprecated APIs
+│   ├── mutation/                # AST-only mutation-gap detection: conditional-boundary, boolean-inversion,
+│   │                             # arithmetic-operator, return-value-substitution, void-call-deletion
+│   ├── vite-react/              # Vite/React starter conventions: data-layer isolation, transport-client
+│   │                             # placement, hardcoded base URLs
 │   └── ...                     # 10 more: python, go, typescript, react, reactive, iac, a11y, ai-agent, php, secrets
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
     ├── cli/                    # vord scan/hook/agent/swarm/triage/fix — local end-to-end analysis
@@ -220,7 +225,7 @@ Every command below works against an installed binary too — replace
 cargo run -p vord-cli                  # no args, in a terminal: interactive wizard
                                         # (scope: whole repo / branch diff / path — then
                                         # agent prompt, guided remediation, or CI install)
-cargo test --workspace                 # unit (fakes), fixtures, e2e — ~1700 tests
+cargo test --workspace                 # unit (fakes), fixtures, e2e — ~2400 tests
 cargo run -p vord-cli -- scan fixtures # real scan: a small multi-language fixture set, rules + taint + CPD + complexity
 cargo run -p vord-cli -- scan fixtures --format json
 cargo run -p vord-cli -- scan fixtures --fail-on critical      # exit 2 on severity breach
