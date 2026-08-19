@@ -98,13 +98,12 @@ impl Rule for CeleryTaskMissingTimeoutRule {
         ast.descendants()
             .filter(|n| other_kind_name(n) == Some("decorated_definition"))
             .flat_map(|n| n.children().iter().find(|c| other_kind_name(c) == Some("decorator")))
-            .filter_map(|decorator| {
-                (task_decorator_has_time_limit(decorator) == Some(false)).then(|| {
-                    Finding::new(
-                        "Celery task has no time_limit/soft_time_limit; a hung task occupies its worker slot forever instead of being killed and retried",
-                        decorator.span(),
-                    )
-                })
+            .filter(|decorator| task_decorator_has_time_limit(decorator) == Some(false))
+            .map(|decorator| {
+                Finding::new(
+                    "Celery task has no time_limit/soft_time_limit; a hung task occupies its worker slot forever instead of being killed and retried",
+                    decorator.span(),
+                )
             })
             .collect()
     }

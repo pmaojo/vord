@@ -72,15 +72,19 @@ impl Rule for JwtNoneAlgorithmRule {
         if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             let trimmed = line.trim_start();
             if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with('*') {
                 continue;
             }
             if JWT_NONE_ALGORITHM.is_match(line) {
-                let line_no = (idx + 1) as u32;
                 findings.push(Finding::new(
                     "JWT algorithm set to the literal \"none\", disabling signature verification; a forged unsigned token would be accepted",
                     Span::new(line_no, 1, line_no, line.len().max(1) as u32),

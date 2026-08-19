@@ -189,7 +189,15 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
             Severity::Major,
         ),
         (rule("rust:env-var-read-in-library-code"), Severity::Minor),
-        (rule("rust:missing-doc-on-public-item"), Severity::Minor),
+        // rust:missing-doc-on-public-item deliberately NOT wired into the
+        // default baseline: it's a documentation-completeness convention,
+        // not a correctness/security concern, and most Rust codebases
+        // (including vord's own — 391 findings on self-scan, more than
+        // every other rule in this batch combined) don't follow a
+        // doc-comment-on-every-public-item convention. Loud-by-design
+        // rules like this belong in an opt-in profile a project chooses,
+        // not the always-on curated default. The rule itself still ships
+        // and can be activated explicitly via `vord.toml`.
         (rule("rust:inconsistent-error-type"), Severity::Minor),
         (rule("rust:missing-result-handling"), Severity::Major),
         // rulesets/code-smells — applies_to rust only.

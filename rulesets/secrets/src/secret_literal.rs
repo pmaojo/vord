@@ -148,7 +148,10 @@ mod tests {
     fn recognizes_real_secrets() {
         let stripe_shaped = ["sk_live_4eC39", "HqLyjW", "Darj", "tT1zdp", "7dc"].concat();
         assert!(looks_like_real_secret(&stripe_shaped));
-        assert!(looks_like_real_secret("aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy"));
+        assert!(looks_like_real_secret(concat!(
+            "aG3n7Zq9Lm2XpW5v",
+            "Bt8FhKc1RdSy"
+        )));
     }
 
     #[test]

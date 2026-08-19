@@ -83,14 +83,14 @@ impl Rule for UnverifiedJwtRule {
                     || call_text.contains("verify=false")
                     || call_text.contains("verify_signature") && call_text.contains("False")
                     || call_text.contains("algorithms=[\"none\"]")
-                    || call_text.contains("algorithms=['none']"))
+                    || call_text.contains("algorithms=['none']")) // vord-ignore: owasp:jwt-uses-none-algorithm — detection pattern, not a live JWT config
             {
                 is_vulnerable = true;
             }
 
             if is_ts
                 && (call_text.contains("algorithms:[\"none\"]")
-                    || call_text.contains("algorithms:['none']"))
+                    || call_text.contains("algorithms:['none']")) // vord-ignore: owasp:jwt-uses-none-algorithm — detection pattern, not a live JWT config
             {
                 is_vulnerable = true;
             }

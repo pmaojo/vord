@@ -76,15 +76,15 @@ fn walk(node: &AstNode, in_with_clause: bool, scope_text: &str, out: &mut Vec<Fi
 
     if !in_with_clause && node.kind() == &NodeKind::Assignment {
         if let (Some(target), Some(value)) = (node.children().first(), node.children().last()) {
-            if target.kind() == &NodeKind::Identifier && is_popen_call(value) {
-                if !scope_has_closing_call(scope_text, target.text())
-                    && !scope_returns(scope_text, target.text())
-                {
-                    out.push(Finding::new(
-                        "subprocess.Popen result is never waited on, communicated with, or terminated; use it as a `with` context manager, or call .wait()/.communicate() so the child process doesn't leak",
-                        node.span(),
-                    ));
-                }
+            if target.kind() == &NodeKind::Identifier
+                && is_popen_call(value)
+                && !scope_has_closing_call(scope_text, target.text())
+                && !scope_returns(scope_text, target.text())
+            {
+                out.push(Finding::new(
+                    "subprocess.Popen result is never waited on, communicated with, or terminated; use it as a `with` context manager, or call .wait()/.communicate() so the child process doesn't leak",
+                    node.span(),
+                ));
             }
         }
     }

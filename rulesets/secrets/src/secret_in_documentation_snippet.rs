@@ -97,6 +97,13 @@ impl Rule for SecretInDocumentationSnippetRule {
 mod tests {
     use super::*;
 
+    // Split at compile time (`concat!` joins them back into one &str) so
+    // this fixture never appears in source as one long high-entropy
+    // literal — secret scanners on this repo's own CI (GitGuardian) would
+    // otherwise flag it as a real leaked credential.
+    const FAKE_TOKEN: &str = concat!("aG3n7Zq9Lm2XpW5v", "Bt8FhKc1RdSy");
+    const FAKE_KEY: &str = concat!("Xk9pQz2mWv7RtYc", "4Ln8B");
+
     fn check(path: &str, code: &str) -> Vec<Finding> {
         let file = SourceFile::new(path, code, LanguageIdentifier::html()).unwrap();
         let ast = AstNode::new(
@@ -110,14 +117,14 @@ mod tests {
 
     #[test]
     fn flags_real_secret_in_fenced_block_in_md() {
-        let code = "# Setup\n\n```bash\nexport API_TOKEN=aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\n```\n";
-        assert_eq!(check("README.md", code).len(), 1);
+        let code = format!("# Setup\n\n```bash\nexport API_TOKEN={FAKE_TOKEN}\n```\n");
+        assert_eq!(check("README.md", &code).len(), 1);
     }
 
     #[test]
     fn flags_real_secret_in_fenced_block_in_mdx() {
-        let code = "```js\nconst apiKey = \"Xk9pQz2mWv7RtYc4Ln8B\";\n```\n";
-        assert_eq!(check("guide.mdx", code).len(), 1);
+        let code = format!("```js\nconst apiKey = \"{FAKE_KEY}\";\n```\n");
+        assert_eq!(check("guide.mdx", &code).len(), 1);
     }
 
     #[test]
@@ -128,14 +135,14 @@ mod tests {
 
     #[test]
     fn ignores_secret_outside_fenced_block() {
-        let code = "The token `API_TOKEN=aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy` is just prose here.\n";
+        let code = format!("The token `API_TOKEN={FAKE_TOKEN}` is just prose here.\n");
         // Outside a fenced block, so not treated as a documentation snippet.
-        assert!(check("README.md", code).is_empty());
+        assert!(check("README.md", &code).is_empty());
     }
 
     #[test]
     fn ignores_non_markdown_files() {
-        let code = "```bash\nexport API_TOKEN=aG3n7Zq9Lm2XpW5vBt8FhKc1RdSy\n```\n";
-        assert!(check("notes.txt", code).is_empty());
+        let code = format!("```bash\nexport API_TOKEN={FAKE_TOKEN}\n```\n");
+        assert!(check("notes.txt", &code).is_empty());
     }
 }

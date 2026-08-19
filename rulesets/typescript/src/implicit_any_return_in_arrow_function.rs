@@ -29,8 +29,7 @@ fn is_untyped_arrow(func: &AstNode) -> bool {
     if func.text().contains("):") {
         return false;
     }
-    let params_untyped = func
-        .children()
+    func.children()
         .iter()
         .find(|c| is_other(c, "formal_parameters"))
         .is_none_or(|params| {
@@ -38,8 +37,7 @@ fn is_untyped_arrow(func: &AstNode) -> bool {
                 (is_other(p, "required_parameter") || is_other(p, "optional_parameter"))
                     && !p.children().iter().any(|c| is_other(c, "type_annotation"))
             })
-        });
-    params_untyped
+        })
 }
 
 /// Collects only the `export`ed variable declarator(s) themselves —
