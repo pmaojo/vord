@@ -1,7 +1,7 @@
 [project]
 key = "vord-core-platform"
 name = "vord — The Ultraperformant Code Analysis Platform"
-version = "0.13.0"
+version = "0.13.4"
 
 [analysis]
 sources = ["bin", "core", "infra", "parsers", "rulesets"]

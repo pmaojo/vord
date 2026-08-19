@@ -123,7 +123,12 @@ impl Rule for EnvVarReadInLibraryCodeRule {
 
     fn check(&self, file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
         let path = file.path();
-        if path.contains("src/bin/") || path.ends_with("main.rs") || path.contains("/bin/") {
+        if path.contains("src/bin/")
+            || path.ends_with("main.rs")
+            || path.contains("/bin/")
+            || path.ends_with("build.rs")
+            || vord_rules_engine::is_test_only_path(path)
+        {
             return Vec::new();
         }
 
@@ -203,6 +208,32 @@ mod tests {
             check_with_path(
                 "src/main.rs",
                 "fn connect() { let _ = std::env::var(\"X\"); }\n"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn ignores_env_var_in_build_rs() {
+        // A crate's `build.rs` is its own composition root — Cargo runs it
+        // once per build with no caller to thread a value down from, and
+        // reading `PROFILE`/`TARGET`/`OUT_DIR`-style vars there is the
+        // idiomatic (often only) way to configure the build.
+        assert!(
+            check_with_path("build.rs", "fn main() {}\nfn helper() { let _ = std::env::var(\"TARGET\"); }\n")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn ignores_env_var_in_integration_test_file() {
+        // `tests/util.rs`-style helpers aren't under `#[cfg(test)]` (that
+        // exemption only covers same-file test modules), but the whole
+        // `tests/` directory is test-only code by convention.
+        assert!(
+            check_with_path(
+                "tests/util.rs",
+                "fn setup() { let _ = std::env::var(\"RUST_LOG\"); }\n"
             )
             .is_empty()
         );

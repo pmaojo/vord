@@ -59,8 +59,19 @@ fn unescape_common(s: &str) -> String {
 }
 
 /// Strips one layer of matching quote characters (`"`, `'`, `` ` ``) so
-/// entropy is computed over the literal's value, not its syntax.
+/// entropy is computed over the literal's value, not its syntax. Also
+/// drops a Rust byte/raw-string prefix (`b"..."`, `r"..."`, `br"..."`,
+/// `rb"..."`) first — those aren't part of the value either, and left in
+/// place they'd make an exact-match check like
+/// [`looks_like_known_charset_alphabet`] never fire on the byte-string
+/// constants that's the common way to declare a fixed alphabet.
 fn strip_quotes(s: &str) -> &str {
+    let s = s
+        .strip_prefix("br")
+        .or_else(|| s.strip_prefix("rb"))
+        .or_else(|| s.strip_prefix('b'))
+        .or_else(|| s.strip_prefix('r'))
+        .unwrap_or(s);
     let bytes = s.as_bytes();
     if bytes.len() >= 2 {
         let first = bytes[0];
@@ -96,6 +107,27 @@ fn looks_like_uuid(s: &str) -> bool {
 /// CSS variables (`var(--...)`) can have high entropy but are not secrets.
 fn looks_like_css_variable(s: &str) -> bool {
     s.starts_with("var(--") && s.ends_with(')')
+}
+
+/// The handful of well-known fixed alphabets a hand-rolled encoder/decoder
+/// declares as a constant (`const ALPHABET: &[u8] = b"ABC...";`). These are
+/// deliberately high-entropy — that's the whole point of an alphabet meant
+/// to cover the input's character space evenly — but they're publicly
+/// documented constants, not a private value.
+fn looks_like_known_charset_alphabet(s: &str) -> bool {
+    const KNOWN_ALPHABETS: &[&str] = &[
+        // Base64 standard and URL-safe.
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+        // Base32 (RFC 4648) and z-base-32.
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
+        "ybndrfg8ejkmcpqxot1uwisza345h769",
+        // Base58 (Bitcoin/IPFS).
+        "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz",
+        // Base62.
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+    ];
+    KNOWN_ALPHABETS.contains(&s)
 }
 
 /// Tailwind's arbitrary-value/arbitrary-variant syntax packs a CSS selector
@@ -159,6 +191,17 @@ fn looks_like_sql_or_query_fragment(s: &str) -> bool {
     has_method_call && has_namespace
 }
 
+/// A regex pattern — `(?im-u)^\s*excludesfile\s*=\s*"?\s*(\S+?)\s*"?\s*$` —
+/// rather than a secret. Character-class escapes (`\s`, `\d`, `\w`, ...)
+/// combined with anchors/quantifiers/groups are not a shape any real token
+/// encoding (base64, hex, base62) produces, but they read as high-entropy
+/// noise to a charset-frequency count.
+fn looks_like_regex_pattern(s: &str) -> bool {
+    const CLASS_ESCAPES: &[&str] = &["\\s", "\\S", "\\d", "\\D", "\\w", "\\W", "\\b", "\\B"];
+    const REGEX_SYNTAX: &[char] = &['^', '$', '(', ')', '?', '*', '+', '|'];
+    CLASS_ESCAPES.iter().any(|e| s.contains(e)) && s.chars().any(|c| REGEX_SYNTAX.contains(&c))
+}
+
 /// HTTP header values and MIME type strings — `application/json`,
 /// `text/html; charset=utf-8`, `multipart/form-data; boundary=...` — are
 /// not secrets.
@@ -213,8 +256,15 @@ fn looks_like_format_template(s: &str) -> bool {
 /// `_-:.,` structural punctuation. Requiring a digit or a symbol outside
 /// that structural set filters most of that prose out while keeping actual
 /// token shapes (base64 uses `+/=`, hex/base62 tokens carry digits, etc).
+///
+/// `=` is in the structural set even though base64 padding uses it too: a
+/// real token has at most one or two trailing `=` and, being random, will
+/// still carry a digit almost certainly, so `has_digit` alone still catches
+/// it. What `=` filters out is `key=value`/build-directive syntax —
+/// `cargo:rustc-link-arg-bin=rg=/MANIFEST:EMBED` — which repeats `=` as
+/// plain code punctuation and has no digit to fall back on.
 fn has_secret_like_charset(s: &str) -> bool {
-    const STRUCTURAL: &[u8] = b"_-:.,/@()";
+    const STRUCTURAL: &[u8] = b"_-:.,/@()=";
     let has_digit = s.bytes().any(|b| b.is_ascii_digit());
     let has_symbol = s
         .bytes()
@@ -241,7 +291,8 @@ fn is_word_like_segment(s: &str) -> bool {
 
 /// A structured identifier — a rule id (`a11y:missing-lang-attribute`), a
 /// model name (`claude-sonnet-4-5-20250929`), a dotted accessor path
-/// (`.choices[0].message.content`) — rather than a secret.
+/// (`.choices[0].message.content`), a glob pattern
+/// (`docker-compose.*.yml`) — rather than a secret.
 ///
 /// [`has_secret_like_charset`] alone lets all three through, because each
 /// contains a digit, and that is the only signal it asks for. What
@@ -250,9 +301,12 @@ fn is_word_like_segment(s: &str) -> bool {
 /// random token is one unbroken run (or, for a prefixed key like
 /// `sk-proj-<random>`, a couple of short words followed by a long run
 /// that is not a word). So: two or more segments, every one of them
-/// word-like.
+/// word-like. `*` is a delimiter, not a word character: a real token
+/// never contains a literal wildcard, so treating it as a separator
+/// (rather than requiring it be part of some word-like segment) still
+/// only ever recognizes glob syntax, never loosens the token check.
 fn looks_like_delimited_identifier(s: &str) -> bool {
-    const DELIMITERS: &[char] = &['-', '_', ':', '.', ',', '[', ']', '/', '@'];
+    const DELIMITERS: &[char] = &['-', '_', ':', '.', ',', '[', ']', '/', '@', '*'];
     let segments: Vec<&str> = s
         .split(DELIMITERS)
         .filter(|part| !part.is_empty())
@@ -369,9 +423,11 @@ impl Rule for HighEntropyStringRule {
                 || looks_like_format_template(value)
                 || looks_like_delimited_identifier(value)
                 || looks_like_css_variable(value)
+                || looks_like_known_charset_alphabet(value)
                 || looks_like_tailwind_arbitrary_value(value)
                 || looks_like_sql_or_query_fragment(value)
                 || looks_like_http_or_mime_value(value)
+                || looks_like_regex_pattern(value)
             {
                 continue;
             }
@@ -638,6 +694,49 @@ mod tests {
             let code = format!("const c = \"{class}\";\n");
             assert!(check_ts(&code).is_empty(), "flagged tailwind class {class}");
         }
+    }
+
+    #[test]
+    fn ignores_key_value_build_directives() {
+        // From ripgrep's build.rs: `=` repeated as plain code punctuation,
+        // no digit anywhere, so only the (now-structural) `=` made it read
+        // as high entropy before.
+        assert!(
+            check_ts("const s = \"cargo:rustc-link-arg-bin=rg=/MANIFEST:EMBED\";\n").is_empty()
+        );
+    }
+
+    #[test]
+    fn ignores_regex_patterns() {
+        // From ripgrep's gitignore.rs.
+        assert!(check_ts(
+            r#"const re = "(?im-u)^\s*excludesfile\s*=\s*\"?\s*(\S+?)\s*\"?\s*$";
+"#
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn ignores_glob_patterns_with_wildcards() {
+        assert!(check_ts("const g = \"docker-compose.*.yml\";\n").is_empty());
+        assert!(check_ts("const g = \"*.terraform.lock.hcl\";\n").is_empty());
+    }
+
+    #[test]
+    fn strip_quotes_drops_byte_and_raw_string_prefixes() {
+        assert_eq!(strip_quotes(r#"b"abc""#), "abc");
+        assert_eq!(strip_quotes(r#"r"abc""#), "abc");
+        assert_eq!(strip_quotes(r#"br"abc""#), "abc");
+        assert_eq!(strip_quotes(r#"rb"abc""#), "abc");
+        assert_eq!(strip_quotes(r#""abc""#), "abc");
+    }
+
+    #[test]
+    fn ignores_known_charset_alphabet_constants() {
+        // Matches ripgrep's `const ALPHABET: &[u8] = b"ABC...+/";` shape
+        // once `strip_quotes` drops the `b` prefix.
+        let literal = "b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\"";
+        assert!(looks_like_known_charset_alphabet(strip_quotes(literal)));
     }
 
     #[test]
