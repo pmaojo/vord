@@ -113,9 +113,14 @@ impl Rule for OpenRedirectRule {
         if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             let trimmed_line = line.trim_start();
             if trimmed_line.starts_with("//")
                 || trimmed_line.starts_with('#')
@@ -135,7 +140,6 @@ impl Rule for OpenRedirectRule {
             }
 
             if flagged {
-                let line_no = (idx + 1) as u32;
                 findings.push(Finding::new(
                     "redirect target is built from user-controllable input rather than a hardcoded path; validate against an allowlist to prevent an open redirect",
                     Span::new(line_no, 1, line_no, line.len().max(1) as u32),

@@ -70,15 +70,19 @@ impl Rule for SessionIdInUrlRule {
         if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             let trimmed = line.trim_start();
             if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with('*') {
                 continue;
             }
             if SESSION_ID_IN_URL.is_match(line) {
-                let line_no = (idx + 1) as u32;
                 findings.push(Finding::new(
                     "session identifier embedded as a literal URL query parameter; carry it in a cookie instead to avoid leaking it via logs, history and the Referer header",
                     Span::new(line_no, 1, line_no, line.len().max(1) as u32),

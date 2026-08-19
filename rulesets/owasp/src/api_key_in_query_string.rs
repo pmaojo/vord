@@ -70,15 +70,19 @@ impl Rule for ApiKeyInQueryStringRule {
         if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             let trimmed = line.trim_start();
             if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with('*') {
                 continue;
             }
             if API_KEY_IN_QUERY.is_match(line) {
-                let line_no = (idx + 1) as u32;
                 findings.push(Finding::new(
                     "API key/token passed as a URL query-string parameter; it will leak via access logs, browser history and the Referer header — send it in a header instead",
                     Span::new(line_no, 1, line_no, line.len().max(1) as u32),

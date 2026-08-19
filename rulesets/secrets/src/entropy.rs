@@ -333,6 +333,13 @@ impl Rule for HighEntropyStringRule {
             || path.ends_with(".po")
             || path.ends_with(".pot")
             || path.contains("rulesets/secrets")
+            // Same rationale as the `rulesets/secrets` exclusion above:
+            // owasp's own detection rules (jwt-none-algorithm,
+            // session-id-in-url, open-redirect, api-key-in-query-string,
+            // logging-sensitive-data, ...) are dense with long regex
+            // pattern literals that read as high-entropy tokens without
+            // being credentials.
+            || path.contains("rulesets/owasp")
         {
             return Vec::new();
         }

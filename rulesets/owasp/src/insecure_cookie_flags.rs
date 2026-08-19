@@ -74,11 +74,26 @@ impl Rule for InsecureCookieFlagsRule {
         if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             let trimmed = line.trim_start();
             if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with('*') {
+                continue;
+            }
+            // A regex/pattern *definition* line — either the `Regex::new(`
+            // call itself, or (since this codebase always writes its regex
+            // patterns as raw string literals split across lines) the raw
+            // string line holding the pattern text, e.g. this rule's own
+            // `r#"...\.cookie\s*\(...`, which otherwise matches its own
+            // detector — the same self-referential blind spot
+            // `owasp:weak-crypto` guards against for its own pattern list.
+            if line.contains("Regex::new") || trimmed.starts_with("r#\"") || trimmed.starts_with("r\"") {
                 continue;
             }
             if !COOKIE_SETTER.is_match(line) {
@@ -94,7 +109,6 @@ impl Rule for InsecureCookieFlagsRule {
             let has_httponly = has_flag(line, "httponly") || has_flag(line, "http_only");
 
             if is_document_cookie || !has_secure || !has_httponly {
-                let line_no = (idx + 1) as u32;
                 findings.push(Finding::new(
                     "cookie set without both Secure and HttpOnly flags; without Secure it can travel over plaintext HTTP, without HttpOnly client-side script can read it",
                     Span::new(line_no, 1, line_no, line.len().max(1) as u32),

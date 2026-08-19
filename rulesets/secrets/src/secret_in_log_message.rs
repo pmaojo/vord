@@ -83,16 +83,20 @@ impl Rule for SecretInLogMessageRule {
         if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             let trimmed = line.trim_start();
             if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with('*') {
                 continue;
             }
 
             if LOG_CALL.is_match(line) && CREDENTIAL_KEYWORD.is_match(line) {
-                let line_no = (idx + 1) as u32;
                 findings.push(Finding::new(
                     "log/print statement appears to include a credential-named value; secrets logged this way end up in log aggregators and shipped log files",
                     Span::new(line_no, 1, line_no, line.len().max(1) as u32),

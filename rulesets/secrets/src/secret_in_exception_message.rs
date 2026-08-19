@@ -86,16 +86,30 @@ impl Rule for SecretInExceptionMessageRule {
         if vord_rules_engine::is_test_only_path(file.path()) {
             return Vec::new();
         }
+        let test_ranges = vord_rules_engine::rust_test_module_ranges(file.content());
 
         let mut findings = Vec::new();
         for (idx, line) in file.content().lines().enumerate() {
+            let line_no = (idx + 1) as u32;
+            if vord_rules_engine::in_ranges(&test_ranges, line_no) {
+                continue;
+            }
             let trimmed = line.trim_start();
             if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with('*') {
                 continue;
             }
+            // A rule/regex *definition* line — `RuleId::new("...secret...")`,
+            // `Regex::new(r"...token...").expect("valid regex")` — routinely
+            // combines `.expect(`/`.unwrap()` with a credential keyword
+            // that's part of a rule id or detection pattern, not a value
+            // ending up in a real panic/error message. Same self-referential
+            // blind spot `owasp:weak-crypto` guards against for its own
+            // pattern-list source.
+            if line.contains("RuleId::new") || line.contains("Regex::new") {
+                continue;
+            }
 
             if EXCEPTION_MARKER.is_match(line) && CREDENTIAL_KEYWORD.is_match(line) {
-                let line_no = (idx + 1) as u32;
                 findings.push(Finding::new(
                     "exception/error appears to embed a credential-named value in its message; secrets in error messages leak through stack traces and crash reporters",
                     Span::new(line_no, 1, line_no, line.len().max(1) as u32),
