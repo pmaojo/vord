@@ -3,12 +3,19 @@ use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
 use crate::common::is_other;
 
-/// Free functions and macros with a well-known, unconditionally fallible
-/// signature (`Result<_, _>`) where silently dropping the result is almost
-/// always a mistake: a failed write, rename, or directory creation fails
-/// silently instead of surfacing. Restricted to this narrow, unambiguous
-/// set rather than guessing from arbitrary method names, which would need
-/// real type information to avoid flagging infallible calls.
+/// Free functions with a well-known, unconditionally fallible signature
+/// (`Result<_, _>`) where silently dropping the result is almost always a
+/// mistake: a failed write, rename, or directory creation fails silently
+/// instead of surfacing. Restricted to this narrow, unambiguous set rather
+/// than guessing from arbitrary method names, which would need real type
+/// information to avoid flagging infallible calls.
+///
+/// `write!`/`writeln!` were deliberately dropped from this list: without
+/// type information there is no way to tell a genuinely fallible target
+/// (`io::Write`, e.g. a `File`) from the overwhelmingly common case of
+/// writing into a `String`/`fmt::Write` buffer, where `fmt::Result` can
+/// never actually be `Err`. Flagging both alike made most real-world hits
+/// noise rather than signal; `fs::*` has no such infallible case.
 fn is_fallible_bare_call(callee_text: &str) -> bool {
     const FS_MUTATORS: &[&str] = &[
         "fs::write",
@@ -22,20 +29,15 @@ fn is_fallible_bare_call(callee_text: &str) -> bool {
         "fs::set_permissions",
         "fs::hard_link",
     ];
-    if FS_MUTATORS.iter().any(|m| callee_text.ends_with(m)) {
-        return true;
-    }
-    let name = callee_text.trim_end_matches('!');
-    let name = name.rsplit("::").next().unwrap_or(name);
-    name == "write" || name == "writeln"
+    FS_MUTATORS.iter().any(|m| callee_text.ends_with(m))
 }
 
 /// A bare statement-position call (`foo();`, not `let x = foo();`,
 /// `foo()?;`, or `let _ = foo();` — those are different node shapes that
-/// this filter never matches) to a known-fallible operation silently drops
-/// its `Result`: a failed filesystem write or a `write!` that couldn't
-/// flush to a full buffer disappears without a trace. Propagate the error
-/// with `?`, handle it, or make the discard explicit with `let _ = ..`.
+/// this filter never matches) to a known-fallible filesystem operation
+/// silently drops its `Result`: a failed write, rename, or directory
+/// creation disappears without a trace. Propagate the error with `?`,
+/// handle it, or make the discard explicit with `let _ = ..`.
 pub struct MissingResultHandlingRule {
     id: RuleId,
 }
@@ -77,10 +79,10 @@ impl Rule for MissingResultHandlingRule {
 
     fn metadata(&self) -> vord_rules_engine::RuleMetadata {
         vord_rules_engine::RuleMetadata {
-            description: "A bare statement-position call to a known-fallible operation \
-                (`std::fs::write`, `write!`, ...) silently drops its `Result`; a failure \
-                disappears without a trace. Propagate the error with `?`, handle it, or make \
-                the discard explicit with `let _ = ..`."
+            description: "A bare statement-position call to a known-fallible filesystem \
+                operation (`std::fs::write`, `std::fs::rename`, ...) silently drops its \
+                `Result`; a failure disappears without a trace. Propagate the error with `?`, \
+                handle it, or make the discard explicit with `let _ = ..`."
                 .into(),
             tags: vec!["reliability".into(), "error-handling".into(), "rust".into()],
             cwe: Some(252),
@@ -139,9 +141,12 @@ mod tests {
     }
 
     #[test]
-    fn flags_bare_writeln_macro_statement() {
+    fn ignores_bare_writeln_macro_statement() {
+        // `write!`/`writeln!` are excluded: no type info to distinguish an
+        // infallible `fmt::Write` (e.g. `String`) target from a genuinely
+        // fallible `io::Write` one, and the former dominates in practice.
         let findings = check("fn f(w: &mut String) { writeln!(w, \"x\"); }\n");
-        assert_eq!(findings.len(), 1);
+        assert!(findings.is_empty());
     }
 
     #[test]
