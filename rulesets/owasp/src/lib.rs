@@ -2,7 +2,9 @@
 //! implementing [`vord_rules_engine::Rule`]; the engine never changes when
 //! rules are added (Open/Closed).
 
+mod api_key_in_query_string;
 mod command_exec;
+mod cors_credentials;
 mod cross_file_injection;
 mod custom_pattern;
 mod disabled_cert_validation;
@@ -11,15 +13,20 @@ mod eval_usage;
 mod hardcoded_jwt_secret;
 mod hardcoded_secret;
 mod injection;
+mod insecure_cookie_flags;
 mod insecure_deserialization;
 mod insecure_file_permissions;
 mod insecure_random;
+mod jwt_none_algorithm;
+mod logging_sensitive_data;
 mod nosql_injection;
+mod open_redirect;
 mod path_traversal;
 mod path_traversal_java;
 mod permissive_cors;
 mod post_message_wildcard;
 mod prototype_pollution;
+mod session_id_in_url;
 mod sql_injection_concat;
 mod ssrf;
 mod ssrf_unvalidated_url;
@@ -30,7 +37,9 @@ mod weak_crypto_hash;
 mod xss;
 mod xss_java;
 
+pub use api_key_in_query_string::ApiKeyInQueryStringRule;
 pub use command_exec::CommandExecHotspotRule;
+pub use cors_credentials::CorsCredentialsRule;
 pub use cross_file_injection::CrossFileInjectionRule;
 pub use custom_pattern::CustomPatternRule;
 pub use disabled_cert_validation::DisabledCertValidationRule;
@@ -39,15 +48,20 @@ pub use eval_usage::EvalUsageRule;
 pub use hardcoded_jwt_secret::HardcodedJwtSecretRule;
 pub use hardcoded_secret::HardcodedSecretRule;
 pub use injection::InjectionRule;
+pub use insecure_cookie_flags::InsecureCookieFlagsRule;
 pub use insecure_deserialization::InsecureDeserializationRule;
 pub use insecure_file_permissions::InsecureFilePermissionsRule;
 pub use insecure_random::InsecureRandomRule;
+pub use jwt_none_algorithm::JwtNoneAlgorithmRule;
+pub use logging_sensitive_data::LoggingSensitiveDataRule;
 pub use nosql_injection::NoSqlInjectionRule;
+pub use open_redirect::OpenRedirectRule;
 pub use path_traversal::PathTraversalRule;
 pub use path_traversal_java::PathTraversalJavaRule;
 pub use permissive_cors::PermissiveCorsRule;
 pub use post_message_wildcard::PostMessageWildcardRule;
 pub use prototype_pollution::PrototypePollutionRule;
+pub use session_id_in_url::SessionIdInUrlRule;
 pub use sql_injection_concat::SqlInjectionConcatRule;
 pub use ssrf::SsrfRule;
 pub use ssrf_unvalidated_url::SsrfUnvalidatedUrlRule;
@@ -88,6 +102,13 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(SqlInjectionConcatRule::new()),
         Box::new(HardcodedJwtSecretRule::new()),
         Box::new(WeakCryptoHashRule::new()),
+        Box::new(InsecureCookieFlagsRule::new()),
+        Box::new(SessionIdInUrlRule::new()),
+        Box::new(LoggingSensitiveDataRule::new()),
+        Box::new(JwtNoneAlgorithmRule::new()),
+        Box::new(ApiKeyInQueryStringRule::new()),
+        Box::new(OpenRedirectRule::new()),
+        Box::new(CorsCredentialsRule::new()),
     ]
 }
 

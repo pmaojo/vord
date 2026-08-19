@@ -136,7 +136,7 @@ vord/
 │   ├── treesitter-python/
 │   ├── treesitter-go/
 │   └── ...                     # 20 more: c, cpp, csharp, java, kotlin, ruby, php, swift, scala, ...
-├── rulesets/                   # PLUGINS implementing the Rule trait — 244 rules, 18 crates
+├── rulesets/                   # PLUGINS implementing the Rule trait — 328 rules, 18 crates
 │   ├── owasp/                  # secrets, eval/exec, command-exec hotspots, taint injection (incl. cross-file)
 │   ├── code-smells/            # SOLID (see below), complexity (cyclomatic + cognitive), TODO/FIXME, long functions
 │   ├── architecture/           # hexagonal layering, framework purity, import cycles, Martin component metrics
@@ -225,7 +225,7 @@ Every command below works against an installed binary too — replace
 cargo run -p vord-cli                  # no args, in a terminal: interactive wizard
                                         # (scope: whole repo / branch diff / path — then
                                         # agent prompt, guided remediation, or CI install)
-cargo test --workspace                 # unit (fakes), fixtures, e2e — ~2400 tests
+cargo test --workspace                 # unit (fakes), fixtures, e2e — ~2600 tests
 cargo run -p vord-cli -- scan fixtures # real scan: a small multi-language fixture set, rules + taint + CPD + complexity
 cargo run -p vord-cli -- scan fixtures --format json
 cargo run -p vord-cli -- scan fixtures --fail-on critical      # exit 2 on severity breach

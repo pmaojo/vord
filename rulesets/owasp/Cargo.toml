@@ -14,6 +14,7 @@ categories.workspace = true
 vord-ast = { workspace = true }
 vord-rules-engine = { workspace = true }
 vord-taint = { workspace = true }
+regex = "1"
 
 [dev-dependencies]
 vord-parser-typescript = { workspace = true }

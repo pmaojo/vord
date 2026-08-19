@@ -3988,6 +3988,7 @@ dependencies = [
 name = "vord-rules-owasp"
 version = "0.13.1"
 dependencies = [
+ "regex",
  "vord-ast",
  "vord-parser-go",
  "vord-parser-java",

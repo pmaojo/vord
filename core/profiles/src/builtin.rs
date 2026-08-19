@@ -106,6 +106,26 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("smells:commented-out-code"), Severity::Minor),
         (rule("smells:select-star"), Severity::Minor),
         (rule("smells:db-call-in-loop"), Severity::Major),
+        // rulesets/secrets — contextual secret-exposure rules (dotenv files,
+        // log/exception messages, test fixtures, config examples, docs),
+        // all applies_to true for every language.
+        (rule("secrets:dotenv-file-committed"), Severity::Major),
+        (rule("secrets:secret-in-log-message"), Severity::Major),
+        (rule("secrets:secret-in-exception-message"), Severity::Major),
+        (rule("secrets:secret-in-test-fixture"), Severity::Minor),
+        (rule("secrets:secret-in-config-example"), Severity::Blocker),
+        (
+            rule("secrets:secret-in-documentation-snippet"),
+            Severity::Major,
+        ),
+        // rulesets/owasp — additional language-agnostic checks, all
+        // applies_to true for every language.
+        (rule("owasp:insecure-cookie-flags"), Severity::Major),
+        (rule("owasp:session-id-in-url"), Severity::Major),
+        (rule("owasp:logging-sensitive-data"), Severity::Major),
+        (rule("owasp:jwt-uses-none-algorithm"), Severity::Blocker),
+        (rule("owasp:api-key-in-query-string"), Severity::Major),
+        (rule("owasp:open-redirect"), Severity::Major),
     ]
 }
 
@@ -115,6 +135,17 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
 /// it except Rust's.
 fn permissive_cors() -> (RuleId, Severity) {
     (rule("owasp:permissive-cors"), Severity::Major)
+}
+
+/// `owasp:cors-all-origins-and-credentials` applies to every language except
+/// Rust (`rulesets/owasp/src/cors_credentials.rs`'s `applies_to` is
+/// `*lang != LanguageIdentifier::rust()`) — every curated set below adds it
+/// except Rust's, same exclusion as `permissive_cors`.
+fn cors_all_origins_and_credentials() -> (RuleId, Severity) {
+    (
+        rule("owasp:cors-all-origins-and-credentials"),
+        Severity::Critical,
+    )
 }
 
 fn rust_activations() -> Vec<(RuleId, Severity)> {
@@ -146,6 +177,29 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
         (rule("rust:disallow-panic-macros"), Severity::Major),
         (rule("rust:unchecked-convergence-bool"), Severity::Major),
         (rule("rust:route-without-test-coverage"), Severity::Major),
+        // rulesets/rust — batch 2 additions, all applies_to rust only.
+        (rule("rust:blocking-io-in-async"), Severity::Major),
+        (rule("rust:mutex-locked-in-drop"), Severity::Major),
+        (rule("rust:rc-used-in-multithread-context"), Severity::Major),
+        (rule("rust:derive-clone-on-large-struct"), Severity::Minor),
+        (rule("rust:unsafe-block-leaks-abstraction"), Severity::Major),
+        (rule("rust:unused-lifetime-parameter"), Severity::Minor),
+        (
+            rule("rust:format-string-runtime-constructed"),
+            Severity::Major,
+        ),
+        (rule("rust:env-var-read-in-library-code"), Severity::Minor),
+        // rust:missing-doc-on-public-item deliberately NOT wired into the
+        // default baseline: it's a documentation-completeness convention,
+        // not a correctness/security concern, and most Rust codebases
+        // (including vord's own — 391 findings on self-scan, more than
+        // every other rule in this batch combined) don't follow a
+        // doc-comment-on-every-public-item convention. Loud-by-design
+        // rules like this belong in an opt-in profile a project chooses,
+        // not the always-on curated default. The rule itself still ships
+        // and can be activated explicitly via `vord.toml`.
+        (rule("rust:inconsistent-error-type"), Severity::Minor),
+        (rule("rust:missing-result-handling"), Severity::Major),
         // rulesets/code-smells — applies_to rust only.
         (rule("smells:unwrap-usage"), Severity::Major),
         // rulesets/code-smells — applies_to typescript/python/rust.
@@ -178,6 +232,7 @@ fn rust_activations() -> Vec<(RuleId, Severity)> {
 fn typescript_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.extend([
         // rulesets/owasp — applies_to typescript.
         (rule("owasp:xss"), Severity::Blocker),
@@ -268,10 +323,77 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
         ),
         (rule("typescript:prefer-array-at"), Severity::Minor),
         (rule("typescript:prefer-regexp-exec"), Severity::Minor),
+        (rule("typescript:redundant-type-assertion"), Severity::Minor),
+        // rulesets/typescript — batch 3 additions, all applies_to
+        // typescript only.
         (
-            rule("typescript:redundant-type-assertion"),
+            rule("typescript:missing-exhaustive-switch"),
             Severity::Minor,
         ),
+        (
+            rule("typescript:async-function-without-await"),
+            Severity::Minor,
+        ),
+        (rule("typescript:promise-not-awaited"), Severity::Major),
+        (
+            rule("typescript:ts-ignore-without-justification"),
+            Severity::Major,
+        ),
+        (
+            rule("typescript:non-null-assertion-overuse"),
+            Severity::Major,
+        ),
+        (
+            rule("typescript:broad-catch-with-unknown-error-type"),
+            Severity::Major,
+        ),
+        (
+            rule("typescript:namespace-usage-in-module-code"),
+            Severity::Minor,
+        ),
+        (rule("typescript:index-signature-overuse"), Severity::Minor),
+        (
+            rule("typescript:type-level-logic-too-complex"),
+            Severity::Major,
+        ),
+        (
+            rule("typescript:generic-type-unused-parameter"),
+            Severity::Minor,
+        ),
+        (
+            rule("typescript:implicit-any-on-rest-params"),
+            Severity::Major,
+        ),
+        (
+            rule("typescript:implicit-any-return-in-arrow-function"),
+            Severity::Minor,
+        ),
+        (rule("typescript:enum-stringly-typed"), Severity::Minor),
+        (
+            rule("typescript:promise-return-type-mismatch"),
+            Severity::Major,
+        ),
+        (
+            rule("typescript:unknown-not-narrowed-before-use"),
+            Severity::Major,
+        ),
+        (
+            rule("typescript:business-logic-in-type-guards"),
+            Severity::Minor,
+        ),
+        (
+            rule("typescript:interface-duplicated-structure"),
+            Severity::Minor,
+        ),
+        (
+            rule("typescript:type-alias-overused-for-naming-only"),
+            Severity::Info,
+        ),
+        (
+            rule("typescript:optional-chaining-on-definite-values"),
+            Severity::Info,
+        ),
+        (rule("typescript:unbound-this-in-method"), Severity::Major),
         // rulesets/ai-agent — applies_to typescript/python.
         (rule("ai:llm-output-injection"), Severity::Blocker),
         // rulesets/architecture — per-file hexagonal purity check.
@@ -302,6 +424,7 @@ fn typescript_activations() -> Vec<(RuleId, Severity)> {
 fn python_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.extend([
         // rulesets/owasp — applies_to python.
         (rule("owasp:eval-usage"), Severity::Critical),
@@ -358,6 +481,82 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
         (rule("python:raise-generic-exception"), Severity::Minor),
         (rule("python:raise-without-from-in-except"), Severity::Minor),
         (rule("python:unused-loop-variable"), Severity::Minor),
+        // rulesets/python — batch 4 additions, all applies_to python only.
+        // Real ids/severities verified against each rule's source file —
+        // several were renamed during FP-hardening (noted where relevant).
+        (rule("python:print-debug-left-in-code"), Severity::Minor),
+        (rule("python:logging-logger-root-usage"), Severity::Minor),
+        (rule("python:django-debug-true"), Severity::Blocker),
+        (rule("python:flask-secret-key-hardcoded"), Severity::Blocker),
+        // rulesets/python — real id ended up
+        // `sqlalchemy-raw-sql-without-bind`
+        // (`sqlalchemy_text_without_bind.rs`).
+        (
+            rule("python:sqlalchemy-raw-sql-without-bind"),
+            Severity::Blocker,
+        ),
+        (
+            rule("python:paramiko-insecure-host-key-policy"),
+            Severity::Critical,
+        ),
+        (rule("python:requests-verify-false"), Severity::Critical),
+        (
+            rule("python:pickle-load-untrusted-data"),
+            Severity::Critical,
+        ),
+        (
+            rule("python:async-function-with-sync-blocking-call"),
+            Severity::Major,
+        ),
+        (rule("python:threading-mixed-with-asyncio"), Severity::Major),
+        (
+            rule("python:mutable-default-in-dataclass-field"),
+            Severity::Major,
+        ),
+        (rule("python:global-mutable-singleton"), Severity::Major),
+        (rule("python:celery-task-missing-timeout"), Severity::Minor),
+        (rule("python:os-system-usage"), Severity::Critical),
+        (
+            rule("python:subprocess-popen-without-close"),
+            Severity::Major,
+        ),
+        // rulesets/python — real id ended up
+        // `missing-context-manager-for-resource`
+        // (`resource_opened_without_context_manager.rs`).
+        (
+            rule("python:missing-context-manager-for-resource"),
+            Severity::Major,
+        ),
+        (
+            rule("python:temporary-file-with-static-name"),
+            Severity::Major,
+        ),
+        (
+            rule("python:django-queryset-evaluated-in-loop"),
+            Severity::Major,
+        ),
+        (rule("python:hardcoded-local-path"), Severity::Major),
+        (
+            rule("python:unsafe-random-module-for-security"),
+            Severity::Critical,
+        ),
+        // rulesets/python — real id ended up
+        // `type-hint-mismatch-implementation`
+        // (`type_hint_none_return_mismatch.rs`).
+        (
+            rule("python:type-hint-mismatch-implementation"),
+            Severity::Major,
+        ),
+        (
+            rule("python:exception-swallowed-pass-only"),
+            Severity::Minor,
+        ),
+        (
+            rule("python:missing-docstring-on-public-api"),
+            Severity::Minor,
+        ),
+        (rule("python:numpy-float-comparison-eq"), Severity::Major),
+        (rule("python:pandas-chained-assignment"), Severity::Major),
         // rulesets/ai-agent — applies_to typescript/python.
         (rule("ai:llm-output-injection"), Severity::Blocker),
         // rulesets/architecture — per-file hexagonal purity check.
@@ -388,6 +587,7 @@ fn python_activations() -> Vec<(RuleId, Severity)> {
 fn php_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.extend([
         // rulesets/owasp — applies_to php (in addition to python/java/ruby).
         (rule("owasp:insecure-deserialization"), Severity::Critical),
@@ -436,6 +636,7 @@ fn php_activations() -> Vec<(RuleId, Severity)> {
 fn go_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.push((rule("owasp:disabled-cert-validation"), Severity::Critical));
     activations.extend([
         // rulesets/go — all applies_to go only.
@@ -473,6 +674,7 @@ fn go_activations() -> Vec<(RuleId, Severity)> {
 fn java_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.push((rule("owasp:insecure-deserialization"), Severity::Critical));
     activations.push((rule("owasp:xss-java"), Severity::Blocker));
     activations.push((rule("owasp:path-traversal-java"), Severity::Blocker));
@@ -482,6 +684,7 @@ fn java_activations() -> Vec<(RuleId, Severity)> {
 fn ruby_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.push((rule("owasp:insecure-deserialization"), Severity::Critical));
     activations
 }
@@ -489,6 +692,7 @@ fn ruby_activations() -> Vec<(RuleId, Severity)> {
 fn dockerfile_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.push((rule("owasp:dockerfile-root-user"), Severity::Critical));
     activations
 }
@@ -496,6 +700,7 @@ fn dockerfile_activations() -> Vec<(RuleId, Severity)> {
 fn html_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.extend([
         // rulesets/a11y — applies_to html.
         (rule("a11y:missing-lang-attribute"), Severity::Minor),
@@ -510,6 +715,7 @@ fn html_activations() -> Vec<(RuleId, Severity)> {
 fn iac_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations.extend([
         (rule("iac:open-ingress-cidr"), Severity::Critical),
         (rule("iac:iam-wildcard-permission"), Severity::Major),
@@ -525,6 +731,7 @@ fn iac_activations() -> Vec<(RuleId, Severity)> {
 fn generic_language_activations() -> Vec<(RuleId, Severity)> {
     let mut activations = generic_activations();
     activations.push(permissive_cors());
+    activations.push(cors_all_origins_and_credentials());
     activations
 }
 
@@ -694,5 +901,80 @@ mod tests {
         // permissive-cors applies everywhere except Rust, and other
         // languages activate it, so it's present in the union too.
         assert!(combined.is_active(&RuleId::new("owasp:permissive-cors").unwrap()));
+    }
+
+    #[test]
+    fn generic_baseline_activates_the_new_secrets_and_owasp_rules() {
+        let profile = default_profile_for_language("python");
+        assert_eq!(
+            profile.severity_of(&RuleId::new("secrets:secret-in-config-example").unwrap()),
+            Some(Severity::Blocker)
+        );
+        assert_eq!(
+            profile.severity_of(&RuleId::new("owasp:jwt-uses-none-algorithm").unwrap()),
+            Some(Severity::Blocker)
+        );
+        assert!(profile.is_active(&RuleId::new("secrets:dotenv-file-committed").unwrap()));
+        assert!(profile.is_active(&RuleId::new("owasp:open-redirect").unwrap()));
+    }
+
+    #[test]
+    fn cors_all_origins_and_credentials_applies_everywhere_except_rust() {
+        let rust = default_profile_for_language("rust");
+        assert!(!rust.is_active(&RuleId::new("owasp:cors-all-origins-and-credentials").unwrap()));
+        let python = default_profile_for_language("python");
+        assert_eq!(
+            python.severity_of(&RuleId::new("owasp:cors-all-origins-and-credentials").unwrap()),
+            Some(Severity::Critical)
+        );
+    }
+
+    #[test]
+    fn rust_profile_activates_batch_2_rust_rules_at_their_real_default_severity() {
+        let profile = default_profile_for_language("rust");
+        assert_eq!(
+            profile.severity_of(&RuleId::new("rust:missing-result-handling").unwrap()),
+            Some(Severity::Major)
+        );
+        assert_eq!(
+            profile.severity_of(&RuleId::new("rust:derive-clone-on-large-struct").unwrap()),
+            Some(Severity::Minor)
+        );
+        assert!(profile.is_active(&RuleId::new("rust:mutex-locked-in-drop").unwrap()));
+        assert!(!profile.is_active(&RuleId::new("typescript:promise-not-awaited").unwrap()));
+    }
+
+    #[test]
+    fn typescript_profile_activates_batch_3_typescript_rules() {
+        let profile = default_profile_for_language("typescript");
+        assert_eq!(
+            profile.severity_of(&RuleId::new("typescript:promise-not-awaited").unwrap()),
+            Some(Severity::Major)
+        );
+        assert_eq!(
+            profile.severity_of(
+                &RuleId::new("typescript:type-alias-overused-for-naming-only").unwrap()
+            ),
+            Some(Severity::Info)
+        );
+        assert!(!profile.is_active(&RuleId::new("rust:missing-result-handling").unwrap()));
+    }
+
+    #[test]
+    fn python_profile_activates_batch_4_python_rules_with_real_ids() {
+        let profile = default_profile_for_language("python");
+        assert_eq!(
+            profile.severity_of(&RuleId::new("python:django-debug-true").unwrap()),
+            Some(Severity::Blocker)
+        );
+        // Renamed during FP-hardening from the wishlist names.
+        assert!(profile.is_active(&RuleId::new("python:sqlalchemy-raw-sql-without-bind").unwrap()));
+        assert!(
+            profile.is_active(&RuleId::new("python:missing-context-manager-for-resource").unwrap())
+        );
+        assert!(
+            profile.is_active(&RuleId::new("python:type-hint-mismatch-implementation").unwrap())
+        );
+        assert!(!profile.is_active(&RuleId::new("typescript:promise-not-awaited").unwrap()));
     }
 }

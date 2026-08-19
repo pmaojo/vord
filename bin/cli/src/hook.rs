@@ -1682,7 +1682,7 @@ pub async fn judge(
     // pre-write content: by the time a write has landed (`PostToolUse`,
     // `hook check`), disk already matches `content` and the diff is empty.
     if let Some(content) = content {
-        let old_content = std::fs::read_to_string(file).ok();
+        let old_content = tokio::fs::read_to_string(file).await.ok();
         if let Some(old) = old_content.as_deref() {
             let old_findings = analyze_content(root, &relative, old).await?;
             drop_preexisting_findings(&mut findings, &old_findings);
@@ -2029,7 +2029,7 @@ async fn claude_code_verdict(raw: &str) -> anyhow::Result<(Verdict, LoopGuardRep
     // already on disk, so disk is the truth.
     let content = match payload.hook_event_name.as_str() {
         "PreToolUse" => proposed_content(&payload.tool_name, &payload.tool_input, &file),
-        _ => std::fs::read_to_string(&file).ok(),
+        _ => tokio::fs::read_to_string(&file).await.ok(),
     };
 
     let relative = relative_to(&root, &file);
@@ -2065,7 +2065,7 @@ pub async fn run_check(
         return Ok(std::process::ExitCode::SUCCESS);
     }
 
-    let content = std::fs::read_to_string(&file).ok();
+    let content = tokio::fs::read_to_string(&file).await.ok();
     let relative = relative_to(&root, &file);
     let loop_report = track_loop_guard(&root, &relative, content.as_deref());
     let verdict = judge(&policy, &root, &file, content.as_deref()).await?;
