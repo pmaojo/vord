@@ -642,7 +642,7 @@ pub async fn remediate_issue(
         )
     })?;
 
-    let source_code = std::fs::read_to_string(&path)?;
+    let source_code = tokio::fs::read_to_string(&path).await?;
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let language = vord_ast::LanguageIdentifier::from_extension(ext)
         .ok_or_else(|| anyhow::anyhow!("unrecognized file extension for {}", path.display()))?;
