@@ -7,6 +7,5 @@
   "homepage": "https://github.com/pmaojo/vord",
   "repository": "https://github.com/pmaojo/vord",
   "license": "MIT",
-  "keywords": ["static-analysis", "security", "guardrail", "agent-policy", "rust"],
-  "hooks": "./hooks/hooks.json"
+  "keywords": ["static-analysis", "security", "guardrail", "agent-policy", "rust"]
 }
