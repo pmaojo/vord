@@ -29,6 +29,7 @@ mod i18n_hardcoded_fallback;
 mod inline_prop_function_in_component;
 mod jsx_img_missing_alt;
 mod jsx_no_script_url;
+mod jsx_ternary_null;
 mod lazy_state_init;
 mod missing_list_key;
 mod no_async_client_component;
@@ -68,6 +69,7 @@ pub use i18n_hardcoded_fallback::I18nHardcodedFallbackRule;
 pub use inline_prop_function_in_component::InlinePropFunctionInComponentRule;
 pub use jsx_img_missing_alt::JsxImgMissingAltRule;
 pub use jsx_no_script_url::JsxNoScriptUrlRule;
+pub use jsx_ternary_null::JsxTernaryNullRule;
 pub use lazy_state_init::LazyStateInitRule;
 pub use missing_list_key::MissingListKeyRule;
 pub use no_async_client_component::NoAsyncClientComponentRule;
@@ -119,6 +121,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(EventHandlerPrefixRule::new()),
         Box::new(NoNestedComponentsRule::new()),
         Box::new(NoUselessFragmentRule::new()),
+        Box::new(JsxTernaryNullRule::new()),
         Box::new(NoUselessMemoRule::new()),
         Box::new(NoUnstableDefaultPropsRule::new()),
         Box::new(NoAsyncClientComponentRule::new()),
