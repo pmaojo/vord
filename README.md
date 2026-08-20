@@ -100,6 +100,15 @@ an evidence report instead of the code itself. Its GAUNTLET step composes
 with vord's own gate — see "Using this with vord" at the end of that
 skill's `SKILL.md`.
 
+`skills/agent-dev-loop/` is a fourth: the end-to-end loop for a repository
+that pairs vord's write-time guardrail with [okf-mcp](https://github.com/pmaojo/okf-mcp)
+as durable cross-session memory — recover context via `memory_search` before
+planning, agree a spec with `spec_propose` before code, decompose into a
+`spec_tasks` dependency graph, work RED→GREEN under the guardrail, and close
+each task only once `memory_patch` accepts an `## Evidencia` section backed
+by real command output. Use it at the start of any session in such a
+repository, before reading code or planning work.
+
 ## Topology
 
 The directory structure *is* the architecture — nested workspace globs define the boundaries:
