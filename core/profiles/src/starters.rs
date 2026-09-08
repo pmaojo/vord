@@ -48,6 +48,7 @@ fn vite_react_own_activations() -> Vec<(RuleId, Severity)> {
         ),
         (rule("vite-react:hardcoded-base-url"), Severity::Major),
         (rule("vite-react:tailwind-space-between"), Severity::Minor),
+        (rule("vite-react:tailwind-redundant-size"), Severity::Minor),
     ]
 }
 
@@ -165,6 +166,10 @@ mod tests {
         );
         assert_eq!(
             profile.severity_of(&RuleId::new("vite-react:tailwind-space-between").unwrap()),
+            Some(Severity::Minor)
+        );
+        assert_eq!(
+            profile.severity_of(&RuleId::new("vite-react:tailwind-redundant-size").unwrap()),
             Some(Severity::Minor)
         );
     }
