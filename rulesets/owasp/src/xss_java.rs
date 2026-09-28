@@ -2,38 +2,21 @@
 //! without HTML-encoding — the classic Java reflected XSS pattern in the
 //! OWASP Benchmark (and real-world servlets).
 //!
-//! Strategy: first check whether the file contains any servlet user-input
-//! method (`request.getParameter`, `request.getHeader`, etc.) — if it does,
-//! the file is a servlet processing user input. Then flag every
-//! `response.getWriter().write/print/println/format/append` call in that
-//! file as a potential XSS sink, since user input may flow into it across
-//! lines (the benchmark separates extraction and writing).
+//! Strategy: intra-file value flow ([`ServletTaint`]) — a finding is
+//! reported only when user-controlled data actually reaches a response
+//! writer sink. Sinks cover `response.getWriter()`/`getOutputStream()`
+//! chains (`write`/`print`/`println`/`printf`/`format`/`append`) and
+//! variables previously assigned a response writer. HTML/JS/URL encoders
+//! (`ESAPI.encoder().encodeForHTML(…)`, `Encode.forHtml(…)`, …) cleanse
+//! the flow.
 
-use vord_ast::{AstNode, LanguageIdentifier, SourceFile};
+use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
-/// Servlet `HttpServletResponse.getWriter()` writer methods that write
-/// content straight into the HTTP response body.
-const RESPONSE_WRITER_METHODS: &[&str] = &[
-    ".getWriter().write(",
-    ".getWriter().print(",
-    ".getWriter().println(",
-    ".getWriter().format(",
-    ".getWriter().append(",
-];
+use crate::java_servlet_taint::{split_call, ServletTaint};
 
-/// Servlet request methods that introduce user-controlled data.
-const USER_INPUT_PATTERNS: &[&str] = &[
-    "request.getParameter(",
-    "request.getHeader(",
-    "request.getHeaders(",
-    "request.getQueryString(",
-    "request.getCookies(",
-    "request.getReader(",
-    "request.getInputStream(",
-    "request.getPathInfo(",
-    "request.getRemoteUser(",
-];
+/// Writer methods that write content into the HTTP response body.
+const WRITER_METHODS: &[&str] = &["write", "print", "println", "printf", "format", "append"];
 
 pub struct XssJavaRule {
     id: RuleId,
@@ -70,6 +53,10 @@ impl Rule for XssJavaRule {
         IssueType::Vulnerability
     }
 
+    fn remediation_effort_minutes(&self) -> u32 {
+        10
+    }
+
     fn metadata(&self) -> vord_rules_engine::RuleMetadata {
         vord_rules_engine::RuleMetadata {
             description: "Untrusted user input reaches a servlet response writer, which can lead to Cross-Site Scripting (XSS). Ensure all user-controlled values written to the HTTP response are properly HTML-encoded (e.g. using ESAPI.encoder().encodeForHTML(...)).".into(),
@@ -79,93 +66,114 @@ impl Rule for XssJavaRule {
         }
     }
 
-    fn check(&self, file: &SourceFile, _ast: &AstNode) -> Vec<Finding> {
-        let content = file.content();
-        // First pass: does this file contain servlet user-input patterns?
-        let has_user_input = USER_INPUT_PATTERNS.iter().any(|p| content.contains(p));
-        if !has_user_input {
-            return Vec::new();
-        }
-
-        // Second pass: flag every response-writer sink in this servlet.
-        let mut findings = Vec::new();
-        for (idx, line) in content.lines().enumerate() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.is_empty() {
-                continue;
-            }
-            if RESPONSE_WRITER_METHODS.iter().any(|m| line.contains(m)) {
-                findings.push(Finding::new(
-                    "user input from a servlet request reaches response.getWriter() without HTML-encoding — this is a reflected XSS vulnerability",
-                    vord_ast::Span::new(
-                        (idx + 1) as u32, 1,
-                        (idx + 1) as u32,
-                        line.len().max(1) as u32,
-                    ),
-                ));
-            }
-        }
-        findings
+    fn check(&self, _file: &SourceFile, ast: &AstNode) -> Vec<Finding> {
+        let state = ServletTaint::analyze(ast);
+        ast.descendants()
+            .filter(|n| *n.kind() == NodeKind::Call)
+            .filter_map(|node| {
+                let call = split_call(node)?;
+                if !WRITER_METHODS.contains(&call.method.as_str()) {
+                    return None;
+                }
+                if !state.is_response_writer(call.receiver.unwrap_or(node)) {
+                    return None;
+                }
+                let tainted_arg = call.args.iter().any(|arg| state.is_tainted(arg));
+                tainted_arg.then(|| {
+                    Finding::new(
+                        "user input from a servlet request reaches response.getWriter() without HTML-encoding — this is a reflected XSS vulnerability",
+                        node.span(),
+                    )
+                })
+            })
+            .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use vord_ast::SourceFile;
+    use vord_rules_engine::AstParser;
+
     use super::*;
-    use vord_ast::NodeKind;
 
-    #[test]
-    fn flags_response_writer_in_servlet_with_user_input() {
-        // Realistic benchmark pattern: user input on one line, writer on another.
-        let code = r#"String param = request.getHeader("vector");
-response.getWriter().format(param, new Object[] {});
-"#;
+    fn check(code: &str) -> Vec<Finding> {
         let file = SourceFile::new("Test.java", code, LanguageIdentifier::java()).unwrap();
-        let ast = AstNode::new(
-            NodeKind::SourceUnit,
-            vord_ast::Span::new(1, 1, 2, code.len() as u32),
-            code, vec![],
-        );
-        let findings = XssJavaRule::new().check(&file, &ast);
-        assert_eq!(findings.len(), 1, "should flag getWriter().format in a servlet");
+        let ast = vord_parser_java::JavaParser::new().parse(&file).unwrap();
+        XssJavaRule::new().check(&file, &ast)
     }
 
     #[test]
-    fn flags_response_writer_write_with_request_parameter() {
-        let code = r#"String param = request.getParameter("name");
-response.getWriter().write(param);
-"#;
-        let file = SourceFile::new("Test.java", code, LanguageIdentifier::java()).unwrap();
-        let ast = AstNode::new(
-            NodeKind::SourceUnit,
-            vord_ast::Span::new(1, 1, 2, code.len() as u32),
-            code, vec![],
+    fn flags_direct_parameter_written_to_getwriter() {
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n String param = request.getParameter(\"name\");\n response.getWriter().write(param);\n} }",
         );
-        let findings = XssJavaRule::new().check(&file, &ast);
-        assert!(!findings.is_empty(), "should flag getWriter().write");
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]
-    fn allows_plain_writer_without_user_input() {
-        let code = "response.getWriter().write(\"Hello, world\");\n";
-        let file = SourceFile::new("Test.java", code, LanguageIdentifier::java()).unwrap();
-        let ast = AstNode::new(
-            NodeKind::SourceUnit,
-            vord_ast::Span::new(1, 1, 1, code.len() as u32),
-            code, vec![],
+    fn flags_printf_sink_with_tainted_argument() {
+        // The OWASP `printf(Locale, …)` family: the format sink differs but
+        // the taint story is the same.
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n String bar = request.getParameter(\"vector\");\n Object[] obj = { \"a\", \"b\" };\n response.getWriter().printf(java.util.Locale.US, bar, obj);\n} }",
         );
-        assert!(XssJavaRule::new().check(&file, &ast).is_empty());
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]
-    fn does_not_flag_non_servlet_file() {
-        let code = "System.out.println(\"hello\");\n";
-        let file = SourceFile::new("Utility.java", code, LanguageIdentifier::java()).unwrap();
-        let ast = AstNode::new(
-            NodeKind::SourceUnit,
-            vord_ast::Span::new(1, 1, 1, code.len() as u32),
-            code, vec![],
+    fn flags_taint_through_list_get_after_remove() {
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n String param = request.getParameter(\"vector\");\n java.util.List<String> valuesList = new java.util.ArrayList<String>();\n valuesList.add(\"safe\");\n valuesList.add(param);\n valuesList.remove(0);\n String bar = valuesList.get(0);\n response.getWriter().format(\"x %s\", bar);\n} }",
         );
-        assert!(XssJavaRule::new().check(&file, &ast).is_empty());
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn allows_list_get_of_safe_element() {
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n String param = request.getParameter(\"vector\");\n java.util.List<String> valuesList = new java.util.ArrayList<String>();\n valuesList.add(\"safe\");\n valuesList.add(param);\n valuesList.add(\"moresafe\");\n valuesList.remove(0);\n String bar = valuesList.get(1);\n response.getWriter().format(\"x %s\", bar);\n} }",
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn allows_encoded_output() {
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n String param = request.getParameter(\"name\");\n response.getWriter().write(org.owasp.esapi.ESAPI.encoder().encodeForHTML(param));\n} }",
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn allows_constant_output() {
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n response.getWriter().println(\"constant text\");\n} }",
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn allows_constant_true_ternary_value() {
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n String param = request.getParameter(\"vector\");\n int num = 106;\n String bar = (7*18) + num > 200 ? \"This_should_always_happen\" : param;\n response.getWriter().write(bar);\n} }",
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn flags_printwriter_variable_assigned_from_getwriter() {
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n String param = request.getParameter(\"name\");\n java.io.PrintWriter out = response.getWriter();\n out.write(param);\n} }",
+        );
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn flags_string_builder_flow() {
+        let findings = check(
+            "class T { void f(HttpServletRequest request, HttpServletResponse response) {\n String param = request.getParameter(\"name\");\n StringBuilder sb = new StringBuilder();\n sb.append(\"x\");\n sb.append(param);\n response.getWriter().write(sb.toString());\n} }",
+        );
+        assert_eq!(findings.len(), 1);
     }
 }

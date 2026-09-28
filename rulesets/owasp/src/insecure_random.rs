@@ -25,7 +25,9 @@ impl Rule for InsecureRandomRule {
     }
 
     fn applies_to(&self, language: &LanguageIdentifier) -> bool {
-        *language == LanguageIdentifier::typescript() || *language == LanguageIdentifier::python()
+        *language == LanguageIdentifier::typescript()
+            || *language == LanguageIdentifier::python()
+            || *language == LanguageIdentifier::java()
     }
 
     fn default_severity(&self) -> Severity {
@@ -48,8 +50,9 @@ impl Rule for InsecureRandomRule {
     fn check(&self, file: &SourceFile, _ast: &AstNode) -> Vec<Finding> {
         let is_python = *file.language() == LanguageIdentifier::python();
         let is_ts = *file.language() == LanguageIdentifier::typescript();
+        let is_java = *file.language() == LanguageIdentifier::java();
 
-        if !is_python && !is_ts {
+        if !is_python && !is_ts && !is_java {
             return vec![];
         }
 
@@ -65,6 +68,27 @@ impl Rule for InsecureRandomRule {
                 if line.contains("Math.random") {
                     findings.push(Finding::new(
                         "Math.random() is not cryptographically secure. Prefer crypto.getRandomValues() or crypto.randomBytes()",
+                        vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    ));
+                }
+            } else if is_java {
+                // `new java.util.Random(...)` / `new Random(...)` and
+                // `java.lang.Math.random()` are not cryptographically
+                // secure; `new SecureRandom(...)` is the safe alternative
+                // (its text never matches these markers).
+                if line.contains("new java.util.Random(")
+                    || line.contains("new Random(")
+                    || line.contains("java.util.Random().")
+                {
+                    findings.push(Finding::new(
+                        "java.util.Random is not cryptographically secure. Prefer java.security.SecureRandom.",
+                        vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
+                    ));
+                } else if line.contains("java.lang.Math.random()")
+                    || line.contains("Math.random()")
+                {
+                    findings.push(Finding::new(
+                        "java.lang.Math.random() is not cryptographically secure. Prefer java.security.SecureRandom.",
                         vord_ast::Span::new((idx + 1) as u32, 1, (idx + 1) as u32, line.len().max(1) as u32),
                     ));
                 }

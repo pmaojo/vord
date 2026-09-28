@@ -1,6 +1,8 @@
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
 use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity};
 
+use crate::java_servlet_taint::{split_call, ServletTaint};
+
 const TS_SINKS: &[&str] = &["exec", "execSync", "spawn", "spawnSync"];
 
 /// Security hotspot: constructing OS commands is security-sensitive and
@@ -58,6 +60,9 @@ impl Rule for CommandExecHotspotRule {
         let python = *file.language() == LanguageIdentifier::python();
         let ts = *file.language() == LanguageIdentifier::typescript();
         let java = *file.language() == LanguageIdentifier::java();
+        if java {
+            return java_command_findings(ast);
+        }
         // `exec`/`execSync` collide head-on with `RegExp.prototype.exec` —
         // an extremely common, entirely harmless call (`pattern.exec(str)`)
         // that just happens to share the method name. Bare-name matching
@@ -88,11 +93,7 @@ impl Rule for CommandExecHotspotRule {
                             .find(|c| *c.kind() == NodeKind::Identifier)
                             .is_some_and(|ident| TS_SINKS.contains(&ident.text())),
                         _ => false,
-                    })
-                    // Java: Runtime.exec(...) / ProcessBuilder .command()/.start().
-                    // Uses .exec( and ProcessBuilder to avoid flagging harmless
-                    // Runtime.getRuntime() calls like .freeMemory() or .availableProcessors().
-                    || (java && (text.contains(".exec(") || text.contains("ProcessBuilder")));
+                    });
                 sensitive.then(|| {
                     Finding::hotspot(
                         "make sure this OS command and its arguments are safe here",
@@ -102,6 +103,48 @@ impl Rule for CommandExecHotspotRule {
             })
             .collect()
     }
+}
+
+/// Java command execution is judged by value flow, not call shape: the
+/// neutral AST's Java `Call` nodes carry the receiver as `first_child`, so
+/// the old substring match on `".exec("` could not see
+/// `Runtime.getRuntime().exec(…)` at all. A finding is reported only when
+/// untrusted data actually reaches the command — a constant `exec("ls")`
+/// is not a finding. Because the taint analysis *proves* the user-input
+/// flow (unlike the context-blind hotspot other languages get), these are
+/// real issues, not review hotspots.
+fn java_command_findings(ast: &AstNode) -> Vec<Finding> {
+    let state = ServletTaint::analyze(ast);
+    ast.descendants()
+        .filter(|n| *n.kind() == NodeKind::Call)
+        .filter_map(|node| {
+            let call = split_call(node)?;
+            let tainted_args = call.args.iter().any(|arg| state.is_tainted(arg));
+            let sensitive = if call.is_new {
+                call.type_text.ends_with("ProcessBuilder") && tainted_args
+            } else {
+                match call.method.as_str() {
+                    "exec" => tainted_args,
+                    "command" => {
+                        tainted_args
+                            || call
+                                .receiver
+                                .is_some_and(|r| state.is_tainted_command_builder(r) || state.is_tainted(r))
+                    }
+                    "start" => call
+                        .receiver
+                        .is_some_and(|r| state.is_tainted_command_builder(r)),
+                    _ => false,
+                }
+            };
+            sensitive.then(|| {
+                Finding::new(
+                    "user input from a servlet request reaches an OS command without validation — this is a Command Injection vulnerability",
+                    node.span(),
+                )
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -169,5 +212,58 @@ mod tests {
             .parse(&file)
             .unwrap();
         assert_eq!(CommandExecHotspotRule::new().check(&file, &ast).len(), 1);
+    }
+
+    fn check_java(code: &str) -> Vec<Finding> {
+        let file = SourceFile::new("T.java", code, LanguageIdentifier::java()).unwrap();
+        let ast = vord_parser_java::JavaParser::new().parse(&file).unwrap();
+        CommandExecHotspotRule::new().check(&file, &ast)
+    }
+
+    #[test]
+    fn flags_runtime_exec_with_tainted_argument() {
+        let findings = check_java(
+            "class T { void f(HttpServletRequest request) throws Exception {
+ String bar = request.getParameter(\"cmd\");
+ Runtime.getRuntime().exec(bar);
+} }",
+        );
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn flags_process_builder_command_with_tainted_list() {
+        let findings = check_java(
+            "class T { void f(HttpServletRequest request) throws Exception {
+ String param = request.getParameter(\"cmd\");
+ java.util.List<String> argList = new java.util.ArrayList<String>();
+ argList.add(\"echo \" + param);
+ ProcessBuilder pb = new ProcessBuilder();
+ pb.command(argList);
+ Process p = pb.start();
+} }",
+        );
+        assert_eq!(findings.len(), 2, "command(…) and start() both report");
+    }
+
+    #[test]
+    fn allows_constant_command() {
+        let findings = check_java(
+            "class T { void f(HttpServletRequest request) throws Exception {
+ Runtime.getRuntime().exec(\"ls\");
+} }",
+        );
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn allows_process_builder_with_constant_command() {
+        let findings = check_java(
+            "class T { void f() throws Exception {
+ ProcessBuilder pb = new ProcessBuilder(\"ls\", \"-l\");
+ pb.start();
+} }",
+        );
+        assert!(findings.is_empty());
     }
 }
