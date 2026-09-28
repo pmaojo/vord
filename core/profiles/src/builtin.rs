@@ -69,6 +69,7 @@ fn generic_activations() -> Vec<(RuleId, Severity)> {
         (rule("owasp:weak-crypto"), Severity::Critical),
         (rule("owasp:hardcoded-secret"), Severity::Blocker),
         (rule("owasp:command-execution"), Severity::Major),
+        (rule("owasp:insecure-random"), Severity::Major),
         // rulesets/owasp — cross-file rule, runs once per scan.
         (rule("owasp:cross-file-injection"), Severity::Blocker),
         (rule("smells:ck-oo-metrics"), Severity::Major),
@@ -678,6 +679,13 @@ fn java_activations() -> Vec<(RuleId, Severity)> {
     activations.push((rule("owasp:insecure-deserialization"), Severity::Critical));
     activations.push((rule("owasp:xss-java"), Severity::Blocker));
     activations.push((rule("owasp:path-traversal-java"), Severity::Blocker));
+    // Servlet value-flow rules (the OWASP Benchmark categories).
+    activations.push((rule("owasp:sql-injection-java"), Severity::Blocker));
+    activations.push((rule("owasp:ldap-injection-java"), Severity::Blocker));
+    activations.push((rule("owasp:xpath-injection-java"), Severity::Blocker));
+    activations.push((rule("owasp:weak-hash-java"), Severity::Major));
+    activations.push((rule("owasp:insecure-cookie-java"), Severity::Major));
+    activations.push((rule("owasp:trust-boundary-java"), Severity::Major));
     activations
 }
 

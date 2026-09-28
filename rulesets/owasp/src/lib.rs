@@ -14,10 +14,13 @@ mod hardcoded_jwt_secret;
 mod hardcoded_secret;
 mod injection;
 mod insecure_cookie_flags;
+mod insecure_cookie_java;
 mod insecure_deserialization;
 mod insecure_file_permissions;
 mod insecure_random;
+mod java_servlet_taint;
 mod jwt_none_algorithm;
+mod ldap_injection_java;
 mod logging_sensitive_data;
 mod nosql_injection;
 mod open_redirect;
@@ -28,12 +31,16 @@ mod post_message_wildcard;
 mod prototype_pollution;
 mod session_id_in_url;
 mod sql_injection_concat;
+mod sql_injection_java;
 mod ssrf;
 mod ssrf_unvalidated_url;
 mod timing_attack;
+mod trust_boundary_java;
 mod unverified_jwt;
 mod weak_crypto;
 mod weak_crypto_hash;
+mod weak_hash_java;
+mod xpath_injection_java;
 mod xss;
 mod xss_java;
 
@@ -49,10 +56,12 @@ pub use hardcoded_jwt_secret::HardcodedJwtSecretRule;
 pub use hardcoded_secret::HardcodedSecretRule;
 pub use injection::InjectionRule;
 pub use insecure_cookie_flags::InsecureCookieFlagsRule;
+pub use insecure_cookie_java::InsecureCookieJavaRule;
 pub use insecure_deserialization::InsecureDeserializationRule;
 pub use insecure_file_permissions::InsecureFilePermissionsRule;
 pub use insecure_random::InsecureRandomRule;
 pub use jwt_none_algorithm::JwtNoneAlgorithmRule;
+pub use ldap_injection_java::LdapInjectionJavaRule;
 pub use logging_sensitive_data::LoggingSensitiveDataRule;
 pub use nosql_injection::NoSqlInjectionRule;
 pub use open_redirect::OpenRedirectRule;
@@ -63,12 +72,16 @@ pub use post_message_wildcard::PostMessageWildcardRule;
 pub use prototype_pollution::PrototypePollutionRule;
 pub use session_id_in_url::SessionIdInUrlRule;
 pub use sql_injection_concat::SqlInjectionConcatRule;
+pub use sql_injection_java::SqlInjectionJavaRule;
 pub use ssrf::SsrfRule;
 pub use ssrf_unvalidated_url::SsrfUnvalidatedUrlRule;
 pub use timing_attack::TimingAttackRule;
+pub use trust_boundary_java::TrustBoundaryJavaRule;
 pub use unverified_jwt::UnverifiedJwtRule;
 pub use weak_crypto::WeakCryptoRule;
 pub use weak_crypto_hash::WeakCryptoHashRule;
+pub use weak_hash_java::WeakHashJavaRule;
+pub use xpath_injection_java::XPathInjectionJavaRule;
 pub use xss::XssRule;
 pub use xss_java::XssJavaRule;
 
@@ -102,6 +115,13 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(SqlInjectionConcatRule::new()),
         Box::new(HardcodedJwtSecretRule::new()),
         Box::new(WeakCryptoHashRule::new()),
+        // Java servlet value-flow rules (OWASP Benchmark families).
+        Box::new(SqlInjectionJavaRule::new()),
+        Box::new(WeakHashJavaRule::new()),
+        Box::new(LdapInjectionJavaRule::new()),
+        Box::new(XPathInjectionJavaRule::new()),
+        Box::new(InsecureCookieJavaRule::new()),
+        Box::new(TrustBoundaryJavaRule::new()),
         Box::new(InsecureCookieFlagsRule::new()),
         Box::new(SessionIdInUrlRule::new()),
         Box::new(LoggingSensitiveDataRule::new()),

@@ -227,6 +227,93 @@ def evaluate(ground_truth: dict, vord_findings: dict[int, list[dict]]):
 
 
 # ---------------------------------------------------------------------------
+# Category-matched scoring (OWASP BenchmarkScore semantics)
+# ---------------------------------------------------------------------------
+#
+# The legacy metric above counts a test case as "flagged" when *any* vord
+# finding lands on its file — including code smells and findings about a
+# different CWE. OWASP's own BenchmarkScore maps each tool alert to a CWE
+# category and only counts an alert for a test case when the alert's
+# category matches the test's: an XSS alert is not a claim that a command
+# injection test case is vulnerable, and `smells:long-function` is not a
+# security alert at all. RULE_CATEGORY is that mapping for vord rules.
+
+RULE_CATEGORY = {
+    "owasp:xss": "xss",
+    "owasp:xss-java": "xss",
+    "owasp:path-traversal": "pathtraver",
+    "owasp:path-traversal-java": "pathtraver",
+    "owasp:command-execution": "cmdi",
+    "owasp:injection": "cmdi",
+    "owasp:eval-usage": "cmdi",
+    "owasp:sql-injection-java": "sqli",
+    "owasp:sql-injection-concat": "sqli",
+    "owasp:nosql-injection": "sqli",
+    "owasp:weak-hash-java": "hash",
+    "owasp:weak-crypto-hash": "hash",
+    "owasp:weak-crypto": "crypto",
+    "owasp:ldap-injection-java": "ldapi",
+    "owasp:xpath-injection-java": "xpathi",
+    "owasp:insecure-cookie-java": "securecookie",
+    "owasp:trust-boundary-java": "trustbound",
+    "owasp:insecure-random": "weakrand",
+}
+
+
+def evaluate_cwe_matched(ground_truth: dict, vord_findings: dict[int, list[dict]]):
+    """Confusion matrices where only category-matching findings count."""
+    cat_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"TP": 0, "FP": 0, "TN": 0, "FN": 0, "total": 0}
+    )
+    for tc, label in ground_truth.items():
+        category = label["category"] or "unknown"
+        is_vuln = label["is_vulnerable"]
+        is_flagged = any(
+            RULE_CATEGORY.get(f.get("rule", "")) == category
+            for f in vord_findings.get(tc, [])
+        )
+        stats = cat_stats[category]
+        stats["total"] += 1
+        if is_vuln and is_flagged:
+            stats["TP"] += 1
+        elif not is_vuln and is_flagged:
+            stats["FP"] += 1
+        elif not is_vuln and not is_flagged:
+            stats["TN"] += 1
+        else:
+            stats["FN"] += 1
+
+    def metrics(tp, fp, tn, fn):
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall / (precision + recall)
+              if (precision + recall) > 0 else 0.0)
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+        return {
+            "confusion_matrix": {"TP": tp, "FP": fp, "TN": tn, "FN": fn},
+            "precision_pct": round(precision * 100, 2),
+            "recall_pct": round(recall * 100, 2),
+            "f1_pct": round(f1 * 100, 2),
+            "fpr_pct": round(fpr * 100, 2),
+        }
+
+    categories = {}
+    gtp = gfp = gtn = gfn = 0
+    for cat, s in sorted(cat_stats.items()):
+        m = metrics(s["TP"], s["FP"], s["TN"], s["FN"])
+        m["total"] = s["total"]
+        categories[cat] = m
+        gtp += s["TP"]
+        gfp += s["FP"]
+        gtn += s["TN"]
+        gfn += s["FN"]
+
+    global_metrics = metrics(gtp, gfp, gtn, gfn)
+    global_metrics["total_test_cases"] = len(ground_truth)
+    return {"global": global_metrics, "by_category": categories}
+
+
+# ---------------------------------------------------------------------------
 # Hardware metadata
 # ---------------------------------------------------------------------------
 
@@ -313,6 +400,39 @@ def generate_markdown(results: dict, hardware: dict, duration: float, loc: int) 
             f"| {s['precision_pct']}% | {s['recall_pct']}% | {s['f1_pct']}% |"
         )
 
+    cm = results.get("category_matched", {})
+    if cm:
+        g2 = cm["global"]
+        c2 = g2["confusion_matrix"]
+        lines += [
+            "",
+            "## Category-Matched Results (OWASP BenchmarkScore semantics)",
+            "",
+            "A test case counts as flagged only when the finding's rule maps to that",
+            "test's CWE category (see RULE_CATEGORY) — an XSS alert is not a claim",
+            "about a command-injection test case, and code smells are not security alerts.",
+            "",
+            "| Metric | Value |",
+            "|---|---|",
+            f"| True Positives (TP) | {c2['TP']} |",
+            f"| False Positives (FP) | {c2['FP']} |",
+            f"| True Negatives (TN) | {c2['TN']} |",
+            f"| False Negatives (FN) | {c2['FN']} |",
+            f"| **Precision** | **{g2['precision_pct']}%** |",
+            f"| **Recall** | **{g2['recall_pct']}%** |",
+            f"| **F1 Score** | **{g2['f1_pct']}%** |",
+            f"| False Positive Rate | {g2['fpr_pct']}% |",
+            "",
+            "| Category | Total | TP | FP | TN | FN | Precision | Recall | F1 |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+        for cat, s in cm.get("by_category", {}).items():
+            c = s["confusion_matrix"]
+            lines.append(
+                f"| {cat} | {s['total']} | {c['TP']} | {c['FP']} | {c['TN']} | {c['FN']} "
+                f"| {s['precision_pct']}% | {s['recall_pct']}% | {s['f1_pct']}% |"
+            )
+
     lines += [
         "",
         "## Rules Fired",
@@ -378,8 +498,9 @@ def main():
     vord_findings = map_findings_to_test_cases(issues)
     print(f"Mapped to {len(vord_findings)} test cases")
 
-    # Evaluate
+    # Evaluate (both scorings: legacy any-finding, and category-matched)
     results = evaluate(ground_truth, vord_findings)
+    results["category_matched"] = evaluate_cwe_matched(ground_truth, vord_findings)
     hardware = capture_hardware()
 
     # Print summary
@@ -395,6 +516,15 @@ def main():
     print(f"  F1 Score:       {g['f1_pct']}%")
     print(f"  False Pos Rate: {g['fpr_pct']}%")
     print(f"  Duration:       {duration:.1f}s")
+
+    cm_g = results["category_matched"]["global"]
+    cm_cm = cm_g["confusion_matrix"]
+    print(f"\n  — Category-matched scoring (OWASP BenchmarkScore semantics):")
+    print(f"  TP={cm_cm['TP']}  FP={cm_cm['FP']}  TN={cm_cm['TN']}  FN={cm_cm['FN']}")
+    print(f"  Precision:      {cm_g['precision_pct']}%")
+    print(f"  Recall:         {cm_g['recall_pct']}%")
+    print(f"  F1 Score:       {cm_g['f1_pct']}%")
+    print(f"  False Pos Rate: {cm_g['fpr_pct']}%")
 
     # Save results
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
