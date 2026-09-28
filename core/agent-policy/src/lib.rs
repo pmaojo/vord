@@ -53,6 +53,13 @@ pub enum Cause {
     /// no `@covers(...)`-tagged Gherkin scenario for it — no AST finding
     /// needed, the same "deny on path alone" shape as `ProtectedPath`.
     MissingGherkinEvidence { pattern: String, reason: String },
+    /// A path matching `[[test_required]]` was written and the caller's
+    /// ledger has no passing test run recorded since — checked at session
+    /// end (`Stop`), never at the write itself: a single write cannot prove
+    /// a suite passed, only a completed run can. See
+    /// [`AgentPolicy::test_required_reason_for`] for why this crate only
+    /// supplies the glob match, never the run outcome.
+    UnprovenWrite { pattern: String, reason: String },
 }
 
 /// Whether a violation stops the write, merely annotates it, or blocks
@@ -108,6 +115,12 @@ impl Violation {
                 format!(
                     "no Gherkin scenario covers this path (required by `{pattern}`) — {reason} Tag a covering \
                      scenario with `@covers(<glob matching this path>)`."
+                )
+            }
+            (Cause::UnprovenWrite { pattern, reason }, _) => {
+                format!(
+                    "written but not proven (required by `{pattern}`) — {reason} Run the repository's test/\
+                     acceptance suite and let it pass before ending the session."
                 )
             }
             // A rule/threshold/escalation cause always carries the finding
@@ -285,6 +298,8 @@ struct PolicyFile {
     protected_paths: Vec<ProtectedPathSection>,
     #[serde(default, rename = "gherkin_required")]
     gherkin_required: Vec<GherkinRequiredSection>,
+    #[serde(default, rename = "test_required")]
+    test_required: Vec<TestRequiredSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -302,6 +317,8 @@ struct AgentSection {
     advisory_rules: Vec<String>,
     #[serde(default)]
     escalate_rules: Vec<String>,
+    #[serde(default = "default_test_command_patterns")]
+    test_command_patterns: Vec<String>,
 }
 
 impl Default for AgentSection {
@@ -313,6 +330,7 @@ impl Default for AgentSection {
             blocking_rules: default_blocking_rules(),
             advisory_rules: Vec::new(),
             escalate_rules: Vec::new(),
+            test_command_patterns: default_test_command_patterns(),
         }
     }
 }
@@ -358,12 +376,60 @@ struct GherkinRequiredSection {
     reason: String,
 }
 
+/// A glob under which an agent write is not considered proven until the
+/// repository's test/acceptance suite has run and passed since — checked at
+/// session end (`Stop`), not per-write, since no single write can attest a
+/// suite result. Off by default, same reasoning as `gherkin_required`: a bar
+/// this crate cannot itself verify is met (running a command is I/O, which
+/// this crate deliberately has none of) should never silently deny the
+/// moment vord is installed.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TestRequiredSection {
+    pattern: String,
+    reason: String,
+}
+
 fn default_enabled() -> bool {
     true
 }
 
 fn default_block_at_or_above() -> String {
     "critical".to_string()
+}
+
+/// Bash command substrings the caller (`bin/cli`, which alone reads
+/// `PostToolUse` payloads) treats as "the test/acceptance suite ran" for
+/// `[[test_required]]`'s evidence ledger. Matched case-insensitively as a
+/// substring of the executed command line, deliberately not as an exact
+/// match: `cargo test --workspace -- --nocapture` still contains `cargo
+/// test`. One entry per common ecosystem's default invocation; a repository
+/// with an unusual test command (a `Makefile` target, a wrapper script)
+/// overrides this list entirely via `test_command_patterns` rather than
+/// extending it, since there is no reliable way to guess every wrapper.
+fn default_test_command_patterns() -> Vec<String> {
+    [
+        "cargo test",
+        "cargo nextest",
+        "pytest",
+        "python -m pytest",
+        "npm test",
+        "npm run test",
+        "yarn test",
+        "pnpm test",
+        "go test",
+        "bundle exec rspec",
+        "rspec",
+        "cucumber",
+        "behave",
+        "mvn test",
+        "gradle test",
+        "./gradlew test",
+        "dotnet test",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 /// Rules an agent may never introduce, regardless of the severity the
@@ -402,6 +468,11 @@ pub struct AgentPolicy {
     /// Parallel to `gherkin_required`'s glob indices, same shape as
     /// `protected_meta`.
     gherkin_required_meta: Vec<(String, String)>,
+    test_required: GlobSet,
+    /// Parallel to `test_required`'s glob indices, same shape as
+    /// `protected_meta`.
+    test_required_meta: Vec<(String, String)>,
+    test_command_patterns: Vec<String>,
 }
 
 impl Default for AgentPolicy {
@@ -473,6 +544,21 @@ impl AgentPolicy {
                 source,
             })?;
 
+        let mut test_builder = GlobSetBuilder::new();
+        let mut test_required_meta = Vec::with_capacity(file.test_required.len());
+        for entry in &file.test_required {
+            let glob = Glob::new(&entry.pattern).map_err(|source| PolicyError::Glob {
+                pattern: entry.pattern.clone(),
+                source,
+            })?;
+            test_builder.add(glob);
+            test_required_meta.push((entry.pattern.clone(), entry.reason.clone()));
+        }
+        let test_required = test_builder.build().map_err(|source| PolicyError::Glob {
+            pattern: "<set>".to_string(),
+            source,
+        })?;
+
         Ok(Self {
             enabled: file.agent.enabled,
             block_at_or_above,
@@ -484,6 +570,9 @@ impl AgentPolicy {
             protected_meta,
             gherkin_required,
             gherkin_required_meta,
+            test_required,
+            test_required_meta,
+            test_command_patterns: file.agent.test_command_patterns,
         })
     }
 
@@ -632,6 +721,36 @@ impl AgentPolicy {
         evaluation
     }
 
+    /// Whether any `[[test_required]]` glob is configured at all — the
+    /// caller's cue to skip building an execution ledger entirely when the
+    /// repository hasn't opted in, same role [`Self::has_gherkin_requirements`]
+    /// plays for `.feature` scanning.
+    pub fn has_test_requirements(&self) -> bool {
+        !self.test_required_meta.is_empty()
+    }
+
+    /// The first `[[test_required]]` `(pattern, reason)` pair covering
+    /// `path`, if any. Purely a glob lookup — this crate has no ledger, no
+    /// clock, and no idea whether a test run actually happened; the caller
+    /// (`bin/cli`, which persists a "written since tests last passed" ledger
+    /// across `PostToolUse`/`Stop` invocations) uses this to decide which of
+    /// its pending paths are still policy-relevant before blocking `Stop`.
+    pub fn test_required_reason_for(&self, path: &str) -> Option<(&str, &str)> {
+        let normalised = path.replace('\\', "/");
+        let index = self.test_required.matches(&normalised).into_iter().next()?;
+        let (pattern, reason) = &self.test_required_meta[index];
+        Some((pattern.as_str(), reason.as_str()))
+    }
+
+    /// The Bash command substrings that count as "the test/acceptance suite
+    /// ran" for `[[test_required]]`'s evidence ledger — `[agent]`'s
+    /// `test_command_patterns`, or the built-in per-ecosystem defaults when
+    /// unset. This crate never runs a command itself; the caller matches a
+    /// `PostToolUse` Bash invocation's command line against this list.
+    pub fn test_command_patterns(&self) -> &[String] {
+        &self.test_command_patterns
+    }
+
     /// Layers a swarm role's [`RoleScope`] on top of this policy (roadmap
     /// B3), without re-parsing `vord-policy.toml`. Every field on
     /// `RoleScope` only *adds* restriction — there is deliberately no way to
@@ -692,6 +811,9 @@ impl AgentPolicy {
             protected_meta,
             gherkin_required: self.gherkin_required.clone(),
             gherkin_required_meta: self.gherkin_required_meta.clone(),
+            test_required: self.test_required.clone(),
+            test_required_meta: self.test_required_meta.clone(),
+            test_command_patterns: self.test_command_patterns.clone(),
         })
     }
 }
@@ -938,6 +1060,87 @@ reason = "x"
         let err = AgentPolicy::parse("[[gherkin_required]]\npattern = \"[\"\nreason = \"x\"\n")
             .unwrap_err();
         assert!(matches!(err, PolicyError::Glob { .. }));
+    }
+
+    fn test_required_policy() -> AgentPolicy {
+        let raw = r#"
+[[test_required]]
+pattern = "core/domain/**"
+reason = "Domain logic changes must be proven by a passing test run."
+"#;
+        AgentPolicy::parse(raw).expect("parses")
+    }
+
+    #[test]
+    fn an_empty_policy_has_no_test_requirements_and_the_built_in_command_patterns() {
+        let policy = AgentPolicy::default();
+        assert!(!policy.has_test_requirements());
+        assert!(
+            policy
+                .test_required_reason_for("core/domain/order.rs")
+                .is_none()
+        );
+        assert!(
+            policy
+                .test_command_patterns()
+                .iter()
+                .any(|p| p == "cargo test")
+        );
+    }
+
+    #[test]
+    fn a_test_required_glob_matches_a_covered_path_and_reports_its_reason() {
+        let policy = test_required_policy();
+        assert!(policy.has_test_requirements());
+        let (pattern, reason) = policy
+            .test_required_reason_for("core/domain/order.rs")
+            .expect("matches");
+        assert_eq!(pattern, "core/domain/**");
+        assert!(reason.contains("passing test run"));
+    }
+
+    #[test]
+    fn a_test_required_glob_does_not_match_an_unrelated_path() {
+        let policy = test_required_policy();
+        assert!(
+            policy
+                .test_required_reason_for("core/other/order.rs")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_configured_test_command_patterns_list_replaces_the_defaults() {
+        let raw = "[agent]\ntest_command_patterns = [\"make test\"]\n";
+        let policy = AgentPolicy::parse(raw).expect("parses");
+        assert_eq!(policy.test_command_patterns(), &["make test".to_string()]);
+    }
+
+    #[test]
+    fn a_test_required_section_missing_its_reason_is_an_error() {
+        let err = AgentPolicy::parse("[[test_required]]\npattern = \"core/**\"\n").unwrap_err();
+        assert!(matches!(err, PolicyError::Toml(_)));
+    }
+
+    #[test]
+    fn an_invalid_test_required_glob_is_an_error() {
+        let err =
+            AgentPolicy::parse("[[test_required]]\npattern = \"[\"\nreason = \"x\"\n").unwrap_err();
+        assert!(matches!(err, PolicyError::Glob { .. }));
+    }
+
+    #[test]
+    fn with_role_scope_carries_test_requirements_through_unchanged() {
+        let policy = test_required_policy();
+        let scoped = policy
+            .with_role_scope(&RoleScope::default())
+            .expect("builds");
+        assert!(scoped.has_test_requirements());
+        assert!(
+            scoped
+                .test_required_reason_for("core/domain/order.rs")
+                .is_some()
+        );
     }
 
     #[test]

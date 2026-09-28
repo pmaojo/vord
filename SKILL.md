@@ -13,8 +13,20 @@
 
 ### Phase 1: Onboarding & Repository Kickoff
 1. **Initialize Project / Feature**:
-   - Run `vord kickoff react-bulletproof` (or `rust-clean`, `python-clean`, `typescript-clean`) to generate a clean, modular structure.
+   - Run `vord kickoff react-bulletproof` (or `rust-clean`, `python-clean`, `typescript-clean`, `fullstack-hexagonal`) to generate a clean, modular structure.
    - Or run `vord init` to generate a project-tailored `vord.toml`.
+2. **Turn the plan into Gherkin BDD scenarios before writing code**:
+   - Kickoff also writes `features/*.feature` — a Gherkin scaffold with one
+     placeholder `Scenario:` and a `TODO(agent)` banner. It is not a real
+     spec yet.
+   - Before touching implementation code, replace the placeholder with real
+     `Scenario:` blocks derived from the task's known plan/requirements —
+     one scenario per behavior the plan actually commits to (happy path,
+     each stated edge case, each acceptance criterion the human gave you).
+     Delete the `TODO(agent)` banner once the file reflects the real plan.
+   - Treat these scenarios as the acceptance contract for the work: come
+     back to `features/*.feature` when a requirement changes, and use it as
+     the checklist when deciding the task is done.
 
 ---
 
@@ -97,6 +109,20 @@ vord scan . --sarif oxlint.sarif --sarif ruff.sarif --sarif clippy.sarif --enfor
 `--format json`'s stdout carries only the JSON payload (the "📥 Imported..."
 status line goes to stderr) — safe to pipe straight into `jq`/a parser
 without stripping anything first.
+
+---
+
+## 🧪 High-Assurance / Evidence-First Tasks
+
+For work the human explicitly wants proven rather than reviewed line by
+line — "reliable", "TDD", "prove it works" — or that touches money, auth,
+data loss, concurrency, or a public API, use the `old-coder` skill
+(`skills/old-coder/SKILL.md`): a SPEC → RED → GREEN → REFACTOR → GAUNTLET →
+EVIDENCE loop where the human approves a test plan up front and reads a
+numbers-only evidence report afterward instead of the diff. Its GAUNTLET
+step can use `vord scan --enforce-gate` as one of its static-analysis
+layers — see that skill's own "Using this with vord" section. For routine
+changes, write good tests directly instead of invoking the loop.
 
 ---
 

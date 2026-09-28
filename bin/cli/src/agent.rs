@@ -53,9 +53,15 @@ impl HookWriteJudge {
 impl WriteJudge for HookWriteJudge {
     async fn judge(&self, path: &str, content: &str) -> Result<Evaluation, JudgeError> {
         let absolute = self.root.join(path);
-        let verdict = hook::judge(&self.policy, &self.root, &absolute, Some(content))
-            .await
-            .map_err(|e| JudgeError(e.to_string()))?;
+        let verdict = hook::judge(
+            &self.policy,
+            &self.root,
+            &absolute,
+            Some(content),
+            hook::DiffBaseline::PreWriteDisk,
+        )
+        .await
+        .map_err(|e| JudgeError(e.to_string()))?;
         // The same three side effects a hook-hosted write has, in the same
         // order: the persisted breaker, the persisted loop alarm, the audit
         // line. `core/agent` keeps its own session-scoped copies of the first

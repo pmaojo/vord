@@ -20,19 +20,40 @@
 //! added (Open/Closed) — same architecture as `rulesets/owasp`.
 
 mod custom_pattern;
+mod dotenv_committed;
 mod entropy;
 mod provider_patterns;
+mod secret_in_config_example;
+mod secret_in_documentation_snippet;
+mod secret_in_exception_message;
+mod secret_in_log_message;
+mod secret_in_test_fixture;
+mod secret_literal;
 
 pub use custom_pattern::CustomSecretPatternRule;
+pub use dotenv_committed::DotenvFileCommittedRule;
 pub use entropy::{HighEntropyStringRule, shannon_entropy};
 pub use provider_patterns::{RegexSecretRule, all_provider_rules};
+pub use secret_in_config_example::SecretInConfigExampleRule;
+pub use secret_in_documentation_snippet::SecretInDocumentationSnippetRule;
+pub use secret_in_exception_message::SecretInExceptionMessageRule;
+pub use secret_in_log_message::SecretInLogMessageRule;
+pub use secret_in_test_fixture::SecretInTestFixtureRule;
 
 use vord_rules_engine::Rule;
 
 /// Every built-in rule in this ruleset, for composition roots. Excludes
 /// [`CustomSecretPatternRule`], which requires a user-supplied pattern.
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
-    let mut rules: Vec<Box<dyn Rule>> = vec![Box::new(HighEntropyStringRule::new())];
+    let mut rules: Vec<Box<dyn Rule>> = vec![
+        Box::new(HighEntropyStringRule::new()),
+        Box::new(DotenvFileCommittedRule::new()),
+        Box::new(SecretInLogMessageRule::new()),
+        Box::new(SecretInExceptionMessageRule::new()),
+        Box::new(SecretInTestFixtureRule::new()),
+        Box::new(SecretInConfigExampleRule::new()),
+        Box::new(SecretInDocumentationSnippetRule::new()),
+    ];
     rules.extend(all_provider_rules());
     rules
 }
@@ -54,8 +75,8 @@ mod tests {
             "duplicate rule ids in secrets ruleset"
         );
         assert!(
-            ids.len() >= 12,
-            "expected at least 12 built-in secrets rules, got {}",
+            ids.len() >= 18,
+            "expected at least 18 built-in secrets rules, got {}",
             ids.len()
         );
     }

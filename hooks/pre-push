@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# vord pre-push hook — blocks the pushes that cost the most to get wrong:
+# a direct push to main/master, and a force-push that rewrites shared
+# history. Both are still reachable with an explicit override; neither
+# should ever be the accidental default for an agent driving git.
+#
+# Install:  cp hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# Or set:   git config core.hooksPath hooks   (shared with hooks/pre-commit)
+
+set -euo pipefail
+
+remote="$1"
+protected_branches="main|master"
+
+# git feeds "<local ref> <local sha> <remote ref> <remote sha>" lines on stdin.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_ref" ] && continue
+
+  branch="${remote_ref#refs/heads/}"
+
+  if [[ "$branch" =~ ^(${protected_branches})$ ]]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "❌ vord: direct push to '${branch}' on '${remote}' is blocked."
+    echo ""
+    echo "   Open a pull request instead. If this push is intentional"
+    echo "   (e.g. a release tag merge done by a maintainer):"
+    echo "     git push --no-verify ${remote} ${local_ref}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    exit 1
+  fi
+
+  # A force-push is non-fast-forward: remote_sha exists, isn't all zeros,
+  # and isn't an ancestor of the commit we're about to push.
+  if [ "$remote_sha" != "0000000000000000000000000000000000000000" ] && \
+     [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "❌ vord: this push rewrites history on '${branch}' (force-push)."
+      echo ""
+      echo "   Rebasing over a branch someone else may have pulled loses"
+      echo "   their work silently. If you are certain it's safe:"
+      echo "     git push --no-verify --force-with-lease ${remote} ${local_ref}"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      exit 1
+    fi
+  fi
+done
+
+exit 0

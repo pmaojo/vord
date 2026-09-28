@@ -1,5 +1,5 @@
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 use crate::common::is_other;
 
@@ -91,7 +91,9 @@ fn is_typeshare_attr(attr: &AstNode) -> bool {
     if compact.starts_with("#[typeshare") || compact.starts_with("#![typeshare") {
         return true;
     }
-    if (compact.starts_with("#[derive") || compact.starts_with("#![derive")) && compact.contains("Typeshare") {
+    if (compact.starts_with("#[derive") || compact.starts_with("#![derive"))
+        && compact.contains("Typeshare")
+    {
         return true;
     }
     false
@@ -131,25 +133,33 @@ mod tests {
 
     #[test]
     fn flags_derive_typeshare_struct_missing_serde_rename_all() {
-        let findings = check("#[derive(Serialize, Deserialize, Typeshare)]\npub struct UserDto {\n    pub user_id: String,\n}\n");
+        let findings = check(
+            "#[derive(Serialize, Deserialize, Typeshare)]\npub struct UserDto {\n    pub user_id: String,\n}\n",
+        );
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
     fn ignores_typeshare_struct_with_serde_rename_all() {
-        let findings = check("#[typeshare]\n#[serde(rename_all = \"camelCase\")]\npub struct UserDto {\n    pub user_id: String,\n}\n");
+        let findings = check(
+            "#[typeshare]\n#[serde(rename_all = \"camelCase\")]\npub struct UserDto {\n    pub user_id: String,\n}\n",
+        );
         assert!(findings.is_empty());
     }
 
     #[test]
     fn ignores_derive_typeshare_struct_with_serde_rename_all() {
-        let findings = check("#[derive(Serialize, Deserialize, Typeshare)]\n#[serde(rename_all = \"snake_case\")]\npub struct UserDto {\n    pub user_id: String,\n}\n");
+        let findings = check(
+            "#[derive(Serialize, Deserialize, Typeshare)]\n#[serde(rename_all = \"snake_case\")]\npub struct UserDto {\n    pub user_id: String,\n}\n",
+        );
         assert!(findings.is_empty());
     }
 
     #[test]
     fn ignores_non_typeshare_struct() {
-        let findings = check("#[derive(Serialize, Deserialize)]\npub struct InternalDto {\n    pub internal_id: u64,\n}\n");
+        let findings = check(
+            "#[derive(Serialize, Deserialize)]\npub struct InternalDto {\n    pub internal_id: u64,\n}\n",
+        );
         assert!(findings.is_empty());
     }
 

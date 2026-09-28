@@ -123,6 +123,13 @@ pub fn free_identifiers(body: &AstNode) -> BTreeSet<String> {
     free
 }
 
+/// True for a `[expr]: value` computed key in an object literal `pair`,
+/// where the key is itself an expression that can reference a binding —
+/// as opposed to a plain, string, or numeric property name.
+fn is_computed_key(key: &AstNode) -> bool {
+    matches!(key.kind(), NodeKind::Other(k) if k.as_ref() == "computed_property_name")
+}
+
 fn collect_free(
     node: &AstNode,
     own: &BTreeSet<String>,
@@ -149,6 +156,23 @@ fn collect_free(
             // property name(s) are not identifier lookups.
             if let Some(base) = node.first_child() {
                 collect_free(base, own, free, false);
+            }
+            return;
+        }
+        NodeKind::Other(kind) if kind.as_ref() == "pair" => {
+            // An object literal's `key: value` entry: `key` is a property
+            // name, not an identifier reference, unless it's computed
+            // (`[expr]: value`) — only the value, and a computed key, can
+            // capture a free variable. Without this, `{ productIds: x }`
+            // would be misread as a reference to a `productIds` binding.
+            let mut children = node.children().iter();
+            if let Some(key) = children.next() {
+                if is_computed_key(key) {
+                    collect_free(key, own, free, false);
+                }
+            }
+            for value in children {
+                collect_free(value, own, free, false);
             }
             return;
         }
@@ -233,6 +257,37 @@ mod tests {
         assert!(free.contains("other"), "{free:?}");
         assert!(free.contains("doThing"), "{free:?}");
         assert!(!free.contains("local"), "{free:?}");
+    }
+
+    #[test]
+    fn free_identifiers_excludes_non_computed_object_literal_keys() {
+        // `productIds` is the object key, not a reference — `initialProductIds`
+        // is the actual free variable (see react:exhaustive-deps).
+        let ast = parse(
+            "function comp() {\n  const cb = () => {\n    form.reset({ productIds: initialProductIds });\n  };\n}\n",
+        );
+        let arrow = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::FunctionDef && n.text().starts_with("() =>"))
+            .unwrap();
+        let free = free_identifiers(arrow);
+        assert!(free.contains("initialProductIds"), "{free:?}");
+        assert!(free.contains("form"), "{free:?}");
+        assert!(!free.contains("productIds"), "{free:?}");
+    }
+
+    #[test]
+    fn free_identifiers_includes_computed_object_literal_keys() {
+        let ast = parse(
+            "function comp() {\n  const cb = () => {\n    doThing({ [productIds]: value });\n  };\n}\n",
+        );
+        let arrow = ast
+            .descendants()
+            .find(|n| *n.kind() == NodeKind::FunctionDef && n.text().starts_with("() =>"))
+            .unwrap();
+        let free = free_identifiers(arrow);
+        assert!(free.contains("productIds"), "{free:?}");
+        assert!(free.contains("value"), "{free:?}");
     }
 
     #[test]

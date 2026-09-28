@@ -495,6 +495,12 @@ struct ScanArgs {
     /// Do not read or update the New Code baseline (.vord-baseline.json).
     #[arg(long)]
     no_baseline: bool,
+    /// List issues tracked in the previous baseline that no longer appear
+    /// in this scan, alongside the usual new-issue summary. Requires the
+    /// baseline (ignored with `--no-baseline`, and empty on a project's
+    /// first scan since there is nothing yet to have resolved).
+    #[arg(long)]
+    show_resolved: bool,
     /// Quality profile to scan with, by name (e.g. `vite-react-frontend-starter`).
     /// Omitted keeps today's behavior exactly: the built-in "vord way"
     /// profile. Also selects the matching quality gate for `--enforce-gate`
@@ -906,6 +912,7 @@ struct ProjectScope {
     gate: vord_infra_fs::GateSettings,
     config_profile: Option<String>,
     vite_react: vord_infra_fs::ViteReactSettings,
+    secrets: vord_infra_fs::SecretsSettings,
     flows: Vec<vord_infra_fs::FlowConfig>,
     rules_custom: Vec<vord_infra_fs::CustomRuleConfig>,
 }
@@ -926,6 +933,7 @@ fn load_project_scope(path: &std::path::Path) -> ProjectScope {
                 gate: config.gate,
                 config_profile: config.analysis.profile,
                 vite_react: config.vite_react,
+                secrets: config.secrets,
                 flows: config.flows,
                 rules_custom: config.rules.custom,
             }
@@ -1337,7 +1345,8 @@ fn render_output(
                     new_code,
                     test_report,
                     coverage_new_code,
-                    context
+                    context,
+                    args.show_resolved,
                 )
             )
         }
@@ -1350,7 +1359,8 @@ fn render_output(
                     new_code,
                     test_report,
                     coverage_new_code,
-                    context.clone()
+                    context.clone(),
+                    args.show_resolved,
                 )?
             )
         }
@@ -1587,6 +1597,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
         gate: gate_config,
         config_profile: _config_profile,
         vite_react,
+        secrets,
         flows,
         rules_custom,
     } = load_project_scope(&args.path);
@@ -1621,6 +1632,7 @@ async fn run_scan(args: ScanArgs) -> anyhow::Result<ExitCode> {
             duplication: &duplication,
             architecture: &architecture,
             vite_react: &vite_react,
+            secrets: &secrets,
             rules_custom: &rules_custom,
         },
         profile,

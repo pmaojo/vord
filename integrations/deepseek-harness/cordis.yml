@@ -1,0 +1,11 @@
+# Example preset (`dsh --profile` / per-session `cordis.yml`) that mounts
+# DeepSeek Harness's official Claude Code hook-dialect bridge pointed at
+# vord's guardrail. Copy the `dsh-hooks-claude-code` entry into your own
+# preset, or pass this file's directory as a bundle patch layer.
+#
+# Requires:
+#   npm install -g @deepseek-ai/dsh-hooks-claude-code
+#   vord on PATH (see the repository root README's "Install" section)
+- dsh-hooks-claude-code:
+    configPath: ./integrations/deepseek-harness/hooks/hooks.json
+    projectDir: .

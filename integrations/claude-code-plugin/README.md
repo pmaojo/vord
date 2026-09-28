@@ -40,3 +40,23 @@ placed on `PATH` as `vord`.)
 /plugin marketplace add pmaojo/vord
 /plugin install vord-guardrail@vord
 ```
+
+## Agent Plugins Specification compliance
+
+Alongside Claude Code's own `.claude-plugin/plugin.json` + `hooks/hooks.json`
+(unchanged, and still what Claude Code actually loads), this directory is
+also a plugin under the
+[Agent Plugins Specification](https://github.com/agentplugins/agent-plugins-spec)
+v1.0.0:
+
+- `plugin.json` — the spec's root manifest, `extensions.com.anthropic.claude-code`
+  pointing at Claude Code's own manifest for spec-aware tooling.
+- `skills/vord-guardrail/SKILL.md` — the same guardrail behavior described
+  as a discoverable Agent Skill.
+- `mcp.json` — vord's own MCP server (`vord mcp`, stdio transport) as the
+  `vord` server, so a spec-conformant client that only supports MCP
+  servers (not Claude Code hooks) can still query vord.
+
+`.claude-plugin/` and `hooks/` stay where Claude Code requires them; the
+spec's own required root location for `plugin.json` is a separate file,
+not a replacement.

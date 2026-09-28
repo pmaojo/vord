@@ -11,7 +11,7 @@ use std::path::Path;
 
 use vord_agent::runtime::RunOutcome;
 use vord_agent_policy::{AgentPolicy, RoleScope};
-use vord_infra_fs::{RoleSettings, WorktreeStatus, VordConfig};
+use vord_infra_fs::{RoleSettings, VordConfig, WorktreeStatus};
 use vord_rules_engine::RuleId;
 use vord_swarm::{Handoff, RoleWorktreeConfig, WorktreePlan};
 
@@ -195,7 +195,10 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
                 eprintln!(">>> SWARM ASSISTANT HANDOFF PROMPT (role: {role_name}) <<<");
                 eprintln!("Worktree: {}", plan.path.display());
                 eprintln!("Task: {}", task_desc);
-                eprintln!("Policy Scope: blocking_rules={:?}, protected_paths={:?}", role.blocking_rules, role.protected_paths);
+                eprintln!(
+                    "Policy Scope: blocking_rules={:?}, protected_paths={:?}",
+                    role.blocking_rules, role.protected_paths
+                );
                 eprintln!(">>> END PROMPT <<<\n");
                 return Err(err);
             }
@@ -203,11 +206,17 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
 
         let completed = matches!(outcome, RunOutcome::Completed { .. });
         if !completed {
-            eprintln!("\nvord swarm: LLM provider unavailable/failed for role [{role_name}]: {}", outcome.describe());
+            eprintln!(
+                "\nvord swarm: LLM provider unavailable/failed for role [{role_name}]: {}",
+                outcome.describe()
+            );
             eprintln!(">>> SWARM ASSISTANT HANDOFF PROMPT (role: {role_name}) <<<");
             eprintln!("Worktree: {}", plan.path.display());
             eprintln!("Task: {}", task_desc);
-            eprintln!("Policy Scope: blocking_rules={:?}, protected_paths={:?}", role.blocking_rules, role.protected_paths);
+            eprintln!(
+                "Policy Scope: blocking_rules={:?}, protected_paths={:?}",
+                role.blocking_rules, role.protected_paths
+            );
             eprintln!(">>> END PROMPT <<<\n");
         }
 
@@ -327,7 +336,9 @@ pub fn handoff_ack(root: &Path, role_name: &str, id: &str) -> anyhow::Result<()>
 pub fn run_swarm_tui(root: &Path) -> anyhow::Result<()> {
     use crossterm::event::{self, Event, KeyCode};
     use crossterm::execute;
-    use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+    use crossterm::terminal::{
+        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    };
     use ratatui::Terminal;
     use ratatui::backend::CrosstermBackend;
     use ratatui::layout::{Constraint, Direction, Layout};
@@ -357,8 +368,15 @@ pub fn run_swarm_tui(root: &Path) -> anyhow::Result<()> {
                     .split(f.area());
 
                 let header = Paragraph::new(Line::from(vec![
-                    Span::styled("vord swarm ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::raw("— Interactive Spec-Driven Swarm & Worktree Dashboard (Offline / LLM-less)"),
+                    Span::styled(
+                        "vord swarm ",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(
+                        "— Interactive Spec-Driven Swarm & Worktree Dashboard (Offline / LLM-less)",
+                    ),
                 ]))
                 .block(Block::default().borders(Borders::ALL).title(" Topology "));
                 f.render_widget(header, chunks[0]);
@@ -372,7 +390,12 @@ pub fn run_swarm_tui(root: &Path) -> anyhow::Result<()> {
                 for r in &roles {
                     let plan = worktree_plan(root, None, r);
                     role_items.push(ListItem::new(vec![
-                        Line::styled(format!("Role: {}", r.name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Line::styled(
+                            format!("Role: {}", r.name),
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                         Line::raw(format!("  Worktree: {}", plan.path.display())),
                         Line::raw(format!("  Branch: {}", plan.branch)),
                         Line::raw(format!("  Protected Paths: {:?}", r.protected_paths.len())),
@@ -380,8 +403,11 @@ pub fn run_swarm_tui(root: &Path) -> anyhow::Result<()> {
                         Line::raw(""),
                     ]));
                 }
-                let roles_list = List::new(role_items)
-                    .block(Block::default().borders(Borders::ALL).title(format!(" Roles ({}) ", topology.join(" -> "))));
+                let roles_list = List::new(role_items).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(format!(" Roles ({}) ", topology.join(" -> "))),
+                );
                 f.render_widget(roles_list, body_chunks[0]);
 
                 let mut handoff_items = Vec::new();
@@ -401,8 +427,11 @@ pub fn run_swarm_tui(root: &Path) -> anyhow::Result<()> {
                         Style::default().fg(Color::DarkGray),
                     )));
                 }
-                let handoffs_list = List::new(handoff_items)
-                    .block(Block::default().borders(Borders::ALL).title(" Handoff Queue "));
+                let handoffs_list = List::new(handoff_items).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Handoff Queue "),
+                );
                 f.render_widget(handoffs_list, body_chunks[1]);
 
                 let footer = Paragraph::new(Line::from(vec![

@@ -126,6 +126,7 @@ where
             .chain(vord_rules_architecture::all_cross_rules())
             .chain(vord_rules_smells::all_cross_rules())
             .chain(vord_rules_ddd::all_cross_rules())
+            .chain(vord_rules_rust::all_cross_rules())
             .collect();
     let profile = vord_rules_engine::default_profile();
 
@@ -325,6 +326,7 @@ pub async fn scan_with_project_config(
             duplication,
             architecture,
             vite_react: &Default::default(),
+            secrets: &Default::default(),
             rules_custom: &[],
         },
         None,
@@ -340,6 +342,11 @@ pub struct ProjectSettings<'a> {
     pub duplication: &'a vord_infra_fs::DuplicationSettings,
     pub architecture: &'a vord_infra_fs::ArchitectureSettings,
     pub vite_react: &'a vord_infra_fs::ViteReactSettings,
+    /// `[secrets] ignore_keys` — JSON/object key names whose values
+    /// `secrets:high-entropy-string` never flags, bridged (via
+    /// `HighEntropyStringRule::with_ignore_keys`) into the rule the same
+    /// way `vite_react` above bridges into `rulesets/vite-react`'s rules.
+    pub secrets: &'a vord_infra_fs::SecretsSettings,
     /// `[[rules.custom]]` — project-declared regex rules. Each entry is
     /// registered as an ordinary `vord_rules_smells::CustomRule` *and*
     /// explicitly activated on top of whatever profile is otherwise in
@@ -370,8 +377,7 @@ pub async fn scan_with_profile(
     let duplication = settings.duplication;
     let architecture = settings.architecture;
     let vite_react = settings.vite_react;
-    let sources =
-        vord_infra_fs::collect_sources_scoped(path, source_dirs, inclusions, exclusions)?;
+    let sources = vord_infra_fs::collect_sources_scoped(path, source_dirs, inclusions, exclusions)?;
     let mut service = default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
         .with_duplication_config(duplication_config(duplication));
     if let Some(profile) = profile {
@@ -381,6 +387,13 @@ pub async fn scan_with_profile(
         if let Some(rule) = vite_react_rule_with_exceptions(&rule_id, globs) {
             service = service.replace_rule(rule);
         }
+    }
+    if !settings.secrets.ignore_keys.is_empty() {
+        service = service.replace_rule(Box::new(
+            vord_rules_secrets::HighEntropyStringRule::with_ignore_keys(
+                settings.secrets.ignore_keys.clone(),
+            ),
+        ));
     }
     if !settings.rules_custom.is_empty() {
         let mut profile = service.profile().clone();
@@ -642,7 +655,7 @@ pub async fn remediate_issue(
         )
     })?;
 
-    let source_code = std::fs::read_to_string(&path)?;
+    let source_code = tokio::fs::read_to_string(&path).await?;
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let language = vord_ast::LanguageIdentifier::from_extension(ext)
         .ok_or_else(|| anyhow::anyhow!("unrecognized file extension for {}", path.display()))?;
@@ -771,6 +784,7 @@ mod tests {
                 duplication: &Default::default(),
                 architecture: &Default::default(),
                 vite_react: &Default::default(),
+                secrets: &Default::default(),
                 rules_custom: &custom,
             },
             None,
@@ -783,7 +797,11 @@ mod tests {
                 .iter()
                 .any(|i| i.rule().as_str() == "custom:no-console-log"),
             "expected a custom:no-console-log issue, got: {:?}",
-            report.issues().iter().map(|i| i.rule().as_str()).collect::<Vec<_>>()
+            report
+                .issues()
+                .iter()
+                .map(|i| i.rule().as_str())
+                .collect::<Vec<_>>()
         );
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -803,6 +821,7 @@ mod tests {
                 duplication: &Default::default(),
                 architecture: &Default::default(),
                 vite_react: &Default::default(),
+                secrets: &Default::default(),
                 rules_custom: &[],
             },
             None,
@@ -839,12 +858,16 @@ mod tests {
                 duplication: &Default::default(),
                 architecture: &Default::default(),
                 vite_react: &Default::default(),
+                secrets: &Default::default(),
                 rules_custom: &custom,
             },
             None,
         ));
 
-        assert!(result.is_err(), "an invalid regex must fail the scan, not silently do nothing");
+        assert!(
+            result.is_err(),
+            "an invalid regex must fail the scan, not silently do nothing"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -869,11 +892,59 @@ mod tests {
                 duplication: &Default::default(),
                 architecture: &Default::default(),
                 vite_react: &Default::default(),
+                secrets: &Default::default(),
                 rules_custom: &custom,
             },
             None,
         ));
 
         assert!(result.is_err());
+    }
+
+    /// Proves `[secrets] ignore_keys` actually reaches
+    /// `secrets:high-entropy-string` through `scan_with_profile` — a JSON
+    /// value under a declared key is suppressed, while the same shaped
+    /// value under any other key still fires.
+    #[test]
+    fn secrets_ignore_keys_actually_suppresses_the_declared_key() {
+        let dir = temp_fixture_dir("secrets-ignore-keys");
+        let token = ["aG3n7Zq9L", "m2XpW5vB", "t8FhKc1RdSy"].concat();
+        write_fixture(
+            &dir,
+            "presets.json",
+            &format!("{{\"value\": \"{token}\", \"apiKey\": \"{token}\"}}\n"),
+        );
+
+        let secrets = vord_infra_fs::SecretsSettings {
+            ignore_keys: vec!["value".to_string()],
+        };
+        let report = futures::executor::block_on(scan_with_profile(
+            &dir,
+            None,
+            &[],
+            &[],
+            &[],
+            &ProjectSettings {
+                duplication: &Default::default(),
+                architecture: &Default::default(),
+                vite_react: &Default::default(),
+                secrets: &secrets,
+                rules_custom: &[],
+            },
+            None,
+        ))
+        .unwrap();
+
+        let entropy_findings: Vec<_> = report
+            .issues()
+            .iter()
+            .filter(|i| i.rule().as_str() == "secrets:high-entropy-string")
+            .collect();
+        assert_eq!(
+            entropy_findings.len(),
+            1,
+            "expected exactly the apiKey value to still be flagged, got: {entropy_findings:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

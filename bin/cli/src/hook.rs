@@ -50,7 +50,7 @@
 //! callers (CI, `pre-commit`) can tell exit 1 (vord broke) from exit 2
 //! (policy denied) and decide for themselves.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -158,6 +158,12 @@ pub struct HookPayload {
     pub tool_input: serde_json::Value,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Present on `PostToolUse` only — the tool's own result. `vord hook`
+    /// reads this exactly once, for a `Bash` `PostToolUse` event, to look
+    /// for a determinable exit code (see [`bash_exit_code`]) when deciding
+    /// whether a command satisfied `[[test_required]]`'s evidence ledger.
+    #[serde(default)]
+    pub tool_response: serde_json::Value,
 }
 
 /// What the guardrail decided, independent of how any particular host wants
@@ -663,6 +669,12 @@ fn violation_json(violation: &Violation, breaker: &CircuitBreakerReport) -> serd
                 "path matches `{pattern}` and needs a `@covers(...)`-tagged scenario ({reason})"
             ),
         ),
+        Cause::UnprovenWrite { pattern, reason } => (
+            "unproven_write",
+            format!(
+                "path matches `{pattern}` and needs a passing test run since it was written ({reason})"
+            ),
+        ),
     };
     let circuit_breaker_tripped = rule
         .as_deref()
@@ -721,12 +733,40 @@ pub fn proposed_content(
     }
 }
 
-/// Runs the full analyzer over a single in-memory file and maps its issues
-/// *and hotspots* into policy findings.
+/// Runs the full analyzer over one file and maps its issues *and hotspots*
+/// into policy findings.
 ///
 /// `relative` must be repository-relative: `SourceFile` rejects absolute
 /// paths, and the policy's path globs are written against repository-relative
 /// paths too.
+///
+/// `root`'s rest of the project is loaded alongside `relative`/`content` and
+/// fed into the same analysis run — not just `relative` on its own. A
+/// `CrossFileRule` (`rust:route-without-test-coverage`, `owasp:cross-file-
+/// injection`, every architecture/DDD cross-file rule) judges `relative` by
+/// evidence that lives in *other* files, e.g. a route string that only a
+/// separate `tests/*.rs` proves is exercised. Handing the engine `relative`
+/// alone starves every such rule of that evidence unconditionally: it cannot
+/// see a covering test no matter how long it has sat committed on disk, so
+/// the hook denies writes a full `vord scan .` — which does load the whole
+/// project — passes clean. This is what made the discrepancy look like a
+/// stale incremental cache from the outside: nothing here is cached or
+/// invalidated at all, the single-file call just never had the other file in
+/// scope to begin with. Project files are loaded via `vord_infra_fs::
+/// collect_sources`, gitignore-aware the same way a full scan is; a load
+/// failure (e.g. `root` doesn't exist, as in tests that pass a fake path)
+/// degrades to single-file analysis rather than erroring, matching this
+/// function's pre-existing behavior. `relative`'s own on-disk copy, if any,
+/// is excluded from that set so `content` (which may be proposed, not-yet-
+/// written content) is never shadowed by a stale duplicate.
+///
+/// A `.vord-cache.json` cache (same file, same format `vord scan .` reads
+/// and writes) is attached so unchanged project files reuse their prior
+/// single-file `Rule` results instead of being fully re-analyzed on every
+/// single Edit/Write hook call — `CrossFileRule`s are never cached (see
+/// `AnalyzerService::run_cross_file_rules`) and are always freshly
+/// recomputed from the full parsed file set, exactly as a full scan already
+/// does, so correctness here costs no more than `vord scan .` already pays.
 ///
 /// Returns an empty vector for a file whose extension maps to no language —
 /// there is nothing to parse, which is not an error, and the path half of
@@ -744,7 +784,11 @@ pub fn proposed_content(
 /// ordinary issue, via the same quality profile the analyzer ran with;
 /// `blocking_rules`/`escalate_rules` match by rule id regardless of
 /// severity, so this only matters for `block_at_or_above`.
-pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Vec<Finding>> {
+pub async fn analyze_content(
+    root: &Path,
+    relative: &str,
+    content: &str,
+) -> anyhow::Result<Vec<Finding>> {
     let extension = Path::new(relative)
         .extension()
         .and_then(|e| e.to_str())
@@ -755,25 +799,49 @@ pub async fn analyze_content(relative: &str, content: &str) -> anyhow::Result<Ve
     let source = vord_ast::SourceFile::new(relative.to_string(), content.to_string(), language)
         .map_err(|e| anyhow::anyhow!("invalid source path {relative:?}: {e}"))?;
 
+    let mut sources = vec![source];
+    if let Ok(project_sources) = vord_infra_fs::collect_sources(root) {
+        sources.extend(
+            project_sources
+                .into_iter()
+                .filter(|file| file.path() != relative),
+        );
+    }
+
+    let cache = std::sync::Arc::new(vord_infra_fs::FileAnalysisCache::open(
+        root.join(".vord-cache.json"),
+    ));
     let service =
-        crate::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new());
-    let report = service.analyze_files(std::slice::from_ref(&source)).await?;
+        crate::default_service(InMemoryIssueStorage::new(), InMemoryMetricsTracker::new())
+            .with_cache(cache.clone());
+    let report = service.analyze_files(&sources).await?;
+    if let Err(e) = cache.persist() {
+        eprintln!("warning: could not persist analysis cache: {e}");
+    }
     let profile = vord_rules_engine::default_profile();
 
-    let issue_findings = report.issues().iter().map(|issue| Finding {
-        rule: issue.rule().clone(),
-        severity: issue.severity(),
-        message: issue.message().to_string(),
-        line: issue.span().start_line,
-    });
-    let hotspot_findings = report.hotspots().iter().map(|hotspot| Finding {
-        rule: hotspot.rule().clone(),
-        severity: profile
-            .severity_of(hotspot.rule())
-            .unwrap_or(vord_rules_engine::Severity::Major),
-        message: hotspot.message().to_string(),
-        line: hotspot.span().start_line,
-    });
+    let issue_findings = report
+        .issues()
+        .iter()
+        .filter(|issue| issue.file() == relative)
+        .map(|issue| Finding {
+            rule: issue.rule().clone(),
+            severity: issue.severity(),
+            message: issue.message().to_string(),
+            line: issue.span().start_line,
+        });
+    let hotspot_findings = report
+        .hotspots()
+        .iter()
+        .filter(|hotspot| hotspot.file() == relative)
+        .map(|hotspot| Finding {
+            rule: hotspot.rule().clone(),
+            severity: profile
+                .severity_of(hotspot.rule())
+                .unwrap_or(vord_rules_engine::Severity::Major),
+            message: hotspot.message().to_string(),
+            line: hotspot.span().start_line,
+        });
 
     Ok(issue_findings.chain(hotspot_findings).collect())
 }
@@ -977,6 +1045,266 @@ fn test_skip_added_findings(
         .collect()
 }
 
+/// Findings for a `.feature` file whose `@covers(...)` tags claim more than
+/// the scenarios under them actually prove. The `[[gherkin_required]]`
+/// evidence gate is the one control in this module an agent can lift *by
+/// writing a file*, which makes the cheapest way past it a one-line bypass:
+///
+/// ```gherkin
+/// @covers(core/domain/**)
+/// Feature: Domain
+/// ```
+///
+/// No scenario, no steps, no behaviour — and every future write to
+/// `core/domain/**` waved through. `vord_infra_fs::scan_covers_claims`
+/// already refuses to credit such a claim, so the gate itself holds without
+/// this function; what this adds is the *explanation*. Silently crediting
+/// nothing would deny the agent's next source write with "no Gherkin scenario
+/// covers this path" while a file it just wrote appears, to it, to say
+/// otherwise — an agent given a contradiction retries it. Two rules, matching
+/// the two ways a claim outruns its evidence:
+///
+/// - `bdd:unverified-scenario` — the block carrying the tag has no
+///   `When`/`Then` pair (or is a `Scenario Outline` with no `Examples:` row).
+/// - `bdd:overbroad-covers` — the glob is `**` or a synonym, one scenario
+///   claiming an entire repository.
+///
+/// Diff-aware in the same spirit as [`drop_preexisting_findings`]: a claim
+/// that was already in the file, unchanged, is not this write's doing, so
+/// editing a scenario in a `.feature` file that has an unrelated stub
+/// elsewhere in it is not blocked on cleaning up the stub. Neither rule is in
+/// the default policy's `blocking_rules` — see `vord-policy.toml`'s template
+/// for how to opt in.
+fn bdd_feature_findings(
+    relative: &str,
+    old_content: Option<&str>,
+    new_content: &str,
+) -> Vec<Finding> {
+    if !relative.ends_with(".feature") {
+        return Vec::new();
+    }
+    let already_claimed: HashSet<String> = old_content
+        .map(|old| {
+            vord_infra_fs::scan_covers_claims(old)
+                .into_iter()
+                .filter(|claim| !claim.is_credited())
+                .map(|claim| claim.pattern)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let unverified = RuleId::new("bdd:unverified-scenario").expect("valid rule id");
+    let overbroad = RuleId::new("bdd:overbroad-covers").expect("valid rule id");
+    vord_infra_fs::scan_covers_claims(new_content)
+        .into_iter()
+        .filter(|claim| !claim.is_credited())
+        .filter(|claim| !already_claimed.contains(&claim.pattern))
+        .map(|claim| {
+            let (rule, message) = if claim.overbroad {
+                (
+                    overbroad.clone(),
+                    format!(
+                        "`@covers({})` in {relative} claims the whole repository — no single scenario exercises \
+                         every path, so this claim is not credited as Gherkin evidence; scope the glob to the \
+                         paths this scenario actually drives",
+                        claim.pattern
+                    ),
+                )
+            } else {
+                (
+                    unverified.clone(),
+                    format!(
+                        "`@covers({})` in {relative} is not backed by a scenario: the block carrying it has no \
+                         When/Then pair (a Scenario Outline also needs an Examples row), so it is not credited as \
+                         Gherkin evidence and will not satisfy `[[gherkin_required]]` — write the steps that \
+                         describe the behaviour, not just the tag that claims it",
+                        claim.pattern
+                    ),
+                )
+            };
+            Finding {
+                rule,
+                severity: vord_rules_engine::Severity::Major,
+                message,
+                line: u32::try_from(claim.line).unwrap_or(u32::MAX),
+            }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Soft gate: new public API surface with no Gherkin coverage
+// ---------------------------------------------------------------------------
+//
+// `[[gherkin_required]]` is a hard, opt-in, per-directory gate: a repository
+// has to name the globs it wants enforced. This is the soft counterpart —
+// repo-wide, advisory by default, and triggered by the shape of a *write*
+// rather than a configured path: a write that adds a brand-new top-level
+// public function to a file no `@covers(...)` claim in the repository names
+// is worth a nudge regardless of whether that file happens to sit under a
+// configured `[[gherkin_required]]` glob.
+
+/// Parses `content` as `relative`'s language, using the same parser registry
+/// `AnalyzerService` itself registers (`vord_cli::all_default_parsers`) —
+/// this is a one-off parse independent of that service's own cached pass,
+/// the same relationship `bin/cli::flow`'s re-parse has to it. `None` covers
+/// every reason this can fail (unrecognised extension, no registered parser,
+/// a syntax error) uniformly: the caller treats an unparseable file as
+/// "nothing to say" rather than an error, since this check is advisory.
+fn parse_source(relative: &str, content: &str) -> Option<vord_ast::AstNode> {
+    let extension = Path::new(relative).extension().and_then(|e| e.to_str())?;
+    let language = vord_ast::LanguageIdentifier::from_extension(extension)?;
+    let parser = crate::all_default_parsers()
+        .into_iter()
+        .find(|p| p.language() == language)?;
+    let source =
+        vord_ast::SourceFile::new(relative.to_string(), content.to_string(), language).ok()?;
+    parser.parse(&source).ok()
+}
+
+/// The declared name of a `FunctionDef`, if it has one — the first
+/// `Identifier` among its direct children. Small, private, and duplicated
+/// from `core/flow-graph`/`rulesets/code-smells::cognitive_complexity`
+/// rather than imported: all three crates already carry this exact
+/// eight-line helper independently (parser adapters place a function's own
+/// name there; parameters/generics/body are never bare `Identifier` nodes at
+/// that level), so a fourth copy here follows the codebase's own precedent
+/// rather than introducing a shared dependency for eight lines.
+fn function_def_name(function: &vord_ast::AstNode) -> Option<&str> {
+    function
+        .children()
+        .iter()
+        .find(|c| *c.kind() == vord_ast::NodeKind::Identifier)
+        .map(|c| c.text())
+}
+
+/// Whether a top-level `FunctionDef` named `name` is part of `language`'s
+/// public API surface, judged structurally per language — deliberately
+/// narrower than `rulesets/ddd/src/common.rs`'s `is_public` (which judges
+/// *class members* by naming convention: no leading underscore, no
+/// `#private`). A *module-level* declaration's visibility is a different
+/// question in a language where "public" means "exported from this file",
+/// not "not obviously private": TypeScript/JavaScript needs an `export`
+/// keyword tracked on the surrounding statement, and Python's convention
+/// (leading underscore) says nothing about whether a name is re-exported
+/// through `__init__.py` or `__all__`. Getting either wrong produces a wrong
+/// claim, not just a missed one, so only Rust and Go — both structurally
+/// unambiguous at the single-function level — are covered; every other
+/// language returns `false` for every name, which fails toward
+/// under-reporting rather than a wrong claim.
+fn is_public_function(
+    function: &vord_ast::AstNode,
+    name: &str,
+    language: &vord_ast::LanguageIdentifier,
+) -> bool {
+    if *language == vord_ast::LanguageIdentifier::rust() {
+        return function
+            .children()
+            .iter()
+            .any(|c| matches!(c.kind(), vord_ast::NodeKind::Other(k) if k.as_ref() == "visibility_modifier"));
+    }
+    if *language == vord_ast::LanguageIdentifier::go() {
+        return name.starts_with(|c: char| c.is_uppercase());
+    }
+    false
+}
+
+/// Every top-level public function name declared directly under `ast`'s
+/// root — a Rust `pub fn`, a Go exported `func`. Deliberately only direct
+/// children of the source file's root node, not every `FunctionDef` in the
+/// tree: a method inside an `impl`/class body, a closure, or a helper
+/// nested inside another function is not free-standing module API surface,
+/// and `core/symbols::classes` already has its own (correct, per-language)
+/// notion of method visibility for the `impl`/class case. This also misses
+/// a function inside a nested `pub mod { ... }` block in Rust — an accepted
+/// gap, not a bug: under-reporting here only means one fewer nudge, never a
+/// write blocked over a claim this scan got wrong.
+fn top_level_public_function_names(
+    ast: &vord_ast::AstNode,
+    language: &vord_ast::LanguageIdentifier,
+) -> std::collections::BTreeSet<String> {
+    ast.children()
+        .iter()
+        .filter(|node| *node.kind() == vord_ast::NodeKind::FunctionDef)
+        .filter_map(|node| function_def_name(node).map(|name| (node, name)))
+        .filter(|(node, name)| is_public_function(node, name, language))
+        .map(|(_, name)| name.to_string())
+        .collect()
+}
+
+/// Findings for a brand-new top-level public function this write adds with
+/// no `@covers(...)`-tagged Gherkin scenario anywhere in the repository
+/// naming its file — the mechanical form of proposal item 2 in the original
+/// BDD-governance request this module implements: "if it detects new public
+/// methods..., it can require the agent to map those changes to a specific
+/// Gherkin scenario". Unlike `[[gherkin_required]]`, this fires on every
+/// file regardless of whether the repository configured that path, since
+/// the trigger here is the *shape of the write* (new API surface), not a
+/// configured glob — and unlike it, this never denies on its own: it is a
+/// `Finding` like any other, subject to `advisory_rules`/`blocking_rules`
+/// like `ai:suppression-added`.
+///
+/// The Gherkin coverage index is only ever built when there is a genuinely
+/// new public function to check it against — most writes add none — so this
+/// costs nothing beyond an AST diff on the common path, preserving the
+/// "fast unless a repository actually needs it" posture
+/// `has_covering_gherkin_scenario` documents for the hard gate.
+fn uncovered_public_api_findings(
+    root: &Path,
+    relative: &str,
+    old_content: Option<&str>,
+    new_content: &str,
+) -> Vec<Finding> {
+    let Some(new_ast) = parse_source(relative, new_content) else {
+        return Vec::new();
+    };
+    let Some(extension) = Path::new(relative).extension().and_then(|e| e.to_str()) else {
+        return Vec::new();
+    };
+    let Some(language) = vord_ast::LanguageIdentifier::from_extension(extension) else {
+        return Vec::new();
+    };
+
+    let new_names = top_level_public_function_names(&new_ast, &language);
+    if new_names.is_empty() {
+        return Vec::new();
+    }
+    let old_names: std::collections::BTreeSet<String> = old_content
+        .and_then(|old| parse_source(relative, old))
+        .map(|old_ast| top_level_public_function_names(&old_ast, &language))
+        .unwrap_or_default();
+    let added: Vec<&String> = new_names.difference(&old_names).collect();
+    if added.is_empty() {
+        return Vec::new();
+    }
+
+    let covered = match vord_infra_fs::GherkinCoverageIndex::build_from_repo(root) {
+        Ok(index) => index.covers(relative),
+        Err(e) => {
+            eprintln!("vord hook: could not scan .feature files for Gherkin evidence: {e}");
+            true
+        }
+    };
+    if covered {
+        return Vec::new();
+    }
+
+    let rule = RuleId::new("bdd:uncovered-public-api").expect("valid rule id");
+    added
+        .into_iter()
+        .map(|name| Finding {
+            rule: rule.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: format!(
+                "agent added a new public function `{name}` in {relative} with no Gherkin scenario covering \
+                 this file — tag a scenario with `@covers({relative})` (or a glob matching it) once the \
+                 behaviour is described, or confirm this one didn't need one"
+            ),
+            line: 1,
+        })
+        .collect()
+}
+
 /// Whether `relative` already has a covering Gherkin scenario, per
 /// `[[gherkin_required]]`'s evidence gate. Skips the `.feature`-file scan
 /// entirely (returning `true`, i.e. "assume covered") when the policy has no
@@ -1000,6 +1328,351 @@ fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &s
     }
 }
 
+// ---------------------------------------------------------------------------
+// Execution enforcement: `[[test_required]]`
+// ---------------------------------------------------------------------------
+//
+// Writing a Gherkin scenario proves an agent *described* the behaviour it
+// changed; it proves nothing about whether the change actually works. An
+// agent can satisfy `[[gherkin_required]]` in full and still never run the
+// suite the scenario describes. This section closes that gap at the one
+// point in a session where it can be closed without per-write false
+// positives: `Stop`. A single write cannot attest that a test suite passed
+// — only a completed run can — so unlike every other guard in this module,
+// this one is not evaluated by `judge()` at `PreToolUse`/`PostToolUse` at
+// all. Instead:
+//
+//   1. Every `PostToolUse` write to a `[[test_required]]`-matching path adds
+//      that path to a small on-disk ledger (`record_execution_gate_write`).
+//   2. Every `PostToolUse` `Bash` command matching `[agent]`'s
+//      `test_command_patterns` and not carrying a determinable *nonzero*
+//      exit code clears the ledger (`record_bash_test_run`).
+//   3. `Stop` blocks — via the `{"decision":"block","reason":...}` shape
+//      Claude Code already uses for a `PostToolUse` denial — for as long as
+//      the ledger is non-empty (`claude_code_stop`).
+//
+// This is deliberately coarse: one passing run clears every pending path,
+// not just the ones its command line happens to name, because there is no
+// general way to know which files a given `cargo test`/`pytest` invocation
+// actually exercised. That is a feature-envy tradeoff, not an oversight —
+// a scoped-but-wrong signal (crediting a run that didn't touch the changed
+// code) is worse than a coarse-but-honest one.
+
+/// Filename of the `[[test_required]]` evidence ledger: paths written since
+/// a passing test run, per [`record_execution_gate_write`] and
+/// [`record_bash_test_run`]. Read back by `Stop` in [`claude_code_stop`].
+pub const EXECUTION_LEDGER_FILE: &str = ".vord-execution-ledger.json";
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct ExecutionLedgerState {
+    #[serde(default)]
+    pending_paths: std::collections::BTreeSet<String>,
+}
+
+/// Loads the execution ledger, or an empty one when the file is missing or
+/// unreadable. Same fail-open posture as [`load_circuit_breaker`]: a lost
+/// ledger only means `Stop` forgets what was pending, never that a policy
+/// gets bypassed on a live write — `[[test_required]]` is re-populated by
+/// the very next matching write.
+fn load_execution_ledger(root: &Path) -> ExecutionLedgerState {
+    let path = root.join(EXECUTION_LEDGER_FILE);
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return ExecutionLedgerState::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+/// Persists the execution ledger. Best-effort: a write failure is reported
+/// on stderr rather than surfaced as a denial, matching every other piece of
+/// soft state this module keeps (circuit breaker, loop guard, provenance).
+fn save_execution_ledger(root: &Path, state: &ExecutionLedgerState) {
+    let path = root.join(EXECUTION_LEDGER_FILE);
+    match serde_json::to_string_pretty(state) {
+        Ok(raw) => {
+            if let Err(e) = std::fs::write(&path, raw) {
+                eprintln!(
+                    "vord hook: could not persist execution ledger at {}: {e}",
+                    path.display()
+                );
+            }
+        }
+        Err(e) => eprintln!("vord hook: could not serialize execution ledger: {e}"),
+    }
+}
+
+/// Adds `relative` to the execution ledger when it matches a configured
+/// `[[test_required]]` glob. Called only for `PostToolUse` (see the call
+/// site in [`claude_code_verdict`]) — a `PreToolUse` write may still be
+/// denied by the rest of `judge()` and never land, and a path that was never
+/// actually written has nothing to prove. Persists only when the ledger
+/// actually changes, matching [`record_provenance_touch`]'s
+/// no-redundant-write convention.
+fn record_execution_gate_write(root: &Path, policy: &AgentPolicy, relative: &str) {
+    if policy.test_required_reason_for(relative).is_none() {
+        return;
+    }
+    let mut ledger = load_execution_ledger(root);
+    if ledger.pending_paths.insert(relative.to_string()) {
+        save_execution_ledger(root, &ledger);
+    }
+}
+
+/// Whether `command` counts, per `patterns`, as an execution of the
+/// repository's test/acceptance suite — a case-insensitive substring match,
+/// so `cargo test --workspace -- --nocapture` still counts against a
+/// configured `cargo test`.
+fn command_matches_test_pattern(command: &str, patterns: &[String]) -> bool {
+    let lower = command.to_lowercase();
+    patterns
+        .iter()
+        .any(|p| !p.is_empty() && lower.contains(&p.to_lowercase()))
+}
+
+/// Best-effort exit code from a `PostToolUse` Bash `tool_response`. Claude
+/// Code's documented Bash tool result shape is `{stdout, stderr,
+/// interrupted, isImage}` — no numeric exit-code field is guaranteed, so
+/// this checks the handful of key names other hosts (and possible future
+/// Claude Code versions) plausibly use, and returns `None` when none is
+/// present. The caller treats `None` as "ran, outcome undeterminable" and
+/// still credits it — the same mechanical, not-semantic posture
+/// [`has_covering_gherkin_scenario`] takes toward its own scan failing —
+/// rather than a gate that can never clear on a host that doesn't expose
+/// exit codes at all. A *determinable* nonzero code is trusted fully: a
+/// visibly failing run must never clear the ledger.
+fn bash_exit_code(tool_response: &serde_json::Value) -> Option<i64> {
+    for key in [
+        "exit_code",
+        "exitCode",
+        "returncode",
+        "return_code",
+        "status",
+        "code",
+    ] {
+        if let Some(code) = tool_response.get(key).and_then(|v| v.as_i64()) {
+            return Some(code);
+        }
+    }
+    None
+}
+
+/// Clears the execution ledger when `command` matches
+/// `policy.test_command_patterns()` and did not visibly fail. Called for
+/// every `PostToolUse` `Bash` event, regardless of whether
+/// `[[test_required]]` is configured — cheap to check, and means turning the
+/// policy on later does not require the very next test run to establish a
+/// baseline.
+fn record_bash_test_run(
+    root: &Path,
+    policy: &AgentPolicy,
+    command: &str,
+    tool_response: &serde_json::Value,
+) {
+    if !command_matches_test_pattern(command, policy.test_command_patterns()) {
+        return;
+    }
+    if bash_exit_code(tool_response).is_some_and(|code| code != 0) {
+        return;
+    }
+    let mut ledger = load_execution_ledger(root);
+    if !ledger.pending_paths.is_empty() {
+        ledger.pending_paths.clear();
+        save_execution_ledger(root, &ledger);
+    }
+}
+
+/// One execution ledger entry the caller still hasn't proven, alongside the
+/// `[[test_required]]` glob/reason that requires it. Recomputed against the
+/// *current* policy on every `Stop`, not stored on the ledger entry itself —
+/// so a pattern a human relaxes or removes from `vord-policy.toml` stops
+/// blocking on the very next `Stop`, with no separate ledger migration.
+struct PendingExecutionEvidence {
+    path: String,
+    pattern: String,
+    reason: String,
+}
+
+fn pending_execution_evidence(root: &Path, policy: &AgentPolicy) -> Vec<PendingExecutionEvidence> {
+    let ledger = load_execution_ledger(root);
+    let mut pending: Vec<PendingExecutionEvidence> = ledger
+        .pending_paths
+        .into_iter()
+        .filter_map(|path| {
+            policy
+                .test_required_reason_for(&path)
+                .map(|(pattern, reason)| PendingExecutionEvidence {
+                    path,
+                    pattern: pattern.to_string(),
+                    reason: reason.to_string(),
+                })
+        })
+        .collect();
+    pending.sort_by(|a, b| a.path.cmp(&b.path));
+    pending
+}
+
+/// The agent-facing explanation for a blocked `Stop`, in the same spirit as
+/// [`denial_text`] but not built from it: `Stop` names a *set* of unproven
+/// paths, not one rule denying one write, so there is no single
+/// [`Evaluation`] to render.
+fn execution_gate_denial_text(pending: &[PendingExecutionEvidence], patterns: &[String]) -> String {
+    let mut out = String::from(
+        "vord policy violation: the following writes this session have not been proven by a passing test \
+         run.\n\n",
+    );
+    for (index, item) in pending.iter().enumerate() {
+        out.push_str(&format!(
+            "  {}. {} (matches `{}`) — {}\n",
+            index + 1,
+            item.path,
+            item.pattern,
+            item.reason
+        ));
+    }
+    out.push_str(&format!(
+        "\nRun the repository's test/acceptance suite — a command containing one of: {} — and let it finish \
+         before ending the session. This is an Agent Permission Policy block from vord-policy.toml, not a \
+         style preference.",
+        patterns.join(", "),
+    ));
+    out
+}
+
+/// `Stop`'s guardrail check: whether `[[test_required]]` still has evidence
+/// pending. `None` covers "vord is disabled", "the repository never opted
+/// into `[[test_required]]`", and "every pending write has since been
+/// proven" alike — `Stop` proceeds untouched in all three, same fail-open
+/// posture [`load_policy`] documents for a missing policy file.
+///
+/// Deliberately outside the circuit breaker and loop guard: both track
+/// per-rule or per-write retry state, and a `Stop` block names a set of
+/// still-unproven paths rather than one rule denying one write — there is no
+/// equivalent "same thing retried three times" signal to track here. The
+/// block is still bounded in practice: each iteration gives the agent a
+/// fresh chance to run the suite and clear the ledger, and a human watching
+/// the session can always intervene.
+fn claude_code_stop(root: &Path) -> anyhow::Result<Option<serde_json::Value>> {
+    let policy = load_policy(root)?;
+    if !policy.enabled() || !policy.has_test_requirements() {
+        return Ok(None);
+    }
+    let pending = pending_execution_evidence(root, &policy);
+    if pending.is_empty() {
+        return Ok(None);
+    }
+    let reason = execution_gate_denial_text(&pending, policy.test_command_patterns());
+    Ok(Some(serde_json::json!({
+        "decision": "block",
+        "reason": reason,
+    })))
+}
+
+/// Rule ids whose finding summarizes the *whole file* as a single score —
+/// `smells:maintainability-index`'s Maintainability Index, `smells:ck-oo-
+/// metrics`'s WMC/CBO — rather than pinpointing a specific line-level
+/// pattern. At most one finding per file per rule, and the message text
+/// itself (`13.0/100`, `WMC = 49`) drifts on every single edit even when the
+/// file's actual shape barely changed, so these are matched by rule alone —
+/// see [`drop_preexisting_findings`].
+const WHOLE_FILE_METRIC_RULES: &[&str] = &["smells:maintainability-index", "smells:ck-oo-metrics"];
+
+/// Drops any finding in `findings` that already fired, unchanged, on
+/// `old_findings` before this write landed — so a write is only ever denied
+/// for a violation it actually introduced, never for one the file already
+/// contained. This is the file-level analogue of `core/rules-engine`'s New
+/// Code baseline (`Baseline`/`NewCodeAnalysis`): that machinery diffs against
+/// a stored analysis snapshot for the quality *gate*; this diffs against the
+/// content on disk a write is about to replace, for the agent *hook*, where
+/// no persisted baseline exists — the previous write's content already
+/// serves as one.
+///
+/// Two matching strategies, chosen per rule:
+///
+/// - [`WHOLE_FILE_METRIC_RULES`]: matched by rule alone (message text drifts
+///   on every edit, see above), dropped once if the rule fired at all before
+///   this write. A rule with no matching prior finding (this write is what
+///   pushes the file over the threshold) is left in place — a genuinely new
+///   violation this write is responsible for.
+/// - Every other rule (e.g. per-function complexity, "do not call eval"):
+///   matched by the exact `(rule, message)` pair, as a multiset rather than
+///   a set, and deliberately *not* by line. A finding's `line` shifts under
+///   an edit elsewhere in the file — an inserted comment pushes every line
+///   below it down — so a pure comment addition must not turn an untouched
+///   function's pre-existing complexity finding into an apparently "new"
+///   one just because it now sits three lines lower. Several of these
+///   messages also are not unique per occurrence (e.g. "function has
+///   cyclomatic complexity 7 (max 10)" says nothing about *which*
+///   function), so matching drops only as many occurrences of an identical
+///   `(rule, message)` as already existed; the Nth occurrence beyond that
+///   count is a genuinely new violation and stays.
+fn drop_preexisting_findings(findings: &mut Vec<Finding>, old_findings: &[Finding]) {
+    let whole_file_present: HashSet<&str> = old_findings
+        .iter()
+        .map(|f| f.rule.as_str())
+        .filter(|rule| WHOLE_FILE_METRIC_RULES.contains(rule))
+        .collect();
+
+    let mut remaining: HashMap<(String, String), usize> = HashMap::new();
+    for f in old_findings {
+        if WHOLE_FILE_METRIC_RULES.contains(&f.rule.as_str()) {
+            continue;
+        }
+        *remaining
+            .entry((f.rule.as_str().to_string(), f.message.clone()))
+            .or_insert(0) += 1;
+    }
+
+    findings.retain(|f| {
+        if WHOLE_FILE_METRIC_RULES.contains(&f.rule.as_str()) {
+            return !whole_file_present.contains(f.rule.as_str());
+        }
+        let key = (f.rule.as_str().to_string(), f.message.clone());
+        match remaining.get_mut(&key) {
+            Some(count) if *count > 0 => {
+                *count -= 1;
+                false
+            }
+            _ => true,
+        }
+    });
+}
+
+/// Where `judge` should read the "before" content from when computing which
+/// findings are pre-existing (see [`drop_preexisting_findings`]).
+///
+/// `PreToolUse` is the only hook event where disk genuinely still holds the
+/// pre-write state at judgement time — everywhere else (`PostToolUse`,
+/// `Stop`, `vord hook check`) the write has already landed, so disk equals
+/// `content` and a disk-vs-disk diff is always empty, silently suppressing
+/// every content-based finding. Those callers must diff against the file's
+/// last-committed content instead, so "old" genuinely predates this write.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DiffBaseline {
+    /// Disk still holds the pre-write content (`PreToolUse`).
+    PreWriteDisk,
+    /// The write has already landed on disk; diff against `git show
+    /// HEAD:<path>` instead. A file absent from `HEAD` (newly created) has
+    /// no baseline, so every finding in it is reported as new.
+    GitHead,
+}
+
+/// Reads `<path>`'s content as of `HEAD`, or `None` if the file is not
+/// tracked yet, the repository has no commits, or `git` itself is
+/// unavailable — all of which mean "no pre-existing baseline", not an
+/// error.
+fn git_head_content(root: &Path, relative: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("show")
+        .arg(format!("HEAD:{relative}"))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
+}
+
 /// Judges one proposed write end to end: policy, path, and (when content is
 /// available and parseable) findings.
 ///
@@ -1008,7 +1681,10 @@ fn has_covering_gherkin_scenario(policy: &AgentPolicy, root: &Path, relative: &s
 /// finding needed, via [`has_covering_gherkin_scenario`] and
 /// [`AgentPolicy::evaluate_with_evidence`] — the mechanical version of
 /// Uncle Bob's "surround the agent with constraints" gauntlet: no scenario,
-/// no landed write.
+/// no landed write. Only a claim `vord_infra_fs::scan_covers_claims` credits
+/// counts, so the gate cannot be lifted by writing a tag over an empty
+/// feature file; [`bdd_feature_findings`] tells the agent when it has written
+/// one.
 ///
 /// Before evaluating, the path's [`Provenance`] is looked up in the AI-touch
 /// ledger (`.vord-provenance.json`) and passed to
@@ -1033,17 +1709,22 @@ pub async fn judge(
     root: &Path,
     file: &Path,
     content: Option<&str>,
+    baseline: DiffBaseline,
 ) -> anyhow::Result<Verdict> {
     let relative = relative_to(root, file);
     let mut findings = match content {
-        Some(content) => analyze_content(&relative, content).await?,
+        Some(content) => analyze_content(root, &relative, content).await?,
         None => Vec::new(),
     };
-    // Only meaningful `PreToolUse`-side, where disk still holds the
-    // pre-write content: by the time a write has landed (`PostToolUse`,
-    // `hook check`), disk already matches `content` and the diff is empty.
     if let Some(content) = content {
-        let old_content = std::fs::read_to_string(file).ok();
+        let old_content = match baseline {
+            DiffBaseline::PreWriteDisk => tokio::fs::read_to_string(file).await.ok(),
+            DiffBaseline::GitHead => git_head_content(root, &relative),
+        };
+        if let Some(old) = old_content.as_deref() {
+            let old_findings = analyze_content(root, &relative, old).await?;
+            drop_preexisting_findings(&mut findings, &old_findings);
+        }
         findings.extend(new_dependency_findings(
             &relative,
             old_content.as_deref(),
@@ -1055,6 +1736,17 @@ pub async fn judge(
             content,
         ));
         findings.extend(test_skip_added_findings(
+            &relative,
+            old_content.as_deref(),
+            content,
+        ));
+        findings.extend(bdd_feature_findings(
+            &relative,
+            old_content.as_deref(),
+            content,
+        ));
+        findings.extend(uncovered_public_api_findings(
+            root,
             &relative,
             old_content.as_deref(),
             content,
@@ -1262,15 +1954,69 @@ pub fn claude_code_output(
     }
 }
 
+/// The repository root a hook payload is judged against: the host-reported
+/// `cwd`, falling back to the process's own working directory. Shared by
+/// every branch in [`run_claude_code`] so `Stop`, a `Bash` `PostToolUse`,
+/// and an `Edit`/`Write` event all resolve it the same way.
+fn resolve_root(payload: &HookPayload) -> PathBuf {
+    payload
+        .cwd
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// `vord hook claude-code`: reads the hook payload on stdin, writes the
 /// verdict JSON on stdout, always exits 0.
 ///
 /// Exit 0 with a JSON body is the documented way to deny; exit 2 also denies
 /// but forces the reason through stderr, losing the structured form. Using
 /// the JSON path uniformly means one code path for both events.
+///
+/// Three event shapes are handled, in order:
+///
+/// - `Stop` — no file, no tool call; [`claude_code_stop`] alone decides
+///   whether `[[test_required]]` still has evidence pending.
+/// - `PostToolUse` on `Bash` — not a write `judge()` has any opinion on, but
+///   [`record_bash_test_run`] needs the command line to clear the execution
+///   ledger. Emits nothing; a test run is never itself denied.
+/// - Everything else — the existing `Edit`/`Write` guardrail, unchanged.
 pub async fn run_claude_code() -> anyhow::Result<std::process::ExitCode> {
     let mut raw = String::new();
     std::io::stdin().read_to_string(&mut raw)?;
+
+    let payload: HookPayload = serde_json::from_str(&raw).unwrap_or(HookPayload {
+        hook_event_name: String::new(),
+        tool_name: String::new(),
+        tool_input: serde_json::Value::Null,
+        cwd: None,
+        tool_response: serde_json::Value::Null,
+    });
+    let root = resolve_root(&payload);
+
+    if payload.hook_event_name == "Stop" {
+        let output = claude_code_stop(&root).unwrap_or_else(|e| {
+            eprintln!("vord hook: {e:#}");
+            None
+        });
+        if let Some(output) = output {
+            println!("{}", serde_json::to_string(&output)?);
+        }
+        return Ok(std::process::ExitCode::SUCCESS);
+    }
+
+    if payload.hook_event_name == "PostToolUse" && payload.tool_name == "Bash" {
+        if let (Ok(policy), Some(command)) = (
+            load_policy(&root),
+            payload.tool_input.get("command").and_then(|v| v.as_str()),
+        ) {
+            if policy.enabled() {
+                record_bash_test_run(&root, &policy, command, &payload.tool_response);
+            }
+        }
+        return Ok(std::process::ExitCode::SUCCESS);
+    }
 
     let (verdict, loop_report) = match claude_code_verdict(&raw).await {
         Ok(result) => result,
@@ -1281,18 +2027,6 @@ pub async fn run_claude_code() -> anyhow::Result<std::process::ExitCode> {
         }
     };
 
-    let payload: HookPayload = serde_json::from_str(&raw).unwrap_or(HookPayload {
-        hook_event_name: String::new(),
-        tool_name: String::new(),
-        tool_input: serde_json::Value::Null,
-        cwd: None,
-    });
-    let root = payload
-        .cwd
-        .as_ref()
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."));
     let breaker = track_circuit_breaker(&root, &verdict);
     append_audit_log(
         &root,
@@ -1322,12 +2056,7 @@ async fn claude_code_verdict(raw: &str) -> anyhow::Result<(Verdict, LoopGuardRep
         return Ok((Verdict::Silent, LoopGuardReport::default()));
     };
     let file = PathBuf::from(file_path);
-    let root = payload
-        .cwd
-        .as_ref()
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."));
+    let root = resolve_root(&payload);
 
     let policy = load_policy(&root)?;
     if !policy.enabled() {
@@ -1338,12 +2067,22 @@ async fn claude_code_verdict(raw: &str) -> anyhow::Result<(Verdict, LoopGuardRep
     // already on disk, so disk is the truth.
     let content = match payload.hook_event_name.as_str() {
         "PreToolUse" => proposed_content(&payload.tool_name, &payload.tool_input, &file),
-        _ => std::fs::read_to_string(&file).ok(),
+        _ => tokio::fs::read_to_string(&file).await.ok(),
     };
 
     let relative = relative_to(&root, &file);
     let loop_report = track_loop_guard(&root, &relative, content.as_deref());
-    let verdict = judge(&policy, &root, &file, content.as_deref()).await?;
+    let baseline = match payload.hook_event_name.as_str() {
+        "PreToolUse" => DiffBaseline::PreWriteDisk,
+        _ => DiffBaseline::GitHead,
+    };
+    let verdict = judge(&policy, &root, &file, content.as_deref(), baseline).await?;
+    // Only meaningful post-write: a `PreToolUse` write may still be denied by
+    // `judge()` above and never land, so nothing here has been proven to
+    // exist yet.
+    if payload.hook_event_name == "PostToolUse" {
+        record_execution_gate_write(&root, &policy, &relative);
+    }
     Ok((verdict, loop_report))
 }
 
@@ -1368,10 +2107,17 @@ pub async fn run_check(
         return Ok(std::process::ExitCode::SUCCESS);
     }
 
-    let content = std::fs::read_to_string(&file).ok();
+    let content = tokio::fs::read_to_string(&file).await.ok();
     let relative = relative_to(&root, &file);
     let loop_report = track_loop_guard(&root, &relative, content.as_deref());
-    let verdict = judge(&policy, &root, &file, content.as_deref()).await?;
+    let verdict = judge(
+        &policy,
+        &root,
+        &file,
+        content.as_deref(),
+        DiffBaseline::GitHead,
+    )
+    .await?;
     let breaker = track_circuit_breaker(&root, &verdict);
     append_audit_log(&root, "check", &verdict, &breaker, &loop_report);
 
@@ -1490,7 +2236,7 @@ mod tests {
     #[tokio::test]
     async fn a_file_with_no_known_extension_analyses_to_no_findings() {
         assert!(
-            analyze_content("notes.unknownext", "whatever")
+            analyze_content(Path::new("/repo"), "notes.unknownext", "whatever")
                 .await
                 .expect("ok")
                 .is_empty()
@@ -1500,6 +2246,7 @@ mod tests {
     #[tokio::test]
     async fn a_real_vulnerability_in_proposed_content_is_found() {
         let findings = analyze_content(
+            Path::new("/repo"),
             "app.py",
             "import subprocess\nsubprocess.run(cmd, shell=True)\n",
         )
@@ -1518,14 +2265,80 @@ mod tests {
         // `owasp:command-execution` is `FindingKind::Hotspot`, not `Issue` —
         // it must still reach the agent policy, or the shipped default
         // `blocking_rules` entry naming it can never actually deny anything.
-        let findings = analyze_content("app.py", "import os\nos.system(user_input)\n")
-            .await
-            .expect("analysis runs");
+        let findings = analyze_content(
+            Path::new("/repo"),
+            "app.py",
+            "import os\nos.system(user_input)\n",
+        )
+        .await
+        .expect("analysis runs");
         assert!(
             findings
                 .iter()
                 .any(|f| f.rule.as_str() == "owasp:command-execution"),
             "hotspot-classified rules must still reach the agent policy, got {findings:?}"
+        );
+    }
+
+    /// Sets up a throwaway directory under the OS temp dir (no `tempfile`
+    /// dependency in this crate) with `src/main.rs` containing one axum
+    /// route and, when `covering_test` is `Some`, a `tests/covers.rs`
+    /// referencing that exact route path — the two-file shape the reported
+    /// bug needed to reproduce, since `rust:route-without-test-coverage`
+    /// only sees coverage that lives in a *different* file from the route.
+    fn cross_file_route_fixture(test_name: &str, covering_test: Option<&str>) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "vord-hook-cross-file-test-{test_name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        if let Some(test_body) = covering_test {
+            std::fs::create_dir_all(root.join("tests")).unwrap();
+            std::fs::write(root.join("tests/covers.rs"), test_body).unwrap();
+        }
+        root
+    }
+
+    #[tokio::test]
+    async fn a_route_covered_only_by_a_separate_test_file_is_not_flagged() {
+        // Regression test: `analyze_content` used to hand the engine only
+        // the one file being judged, so `rust:route-without-test-coverage`
+        // (a `CrossFileRule`) could never see a covering test that lives in
+        // a different file — denying writes a full `vord scan .` (which
+        // does load the whole project) passes clean.
+        let root = cross_file_route_fixture(
+            "covered",
+            Some("#[test]\nfn hits_it() {\n    client.get(\"/api/v1/widgets\").send();\n}\n"),
+        );
+        let content = "fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/widgets\", get(list_widgets))\n}\n";
+        let findings = analyze_content(&root, "src/main.rs", content)
+            .await
+            .expect("analysis runs");
+        std::fs::remove_dir_all(&root).ok();
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.rule.as_str() == "rust:route-without-test-coverage"),
+            "route covered by a separate test file must not be flagged, got {findings:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_route_with_no_test_anywhere_in_the_project_is_still_flagged() {
+        // The other half of the same fix: pulling in the rest of the
+        // project must not swallow a genuinely uncovered route.
+        let root = cross_file_route_fixture("uncovered", None);
+        let content = "fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/widgets\", get(list_widgets))\n}\n";
+        let findings = analyze_content(&root, "src/main.rs", content)
+            .await
+            .expect("analysis runs");
+        std::fs::remove_dir_all(&root).ok();
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.rule.as_str() == "rust:route-without-test-coverage"),
+            "route with no test anywhere must still be flagged, got {findings:?}"
         );
     }
 
@@ -1544,6 +2357,7 @@ mod tests {
             root,
             Path::new("/repo/app.py"),
             Some("import os\nos.system(user_input)\n"),
+            DiffBaseline::PreWriteDisk,
         )
         .await
         .expect("judged");
@@ -1561,6 +2375,7 @@ mod tests {
             root,
             Path::new("/repo/app.py"),
             Some("import subprocess\nsubprocess.run(cmd, shell=True)\n"),
+            DiffBaseline::PreWriteDisk,
         )
         .await
         .expect("judged");
@@ -1575,6 +2390,7 @@ mod tests {
             Path::new("/repo"),
             Path::new("/repo/a.py"),
             Some("x = 1\n"),
+            DiffBaseline::PreWriteDisk,
         )
         .await
         .expect("judged");
@@ -2074,6 +2890,450 @@ mod tests {
         assert!(test_skip_added_findings("src/lib.rs", Some(content), content).is_empty());
     }
 
+    const REAL_SCENARIO: &str = "\
+@covers(core/domain/**)
+Feature: Orders
+
+  Scenario: Checkout
+    Given a cart
+    When I check out
+    Then the order is placed
+";
+
+    #[test]
+    fn a_covers_tag_over_an_empty_feature_is_flagged_as_unverified() {
+        let findings = bdd_feature_findings(
+            "features/orders.feature",
+            None,
+            "@covers(core/domain/**)\nFeature: Orders\n",
+        );
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "bdd:unverified-scenario");
+        assert_eq!(findings[0].line, 1);
+        assert!(
+            findings[0].message.contains("core/domain/**"),
+            "{}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn a_real_scenario_is_not_flagged() {
+        assert!(bdd_feature_findings("features/orders.feature", None, REAL_SCENARIO).is_empty());
+    }
+
+    #[test]
+    fn an_overbroad_covers_glob_is_flagged_under_its_own_rule() {
+        let content = REAL_SCENARIO.replace("core/domain/**", "**");
+        let findings = bdd_feature_findings("features/orders.feature", None, &content);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "bdd:overbroad-covers");
+    }
+
+    #[test]
+    fn a_non_feature_file_is_never_scanned_for_covers_claims() {
+        // The tag text can legitimately appear in prose or in this very
+        // module's own documentation; only `.feature` files make a claim.
+        assert!(bdd_feature_findings("README.md", None, "@covers(**)\nFeature: x\n").is_empty());
+    }
+
+    #[test]
+    fn a_pre_existing_unverified_claim_is_not_re_flagged() {
+        let old = "@covers(core/domain/**)\nFeature: Orders\n";
+        let new = format!("{old}\n  Scenario: A start\n    Given a cart\n");
+        assert!(bdd_feature_findings("features/orders.feature", Some(old), &new).is_empty());
+    }
+
+    #[test]
+    fn a_new_top_level_rust_pub_fn_is_flagged_when_uncovered() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-api-rust-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let findings =
+            uncovered_public_api_findings(&dir, "src/lib.rs", None, "pub fn ship() {}\n");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule.as_str(), "bdd:uncovered-public-api");
+        assert!(
+            findings[0].message.contains("ship"),
+            "{}",
+            findings[0].message
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_private_rust_function_is_never_flagged() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-api-private-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let findings = uncovered_public_api_findings(&dir, "src/lib.rs", None, "fn ship() {}\n");
+        assert!(findings.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_new_top_level_go_exported_func_is_flagged_when_uncovered() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-api-go-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let findings = uncovered_public_api_findings(
+            &dir,
+            "order.go",
+            None,
+            "package order\n\nfunc Ship() {}\n",
+        );
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].message.contains("Ship"),
+            "{}",
+            findings[0].message
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_go_lowercase_func_is_not_exported_and_never_flagged() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-api-go-unexp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let findings = uncovered_public_api_findings(
+            &dir,
+            "order.go",
+            None,
+            "package order\n\nfunc ship() {}\n",
+        );
+        assert!(findings.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_pre_existing_pub_fn_is_not_flagged_as_newly_added() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-api-preexist-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let old = "pub fn ship() {}\n";
+        let new = "pub fn ship() {\n    // now with a body comment\n}\n";
+        let findings = uncovered_public_api_findings(&dir, "src/lib.rs", Some(old), new);
+        assert!(
+            findings.is_empty(),
+            "the function already existed before this write"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_method_inside_an_impl_block_is_not_top_level_api() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-api-impl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let findings = uncovered_public_api_findings(
+            &dir,
+            "src/lib.rs",
+            None,
+            "pub struct Order;\nimpl Order {\n    pub fn ship(&self) {}\n}\n",
+        );
+        assert!(
+            findings.is_empty(),
+            "a method belongs to core/symbols::classes's own visibility notion, not this scan"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_new_pub_fn_in_a_covered_file_is_not_flagged() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-api-covered-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("features")).expect("temp dir");
+        std::fs::write(
+            dir.join("features/orders.feature"),
+            "@covers(src/lib.rs)\nFeature: Orders\n\n  Scenario: Ship\n    Given a cart\n    When I ship it\n    Then it ships\n",
+        )
+        .expect("write feature file");
+
+        let findings =
+            uncovered_public_api_findings(&dir, "src/lib.rs", None, "pub fn ship() {}\n");
+        assert!(
+            findings.is_empty(),
+            "a real scenario already claims this file"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_unparseable_language_is_silently_skipped() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-api-unknown-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        assert!(uncovered_public_api_findings(&dir, "README.md", None, "# hello\n").is_empty());
+        assert!(
+            uncovered_public_api_findings(&dir, "app.ts", None, "export function ship() {}\n")
+                .is_empty(),
+            "TypeScript export tracking is out of scope for this scan, by design"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn an_uncovered_public_api_write_is_wired_into_the_full_judge_pipeline() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-api-judge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("src/lib.rs");
+
+        let policy =
+            AgentPolicy::parse("[agent]\nblocking_rules = [\"bdd:uncovered-public-api\"]\n")
+                .expect("parses");
+        let verdict = judge(&policy, &dir, &file, Some("pub fn ship() {}\n"), DiffBaseline::PreWriteDisk)
+            .await
+            .expect("judged");
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "an opted-in repository denies the claim, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn an_unbacked_covers_claim_is_wired_into_the_full_judge_pipeline() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-bdd-claim-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("features")).expect("temp dir");
+        let file = dir.join("features/orders.feature");
+
+        let policy =
+            AgentPolicy::parse("[agent]\nblocking_rules = [\"bdd:unverified-scenario\"]\n")
+                .expect("parses");
+        let verdict = judge(
+            &policy,
+            &dir,
+            &file,
+            Some("@covers(core/domain/**)\nFeature: Orders\n"),
+            DiffBaseline::PreWriteDisk,
+        )
+        .await
+        .expect("judged");
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "an opted-in repository denies the claim, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn test_required_policy() -> AgentPolicy {
+        AgentPolicy::parse(
+            "[[test_required]]\npattern = \"core/domain/**\"\nreason = \"needs a passing test run\"\n",
+        )
+        .expect("parses")
+    }
+
+    #[test]
+    fn command_matches_test_pattern_is_case_insensitive_and_substring() {
+        let patterns = vec!["cargo test".to_string()];
+        assert!(command_matches_test_pattern(
+            "cargo test --workspace -- --nocapture",
+            &patterns
+        ));
+        assert!(command_matches_test_pattern("CARGO TEST", &patterns));
+        assert!(!command_matches_test_pattern("cargo build", &patterns));
+    }
+
+    #[test]
+    fn bash_exit_code_reads_the_first_key_it_finds() {
+        assert_eq!(
+            bash_exit_code(&serde_json::json!({"exit_code": 1})),
+            Some(1)
+        );
+        assert_eq!(bash_exit_code(&serde_json::json!({"exitCode": 2})), Some(2));
+        assert_eq!(bash_exit_code(&serde_json::json!({"stdout": "ok"})), None);
+    }
+
+    #[test]
+    fn a_write_to_a_test_required_path_lands_in_the_ledger() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-exec-write-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let policy = test_required_policy();
+
+        record_execution_gate_write(&dir, &policy, "core/domain/order.rs");
+        let pending = pending_execution_evidence(&dir, &policy);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].path, "core/domain/order.rs");
+        assert_eq!(pending[0].pattern, "core/domain/**");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_write_outside_any_test_required_glob_is_not_ledgered() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-exec-unrelated-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let policy = test_required_policy();
+
+        record_execution_gate_write(&dir, &policy, "core/other/order.rs");
+        assert!(pending_execution_evidence(&dir, &policy).is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_passing_test_run_clears_the_ledger() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-exec-pass-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let policy = test_required_policy();
+        record_execution_gate_write(&dir, &policy, "core/domain/order.rs");
+        assert_eq!(pending_execution_evidence(&dir, &policy).len(), 1);
+
+        record_bash_test_run(
+            &dir,
+            &policy,
+            "cargo test --workspace",
+            &serde_json::Value::Null,
+        );
+        assert!(pending_execution_evidence(&dir, &policy).is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failing_test_run_does_not_clear_the_ledger() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-exec-fail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let policy = test_required_policy();
+        record_execution_gate_write(&dir, &policy, "core/domain/order.rs");
+
+        record_bash_test_run(
+            &dir,
+            &policy,
+            "cargo test --workspace",
+            &serde_json::json!({"exit_code": 1}),
+        );
+        assert_eq!(
+            pending_execution_evidence(&dir, &policy).len(),
+            1,
+            "a visibly failing run must not count as evidence"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_unrelated_command_does_not_clear_the_ledger() {
+        let dir = std::env::temp_dir().join(format!(
+            "vord-hook-exec-unrelated-cmd-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let policy = test_required_policy();
+        record_execution_gate_write(&dir, &policy, "core/domain/order.rs");
+
+        record_bash_test_run(&dir, &policy, "ls -la", &serde_json::Value::Null);
+        assert_eq!(pending_execution_evidence(&dir, &policy).len(), 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claude_code_stop_is_silent_when_test_required_is_not_configured() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-stop-off-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        assert!(
+            claude_code_stop(&dir).expect("no error").is_none(),
+            "no [[test_required]] configured, nothing to enforce"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claude_code_stop_blocks_on_a_pending_unproven_write() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-stop-pending-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        std::fs::write(
+            dir.join(POLICY_FILE),
+            "[[test_required]]\npattern = \"core/domain/**\"\nreason = \"needs a passing test run\"\n",
+        )
+        .expect("write policy");
+        let policy = test_required_policy();
+        record_execution_gate_write(&dir, &policy, "core/domain/order.rs");
+
+        let output = claude_code_stop(&dir).expect("no error").expect("blocks");
+        assert_eq!(output["decision"], "block");
+        let reason = output["reason"].as_str().expect("reason is a string");
+        assert!(reason.contains("core/domain/order.rs"), "{reason}");
+        assert!(reason.contains("cargo test"), "{reason}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claude_code_stop_is_silent_once_the_ledger_is_cleared() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-stop-cleared-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        std::fs::write(
+            dir.join(POLICY_FILE),
+            "[[test_required]]\npattern = \"core/domain/**\"\nreason = \"needs a passing test run\"\n",
+        )
+        .expect("write policy");
+        let policy = test_required_policy();
+        record_execution_gate_write(&dir, &policy, "core/domain/order.rs");
+        record_bash_test_run(&dir, &policy, "cargo test", &serde_json::Value::Null);
+
+        assert!(claude_code_stop(&dir).expect("no error").is_none());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn claude_code_verdict_ledgers_a_test_required_write_only_on_post_tool_use() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-verdict-ledger-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
+        std::fs::write(
+            dir.join(POLICY_FILE),
+            "[[test_required]]\npattern = \"core/domain/**\"\nreason = \"needs a passing test run\"\n",
+        )
+        .expect("write policy");
+        let file = dir.join("core/domain/order.rs");
+
+        let pre_payload = format!(
+            r#"{{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{{"file_path":"{}","content":"struct Order;\n"}},"cwd":"{}"}}"#,
+            file.display(),
+            dir.display()
+        );
+        claude_code_verdict(&pre_payload).await.expect("judged");
+        let policy = test_required_policy();
+        assert!(
+            pending_execution_evidence(&dir, &policy).is_empty(),
+            "a PreToolUse write is not yet proven to have landed"
+        );
+
+        std::fs::write(&file, "struct Order;\n").expect("simulate the write landing");
+        let post_payload = format!(
+            r#"{{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{{"file_path":"{}","content":"struct Order;\n"}},"cwd":"{}"}}"#,
+            file.display(),
+            dir.display()
+        );
+        claude_code_verdict(&post_payload).await.expect("judged");
+        assert_eq!(pending_execution_evidence(&dir, &policy).len(), 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[tokio::test]
     async fn a_new_suppression_is_wired_into_the_full_judge_pipeline() {
         let dir =
@@ -2085,7 +3345,7 @@ mod tests {
         let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"ai:suppression-added\"]\n")
             .expect("parses");
         let new_content = "#[allow(dead_code)]\nfn f() {}\n";
-        let verdict = judge(&policy, &dir, &file, Some(new_content))
+        let verdict = judge(&policy, &dir, &file, Some(new_content), DiffBaseline::PreWriteDisk)
             .await
             .expect("judged");
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
@@ -2107,10 +3367,348 @@ mod tests {
             AgentPolicy::parse("[agent]\nblocking_rules = [\"supply-chain:new-dependency\"]\n")
                 .expect("parses");
         let new_content = r#"{"dependencies": {"left-pad": "1.0.0", "left-pad-plus": "0.0.1"}}"#;
-        let verdict = judge(&policy, &dir, &manifest, Some(new_content))
+        let verdict = judge(&policy, &dir, &manifest, Some(new_content), DiffBaseline::PreWriteDisk)
             .await
             .expect("judged");
         assert!(matches!(verdict, Verdict::Deny { .. }), "got {verdict:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn preexisting_whole_file_metric_findings_are_dropped_but_new_ones_kept() {
+        let mi = RuleId::new("smells:maintainability-index").unwrap();
+        let wmc = RuleId::new("smells:ck-oo-metrics").unwrap();
+        let long_fn = RuleId::new("smells:long-function").unwrap();
+
+        // Same rule already fired before this write — the message's own
+        // score has drifted (18.0 -> 17.5), the ordinary "unrelated edit"
+        // case, and must not make this look like a new violation.
+        let old_findings = vec![Finding {
+            rule: mi.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: "Low Maintainability Index: `18.0/100` (threshold = 20.0).".into(),
+            line: 1,
+        }];
+
+        let mut findings = vec![
+            Finding {
+                rule: mi.clone(),
+                severity: vord_rules_engine::Severity::Major,
+                message: "Low Maintainability Index: `17.5/100` (threshold = 20.0).".into(),
+                line: 1,
+            },
+            Finding {
+                rule: wmc.clone(),
+                severity: vord_rules_engine::Severity::Major,
+                message: "CK Metric Violation: high WMC".into(),
+                line: 3,
+            },
+            Finding {
+                rule: long_fn.clone(),
+                severity: vord_rules_engine::Severity::Minor,
+                message: "function spans 60 lines (max 50)".into(),
+                line: 10,
+            },
+        ];
+
+        drop_preexisting_findings(&mut findings, &old_findings);
+
+        let rules: Vec<&str> = findings.iter().map(|f| f.rule.as_str()).collect();
+        assert!(
+            !rules.contains(&mi.as_str()),
+            "the pre-existing MI finding must be dropped, got {rules:?}"
+        );
+        assert!(
+            rules.contains(&wmc.as_str()),
+            "a whole-file rule with no prior finding is a genuinely new violation and must stay, got {rules:?}"
+        );
+        assert!(
+            rules.contains(&long_fn.as_str()),
+            "a rule with no matching prior finding has nothing to drop and must stay, got {rules:?}"
+        );
+    }
+
+    #[test]
+    fn preexisting_per_function_complexity_findings_survive_an_unrelated_line_shift() {
+        // Reproduces the reported bug: a pure comment addition earlier in the
+        // file shifts every finding below it down by one line, and a
+        // per-function rule's message (unlike the whole-file metrics above)
+        // says nothing that identifies *which* function it is about — so a
+        // naive (rule, message, line) match would see "new" findings on
+        // every single write to a file that has any pre-existing complexity
+        // violation anywhere in it.
+        let complexity = RuleId::new("smells:high-complexity").unwrap();
+        let old_findings = vec![Finding {
+            rule: complexity.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: "function has cyclomatic complexity 12 (max 10)".into(),
+            line: 40,
+        }];
+
+        // Same finding, same message, but three lines lower — as if three
+        // comment lines were inserted above it — and nothing else changed.
+        let mut findings = vec![Finding {
+            rule: complexity.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: "function has cyclomatic complexity 12 (max 10)".into(),
+            line: 43,
+        }];
+
+        drop_preexisting_findings(&mut findings, &old_findings);
+
+        assert!(
+            findings.is_empty(),
+            "an unrelated line shift must not turn a pre-existing complexity finding into a new one, got {findings:?}"
+        );
+    }
+
+    #[test]
+    fn a_second_identically_worded_complexity_finding_is_still_new() {
+        // Per-function complexity messages don't name the function, so two
+        // functions at the same complexity produce byte-identical messages.
+        // Only as many occurrences as already existed may be dropped — the
+        // extra one is a genuinely new violation and must still block.
+        let complexity = RuleId::new("smells:high-complexity").unwrap();
+        let message = "function has cyclomatic complexity 12 (max 10)";
+        let old_findings = vec![Finding {
+            rule: complexity.clone(),
+            severity: vord_rules_engine::Severity::Major,
+            message: message.into(),
+            line: 10,
+        }];
+
+        let mut findings = vec![
+            Finding {
+                rule: complexity.clone(),
+                severity: vord_rules_engine::Severity::Major,
+                message: message.into(),
+                line: 10,
+            },
+            Finding {
+                rule: complexity.clone(),
+                severity: vord_rules_engine::Severity::Major,
+                message: message.into(),
+                line: 55,
+            },
+        ];
+
+        drop_preexisting_findings(&mut findings, &old_findings);
+
+        assert_eq!(
+            findings.len(),
+            1,
+            "only the previously-existing occurrence may be dropped, got {findings:?}"
+        );
+    }
+
+    /// A class whose methods' cyclomatic complexities sum past the default
+    /// `smells:ck-oo-metrics` WMC threshold (25) — 15 methods at complexity 2
+    /// each (a single `if`) sum to 30.
+    fn high_wmc_class(name: &str) -> String {
+        let methods: String = (0..15)
+            .map(|i| format!("    m{i}(a) {{ if (a) {{ return 1; }} return 0; }}\n"))
+            .collect();
+        format!("class {name} {{\n{methods}}}\n")
+    }
+
+    #[tokio::test]
+    async fn a_preexisting_whole_file_metric_finding_does_not_block_an_unrelated_edit() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-wmc-preexisting-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("big.ts");
+        let old_content = high_wmc_class("Big");
+        std::fs::write(&file, &old_content).expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:ck-oo-metrics\"]\n")
+            .expect("parses");
+
+        // Append an unrelated top-level declaration; `Big`'s own methods,
+        // and therefore its WMC, are untouched.
+        let new_content = format!("{old_content}\nconst unrelated = 1;\n");
+        let verdict = judge(&policy, &dir, &file, Some(&new_content), DiffBaseline::PreWriteDisk)
+            .await
+            .expect("judged");
+        assert!(
+            !matches!(verdict, Verdict::Deny { .. }),
+            "an unrelated edit to a file that already violated WMC must not be denied, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_newly_introduced_whole_file_metric_finding_still_blocks() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-wmc-new-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("big.ts");
+        // Clean before this write: a single trivial method, WMC = 1.
+        std::fs::write(&file, "class Big {\n    m0() { return 0; }\n}\n").expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:ck-oo-metrics\"]\n")
+            .expect("parses");
+
+        let new_content = high_wmc_class("Big");
+        let verdict = judge(&policy, &dir, &file, Some(&new_content), DiffBaseline::PreWriteDisk)
+            .await
+            .expect("judged");
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "a write that newly crosses the WMC threshold must still be denied, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Regression test for issue #193: `run_check` and every hook event but
+    /// `PreToolUse` read `content` from disk *after* the write has already
+    /// landed, so a `PreWriteDisk` baseline would diff disk against itself
+    /// and silently drop every finding — including on a file whose entire
+    /// content is brand new, not just edited. `GitHead` must still deny in
+    /// that case, in an untracked directory with no `HEAD` at all.
+    #[tokio::test]
+    async fn git_head_baseline_denies_a_brand_new_file_with_no_pre_write_disk_state() {
+        let dir = std::env::temp_dir()
+            .join(format!("vord-hook-githead-new-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("evil.py");
+        let content = "import os\nos.system(user_input)\n";
+        // The write has already landed on disk, exactly as `run_check` and
+        // `PostToolUse`/`Stop` see it.
+        std::fs::write(&file, content).expect("write");
+
+        let verdict = judge(
+            &AgentPolicy::default(),
+            &dir,
+            &file,
+            Some(content),
+            DiffBaseline::GitHead,
+        )
+        .await
+        .expect("judged");
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "a self-diff against unchanged disk content must not suppress findings on a new file, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Same shape, but the file is actually tracked in git with a clean
+    /// last-committed revision: a `smells:ck-oo-metrics` violation already
+    /// present at `HEAD` must still be dropped as pre-existing, so
+    /// `GitHead` doesn't just deny everything unconditionally.
+    #[tokio::test]
+    async fn git_head_baseline_drops_a_finding_already_present_at_head() {
+        let dir = std::env::temp_dir()
+            .join(format!("vord-hook-githead-preexisting-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("big.ts");
+        let old_content = high_wmc_class("Big");
+        std::fs::write(&file, &old_content).expect("write");
+
+        let run_git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .output()
+                .expect("git runs")
+        };
+        run_git(&["init", "-q"]);
+        run_git(&["config", "user.email", "test@example.com"]);
+        run_git(&["config", "user.name", "test"]);
+        run_git(&["add", "big.ts"]);
+        run_git(&["commit", "-q", "-m", "initial"]);
+
+        // Land an unrelated addition on disk, as `PostToolUse`/`run_check`
+        // would see it after the write.
+        let new_content = format!("{old_content}\nconst unrelated = 1;\n");
+        std::fs::write(&file, &new_content).expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:ck-oo-metrics\"]\n")
+            .expect("parses");
+        let verdict = judge(
+            &policy,
+            &dir,
+            &file,
+            Some(&new_content),
+            DiffBaseline::GitHead,
+        )
+        .await
+        .expect("judged");
+        assert!(
+            !matches!(verdict, Verdict::Deny { .. }),
+            "an unrelated edit to a file that already violated WMC at HEAD must not be denied, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A JS/TS function whose cyclomatic complexity (11) exceeds the default
+    /// `smells:high-complexity` threshold (10) — ten `if`s plus the implicit
+    /// entry path.
+    fn high_complexity_function(name: &str) -> String {
+        let ifs: String = (0..10)
+            .map(|i| format!("    if (a > {i}) {{ return {i}; }}\n"))
+            .collect();
+        format!("function {name}(a) {{\n{ifs}    return -1;\n}}\n")
+    }
+
+    #[tokio::test]
+    async fn a_preexisting_complexity_finding_does_not_block_a_pure_comment_addition() {
+        // Reproduces the reported bug end to end: a comment-only edit above
+        // an untouched, already-too-complex function must not be denied over
+        // that function's pre-existing finding, even though inserting the
+        // comment shifts the function (and its finding's line) down.
+        let dir = std::env::temp_dir().join(format!(
+            "vord-hook-complexity-preexisting-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("busy.ts");
+        let old_content = high_complexity_function("busy");
+        std::fs::write(&file, &old_content).expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:high-complexity\"]\n")
+            .expect("parses");
+
+        // A pure comment addition at the top of the file — no function body
+        // is touched, but every line below it, including `busy`'s, shifts
+        // down by one.
+        let new_content = format!("// explains the module\n{old_content}");
+        let verdict = judge(&policy, &dir, &file, Some(&new_content), DiffBaseline::PreWriteDisk)
+            .await
+            .expect("judged");
+        assert!(
+            !matches!(verdict, Verdict::Deny { .. }),
+            "a pure comment addition must not be denied over an unrelated pre-existing complexity finding, got {verdict:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_newly_introduced_complexity_finding_still_blocks() {
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-complexity-new-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("busy.ts");
+        // Clean before this write: no branches at all.
+        std::fs::write(&file, "function busy(a) {\n    return -1;\n}\n").expect("write");
+
+        let policy = AgentPolicy::parse("[agent]\nblocking_rules = [\"smells:high-complexity\"]\n")
+            .expect("parses");
+
+        let new_content = high_complexity_function("busy");
+        let verdict = judge(&policy, &dir, &file, Some(&new_content), DiffBaseline::PreWriteDisk)
+            .await
+            .expect("judged");
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "a write that newly introduces a high-complexity function must still be denied, got {verdict:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -2126,7 +3724,7 @@ mod tests {
             "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
         )
         .expect("parses");
-        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n"))
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n"), DiffBaseline::PreWriteDisk)
             .await
             .expect("judged");
         let Verdict::Deny { evaluation, .. } = &verdict else {
@@ -2151,7 +3749,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("features")).expect("features dir");
         std::fs::write(
             dir.join("features/orders.feature"),
-            "@covers(core/domain/**)\nFeature: Orders\n  Scenario: Place an order\n    Given a cart\n",
+            "@covers(core/domain/**)\nFeature: Orders\n  Scenario: Place an order\n    Given a cart\n    When I check out\n    Then the order is placed\n",
         )
         .expect("write feature file");
         let file = dir.join("core/domain/order.rs");
@@ -2160,7 +3758,7 @@ mod tests {
             "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
         )
         .expect("parses");
-        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n"))
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n"), DiffBaseline::PreWriteDisk)
             .await
             .expect("judged");
         if let Verdict::Deny { evaluation, .. } = &verdict {
@@ -2172,6 +3770,43 @@ mod tests {
                 "{evaluation:?}"
             );
         }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_feature_file_with_a_tag_but_no_scenario_does_not_lift_the_evidence_gate() {
+        // The one-line bypass: the cheapest way past `[[gherkin_required]]`
+        // is a tag over an empty feature file. If that worked, the gate
+        // would be advisory in practice.
+        let dir =
+            std::env::temp_dir().join(format!("vord-hook-gherkin-stub-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("core/domain")).expect("temp dir");
+        std::fs::create_dir_all(dir.join("features")).expect("features dir");
+        std::fs::write(
+            dir.join("features/orders.feature"),
+            "@covers(core/domain/**)\nFeature: Orders\n",
+        )
+        .expect("write feature file");
+        let file = dir.join("core/domain/order.rs");
+
+        let policy = AgentPolicy::parse(
+            "[[gherkin_required]]\npattern = \"core/domain/**\"\nreason = \"needs a scenario\"\n",
+        )
+        .expect("parses");
+        let verdict = judge(&policy, &dir, &file, Some("struct Order;\n"), DiffBaseline::PreWriteDisk)
+            .await
+            .expect("judged");
+        let Verdict::Deny { evaluation, .. } = &verdict else {
+            panic!("expected a denial, got {verdict:?}")
+        };
+        assert!(
+            evaluation
+                .violations
+                .iter()
+                .any(|v| matches!(v.cause, Cause::MissingGherkinEvidence { .. })),
+            "{evaluation:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -2221,7 +3856,7 @@ mod tests {
         .expect("parses");
         let file = dir.join("a.py");
         let content = "import subprocess\nsubprocess.run(cmd, shell=True)\n";
-        let verdict = judge(&policy, &dir, &file, Some(content))
+        let verdict = judge(&policy, &dir, &file, Some(content), DiffBaseline::PreWriteDisk)
             .await
             .expect("judged");
         match &verdict {
@@ -2268,7 +3903,7 @@ mod tests {
         let file = dir.join("a.py");
         let content = "import subprocess\nsubprocess.run(cmd, shell=True)\n";
 
-        let first = judge(&policy, &dir, &file, Some(content))
+        let first = judge(&policy, &dir, &file, Some(content), DiffBaseline::PreWriteDisk)
             .await
             .expect("judged");
         let Verdict::Deny { path, evaluation } = &first else {
@@ -2280,7 +3915,7 @@ mod tests {
         // A byte-identical retry now reproduces the identical finding, so
         // `judge` re-derives the identical token, finds it approved, and
         // consumes it — letting the write through as if it were clean.
-        let second = judge(&policy, &dir, &file, Some(content))
+        let second = judge(&policy, &dir, &file, Some(content), DiffBaseline::PreWriteDisk)
             .await
             .expect("judged");
         assert!(
@@ -2289,7 +3924,7 @@ mod tests {
         );
 
         // Approval is single-use: a third identical attempt must escalate again.
-        let third = judge(&policy, &dir, &file, Some(content))
+        let third = judge(&policy, &dir, &file, Some(content), DiffBaseline::PreWriteDisk)
             .await
             .expect("judged");
         assert!(

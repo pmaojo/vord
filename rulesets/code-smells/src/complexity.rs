@@ -57,8 +57,12 @@ impl Rule for ComplexityRule {
             .map(|fc| {
                 Finding::new(
                     format!(
-                        "function has cyclomatic complexity {} (max {})",
-                        fc.cyclomatic, self.max
+                        "function has cyclomatic complexity {} (max {}): {} from branches, {} from loops, {} from exception handling",
+                        fc.cyclomatic,
+                        self.max,
+                        fc.breakdown.branches,
+                        fc.breakdown.loops,
+                        fc.breakdown.exceptions,
                     ),
                     fc.span,
                 )

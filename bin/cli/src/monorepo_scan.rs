@@ -108,9 +108,18 @@ pub async fn run(args: &crate::ScanArgs) -> anyhow::Result<std::process::ExitCod
 
     let shared_context = context.to_dto();
     match args.output.format {
-        crate::Format::Text => print!("{}", render_text(root, &results, &shared_context)),
-        crate::Format::Json => println!("{}", render_json(root, &results, &shared_context)?),
-        crate::Format::Sarif => println!("{}", render_json(root, &results, &shared_context)?),
+        crate::Format::Text => print!(
+            "{}",
+            render_text(root, &results, &shared_context, args.show_resolved)
+        ),
+        crate::Format::Json => println!(
+            "{}",
+            render_json(root, &results, &shared_context, args.show_resolved)?
+        ),
+        crate::Format::Sarif => println!(
+            "{}",
+            render_json(root, &results, &shared_context, args.show_resolved)?
+        ),
     }
 
     let threshold = crate::parse_fail_on_threshold(args.fail_on.clone())?;
@@ -190,6 +199,7 @@ pub fn render_json(
     root: &Path,
     results: &[ProjectScanResult],
     shared_context: &output::ScanContextDto,
+    show_resolved: bool,
 ) -> serde_json::Result<String> {
     #[derive(serde::Serialize)]
     struct ProjectDto {
@@ -219,6 +229,7 @@ pub fn render_json(
                     None,
                     None,
                     context,
+                    show_resolved,
                 ),
             }
         })
@@ -232,6 +243,7 @@ pub fn render_text(
     root: &Path,
     results: &[ProjectScanResult],
     shared_context: &output::ScanContextDto,
+    show_resolved: bool,
 ) -> String {
     let mut out = String::new();
     for result in results {
@@ -255,6 +267,7 @@ pub fn render_text(
             None,
             None,
             &context,
+            show_resolved,
         ));
     }
     out

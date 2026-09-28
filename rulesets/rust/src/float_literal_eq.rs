@@ -70,7 +70,9 @@ impl Rule for FloatLiteralEqRule {
             .filter(|(_, left, right)| {
                 is_other(left.kind(), "float_literal") || is_other(right.kind(), "float_literal")
             })
-            .filter(|(expr, _, _)| !vord_rules_engine::in_ranges(&test_ranges, expr.span().start_line))
+            .filter(|(expr, _, _)| {
+                !vord_rules_engine::in_ranges(&test_ranges, expr.span().start_line)
+            })
             .filter_map(|(expr, left, right)| {
                 let op = operator_between(file.content(), left, right);
                 (op == "==" || op == "!=").then(|| {

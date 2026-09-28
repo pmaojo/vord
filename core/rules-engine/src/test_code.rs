@@ -18,9 +18,9 @@ pub fn is_test_only_path(path: &str) -> bool {
     {
         return true;
     }
-    std::path::Path::new(path)
-        .components()
-        .any(|c| c.as_os_str() == "tests" || c.as_os_str() == "__tests__" || c.as_os_str() == "fixtures")
+    std::path::Path::new(path).components().any(|c| {
+        c.as_os_str() == "tests" || c.as_os_str() == "__tests__" || c.as_os_str() == "fixtures"
+    })
 }
 
 /// A half-open `[start, end)` line range (1-based, matching `Span`).
@@ -170,10 +170,7 @@ pub fn is_vendored_path(path: &str) -> bool {
     let lower = path.to_lowercase();
 
     // Minified / precompiled bundles
-    if lower.ends_with(".min.js")
-        || lower.ends_with(".min.css")
-        || lower.ends_with(".bundle.js")
-    {
+    if lower.ends_with(".min.js") || lower.ends_with(".min.css") || lower.ends_with(".bundle.js") {
         return true;
     }
 
@@ -201,9 +198,7 @@ pub fn is_vendored_path(path: &str) -> bool {
         format!("/{lower}")
     };
 
-    vendored_segments
-        .iter()
-        .any(|seg| normalised.contains(seg))
+    vendored_segments.iter().any(|seg| normalised.contains(seg))
 }
 
 #[cfg(test)]

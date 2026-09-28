@@ -80,6 +80,17 @@ pub(crate) fn jsx_expression_inner(node: &AstNode) -> Option<&AstNode> {
         .flatten()
 }
 
+/// Strips enclosing `(...)` parentheses down to the wrapped expression.
+pub(crate) fn unwrap_parentheses(mut node: &AstNode) -> &AstNode {
+    while is_other(node, "parenthesized_expression") {
+        match node.first_child() {
+            Some(inner) => node = inner,
+            None => break,
+        }
+    }
+    node
+}
+
 /// Every non-`function_declaration`/`function_expression`/`arrow_function`
 /// descendant of `node`, stopping at (but not descending past) a nested
 /// `FunctionDef` boundary — the same "don't attribute an inner closure's

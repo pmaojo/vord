@@ -8,6 +8,7 @@ mod cache;
 mod cobertura;
 mod config;
 mod coverage;
+mod dependency_graph;
 mod diff;
 mod gherkin;
 mod handoff;
@@ -31,14 +32,16 @@ pub use cobertura::{CoberturaError, parse_cobertura, parse_cobertura_report};
 pub use config::{
     AgentSettings, ArchitectureSettings, CustomRuleConfig, DependencyEdgeConfig,
     DuplicationSettings, FlowConfig, FlowStepConfig, GateSettings, LayerConfig, RoleProtectedPath,
-    RoleSettings, RulesConfig, SwarmSettings, ViteReactSettings, VordConfig,
+    RoleSettings, RulesConfig, SecretsSettings, SwarmSettings, ViteReactSettings, VordConfig,
 };
 pub use coverage::{
     CoverageFormat, CoverageParseError, detect_coverage_format, parse_coverage_report,
 };
+pub use dependency_graph::{ParsedImportGraph, build as build_dependency_graph};
 pub use diff::changed_lines_from_unified_diff;
 pub use gherkin::{
-    COVERS_TAG, GherkinCoverageError, GherkinCoverageIndex, extract_covers_patterns,
+    COVERS_TAG, CoversClaim, GherkinCoverageError, GherkinCoverageIndex, extract_covers_patterns,
+    scan_covers_claims,
 };
 pub use handoff::{HandoffIoError, ack, deliver, inbox, send as send_handoff};
 pub use istanbul::{IstanbulError, parse_istanbul, parse_istanbul_report};
@@ -276,7 +279,10 @@ mod tests {
 
         // An empty `inclusions` keeps every file, same as before this
         // parameter existed.
-        assert_eq!(collect_sources_scoped(&dir, &[], &[], &[]).unwrap().len(), 2);
+        assert_eq!(
+            collect_sources_scoped(&dir, &[], &[], &[]).unwrap().len(),
+            2
+        );
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

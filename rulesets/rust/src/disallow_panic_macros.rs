@@ -1,5 +1,5 @@
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile, Span};
-use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(DisallowPanicMacrosRule, "rust:disallow-panic-macros");
 
@@ -26,7 +26,7 @@ impl Rule for DisallowPanicMacrosRule {
 
     fn metadata(&self) -> vord_rules_engine::RuleMetadata {
         vord_rules_engine::RuleMetadata {
-            description: "`panic!`, `todo!`, `unimplemented!`, and `unreachable!` macros cause unrecoverable crashes in production code. Use `Result` and explicit error handling instead.".into(),
+            description: "`panic!`, `todo!`, and `unimplemented!` macros cause unrecoverable crashes in production code. Use `Result` and explicit error handling instead. `unreachable!` is deliberately not flagged here: it documents a provably-unreachable branch (an invariant already established by the surrounding match/if), not unfinished or unhandled work like the other three — treating it the same way turns a normal defensive idiom into noise.".into(),
             tags: vec!["reliability".into(), "rust".into(), "error-handling".into()],
             cwe: None,
             produces_hotspots: false,
@@ -105,7 +105,11 @@ fn is_test_node(node: &AstNode) -> bool {
         {
             return true;
         }
-        if let Some(ident) = node.children().iter().find(|c| *c.kind() == NodeKind::Identifier) {
+        if let Some(ident) = node
+            .children()
+            .iter()
+            .find(|c| *c.kind() == NodeKind::Identifier)
+        {
             if ident.text().starts_with("test_") || ident.text().starts_with("test") {
                 return true;
             }
@@ -129,7 +133,6 @@ fn check_panic_macro(node: &AstNode) -> Option<(&'static str, Span)> {
         "panic" => "panic!",
         "todo" => "todo!",
         "unimplemented" => "unimplemented!",
-        "unreachable" => "unreachable!",
         _ => return None,
     };
 
@@ -175,10 +178,12 @@ mod tests {
     }
 
     #[test]
-    fn flags_unreachable_macro_in_prod_code() {
+    fn ignores_unreachable_macro_in_prod_code() {
+        // `unreachable!` documents a provably-unreachable branch rather than
+        // unfinished or unhandled work — a normal defensive idiom, not the
+        // same risk as `panic!`/`todo!`/`unimplemented!`.
         let findings = check("fn state() { unreachable!(); }\n");
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("unreachable!"));
+        assert!(findings.is_empty());
     }
 
     #[test]
@@ -189,13 +194,17 @@ mod tests {
 
     #[test]
     fn ignores_panic_macros_in_test_module() {
-        let findings = check("#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() { todo!(); }\n}\n");
+        let findings =
+            check("#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() { todo!(); }\n}\n");
         assert!(findings.is_empty());
     }
 
     #[test]
     fn ignores_panic_macros_in_test_files() {
-        let findings = check_with_path("tests/integration_test.rs", "fn run() { panic!(\"err\"); }\n");
+        let findings = check_with_path(
+            "tests/integration_test.rs",
+            "fn run() { panic!(\"err\"); }\n",
+        );
         assert!(findings.is_empty());
     }
 

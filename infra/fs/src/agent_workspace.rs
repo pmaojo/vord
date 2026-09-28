@@ -18,6 +18,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use vord_agent::graph::{GraphEdge, GraphSnapshot};
 use vord_agent::runtime::{CommandOutput, Workspace, WorkspaceError};
 
 /// How long a `run` command may take before it is killed.
@@ -132,6 +133,24 @@ impl Workspace for RepoWorkspace {
             .spawn()
             .map_err(|e| WorkspaceError(format!("cannot run `{program}`: {e}")))?;
         wait_with_timeout(child, self.timeout, program)
+    }
+
+    fn dependency_graph(&self) -> Result<GraphSnapshot, WorkspaceError> {
+        let built = crate::dependency_graph::build(&self.root)
+            .map_err(|e| WorkspaceError(format!("cannot build the dependency graph: {e}")))?;
+        Ok(GraphSnapshot {
+            edges: built
+                .graph
+                .edges()
+                .iter()
+                .map(|edge| GraphEdge {
+                    from: edge.from.clone(),
+                    to: edge.to.clone(),
+                })
+                .collect(),
+            component_edges: built.graph.component_edges().into_iter().collect(),
+            cycles: built.graph.cycles(),
+        })
     }
 }
 
@@ -319,6 +338,20 @@ mod tests {
         let root = temp_root("missing-program");
         let workspace = RepoWorkspace::new(&root);
         assert!(workspace.run("definitely-not-a-real-program", &[]).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_dependency_graph_reports_a_real_import_edge() {
+        let root = temp_root("dependency-graph");
+        std::fs::write(root.join("a.ts"), "import { b } from './b';\n").unwrap();
+        std::fs::write(root.join("b.ts"), "export const b = 1;\n").unwrap();
+        let workspace = RepoWorkspace::new(&root);
+
+        let snapshot = workspace.dependency_graph().unwrap();
+
+        assert_eq!(snapshot.dependents_of("b.ts"), vec!["a.ts".to_string()]);
+        assert_eq!(snapshot.dependencies_of("a.ts"), vec!["b.ts".to_string()]);
         std::fs::remove_dir_all(&root).ok();
     }
 }

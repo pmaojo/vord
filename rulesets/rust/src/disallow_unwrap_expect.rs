@@ -1,5 +1,5 @@
 use vord_ast::{AstNode, LanguageIdentifier, NodeKind, SourceFile};
-use vord_rules_engine::{declare_rule_id, Finding, IssueType, Rule, RuleId, Severity};
+use vord_rules_engine::{Finding, IssueType, Rule, RuleId, Severity, declare_rule_id};
 
 declare_rule_id!(DisallowUnwrapExpectRule, "rust:disallow-unwrap-expect");
 
