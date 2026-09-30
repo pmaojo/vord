@@ -131,6 +131,27 @@ pub struct AgentSettings {
     /// Wall-clock seconds a `run` command may take before it is killed
     /// (adapter default 300).
     pub command_timeout_secs: Option<u64>,
+    /// `[agent.refactor]` — what `vord agent run --refactor` holds a task to
+    /// beyond "no new findings". Only read when `--refactor` is passed.
+    pub refactor: Option<RefactorSettings>,
+}
+
+/// `[agent.refactor]` in `vord.toml`.
+///
+/// ```toml
+/// [agent.refactor]
+/// preserve_behaviour = true          # default: reject semantic drift
+/// [agent.refactor.tolerances]
+/// import_edges = 2                   # may worsen by up to 2
+/// ```
+///
+/// Tolerance keys are `vord_agent::Dimension` names; an unknown key is a
+/// configuration error at run time, not a silent no-op.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RefactorSettings {
+    pub preserve_behaviour: Option<bool>,
+    #[serde(default)]
+    pub tolerances: std::collections::BTreeMap<String, i64>,
 }
 
 /// `[swarm]` in `vord.toml` — worktree-per-agent isolation and role config
@@ -184,6 +205,14 @@ pub struct RoleSettings {
     /// policy's `escalate_rules`.
     #[serde(default)]
     pub escalate_rules: Vec<String>,
+    /// Model this role's agent runs on, overriding `VORD_LLM_MODEL` — so a
+    /// planner, a refactorer and a verifier can each use the model that is
+    /// best at its own sub-task.
+    pub model: Option<String>,
+    /// Holds this role's runs to `[agent.refactor]`'s guard, as
+    /// `vord agent run --refactor` would.
+    #[serde(default)]
+    pub refactor: bool,
 }
 
 /// Same shape as `vord-policy.toml`'s `[[protected_path]]`, declared inline
@@ -596,7 +625,11 @@ ignore_keys = ["value", "preset", "payload"]
         let config: VordConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(
             config.secrets.ignore_keys,
-            vec!["value".to_string(), "preset".to_string(), "payload".to_string()]
+            vec![
+                "value".to_string(),
+                "preset".to_string(),
+                "payload".to_string()
+            ]
         );
     }
 

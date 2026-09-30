@@ -17,7 +17,7 @@ use vord_agent_policy::{CircuitBreakerState, Evaluation};
 use vord_profiles::RuleId;
 
 use crate::budget::{Budget, Exhaustion, Ledger, RepeatGuard};
-use crate::completion::{self, Completion, LocatedFinding};
+use crate::completion::{self, Completion, LocatedFinding, RefactorGuard, Snapshot};
 use crate::gate::{advisory_note, denial_feedback};
 use crate::graph::GraphSnapshot;
 use crate::observer::{AgentEvent, NoopObserver, Observer};
@@ -110,6 +110,14 @@ pub trait Analyzer: Send + Sync {
         &self,
         path: &str,
     ) -> impl Future<Output = Result<Vec<LocatedFinding>, AnalysisError>> + Send;
+
+    /// Findings plus the quality vector and semantic fingerprint a
+    /// [`RefactorGuard`] judges. The default measures nothing beyond
+    /// findings, so an analyzer that cannot measure makes a refactor-guarded
+    /// run fail loudly instead of passing blind.
+    fn snapshot(&self, path: &str) -> impl Future<Output = Result<Snapshot, AnalysisError>> + Send {
+        async move { Ok(Snapshot::findings_only(self.scan(path).await?)) }
+    }
 }
 
 /// One run's parameters.
@@ -128,6 +136,10 @@ pub struct RunConfig {
     /// cannot satisfy the analyzer twice usually cannot satisfy it at all,
     /// and the budget is a blunter instrument than it needs to be here.
     pub max_rejections: u32,
+    /// Set for a refactor task (`vord agent run --refactor`): done also
+    /// requires behaviour preserved and no quality dimension degraded — see
+    /// [`crate::quality`].
+    pub refactor: Option<RefactorGuard>,
 }
 
 impl RunConfig {
@@ -139,6 +151,7 @@ impl RunConfig {
             budget: Budget::default(),
             allowlist: CommandAllowlist::default(),
             max_rejections: 3,
+            refactor: None,
         }
     }
 }
@@ -299,8 +312,8 @@ where
     /// caller that has to distinguish six endings should not also have to
     /// distinguish "returned an error" as a seventh.
     pub async fn run(&self) -> RunOutcome {
-        let baseline = match self.analyzer.scan(&self.config.scope).await {
-            Ok(findings) => findings,
+        let baseline = match self.measure().await {
+            Ok(snapshot) => snapshot,
             Err(error) => {
                 let outcome = RunOutcome::Failed {
                     turns: 0,
@@ -329,9 +342,21 @@ where
     /// One iteration: spend budget, ask the model, then either adjudicate its
     /// claim of completion or execute what it asked for. `None` means the run
     /// continues.
+    /// A plain scan, or a full snapshot when the refactor guard needs one —
+    /// an ordinary task pays nothing for measurements it never judges.
+    async fn measure(&self) -> Result<Snapshot, AnalysisError> {
+        if self.config.refactor.is_some() {
+            self.analyzer.snapshot(&self.config.scope).await
+        } else {
+            Ok(Snapshot::findings_only(
+                self.analyzer.scan(&self.config.scope).await?,
+            ))
+        }
+    }
+
     async fn turn(
         &self,
-        baseline: &[LocatedFinding],
+        baseline: &Snapshot,
         specs: &[ToolSpec],
         state: &mut LoopState,
     ) -> Option<RunOutcome> {
@@ -375,13 +400,13 @@ where
     /// objection — never with a request to grade itself.
     async fn adjudicate(
         &self,
-        baseline: &[LocatedFinding],
+        baseline: &Snapshot,
         turn: &AssistantTurn,
         state: &mut LoopState,
     ) -> Option<RunOutcome> {
         let turns = state.ledger.turns();
-        let current = match self.analyzer.scan(&self.config.scope).await {
-            Ok(findings) => findings,
+        let current = match self.measure().await {
+            Ok(snapshot) => snapshot,
             Err(error) => {
                 return Some(RunOutcome::Failed {
                     turns,
@@ -389,7 +414,19 @@ where
                 });
             }
         };
-        let verdict = completion::judge(baseline, &current, self.config.target_rule.as_ref());
+        let target = self.config.target_rule.as_ref();
+        let verdict = match &self.config.refactor {
+            None => completion::judge(&baseline.findings, &current.findings, target),
+            Some(guard) => match completion::judge_refactor(baseline, &current, target, guard) {
+                Ok(verdict) => verdict,
+                Err(error) => {
+                    return Some(RunOutcome::Failed {
+                        turns,
+                        error: error.to_string(),
+                    });
+                }
+            },
+        };
         self.observer.on_event(AgentEvent::Adjudicated {
             completion: verdict.clone(),
         });
