@@ -109,6 +109,11 @@ each task only once `memory_patch` accepts an `## Evidencia` section backed
 by real command output. Use it at the start of any session in such a
 repository, before reading code or planning work.
 
+`skills/continuous-refactor/` is a fifth: choose what to refactor from
+complexity, coverage and git history (`vord refactor plan`), then refactor
+it under the refactor guard — no new finding, no behaviour-bearing syntax
+changed, no quality dimension degraded. See [`vord refactor`](#vord-refactor--continuous-refactoring).
+
 ## Topology
 
 The directory structure *is* the architecture — nested workspace globs define the boundaries:
@@ -574,6 +579,7 @@ out of.
 export ANTHROPIC_API_KEY=...            # or VORD_LLM_* for any OpenAI-compatible endpoint
 vord agent run --task "remove the shell injection in scripts/deploy.py"
 vord agent run --task "fix it" --rule python:subprocess-shell-true --scope scripts
+vord agent run --refactor --task "simplify parse_config without changing behaviour"
 vord agent watch-pr --pr 42             # wait out the late review/CI window on a PR
 ```
 
@@ -653,6 +659,34 @@ allowed_commands = ["cargo", "npm", "pytest"]   # replaces the built-in list
 command_timeout_secs = 300
 ```
 
+**Refactor tasks: `--refactor`.** "No new finding" is the wrong bar for a
+refactor. Splitting one module into five adds no finding anywhere and still
+raises coupling everywhere the five import each other; rewriting `x > 10` as
+`x >= 10` adds no finding and changes behaviour. `vord agent run --refactor`
+holds the task to two more checks, each deterministic:
+
+- **Behaviour preserved.** Every file in scope is fingerprinted as a
+  multiset of literals, operators and control-flow constructs
+  (`vord_ast::SemanticFingerprint`). A constant or operator that appears or
+  vanishes, or an extra `if`/loop/`throw`, is *semantic drift*. Renames,
+  extractions, moves between files, inlining and deduplication pass.
+- **No quality dimension degraded** (`vord_agent::quality`): health score,
+  debt, duplicated lines, complex functions, max cyclomatic complexity,
+  import edges, component edges and import cycles are measured before and
+  after, and any dimension worse than its tolerance is a *trade-off* the
+  model is sent back to resolve — surfaced dimension by dimension, never
+  averaged away.
+
+An analyzer that cannot take those measurements fails the run (exit 1)
+rather than letting it pass unchecked.
+
+```toml
+[agent.refactor]
+preserve_behaviour = true      # default
+[agent.refactor.tolerances]
+import_edges = 2               # may worsen by up to 2; every other dimension by 0
+```
+
 ## `vord swarm` — multiple agents, isolated and scoped
 
 One `vord agent` session is one role doing one task. `vord swarm` drives
@@ -704,11 +738,62 @@ worktree_root = ".vord/worktrees"   # default
 
 [[swarm.role]]
 name = "cleaner"
+model = "qwen2.5-coder:32b"   # per-role model, overriding VORD_LLM_MODEL
+refactor = true               # this role's runs use the refactor guard
 
 [[swarm.role.protected_paths]]
 pattern = ".github/workflows/**"
 reason = "CI definitions need human review."
 ```
+
+`model` lets each role run on the model that is best at its own sub-task
+(a long-context planner, a cheap local refactorer); `refactor` holds a
+role's runs to `--refactor`'s guard.
+
+## `vord refactor` — continuous refactoring
+
+Refactoring once in a while does not keep up with code that changes every
+day, and "refactor everything" is neither affordable nor safe. `vord
+refactor` makes it a bounded, repeatable batch:
+
+```sh
+vord refactor plan                           # rank candidates (text)
+vord refactor plan --lcov lcov.info --format json
+vord refactor run --limit 3 --max-autonomy review --report vord-refactor.md
+```
+
+`plan` ranks every function above the complexity threshold (cyclomatic
+> 10, or CRAP ≥ 30 when coverage is supplied) by a hotspot score —
+`risk × (1 + commits)`, with risk the CRAP score when coverage is known and
+cyclomatic complexity otherwise, and commits mined from `git log` over
+`--since-days` (180 by default). Complex code nobody touches is cheap to
+leave alone; complex code that changes every week is where debt costs
+money. Each candidate also gets an **autonomy tier** from its blast radius
+(files importing it) and its test protection (line coverage):
+
+| Tier | When | Meaning |
+|---|---|---|
+| `auto` | ≤ 2 dependents and ≥ 80% covered | the analyzer's verdict is enough |
+| `review` | anything in between, or coverage unknown | a human reviews the PR |
+| `escalate` | ≥ 10 dependents, or < 30% covered | never attempted autonomously |
+
+The plan also reports **hidden temporal coupling**: pairs of source files
+that changed together in at least three commits with no import between
+them — a constraint the code does not state and a refactor should not
+break.
+
+`run` drives one `vord agent run --refactor` per candidate, top first,
+skipping anything above `--max-autonomy` and never attempting `escalate`.
+`--report` writes a pull-request body that explains, per attempt, why the
+candidate was chosen, how its run ended, and the before/after of every
+quality dimension — so a reviewer judges intent and taste, not what the
+analyzer already proved. [`ci-templates/github-actions-refactor.yml`](ci-templates/github-actions-refactor.yml)
+runs plan → run → pull request nightly; nothing merges on its own.
+
+`vord refactor` runs from the repository's git top level, since history and
+scan paths must share one root. The design and how it maps to the open
+problems of continuous autonomous refactoring are in
+[`docs/design/continuous-refactoring.md`](docs/design/continuous-refactoring.md).
 
 ## `vord triage` — the Issue Triage Factory
 

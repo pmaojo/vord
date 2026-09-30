@@ -64,6 +64,7 @@ vord-rules-python = { workspace = true }
 vord-rules-architecture = { workspace = true }
 vord-rules-ddd = { workspace = true }
 vord-import-graph = { workspace = true }
+vord-crap = { workspace = true }
 vord-rules-reactive = { workspace = true }
 vord-rules-mutation = { workspace = true }
 vord-rules-typescript = { workspace = true }

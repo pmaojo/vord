@@ -30,15 +30,18 @@ pub mod feedback;
 pub mod gate;
 pub mod graph;
 pub mod observer;
+pub mod plan;
 pub mod prompt;
+pub mod quality;
 pub mod runtime;
 pub mod session;
 pub mod tools;
 
 pub use budget::{Budget, Exhaustion, Ledger, RepeatGuard};
-pub use completion::{Completion, LocatedFinding};
+pub use completion::{Completion, LocatedFinding, RefactorGuard, Snapshot};
 pub use graph::{GraphEdge, GraphQueryError, GraphQueryKind, GraphSnapshot};
 pub use observer::{AgentEvent, NoopObserver, Observer};
+pub use quality::{Dimension, DimensionChange, QualityDelta, QualityVector, Tolerances};
 pub use runtime::{
     AgentRuntime, AnalysisError, Analyzer, ChatModel, CommandOutput, JudgeError, ModelError,
     RunConfig, RunOutcome, Workspace, WorkspaceError, WriteJudge,

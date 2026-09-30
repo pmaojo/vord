@@ -23,10 +23,13 @@ use std::path::{Path, PathBuf};
 
 use vord_agent::completion::LocatedFinding;
 use vord_agent::feedback::{FeedbackOutcome, FeedbackWatch, TriageLedger, Watch, WatchPolicy};
+use vord_agent::quality::COMPLEX_FUNCTION_THRESHOLD;
 use vord_agent::runtime::{
     AgentRuntime, AnalysisError, Analyzer, JudgeError, RunConfig, RunOutcome, WriteJudge,
 };
-use vord_agent::{Budget, CommandAllowlist};
+use vord_agent::{
+    Budget, CommandAllowlist, Dimension, QualityVector, RefactorGuard, Snapshot, Tolerances,
+};
 use vord_agent_policy::{AgentPolicy, Evaluation};
 use vord_infra_fs::{RepoWorkspace, VordConfig};
 use vord_infra_github::PullRequestFeedbackReader;
@@ -100,14 +103,18 @@ impl RepoAnalyzer {
     }
 }
 
-impl Analyzer for RepoAnalyzer {
-    async fn scan(&self, path: &str) -> Result<Vec<LocatedFinding>, AnalysisError> {
+impl RepoAnalyzer {
+    /// One scan of `path` under the project's `vord.toml` scope.
+    pub async fn report(
+        &self,
+        path: &str,
+    ) -> Result<vord_rules_engine::AnalysisReport, AnalysisError> {
         let target = self.root.join(path);
         // `sources` scopes a whole-repository scan; asking for one subtree
         // already *is* the scope, and intersecting the two would silently
         // return nothing whenever the subtree is not itself a source dir.
         let sources: &[String] = if path == "." { &self.sources } else { &[] };
-        let report = crate::scan_with_project_config(
+        crate::scan_with_project_config(
             &target,
             None,
             sources,
@@ -117,9 +124,79 @@ impl Analyzer for RepoAnalyzer {
             &Default::default(),
         )
         .await
-        .map_err(|e| AnalysisError(e.to_string()))?;
-        Ok(report_findings(&report))
+        .map_err(|e| AnalysisError(e.to_string()))
     }
+}
+
+impl Analyzer for RepoAnalyzer {
+    async fn scan(&self, path: &str) -> Result<Vec<LocatedFinding>, AnalysisError> {
+        Ok(report_findings(&self.report(path).await?))
+    }
+
+    /// One scan, plus the scope's import graph and semantic fingerprint —
+    /// what a `--refactor` run judges on top of the findings.
+    async fn snapshot(&self, path: &str) -> Result<Snapshot, AnalysisError> {
+        let report = self.report(path).await?;
+        let target = self.root.join(path);
+        let graph = vord_infra_fs::build_dependency_graph(&target)
+            .map_err(|e| AnalysisError(format!("cannot build the dependency graph: {e}")))?;
+        Ok(Snapshot {
+            findings: report_findings(&report),
+            quality: Some(quality_vector(&report, &graph.graph)),
+            semantics: Some(semantic_fingerprint(&target)?),
+        })
+    }
+}
+
+/// The dimensions `vord_agent::quality` compares, read off one report and
+/// the scope's import graph.
+fn quality_vector(
+    report: &vord_rules_engine::AnalysisReport,
+    graph: &vord_import_graph::ImportGraph,
+) -> QualityVector {
+    let complexities = report.function_complexities();
+    let complex = complexities
+        .iter()
+        .filter(|f| f.cyclomatic > COMPLEX_FUNCTION_THRESHOLD)
+        .count();
+    let max_cyclomatic = complexities.iter().map(|f| f.cyclomatic).max().unwrap_or(0);
+    let metrics = report.metrics();
+    QualityVector::default()
+        .with(Dimension::HealthScore, i64::from(report.health_score()))
+        .with(Dimension::DebtMinutes, metrics.debt_minutes() as i64)
+        .with(
+            Dimension::DuplicatedLines,
+            metrics.duplicated_lines() as i64,
+        )
+        .with(Dimension::ComplexFunctions, complex as i64)
+        .with(Dimension::MaxCyclomatic, i64::from(max_cyclomatic))
+        .with(Dimension::ImportEdges, graph.edges().len() as i64)
+        .with(
+            Dimension::ComponentEdges,
+            graph.component_edges().len() as i64,
+        )
+        .with(Dimension::ImportCycles, graph.cycles().len() as i64)
+}
+
+/// Every parseable source under `target`, fingerprinted and merged into one
+/// — so code moved between files inside the scope is not drift.
+fn semantic_fingerprint(target: &Path) -> Result<vord_ast::SemanticFingerprint, AnalysisError> {
+    let parsers: std::collections::HashMap<_, _> = crate::all_default_parsers()
+        .into_iter()
+        .map(|parser| (parser.language(), parser))
+        .collect();
+    let sources = vord_infra_fs::collect_sources(target)
+        .map_err(|e| AnalysisError(format!("cannot read sources for the fingerprint: {e}")))?;
+    let mut merged = vord_ast::SemanticFingerprint::default();
+    for file in &sources {
+        let Some(parser) = parsers.get(file.language()) else {
+            continue;
+        };
+        if let Ok(tree) = parser.parse(file) {
+            merged.merge(&vord_ast::SemanticFingerprint::of(&tree));
+        }
+    }
+    Ok(merged)
 }
 
 /// Issues *and* hotspots, for the same reason [`crate::hook::analyze_content`]
@@ -155,6 +232,8 @@ pub struct AgentArgs {
     pub max_turns: Option<u32>,
     pub max_tokens: Option<u64>,
     pub model: Option<String>,
+    /// Hold the run to the refactor guard (`--refactor`).
+    pub refactor: bool,
 }
 
 /// Builds the run's configuration from the CLI arguments layered over
@@ -194,6 +273,36 @@ fn run_config(
         max_rejections: settings
             .max_rejections
             .unwrap_or(RunConfig::new("").max_rejections),
+        refactor: if args.refactor {
+            Some(refactor_guard(settings.refactor.as_ref())?)
+        } else {
+            None
+        },
+    })
+}
+
+/// `[agent.refactor]` as a [`RefactorGuard`]. Behaviour preservation is on
+/// unless explicitly turned off; every tolerance key must name a real
+/// dimension, since a misspelt one would otherwise tolerate nothing silently.
+fn refactor_guard(
+    settings: Option<&vord_infra_fs::RefactorSettings>,
+) -> anyhow::Result<RefactorGuard> {
+    let mut tolerances = Tolerances::default();
+    if let Some(settings) = settings {
+        for (key, allowed) in &settings.tolerances {
+            let dimension = Dimension::parse(key).ok_or_else(|| {
+                let known: Vec<&str> = Dimension::ALL.iter().map(|d| d.as_str()).collect();
+                anyhow::anyhow!(
+                    "[agent.refactor.tolerances] names unknown dimension {key:?}; known: {}",
+                    known.join(", ")
+                )
+            })?;
+            tolerances = tolerances.allow(dimension, *allowed);
+        }
+    }
+    Ok(RefactorGuard {
+        tolerances,
+        preserve_behaviour: settings.and_then(|s| s.preserve_behaviour).unwrap_or(true),
     })
 }
 
@@ -405,6 +514,7 @@ mod tests {
             max_turns: None,
             max_tokens: None,
             model: None,
+            refactor: false,
         }
     }
 
@@ -521,6 +631,77 @@ mod tests {
             "expected a finding in a.py, got {findings:?}"
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_measures_quality_and_catches_a_flipped_comparison() {
+        let root = std::env::temp_dir().join(format!("vord-agent-snapshot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let write = |body: &str| std::fs::write(root.join("src/limits.py"), body).unwrap();
+        let analyzer = RepoAnalyzer::new(&root, None);
+
+        write("def over(x):\n    if x > 10:\n        raise ValueError(\"too big\")\n");
+        let before = analyzer.snapshot(".").await.unwrap();
+        let quality = before.quality.as_ref().expect("quality measured");
+        assert!(quality.get(Dimension::HealthScore).is_some());
+        assert_eq!(quality.get(Dimension::ImportCycles), Some(0));
+        let semantics = before.semantics.as_ref().expect("fingerprint taken");
+        assert_eq!(semantics.count("op:>"), 1, "{semantics:?}");
+        assert_eq!(semantics.count("lit:10"), 1, "{semantics:?}");
+
+        // A rename is a refactor...
+        write("def exceeds(value):\n    if value > 10:\n        raise ValueError(\"too big\")\n");
+        let renamed = analyzer.snapshot(".").await.unwrap();
+        assert!(
+            semantics
+                .drift(renamed.semantics.as_ref().unwrap())
+                .is_empty()
+        );
+
+        // ...an off-by-one is not.
+        write("def exceeds(value):\n    if value >= 10:\n        raise ValueError(\"too big\")\n");
+        let flipped = analyzer.snapshot(".").await.unwrap();
+        let drift = semantics.drift(flipped.semantics.as_ref().unwrap());
+        assert_eq!(drift.appeared, vec!["op:>=".to_string()]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn refactor_settings_become_a_guard_and_reject_unknown_dimensions() {
+        let refactor = AgentArgs {
+            refactor: true,
+            ..args()
+        };
+        let guard = run_config(&refactor, &AgentSettings::default())
+            .unwrap()
+            .refactor
+            .expect("--refactor sets a guard");
+        assert!(
+            guard.preserve_behaviour,
+            "behaviour preservation defaults on"
+        );
+
+        let settings = AgentSettings {
+            refactor: Some(vord_infra_fs::RefactorSettings {
+                preserve_behaviour: Some(false),
+                tolerances: [("import_edges".to_string(), 3)].into(),
+            }),
+            ..AgentSettings::default()
+        };
+        let guard = run_config(&refactor, &settings).unwrap().refactor.unwrap();
+        assert!(!guard.preserve_behaviour);
+        assert_eq!(guard.tolerances.allowed(Dimension::ImportEdges), 3);
+
+        let typo = AgentSettings {
+            refactor: Some(vord_infra_fs::RefactorSettings {
+                preserve_behaviour: None,
+                tolerances: [("import_edgez".to_string(), 3)].into(),
+            }),
+            ..AgentSettings::default()
+        };
+        assert!(run_config(&refactor, &typo).is_err());
+        assert!(run_config(&args(), &typo).unwrap().refactor.is_none());
     }
 
     #[tokio::test]
