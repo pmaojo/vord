@@ -65,6 +65,8 @@ pub struct EngineSpec {
     pub all_output_generated: bool,
     /// Request arguments that must be present to kick off with this engine.
     pub required_args: &'static [&'static str],
+    /// Named ready-to-run recipes: `(title, command)`.
+    pub recipes: &'static [(&'static str, &'static str)],
 }
 
 impl EngineSpec {
@@ -95,6 +97,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_default: "kthulu generate",
         all_output_generated: false,
         required_args: &["name"],
+        recipes: &[],
     },
     EngineSpec {
         name: "ferrum",
@@ -108,6 +111,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_default: "ferrum compile <grafo.yaml> --output .",
         all_output_generated: false,
         required_args: &["name"],
+        recipes: &[],
     },
     EngineSpec {
         name: "wasp",
@@ -121,6 +125,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_default: "wasp compile",
         all_output_generated: false,
         required_args: &["name"],
+        recipes: &[],
     },
     EngineSpec {
         name: "copier",
@@ -134,6 +139,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_default: "copier update --defaults --trust",
         all_output_generated: false,
         required_args: &["name", "blueprint"],
+        recipes: &[],
     },
     EngineSpec {
         name: "openapi",
@@ -148,6 +154,16 @@ pub const ENGINES: &[EngineSpec] = &[
         // Everything but the ignore file is the spec's.
         all_output_generated: true,
         required_args: &["name", "blueprint", "generator"],
+        recipes: &[
+            (
+                "Python: spec-first",
+                "vord kickoff --engine openapi --generator python-fastapi --blueprint api.yaml --name api",
+            ),
+            (
+                "Python + Wasp: spec-first full-stack",
+                "vord kickoff --engine openapi --generator python-fastapi --blueprint api.yaml --name app --frontend wasp",
+            ),
+        ],
     },
 ];
 
@@ -193,6 +209,9 @@ pub fn render_engines_text() -> String {
             if spec.all_output_generated { "yes" } else { "no" },
             spec.required_args.join(", "),
         ));
+        for (title, command) in spec.recipes {
+            out.push_str(&format!("  recipe:       {title}: {command}\n"));
+        }
     }
     out
 }
@@ -475,6 +494,74 @@ impl EngineKickoff {
     }
 }
 
+/// Paths a generator leaves for the developer to write, by generator name.
+/// OpenAPI Generator writes these once and, when they are listed in
+/// `.openapi-generator-ignore`, never touches them again. `python-fastapi`
+/// emits `Base*Api` classes and an empty `impl` package that is scanned at
+/// import time: the handlers are the developer's own modules in `impl/`.
+fn user_owned_patterns(generator: &str) -> &'static [&'static str] {
+    match generator {
+        "python-fastapi" => &[
+            "src/*/impl/**",
+            "tests/**",
+            // Project scaffolding a developer edits (dependencies, ignores, docs).
+            "/README.md",
+            "/.gitignore",
+            "/requirements.txt",
+            "/pyproject.toml",
+            "/setup.cfg",
+            "/Dockerfile",
+            "/docker-compose.yaml",
+        ],
+        _ => &[],
+    }
+}
+
+/// Add the generator's user-owned patterns to `.openapi-generator-ignore`
+/// (after the first generation, so the stubs exist once) and return the
+/// matcher over everything that file lists.
+fn openapi_user_owned(project_dir: &Path, generator: &str) -> anyhow::Result<ignore::gitignore::Gitignore> {
+    let file = project_dir.join(".openapi-generator-ignore");
+    let mut content = std::fs::read_to_string(&file).unwrap_or_default();
+    let present: BTreeSet<&str> = content.lines().map(str::trim).collect();
+    let missing: Vec<&str> = user_owned_patterns(generator).iter().copied().filter(|p| !present.contains(p)).collect();
+    if !missing.is_empty() {
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str("\n# Written by you, not by the generator (added by vord kickoff):\n");
+        for pattern in missing {
+            content.push_str(pattern);
+            content.push('\n');
+        }
+        std::fs::write(&file, content)?;
+    }
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(project_dir);
+    if file.is_file() {
+        if let Some(err) = builder.add(&file) {
+            return Err(err.into());
+        }
+    }
+    Ok(builder.build()?)
+}
+
+/// `Command::status`, retried while the kernel answers ETXTBSY ("text file
+/// busy"). A program that was written an instant ago (an installer, a
+/// freshly built engine) can still be held open for writing by a process
+/// forked in between; the condition clears within milliseconds.
+fn status_retrying(command: &mut Command) -> std::io::Result<std::process::ExitStatus> {
+    let mut attempt = 0;
+    loop {
+        match command.status() {
+            Err(e) if e.raw_os_error() == Some(26) && attempt < 8 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(25 * attempt));
+            }
+            other => return other,
+        }
+    }
+}
+
 /// Is `program` an executable file in one of the PATH directories?
 fn on_path(program: &str) -> bool {
     std::env::var_os("PATH")
@@ -561,10 +648,7 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
     }
 
     for step in kickoff.steps() {
-        let status = Command::new(&step.program)
-            .args(&step.args)
-            .current_dir(&step.cwd)
-            .status()
+        let status = status_retrying(Command::new(&step.program).args(&step.args).current_dir(&step.cwd))
             .map_err(|e| {
                 anyhow::anyhow!(
                     "could not run {} ({e}). Install it with: {}",
@@ -594,7 +678,19 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
             .map(|f| f.to_string_lossy().to_string())
     });
     let regenerate = kickoff.regenerate_command();
+    // Files the project owns (listed in .openapi-generator-ignore) are never
+    // locked: the developer writes them and the generator leaves them alone.
+    let user_owned = match (kickoff.engine, kickoff.generator.as_deref()) {
+        (Engine::OpenApi, Some(generator)) => Some(openapi_user_owned(&project_dir, generator)?),
+        _ => None,
+    };
     for relative in &created {
+        if user_owned
+            .as_ref()
+            .is_some_and(|ignored| ignored.matched_path_or_any_parents(relative, false).is_ignore())
+        {
+            continue;
+        }
         let Ok(content) = std::fs::read_to_string(project_dir.join(relative)) else {
             continue; // binary output is never hand-edited through a text tool
         };
@@ -663,6 +759,8 @@ pub struct FullstackKickoff {
     pub name: String,
     /// The backend engine's blueprint.
     pub blueprint: Option<PathBuf>,
+    /// OpenAPI Generator's generator name, when the backend engine is `openapi`.
+    pub generator: Option<String>,
     pub parent: PathBuf,
     pub install: bool,
     /// Executable overrides by part (`backend`, `frontend`), for tests.
@@ -677,7 +775,7 @@ impl FullstackKickoff {
             blueprint,
             parent: root.to_path_buf(),
             program: self.programs.get(dir).cloned(),
-            generator: None,
+            generator: if engine == Engine::OpenApi { self.generator.clone() } else { None },
             install: self.install,
             templates: ferrum_templates_from_env(),
             copier: Default::default(),
@@ -689,7 +787,11 @@ impl FullstackKickoff {
         let root = self.parent.join(&self.name);
         let mut lines = self.part(self.backend, "backend", self.blueprint.clone(), &root).plan();
         lines.extend(self.part(Engine::Wasp, "frontend", None, &root).plan());
-        lines.push("(if the backend produced an OpenAPI document) copy it to contract/openapi.yaml".to_string());
+        if self.backend == Engine::OpenApi {
+            lines.push("copy your spec verbatim to contract/openapi.yaml".to_string());
+        } else {
+            lines.push("(if the backend produced an OpenAPI document) copy it to contract/openapi.yaml".to_string());
+        }
         lines.push(format!("{}/frontend: npx -y {CLIENT_PACKAGE} ../contract/openapi.yaml -o src/api/schema.ts", root.display()));
         lines
     }
@@ -737,7 +839,7 @@ fn available(program: &str) -> bool {
 /// on are accepted.
 pub fn run_fullstack(kickoff: &FullstackKickoff) -> anyhow::Result<KickoffReport> {
     if kickoff.backend == Engine::Wasp {
-        anyhow::bail!("--frontend wasp already is a full-stack engine; pick a backend engine: ferrum (Rust) or kthulu (Go)");
+        anyhow::bail!("--frontend wasp already is a full-stack engine; pick a backend engine: ferrum (Rust), kthulu (Go) or openapi (any server generator, e.g. python-fastapi)");
     }
     let root = kickoff.parent.join(&kickoff.name);
     // Check both engines before generating anything: a missing frontend
@@ -801,7 +903,11 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
     let contract = root.join("contract/openapi.yaml");
     let mut notes = Vec::new();
     if !contract.exists() {
-        if let Some(spec) = find_backend_spec(&root.join("backend")) {
+        if let (Engine::OpenApi, Some(spec)) = (kickoff.backend, kickoff.blueprint.as_ref()) {
+            // Spec-first: the user's spec is the contract, verbatim.
+            std::fs::copy(spec, &contract)?;
+            notes.push("contract/openapi.yaml is your spec, copied verbatim (edit it, then regenerate backend and client)".to_string());
+        } else if let Some(spec) = find_backend_spec(&root.join("backend")) {
             std::fs::copy(&spec, &contract)?; // JSON is valid YAML
             notes.push(format!(
                 "contract/openapi.yaml copied from the backend's {}",
@@ -825,11 +931,12 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
         let frontend = root.join("frontend");
         let schema = frontend.join("src/api/schema.ts");
         std::fs::create_dir_all(frontend.join("src/api"))?;
-        let status = Command::new(&npx)
-            .args(["-y", CLIENT_PACKAGE, "../contract/openapi.yaml", "-o", "src/api/schema.ts"])
-            .current_dir(&frontend)
-            .status()
-            .map_err(|e| anyhow::anyhow!("could not run {npx}: {e}"))?;
+        let status = status_retrying(
+            Command::new(&npx)
+                .args(["-y", CLIENT_PACKAGE, "../contract/openapi.yaml", "-o", "src/api/schema.ts"])
+                .current_dir(&frontend),
+        )
+        .map_err(|e| anyhow::anyhow!("could not run {npx}: {e}"))?;
         if !status.success() {
             anyhow::bail!("`{npx} -y {CLIENT_PACKAGE}` failed ({status}) while generating frontend/src/api/schema.ts");
         }
@@ -860,7 +967,7 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
     std::fs::write(
         root.join("contract/README.md"),
         format!(
-            "The API contract shared by `backend/` and `frontend/`.\n\n`openapi.yaml` is the backend's own OpenAPI document when the backend engine produced one, otherwise an empty stub to fill in. `frontend/src/api/schema.ts` is generated from it (recorded in `.vord/generated.json`, so edits are blocked): change `openapi.yaml`, then regenerate the typed client with:\n\n    cd frontend && {CLIENT_REGENERATE}\n\nRegenerating drops the `Code generated ... DO NOT EDIT` header line; the manifest keeps the file protected regardless.\n"
+            "The API contract shared by `backend/` and `frontend/`.\n\n`openapi.yaml` is your own spec when the backend is `--engine openapi` (spec-first), else the backend's own OpenAPI document when the backend engine produced one, otherwise an empty stub to fill in. `frontend/src/api/schema.ts` is generated from it (recorded in `.vord/generated.json`, so edits are blocked): change `openapi.yaml`, then regenerate the typed client with:\n\n    cd frontend && {CLIENT_REGENERATE}\n\nRegenerating drops the `Code generated ... DO NOT EDIT` header line; the manifest keeps the file protected regardless.\n"
         ),
     )?;
     Ok(KickoffReport { project_dir: root.to_path_buf(), created, generated: manifest.files.len(), notes })
@@ -1115,6 +1222,7 @@ mod tests {
             backend: Engine::Wasp,
             name: "shop".into(),
             blueprint: None,
+            generator: None,
             parent: PathBuf::from("/nonexistent"),
             install: false,
             programs: Default::default(),
@@ -1196,6 +1304,7 @@ mod tests {
             backend: Engine::Ferrum,
             name: "app".into(),
             blueprint: None,
+            generator: None,
             parent: parent.clone(),
             install: false,
             programs,
@@ -1220,6 +1329,7 @@ mod tests {
             backend: Engine::Ferrum,
             name: "app".into(),
             blueprint: None,
+            generator: None,
             parent: parent.clone(),
             install: false,
             programs,
@@ -1270,6 +1380,134 @@ mod tests {
         std::fs::remove_dir_all(&parent).ok();
     }
 
+    /// A fake `openapi-generator-cli generate -i S -g G -o OUT` writing what
+    /// python-fastapi does: generated modules, an empty `impl` package, tests
+    /// and a default ignore file. Honors the ignore file like the real one.
+    #[cfg(unix)]
+    fn fake_fastapi(parent: &Path) -> String {
+        script(
+            parent,
+            "oag",
+            "out=\"$7\"; mkdir -p \"$out/src/openapi_server/impl\" \"$out/src/openapi_server/apis\" \"$out/tests\"; \
+             [ -f \"$out/.openapi-generator-ignore\" ] || echo '# default' > \"$out/.openapi-generator-ignore\"; \
+             echo gen > \"$out/src/openapi_server/apis/pets_api.py\"; \
+             grep -q 'impl/' \"$out/.openapi-generator-ignore\" || : > \"$out/src/openapi_server/impl/__init__.py\"; \
+             grep -q 'tests/' \"$out/.openapi-generator-ignore\" || echo stub > \"$out/tests/test_pets_api.py\"; \
+             echo '{}' > openapitools.json",
+        )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn python_fastapi_impl_and_tests_are_user_owned_not_locked() {
+        let parent = scratch("pyfastapi");
+        std::fs::write(parent.join("api.yaml"), "openapi: 3.0.3\n").unwrap();
+        let k = EngineKickoff {
+            engine: Engine::OpenApi,
+            name: "api".into(),
+            blueprint: Some(parent.join("api.yaml")),
+            parent: parent.clone(),
+            program: Some(fake_fastapi(&parent)),
+            generator: Some("python-fastapi".into()),
+            install: false,
+            templates: None,
+            copier: Default::default(),
+        };
+        run(&k).unwrap();
+        let dir = parent.join("api");
+        let manifest = Manifest::load(&dir);
+        let locked: Vec<&String> = manifest.files.keys().collect();
+        assert!(locked.iter().any(|f| f.as_str() == "src/openapi_server/apis/pets_api.py"), "{locked:?}");
+        assert!(!locked.iter().any(|f| f.contains("/impl/") || f.starts_with("tests/")), "{locked:?}");
+        let ignore = std::fs::read_to_string(dir.join(".openapi-generator-ignore")).unwrap();
+        assert!(ignore.lines().any(|l| l == "src/*/impl/**") && ignore.lines().any(|l| l == "tests/**"), "{ignore}");
+        assert_eq!(
+            manifest.files["src/openapi_server/apis/pets_api.py"].regenerate.as_deref(),
+            Some("openapi-generator-cli generate -i spec/api.yaml -g python-fastapi -o .")
+        );
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generators_without_user_owned_paths_lock_all_their_output() {
+        let parent = scratch("userignore");
+        std::fs::write(parent.join("api.yaml"), "openapi: 3.0.3\n").unwrap();
+        let oag = script(
+            &parent,
+            "oag",
+            "out=\"$7\"; mkdir -p \"$out\"; echo '# d' > \"$out/.openapi-generator-ignore\"; echo a > \"$out/a.txt\"; echo b > \"$out/b.txt\"",
+        );
+        let k = EngineKickoff {
+            engine: Engine::OpenApi,
+            name: "api".into(),
+            blueprint: Some(parent.join("api.yaml")),
+            parent: parent.clone(),
+            program: Some(oag),
+            generator: Some("rust-axum".into()),
+            install: false,
+            templates: None,
+            copier: Default::default(),
+        };
+        run(&k).unwrap();
+        // rust-axum has no built-in user-owned paths: both files are locked.
+        let manifest = Manifest::load(&parent.join("api"));
+        assert!(manifest.files.contains_key("a.txt") && manifest.files.contains_key("b.txt"));
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spec_first_fullstack_copies_the_users_spec_as_the_contract() {
+        let parent = scratch("specfirst");
+        std::fs::write(parent.join("api.yaml"), "openapi: 3.0.3\ninfo: {title: mine}\n").unwrap();
+        let mut programs = std::collections::BTreeMap::new();
+        programs.insert("backend".to_string(), fake_fastapi(&parent));
+        programs.insert("frontend".to_string(), script(&parent, "front", "mkdir -p \"$2/src\"; echo x > \"$2/src/b.ts\""));
+        programs.insert("client".to_string(), script(&parent, "npx", "echo 'export type paths = Record<string, never>;' > \"$5\""));
+        let report = run_fullstack(&FullstackKickoff {
+            backend: Engine::OpenApi,
+            name: "app".into(),
+            blueprint: Some(parent.join("api.yaml")),
+            generator: Some("python-fastapi".into()),
+            parent: parent.clone(),
+            install: false,
+            programs,
+        })
+        .unwrap();
+        let root = parent.join("app");
+        assert_eq!(
+            std::fs::read_to_string(root.join("contract/openapi.yaml")).unwrap(),
+            "openapi: 3.0.3\ninfo: {title: mine}\n"
+        );
+        assert!(report.notes.iter().any(|n| n.contains("your spec")), "{:?}", report.notes);
+        let manifest = Manifest::load(&root);
+        assert_eq!(
+            manifest.files["backend/src/openapi_server/apis/pets_api.py"].regenerate.as_deref(),
+            Some("cd backend && openapi-generator-cli generate -i spec/api.yaml -g python-fastapi -o .")
+        );
+        assert!(manifest.files.keys().all(|f| !f.contains("/impl/") && !f.starts_with("backend/tests/")));
+        assert!(manifest.files.contains_key("frontend/src/api/schema.ts"));
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn the_registry_carries_the_python_spec_first_recipe() {
+        let text = render_engines_text();
+        assert!(text.contains("recipe:       Python: spec-first: vord kickoff --engine openapi --generator python-fastapi"), "{text}");
+        let plan = FullstackKickoff {
+            backend: Engine::OpenApi,
+            name: "app".into(),
+            blueprint: Some("api.yaml".into()),
+            generator: Some("python-fastapi".into()),
+            parent: "/tmp".into(),
+            install: false,
+            programs: Default::default(),
+        }
+        .plan();
+        assert!(plan.iter().any(|l| l.contains("-g python-fastapi")) && plan.iter().any(|l| l.contains("your spec verbatim")), "{plan:?}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn templ_output_is_regenerated_by_templ() {
@@ -1308,6 +1546,7 @@ mod tests {
             backend: Engine::Kthulu,
             name: "app".into(),
             blueprint: None,
+            generator: None,
             parent: parent.clone(),
             install: false,
             programs,

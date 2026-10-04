@@ -875,7 +875,9 @@ vord kickoff --engine ferrum --name shop --blueprint gen/users.yaml     # Rust +
 vord kickoff --engine wasp   --name shop                                # React + Node + Prisma (wasp-lang/wasp)
 vord kickoff --engine copier --name api --blueprint gh:fastapi/full-stack-fastapi-template --vcs-ref 0.9.0 --data project_name=Demo   # any Copier template; `copier update` regenerates
 vord kickoff --engine openapi --name client --blueprint api.yaml --generator typescript-fetch  # code from an OpenAPI spec
+vord kickoff --engine openapi --name api --blueprint api.yaml --generator python-fastapi        # Python: spec-first, regenerable
 vord kickoff --engine ferrum --frontend wasp --name shop                # backend + Wasp frontend, shared OpenAPI contract
+# also --engine openapi --generator <server generator> --blueprint api.yaml --frontend wasp (your spec is the contract)
 ```
 
 With `--frontend`, `contract/openapi.yaml` is the OpenAPI document the backend
@@ -901,18 +903,45 @@ A file counts as generated when the engine marks it: a standard
 `Code generated … DO NOT EDIT` or `@generated` header, or a hole. Unmarked
 files are starter code the project owns and stay freely editable.
 
-**Python.** Python backends go through Copier (`--engine copier`).
-`--data key=value` (repeatable; MCP: a `data` object) answers the template's
-questions as `copier copy --data`, and `--vcs-ref <tag|branch|commit>` pins
-the template version (Copier otherwise takes the template's latest tag).
-Copier's output is starter code the project owns: nothing is locked unless
-the template writes a `DO NOT EDIT`/`@generated`/hole marker. The template's
-answers file (`.copier-answers.yml`, or wherever its `_answers_file` points)
-is what lets `copier update --defaults --trust` re-apply the template; that
-needs a repository with a clean tree, so run `git init`, `git add -A` and a
-first commit before regenerating.
+**Python.** There are two paths, and only one is regenerable.
 
-- **FastAPI**: `fastapi/full-stack-fastapi-template` is no longer a Copier
+- **Spec-first (regenerable): `vord kickoff --engine openapi --generator
+  python-fastapi --blueprint api.yaml --name api`.** The OpenAPI spec is the
+  blueprint (kept at `spec/api.yaml`); OpenAPI Generator emits the models,
+  the routers and `Base*Api` classes. You write the handlers as your own
+  modules under `src/<package>/impl/`, subclassing the generated `Base*Api`
+  (the generated router loads every module in `impl/`). This generator has
+  no `*_impl.py` stubs; `impl/` is that mechanism. vord lists `impl/**`,
+  `tests/**` and the project scaffolding (`README.md`, `.gitignore`,
+  `requirements.txt`, `pyproject.toml`, `setup.cfg`, `Dockerfile`,
+  `docker-compose.yaml`) in `.openapi-generator-ignore` after the first
+  generation, so the generator never rewrites them, and does not lock them in
+  the manifest. Models, routers and `main.py` are locked: the hook denies
+  edits to them. Change the spec, then run the recorded command from the
+  project root: `openapi-generator-cli generate -i spec/api.yaml -g
+  python-fastapi -o .` (needs a JDK; the version is pinned in
+  `openapitools.json`). Your `impl/` code is untouched. Other server
+  generators work the same way, but vord only knows the hand-written paths of
+  `python-fastapi`: for any other generator everything the generator writes is
+  locked, and you list the files you own in `.openapi-generator-ignore` and
+  remove them from `.vord/generated.json` yourself.
+  With a Wasp frontend: `vord kickoff --engine openapi --generator
+  python-fastapi --blueprint api.yaml --frontend wasp --name app` puts the
+  backend in `backend/`, copies your spec verbatim to `contract/openapi.yaml`
+  and generates the frontend's typed client from it.
+- **Copier (one-shot seed for FastAPI).** `--engine copier` runs any Copier
+  template.
+  `--data key=value` (repeatable; MCP: a `data` object) answers the template's
+  questions as `copier copy --data`, and `--vcs-ref <tag|branch|commit>` pins
+  the template version (Copier otherwise takes the template's latest tag).
+  Copier's output is starter code the project owns: nothing is locked unless
+  the template writes a `DO NOT EDIT`/`@generated`/hole marker. The template's
+  answers file (`.copier-answers.yml`, or wherever its `_answers_file` points)
+  is what lets `copier update --defaults --trust` re-apply the template; that
+  needs a repository with a clean tree, so run `git init`, `git add -A` and a
+  first commit before regenerating.
+- **FastAPI via Copier is a one-shot seed, not a regenerable backend.**
+  `fastapi/full-stack-fastapi-template` is no longer a Copier
   template after tag 0.9.0 (no `copier.yml`; Copier's default of "latest
   tag" fails on its dangling `.claude/skills` symlinks), so pin
   `--vcs-ref 0.9.0`. That version needs no `--data` (every question has a
@@ -925,10 +954,9 @@ first commit before regenerating.
   regeneration), or seed with `django-admin startproject <name>` followed by
   `vord hook install`. The `startproject` route is a one-shot seed: it
   cannot be regenerated and vord records no blueprint for it.
-- **Python backend + Wasp frontend** (`--frontend wasp`) is not supported
-  yet: the joint kickoff needs a backend that emits an OpenAPI contract
-  (ferrum or kthulu). Kick off the Python backend and a separate `wasp`
-  project instead.
+- **Python backend + Wasp frontend from a Copier seed** (`--engine copier
+  --frontend wasp`) is not supported: Copier emits no OpenAPI contract. Use
+  the spec-first path above.
 
 **Holes.** A generator marks where hand-written code goes:
 
