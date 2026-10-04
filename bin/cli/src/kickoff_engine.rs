@@ -24,6 +24,179 @@ use std::process::Command;
 
 use vord_cli::generated::{GeneratedFile, Manifest};
 
+/// What an engine can produce.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Capability {
+    Backend,
+    Frontend,
+    /// Generates from a declarative blueprint/spec.
+    SpecDriven,
+    /// Generates from a built-in starter template.
+    Template,
+}
+
+/// Everything vord knows about one scaffolding engine. Adding an engine is
+/// adding one entry to [`ENGINES`] (plus its `Engine` variant and `steps`
+/// arm); the CLI, the MCP tool schema and validation read from here.
+#[derive(Debug, serde::Serialize)]
+pub struct EngineSpec {
+    /// Name used on `--engine` and in the manifest.
+    pub name: &'static str,
+    /// Default executable looked up on PATH.
+    pub executable: &'static str,
+    /// What the engine generates, as shown to users and agents.
+    pub generates: &'static str,
+    /// Lower-case language names (and aliases) that select this engine.
+    pub languages: &'static [&'static str],
+    pub capabilities: &'static [Capability],
+    /// Pinned install command, when one exists (None: only the hint applies).
+    pub install_argv: Option<&'static [&'static str]>,
+    pub install_hint: &'static str,
+    /// Regeneration command recorded in the manifest when a blueprint is
+    /// given; `{name}` and `{blueprint}` (file name) are substituted.
+    pub regenerate_with_blueprint: &'static str,
+    /// Regeneration command when there is no blueprint. `{generator}` is
+    /// the `--generator` name (`<generator>` when absent).
+    pub regenerate_default: &'static str,
+    /// True when every file the engine writes (bar its ignore file) belongs
+    /// to the blueprint, so vord records all of it as generated. Wasp is
+    /// protected through its `.wasp/` tree instead.
+    pub all_output_generated: bool,
+    /// Request arguments that must be present to kick off with this engine.
+    pub required_args: &'static [&'static str],
+}
+
+impl EngineSpec {
+    pub fn has(&self, capability: Capability) -> bool {
+        self.capabilities.contains(&capability)
+    }
+
+    fn regenerate(&self, name: &str, blueprint: Option<&str>, generator: Option<&str>) -> String {
+        let template = if blueprint.is_some() { self.regenerate_with_blueprint } else { self.regenerate_default };
+        template
+            .replace("{name}", name)
+            .replace("{blueprint}", blueprint.unwrap_or("<spec>"))
+            .replace("{generator}", generator.unwrap_or("<generator>"))
+    }
+}
+
+/// The registry, in display order.
+pub const ENGINES: &[EngineSpec] = &[
+    EngineSpec {
+        name: "kthulu",
+        executable: "kthulu",
+        generates: "Go",
+        languages: &["go", "golang"],
+        capabilities: &[Capability::Backend, Capability::SpecDriven],
+        install_argv: Some(&["go", "install", "github.com/pmaojo/kthulu-go/cmd/kthulu@latest"]),
+        install_hint: "go install github.com/pmaojo/kthulu-go/cmd/kthulu@latest",
+        regenerate_with_blueprint: "kthulu create {name} --from-plan {blueprint}",
+        regenerate_default: "kthulu generate",
+        all_output_generated: false,
+        required_args: &["name"],
+    },
+    EngineSpec {
+        name: "ferrum",
+        executable: "ferrum",
+        generates: "Rust + React",
+        languages: &["rust", "rs"],
+        capabilities: &[Capability::Backend, Capability::Frontend, Capability::SpecDriven],
+        install_argv: Some(&["cargo", "install", "--git", "https://github.com/pmaojo/ferrum", "ferrum"]),
+        install_hint: "cargo install --git https://github.com/pmaojo/ferrum ferrum",
+        regenerate_with_blueprint: "ferrum compile {blueprint} --output .",
+        regenerate_default: "ferrum compile <grafo.yaml> --output .",
+        all_output_generated: false,
+        required_args: &["name"],
+    },
+    EngineSpec {
+        name: "wasp",
+        executable: "wasp",
+        generates: "TypeScript full-stack",
+        languages: &["typescript", "ts", "javascript", "js", "node"],
+        capabilities: &[Capability::Backend, Capability::Frontend, Capability::Template],
+        install_argv: None,
+        install_hint: "curl -sSL https://get.wasp.sh/installer.sh | sh",
+        regenerate_with_blueprint: "wasp compile",
+        regenerate_default: "wasp compile",
+        all_output_generated: false,
+        required_args: &["name"],
+    },
+    EngineSpec {
+        name: "copier",
+        executable: "copier",
+        generates: "any Jinja template",
+        languages: &[],
+        capabilities: &[Capability::Template],
+        install_argv: Some(&["uv", "tool", "install", "copier==9.17.0"]),
+        install_hint: "uv tool install copier==9.17.0",
+        regenerate_with_blueprint: "copier update --defaults --trust",
+        regenerate_default: "copier update --defaults --trust",
+        all_output_generated: false,
+        required_args: &["name", "blueprint"],
+    },
+    EngineSpec {
+        name: "openapi",
+        executable: "openapi-generator-cli",
+        generates: "code from an OpenAPI spec",
+        languages: &[],
+        capabilities: &[Capability::SpecDriven],
+        install_argv: Some(&["npm", "install", "-g", "@openapitools/openapi-generator-cli"]),
+        install_hint: "npm install -g @openapitools/openapi-generator-cli (needs a JDK)",
+        regenerate_with_blueprint: "openapi-generator-cli generate -i {blueprint} -g {generator} -o .",
+        regenerate_default: "openapi-generator-cli generate -i <spec> -g {generator} -o .",
+        // Everything but the ignore file is the spec's.
+        all_output_generated: true,
+        required_args: &["name", "blueprint", "generator"],
+    },
+];
+
+/// Engine names, in registry order.
+pub fn engine_names() -> Vec<&'static str> {
+    ENGINES.iter().map(|spec| spec.name).collect()
+}
+
+/// `kthulu = Go, ferrum = Rust + React, ...` for error messages and schemas.
+pub fn engine_languages_text() -> String {
+    ENGINES
+        .iter()
+        .map(|spec| format!("{} = {}", spec.name, spec.generates))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The engine that generates a backend in `language`.
+pub fn engine_for_language(language: &str) -> Option<&'static EngineSpec> {
+    let language = language.to_ascii_lowercase();
+    ENGINES
+        .iter()
+        .find(|spec| spec.has(Capability::Backend) && spec.languages.contains(&language.as_str()))
+}
+
+/// `vord kickoff --list-engines`.
+pub fn render_engines_text() -> String {
+    let mut out = String::new();
+    for spec in ENGINES {
+        let caps: Vec<String> = spec
+            .capabilities
+            .iter()
+            .map(|c| serde_json::to_value(c).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default())
+            .collect();
+        out.push_str(&format!(
+            "{}\n  generates:    {}\n  executable:   {}\n  capabilities: {}\n  install:      {}\n  regenerate:   {}\n  all output generated: {}\n  requires:     {}\n",
+            spec.name,
+            spec.generates,
+            spec.executable,
+            caps.join(", "),
+            spec.install_hint,
+            spec.regenerate_with_blueprint,
+            if spec.all_output_generated { "yes" } else { "no" },
+            spec.required_args.join(", "),
+        ));
+    }
+    out
+}
+
 /// A scaffolding engine vord knows how to drive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Engine {
@@ -43,54 +216,38 @@ pub enum Engine {
 
 impl Engine {
     pub fn parse(raw: &str) -> anyhow::Result<Self> {
-        match raw.to_ascii_lowercase().as_str() {
-            "kthulu" => Ok(Self::Kthulu),
-            "ferrum" => Ok(Self::Ferrum),
-            "wasp" => Ok(Self::Wasp),
-            "copier" => Ok(Self::Copier),
-            "openapi" => Ok(Self::OpenApi),
-            other => anyhow::bail!("unknown engine {other:?}. Supported engines: kthulu, ferrum, wasp, copier, openapi"),
-        }
+        let lower = raw.to_ascii_lowercase();
+        ENGINES
+            .iter()
+            .position(|spec| spec.name == lower)
+            .map(|index| [Self::Kthulu, Self::Ferrum, Self::Wasp, Self::Copier, Self::OpenApi][index])
+            .ok_or_else(|| {
+                anyhow::anyhow!("unknown engine {lower:?}. Supported engines: {}", engine_names().join(", "))
+            })
+    }
+
+    /// This engine's registry entry (variant order matches [`ENGINES`]).
+    pub fn spec(self) -> &'static EngineSpec {
+        &ENGINES[self as usize]
     }
 
     fn name(self) -> &'static str {
-        match self {
-            Self::Kthulu => "kthulu",
-            Self::Ferrum => "ferrum",
-            Self::Wasp => "wasp",
-            Self::Copier => "copier",
-            Self::OpenApi => "openapi",
-        }
+        self.spec().name
     }
 
     /// The executable the engine is run through.
     fn executable(self) -> &'static str {
-        match self {
-            Self::OpenApi => "openapi-generator-cli",
-            other => other.name(),
-        }
+        self.spec().executable
     }
 
     /// A pinned, non-interactive install, when one exists. Wasp's installer
     /// is a piped shell script, which vord does not run on its own.
     pub fn install_argv(self) -> Option<Vec<&'static str>> {
-        match self {
-            Self::Kthulu => Some(vec!["go", "install", "github.com/pmaojo/kthulu-go/cmd/kthulu@latest"]),
-            Self::Ferrum => Some(vec!["cargo", "install", "--git", "https://github.com/pmaojo/ferrum", "ferrum"]),
-            Self::Wasp => None,
-            Self::Copier => Some(vec!["uv", "tool", "install", "copier==9.17.0"]),
-            Self::OpenApi => Some(vec!["npm", "install", "-g", "@openapitools/openapi-generator-cli"]),
-        }
+        self.spec().install_argv.map(<[&str]>::to_vec)
     }
 
     fn install_hint(self) -> &'static str {
-        match self {
-            Self::Kthulu => "go install github.com/pmaojo/kthulu-go/cmd/kthulu@latest",
-            Self::Ferrum => "cargo install --git https://github.com/pmaojo/ferrum ferrum",
-            Self::Wasp => "curl -sSL https://get.wasp.sh/installer.sh | sh",
-            Self::Copier => "uv tool install copier==9.17.0",
-            Self::OpenApi => "npm install -g @openapitools/openapi-generator-cli (needs a JDK)",
-        }
+        self.spec().install_hint
     }
 }
 
@@ -233,19 +390,7 @@ impl EngineKickoff {
             .as_ref()
             .and_then(|p| p.file_name())
             .map(|f| f.to_string_lossy().to_string());
-        match (self.engine, blueprint) {
-            (Engine::Kthulu, Some(plan)) => format!("kthulu create {} --from-plan {plan}", self.name),
-            (Engine::Kthulu, None) => "kthulu generate".to_string(),
-            (Engine::Ferrum, Some(graph)) => format!("ferrum compile {graph} --output ."),
-            (Engine::Ferrum, None) => "ferrum compile <grafo.yaml> --output .".to_string(),
-            (Engine::Wasp, _) => "wasp compile".to_string(),
-            (Engine::Copier, _) => "copier update --defaults --trust".to_string(),
-            (Engine::OpenApi, spec) => format!(
-                "openapi-generator-cli generate -i {} -g {} -o .",
-                spec.unwrap_or_else(|| "<spec>".into()),
-                self.generator.as_deref().unwrap_or("<generator>")
-            ),
-        }
+        self.engine.spec().regenerate(&self.name, blueprint.as_deref(), self.generator.as_deref())
     }
 }
 
@@ -352,7 +497,7 @@ pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         };
         // OpenAPI Generator output is wholly the spec's; its ignore file lists
         // what the project owns instead.
-        let wholly_generated = kickoff.engine == Engine::OpenApi && relative != ".openapi-generator-ignore";
+        let wholly_generated = kickoff.engine.spec().all_output_generated && relative != ".openapi-generator-ignore";
         if wholly_generated || is_marked_generated(&content) {
             manifest.files.insert(
                 relative.clone(),
@@ -623,6 +768,34 @@ mod tests {
         k.install = true;
         assert!(k.plan()[0].contains("uv tool install copier==9.17.0"));
         assert!(Engine::Wasp.install_argv().is_none(), "no piped shell installers");
+    }
+
+    #[test]
+    fn registry_is_consistent_with_the_engine_enum() {
+        for engine in [Engine::Kthulu, Engine::Ferrum, Engine::Wasp, Engine::Copier, Engine::OpenApi] {
+            assert_eq!(Engine::parse(engine.spec().name).unwrap(), engine);
+        }
+        assert_eq!(engine_names(), ["kthulu", "ferrum", "wasp", "copier", "openapi"]);
+        assert_eq!(engine_languages_text(), "kthulu = Go, ferrum = Rust + React, wasp = TypeScript full-stack, copier = any Jinja template, openapi = code from an OpenAPI spec");
+        assert_eq!(engine_for_language("Golang").unwrap().name, "kthulu");
+        assert_eq!(engine_for_language("rs").unwrap().name, "ferrum");
+        assert_eq!(engine_for_language("node").unwrap().name, "wasp");
+        assert!(engine_for_language("cobol").is_none());
+        assert!(engine_for_language("python").is_none(), "copier and openapi are not picked by language");
+        assert_eq!(Engine::OpenApi.executable(), "openapi-generator-cli");
+        assert_eq!(Engine::OpenApi.spec().required_args, ["name", "blueprint", "generator"]);
+        assert_eq!(Engine::Copier.spec().required_args, ["name", "blueprint"]);
+        assert!(Engine::OpenApi.spec().has(Capability::SpecDriven));
+        assert!(Engine::Copier.spec().has(Capability::Template));
+        assert_eq!(
+            kickoff(Engine::Kthulu, Some("/p/plan.yaml")).regenerate_command(),
+            "kthulu create shop --from-plan plan.yaml"
+        );
+        assert_eq!(kickoff(Engine::Kthulu, None).regenerate_command(), "kthulu generate");
+        assert_eq!(
+            kickoff(Engine::Ferrum, Some("/p/g.yaml")).regenerate_command(),
+            "ferrum compile g.yaml --output ."
+        );
     }
 
     #[test]

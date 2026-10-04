@@ -145,6 +145,13 @@ enum Command {
         /// Print every command that would run, install included, and stop.
         #[arg(long, requires = "engine")]
         plan: bool,
+        /// Print the scaffolding engine registry (names, languages,
+        /// capabilities, install and regenerate commands) and exit.
+        #[arg(long)]
+        list_engines: bool,
+        /// With `--list-engines`, print JSON.
+        #[arg(long, requires = "list_engines")]
+        json: bool,
     },
     /// Visualize the component architecture of a directory: import graph
     /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
@@ -743,7 +750,17 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             generator,
             install,
             plan,
+            list_engines,
+            json,
         }) => {
+            if list_engines {
+                if json {
+                    println!("{}", serde_json::to_string_pretty(kickoff_engine::ENGINES)?);
+                } else {
+                    print!("{}", kickoff_engine::render_engines_text());
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
             let Some(engine) = engine else {
                 kickoff::run_kickoff(&template, &path)?;
                 return Ok(ExitCode::SUCCESS);

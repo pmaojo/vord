@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 use std::io::{self, BufRead};
 use std::process::Command;
 
+use crate::kickoff_engine::{ENGINES, engine_for_language, engine_languages_text, engine_names};
+
 /// Output longer than this is cut, keeping the tail (where vord prints its
 /// summary and gate verdict).
 const MAX_OUTPUT_CHARS: usize = 20_000;
@@ -75,12 +77,12 @@ fn tool_list() -> Value {
         },
         {
             "name": "vord_kickoff",
-            "description": "Scaffold a project deterministically instead of writing boilerplate: either a built-in vord template, or a scaffolding engine (kthulu, ferrum, wasp) from its blueprint. The result is policy-gated, with generated files recorded so later edits go through the blueprint.",
+            "description": format!("Scaffold a project deterministically instead of writing boilerplate: either a built-in vord template, or a scaffolding engine ({}) from its blueprint. The result is policy-gated, with generated files recorded so later edits go through the blueprint.", engine_names().join(", ")),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "template": { "type": "string", "description": "Built-in template (single-language skeleton, NOT an engine): react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal. Cannot be combined with `engine`." },
-                    "engine": { "type": "string", "enum": ["kthulu", "ferrum", "wasp", "copier", "openapi"], "description": "Scaffolding engine, chosen by the language of the backend: ferrum = Rust backend + React; kthulu = Go backend; wasp = TypeScript full-stack (React + Node + Prisma); copier = any Jinja template (blueprint = template path or git URL, e.g. a Python/FastAPI template); openapi = code from an OpenAPI spec (blueprint = spec, needs `generator`). Requires name. Do not delete or hand-rewrite generated output: change the blueprint and regenerate." },
+                    "engine": { "type": "string", "enum": engine_names(), "description": format!("Scaffolding engine, chosen by the language of the backend: {}. Requires name. Do not delete or hand-rewrite generated output: change the blueprint and regenerate. copier takes a template path or git URL as blueprint; openapi takes a spec as blueprint and needs `generator`.", engine_languages_text()) },
                     "frontend": { "type": "string", "enum": ["wasp"], "description": "With a ferrum or kthulu `engine` as the backend, also generate a Wasp frontend joined by a shared OpenAPI contract (contract/openapi.yaml)" },
                     "language": { "type": "string", "description": "Backend language the user asked for (rust, go, typescript); checked against `engine` so a mismatch is rejected" },
                     "generator": { "type": "string", "description": "With engine openapi: the OpenAPI Generator name, e.g. typescript-fetch" },
@@ -113,18 +115,6 @@ fn tool_list() -> Value {
     ])
 }
 
-const ENGINE_LANGUAGES: &str = "kthulu = Go, ferrum = Rust + React, wasp = TypeScript full-stack, copier = any template, openapi = from a spec";
-
-/// The engine that generates a backend in `language`.
-fn engine_for_language(language: &str) -> Option<&'static str> {
-    match language.to_ascii_lowercase().as_str() {
-        "rust" | "rs" => Some("ferrum"),
-        "go" | "golang" => Some("kthulu"),
-        "typescript" | "ts" | "javascript" | "js" | "node" => Some("wasp"),
-        _ => None,
-    }
-}
-
 fn string_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
@@ -152,17 +142,27 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
                     if template.is_some() {
                         return Err(format!(
                             "vord_kickoff: `template` and `engine` are mutually exclusive; templates are not engines (use one of: {})",
-                            ENGINE_LANGUAGES
+                            engine_languages_text()
                         ));
                     }
-                    if let (Some(language), true) = (string_arg(args, "language"), matches!(engine, "kthulu" | "ferrum" | "wasp")) {
-                        let expected = engine_for_language(language).ok_or_else(|| {
-                            format!("vord_kickoff: no engine for language {language:?} ({ENGINE_LANGUAGES})")
+                    let languages = engine_languages_text();
+                    let spec = ENGINES.iter().find(|spec| spec.name == engine);
+                    // Engines picked by backend language only; copier and openapi are not.
+                    if let (Some(language), true) = (string_arg(args, "language"), spec.is_some_and(|s| !s.languages.is_empty())) {
+                        let expected = engine_for_language(language).map(|spec| spec.name).ok_or_else(|| {
+                            format!("vord_kickoff: no engine for language {language:?} ({languages})")
                         })?;
                         if expected != engine {
                             return Err(format!(
-                                "vord_kickoff: engine {engine:?} does not generate {language}; use engine {expected:?} ({ENGINE_LANGUAGES})"
+                                "vord_kickoff: engine {engine:?} does not generate {language}; use engine {expected:?} ({languages})"
                             ));
+                        }
+                    }
+                    if let Some(spec) = spec {
+                        for required in spec.required_args {
+                            if string_arg(args, required).is_none() {
+                                return Err(format!("vord_kickoff with an engine needs `{required}`"));
+                            }
                         }
                     }
                     let name = string_arg(args, "name")
