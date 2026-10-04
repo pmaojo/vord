@@ -34,7 +34,16 @@ vord --version
    ```sh
    vord scan . --enforce-gate
    ```
-4. **Coordinate a multi-agent swarm** with policy-scoped worktrees and
+4. **Refactor continuously** — rank hotspots by complexity/CRAP × git
+   churn with an autonomy tier each, then refactor under a guard that
+   rejects behaviour changes and quality trade-offs:
+   ```sh
+   vord refactor plan
+   vord agent run --refactor --task "..."
+   vord refactor run --limit 3 --report vord-refactor.md
+   ```
+   See `skills/continuous-refactor/SKILL.md`.
+5. **Coordinate a multi-agent swarm** with policy-scoped worktrees and
    durable handoffs — see `vord swarm roles`, `vord swarm run`, and the
    full walkthrough in this repository's root `SKILL.md`.
 

@@ -189,6 +189,7 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
             max_turns: None,
             max_tokens: None,
             model: role.model.clone(),
+            refactor: role.refactor,
         };
         let task_desc = args.task.clone();
         let outcome = match agent::run_with_policy(&plan.path, args, policy).await {
