@@ -131,6 +131,10 @@ enum Command {
         /// YAML (ferrum).
         #[arg(long)]
         blueprint: Option<PathBuf>,
+        /// With `--engine <ferrum|kthulu>` as the backend, also generate a Wasp
+        /// frontend (`wasp`) joined by a shared OpenAPI contract in `contract/`.
+        #[arg(long, requires = "engine", value_parser = ["wasp"])]
+        frontend: Option<String>,
     },
     /// Visualize the component architecture of a directory: import graph
     /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
@@ -725,11 +729,26 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             engine,
             name,
             blueprint,
+            frontend,
         }) => {
             let Some(engine) = engine else {
                 kickoff::run_kickoff(&template, &path)?;
                 return Ok(ExitCode::SUCCESS);
             };
+            if frontend.is_some() {
+                let report = kickoff_engine::run_fullstack(&kickoff_engine::FullstackKickoff {
+                    backend: kickoff_engine::Engine::parse(&engine)?,
+                    name: name.expect("clap requires --name with --engine"),
+                    blueprint,
+                    parent: path,
+                })?;
+                println!(
+                    "vord kickoff: {engine} backend + wasp frontend created in {}; {} marked generated; API contract in contract/openapi.yaml",
+                    report.project_dir.display(),
+                    report.generated
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
             let request = kickoff_engine::EngineKickoff {
                 engine: kickoff_engine::Engine::parse(&engine)?,
                 name: name.expect("clap requires --name with --engine"),

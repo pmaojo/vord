@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { apply } from '../src/index.js'
+import { apply, deletesGeneratedProject } from '../src/index.js'
 import { accept, allow, execution, fakeAgent, fakeContext } from './helpers.js'
 
 const FAKE_VORD = fileURLToPath(new URL('./fixtures/fake-vord.mjs', import.meta.url))
@@ -179,4 +179,15 @@ test('holesAsDone all holds the turn while any hole in scope is pending, false n
   await off.ctx.fire('tools/post-execute', execution('write', { file_path: join(off.dir, 'internal/order/service.go'), content: 'x' }, off.agent), { isError: false, value: {}, content: [] }, accept)
   await off.ctx.fire('agent/turn-stopping', { agent: off.agent, turn: 1, signal: new AbortController().signal })
   assert.equal(off.agent.steered.length, 0)
+})
+
+test('rm -rf of a generated project is denied, other deletions pass', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-vord-rm-'))
+  mkdirSync(join(root, 'app', '.vord'), { recursive: true })
+  writeFileSync(join(root, 'app', '.vord', 'generated.json'), '{}')
+  mkdirSync(join(root, 'scratch'))
+  assert.match(deletesGeneratedProject('rm -rf app', root), /blueprint/)
+  assert.match(deletesGeneratedProject('cd x && rm -fr ./app/', root), /generated\.json/)
+  assert.equal(deletesGeneratedProject('rm -rf scratch', root), undefined)
+  assert.equal(deletesGeneratedProject('rm app/file.txt', root), undefined)
 })

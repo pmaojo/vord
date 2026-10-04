@@ -79,8 +79,10 @@ fn tool_list() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "template": { "type": "string", "description": "Built-in template: react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal" },
-                    "engine": { "type": "string", "enum": ["kthulu", "ferrum", "wasp"], "description": "Scaffolding engine; requires name" },
+                    "template": { "type": "string", "description": "Built-in template (single-language skeleton, NOT an engine): react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal. Cannot be combined with `engine`." },
+                    "engine": { "type": "string", "enum": ["kthulu", "ferrum", "wasp"], "description": "Scaffolding engine, chosen by the language of the backend: ferrum = Rust backend + React; kthulu = Go backend; wasp = TypeScript full-stack (React + Node + Prisma). Requires name. Do not delete or hand-rewrite generated output: change the blueprint and regenerate." },
+                    "frontend": { "type": "string", "enum": ["wasp"], "description": "With a ferrum or kthulu `engine` as the backend, also generate a Wasp frontend joined by a shared OpenAPI contract (contract/openapi.yaml)" },
+                    "language": { "type": "string", "description": "Backend language the user asked for (rust, go, typescript); checked against `engine` so a mismatch is rejected" },
                     "name": { "type": "string", "description": "Project name passed to the engine" },
                     "blueprint": { "type": "string", "description": "Engine blueprint: kthulu-plan.yaml or a ferrum graph YAML" },
                     "path": { "type": "string", "description": "Destination (with an engine: the parent directory)" }
@@ -108,6 +110,18 @@ fn tool_list() -> Value {
     ])
 }
 
+const ENGINE_LANGUAGES: &str = "kthulu = Go, ferrum = Rust + React, wasp = TypeScript full-stack";
+
+/// The engine that generates a backend in `language`.
+fn engine_for_language(language: &str) -> Option<&'static str> {
+    match language.to_ascii_lowercase().as_str() {
+        "rust" | "rs" => Some("ferrum"),
+        "go" | "golang" => Some("kthulu"),
+        "typescript" | "ts" | "javascript" | "js" | "node" => Some("wasp"),
+        _ => None,
+    }
+}
+
 fn string_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
@@ -131,13 +145,35 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
         "vord_kickoff" => {
             let mut argv = owned(&["kickoff"]);
             match (string_arg(args, "engine"), string_arg(args, "template")) {
-                (Some(engine), _) => {
+                (Some(engine), template) => {
+                    if template.is_some() {
+                        return Err(format!(
+                            "vord_kickoff: `template` and `engine` are mutually exclusive; templates are not engines (use one of: {})",
+                            ENGINE_LANGUAGES
+                        ));
+                    }
+                    if let Some(language) = string_arg(args, "language") {
+                        let expected = engine_for_language(language).ok_or_else(|| {
+                            format!("vord_kickoff: no engine for language {language:?} ({ENGINE_LANGUAGES})")
+                        })?;
+                        if expected != engine {
+                            return Err(format!(
+                                "vord_kickoff: engine {engine:?} does not generate {language}; use engine {expected:?} ({ENGINE_LANGUAGES})"
+                            ));
+                        }
+                    }
                     let name = string_arg(args, "name")
                         .ok_or("vord_kickoff with an engine needs `name`")?;
                     argv.extend(owned(&["--engine", engine, "--name", name]));
+                    if let Some(frontend) = string_arg(args, "frontend") {
+                        argv.extend(owned(&["--frontend", frontend]));
+                    }
                     if let Some(blueprint) = string_arg(args, "blueprint") {
                         argv.extend(owned(&["--blueprint", blueprint]));
                     }
+                }
+                (None, Some(_)) if string_arg(args, "language").is_some() => {
+                    return Err("vord_kickoff: `language` selects an engine; pass `engine` or drop `language`".into())
                 }
                 (None, Some(template)) => argv.push(template.to_string()),
                 (None, None) => return Err("vord_kickoff needs `template` or `engine`".into()),
@@ -299,6 +335,16 @@ mod tests {
             [["kickoff", "rust-clean", "--path", "svc"]]
         );
         assert!(tool_commands("vord_kickoff", &json!({ "engine": "wasp" })).is_err(), "engine needs a name");
+    }
+
+    #[test]
+    fn kickoff_rejects_incoherent_engine_choices() {
+        let err = tool_commands("vord_kickoff", &json!({ "engine": "kthulu", "template": "typescript-clean", "name": "x" })).unwrap_err();
+        assert!(err.contains("mutually exclusive"), "{err}");
+        let err = tool_commands("vord_kickoff", &json!({ "engine": "kthulu", "language": "rust", "name": "x" })).unwrap_err();
+        assert!(err.contains("ferrum"), "{err}");
+        assert!(tool_commands("vord_kickoff", &json!({ "engine": "ferrum", "language": "Rust", "name": "x" })).is_ok());
+        assert!(tool_commands("vord_kickoff", &json!({ "engine": "ferrum", "language": "cobol", "name": "x" })).is_err());
     }
 
     #[test]

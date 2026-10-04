@@ -201,6 +201,7 @@ pub fn is_marked_generated(content: &str) -> bool {
 }
 
 /// What `run` did, for the caller to report.
+#[derive(Debug)]
 pub struct KickoffReport {
     pub project_dir: PathBuf,
     pub created: usize,
@@ -263,7 +264,7 @@ pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
 
     crate::hook_install::install(&project_dir, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
     if kickoff.engine == Engine::Wasp {
-        protect_wasp_output(&project_dir)?;
+        protect_wasp_output(&project_dir, "")?;
     }
     crate::kickoff::write_gherkin_scaffold(&project_dir, "app", &format!("{} application", kickoff.name))?;
     ignore_session_state(&project_dir)?;
@@ -275,21 +276,99 @@ pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
     })
 }
 
+/// A backend engine and a Wasp frontend generated side by side, joined by one
+/// OpenAPI contract: the backend serves it, the frontend's typed client is
+/// generated from it, and neither side hand-writes the API layer.
+pub struct FullstackKickoff {
+    pub backend: Engine,
+    pub name: String,
+    /// The backend engine's blueprint.
+    pub blueprint: Option<PathBuf>,
+    pub parent: PathBuf,
+}
+
+/// The command that regenerates the frontend's typed API client.
+pub const CLIENT_REGENERATE: &str = "npx openapi-typescript ../contract/openapi.yaml -o src/api/schema.ts";
+
+/// Backend into `<name>/backend`, Wasp into `<name>/frontend`, one governed
+/// workspace at `<name>`. Only the backend languages a Wasp frontend can sit
+/// on are accepted.
+pub fn run_fullstack(kickoff: &FullstackKickoff) -> anyhow::Result<KickoffReport> {
+    if kickoff.backend == Engine::Wasp {
+        anyhow::bail!("--frontend wasp already is a full-stack engine; pick a backend engine: ferrum (Rust) or kthulu (Go)");
+    }
+    let root = kickoff.parent.join(&kickoff.name);
+    std::fs::create_dir_all(&root)?;
+    let mut created = 0;
+    for (engine, dir, blueprint) in [
+        (kickoff.backend, "backend", kickoff.blueprint.clone()),
+        (Engine::Wasp, "frontend", None),
+    ] {
+        let part = EngineKickoff {
+            engine,
+            name: dir.to_string(),
+            blueprint,
+            parent: root.clone(),
+            program: None,
+        };
+        created += run(&part)?.created;
+    }
+
+    // One manifest and one hook at the workspace root, where the agent works.
+    let mut manifest = Manifest::load(&root);
+    for dir in ["backend", "frontend"] {
+        let part = root.join(dir);
+        for (file, mut entry) in Manifest::load(&part).files {
+            entry.regenerate = entry.regenerate.map(|command| format!("cd {dir} && {command}"));
+            manifest.files.insert(format!("{dir}/{file}"), entry);
+        }
+        // The workspace root governs both halves; per-part governance is noise.
+        std::fs::remove_dir_all(part.join(".vord")).ok();
+        std::fs::remove_dir_all(part.join(".claude")).ok();
+        std::fs::remove_file(part.join(vord_cli::hook::POLICY_FILE)).ok();
+        std::fs::remove_file(part.join(".gitignore")).ok();
+    }
+    std::fs::create_dir_all(root.join("contract"))?;
+    let contract = root.join("contract/openapi.yaml");
+    if !contract.exists() {
+        std::fs::write(
+            &contract,
+            format!(
+                "openapi: 3.0.3\ninfo:\n  title: {}\n  version: 0.1.0\npaths: {{}}\n",
+                kickoff.name
+            ),
+        )?;
+        created += 1;
+    }
+    manifest.save(&root)?;
+    crate::hook_install::install(&root, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
+    protect_wasp_output(&root, "frontend/")?;
+    ignore_session_state(&root)?;
+    std::fs::write(
+        root.join("contract/README.md"),
+        format!(
+            "The API contract shared by `backend/` and `frontend/`.\n\nChange `openapi.yaml`, then regenerate the frontend client with:\n\n    cd frontend && {CLIENT_REGENERATE}\n"
+        ),
+    )?;
+    Ok(KickoffReport { project_dir: root, created, generated: manifest.files.len() })
+}
+
 /// Wasp regenerates its whole full-stack output into `.wasp/` on every
 /// compile; nothing there is ever edited by hand.
-fn protect_wasp_output(project_dir: &Path) -> anyhow::Result<()> {
+fn protect_wasp_output(project_dir: &Path, prefix: &str) -> anyhow::Result<()> {
     let policy = project_dir.join(vord_cli::hook::POLICY_FILE);
     let mut content = std::fs::read_to_string(&policy).unwrap_or_default();
-    if content.contains("pattern = \".wasp/**\"") {
+    let pattern = format!("{prefix}.wasp/**");
+    if content.contains(&format!("pattern = \"{pattern}\"")) {
         return Ok(());
     }
-    content.push_str(
-        "\n# Added by `vord kickoff --engine wasp`: Wasp regenerates everything\n\
-         # under .wasp/ from main.wasp on each compile.\n\
+    content.push_str(&format!(
+        "\n# Added by `vord kickoff`: Wasp regenerates everything under\n\
+         # .wasp/ from main.wasp on each compile.\n\
          [[protected_path]]\n\
-         pattern = \".wasp/**\"\n\
+         pattern = \"{pattern}\"\n\
          reason = \"Generated by Wasp from main.wasp — change main.wasp or src/, then run `wasp compile`.\"\n",
-    );
+    ));
     std::fs::write(&policy, content)?;
     Ok(())
 }
@@ -407,5 +486,17 @@ mod tests {
         assert!(dir.join("features/app.feature").exists());
         assert!(std::fs::read_to_string(dir.join(".gitignore")).unwrap().contains(".vord/sessions/"));
         std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn fullstack_refuses_wasp_as_backend() {
+        let err = run_fullstack(&FullstackKickoff {
+            backend: Engine::Wasp,
+            name: "shop".into(),
+            blueprint: None,
+            parent: PathBuf::from("/nonexistent"),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("ferrum"), "{err}");
     }
 }
