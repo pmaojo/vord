@@ -165,6 +165,51 @@ pub const ENGINES: &[EngineSpec] = &[
             ),
         ],
     },
+    EngineSpec {
+        name: "typespec",
+        executable: "npx",
+        generates: "an OpenAPI contract from a TypeSpec API",
+        languages: &[],
+        capabilities: &[Capability::SpecDriven],
+        install_argv: None,
+        install_hint: "install Node.js 20+ (npx); the compiler is installed into the project by npm",
+        regenerate_with_blueprint: "npm install && npx tsp compile main.tsp --emit @typespec/openapi3 --output-dir tsp-output",
+        regenerate_default: "npm install && npx tsp compile main.tsp --emit @typespec/openapi3 --output-dir tsp-output",
+        all_output_generated: false,
+        required_args: &["name"],
+        recipes: &[(
+            "Contract first: TypeSpec -> OpenAPI",
+            "vord kickoff --engine typespec --name api --entity todo:title=string,done=bool",
+        )],
+    },
+    EngineSpec {
+        name: "projen",
+        executable: "npx",
+        generates: "project configuration and CI workflows",
+        languages: &[],
+        capabilities: &[Capability::Template],
+        install_argv: None,
+        install_hint: "install Node.js 20+ (npx); projen is fetched by npx",
+        regenerate_with_blueprint: "npx projen",
+        regenerate_default: "npx projen",
+        all_output_generated: false,
+        required_args: &["name"],
+        recipes: &[("Typed TypeScript project with CI", "vord kickoff --engine projen --name lib --generator typescript")],
+    },
+    EngineSpec {
+        name: "zenstack",
+        executable: "npx",
+        generates: "typed data layer (TypeScript) from a data model",
+        languages: &[],
+        capabilities: &[Capability::SpecDriven, Capability::Backend],
+        install_argv: None,
+        install_hint: "install Node.js 20+ (npx); ZenStack is installed into the project by npm",
+        regenerate_with_blueprint: "npm install && npx zen generate",
+        regenerate_default: "npm install && npx zen generate",
+        all_output_generated: false,
+        required_args: &["name"],
+        recipes: &[("Data layer from the app description", "vord kickoff --engine zenstack --name data --entity todo:title=string,done=bool")],
+    },
 ];
 
 /// Engine names, in registry order.
@@ -231,6 +276,13 @@ pub enum Engine {
     /// OpenAPI Generator: client/server code from an OpenAPI spec (the
     /// blueprint), for the generator named by `--generator`.
     OpenApi,
+    /// TypeSpec: an API described in `main.tsp`, compiled to OpenAPI.
+    TypeSpec,
+    /// Projen: project configuration (package.json, tsconfig, CI workflows)
+    /// generated from `.projenrc.ts`.
+    Projen,
+    /// ZenStack: typed data layer generated from `zenstack/schema.zmodel`.
+    ZenStack,
 }
 
 impl Engine {
@@ -239,7 +291,7 @@ impl Engine {
         ENGINES
             .iter()
             .position(|spec| spec.name == lower)
-            .map(|index| [Self::Kthulu, Self::Ferrum, Self::Wasp, Self::Copier, Self::OpenApi][index])
+            .map(|index| [Self::Kthulu, Self::Ferrum, Self::Wasp, Self::Copier, Self::OpenApi, Self::TypeSpec, Self::Projen, Self::ZenStack][index])
             .ok_or_else(|| {
                 anyhow::anyhow!("unknown engine {lower:?}. Supported engines: {}", engine_names().join(", "))
             })
@@ -371,6 +423,12 @@ impl EngineKickoff {
             Engine::Copier if self.blueprint.is_none() => {
                 anyhow::bail!("engine copier needs --blueprint <template path or git URL>")
             }
+            Engine::TypeSpec if self.blueprint.is_none() => {
+                anyhow::bail!("engine typespec needs --blueprint <main.tsp> or --entity/--app to derive one")
+            }
+            Engine::ZenStack if self.blueprint.is_none() => {
+                anyhow::bail!("engine zenstack needs --blueprint <schema.zmodel> or --entity/--app to derive one")
+            }
             Engine::OpenApi if self.blueprint.is_none() || self.generator.is_none() => {
                 anyhow::bail!("engine openapi needs --blueprint <openapi spec> and --generator <name>, e.g. typescript-fetch")
             }
@@ -484,6 +542,24 @@ impl EngineKickoff {
                 args.push(self.project_dir().display().to_string());
                 steps.push(Step { program, args, cwd: self.parent.clone() });
             }
+            Engine::TypeSpec => {
+                let dir = self.project_dir();
+                let npm = if self.program.is_some() { program.clone() } else { "npm".to_string() };
+                steps.push(Step { program: npm, args: vec!["install".to_string()], cwd: dir.clone() });
+                let args = ["tsp", "compile", "main.tsp", "--emit", "@typespec/openapi3", "--output-dir", "tsp-output"];
+                steps.push(Step { program, args: args.iter().map(|a| a.to_string()).collect(), cwd: dir });
+            }
+            Engine::ZenStack => {
+                let dir = self.project_dir();
+                let npm = if self.program.is_some() { program.clone() } else { "npm".to_string() };
+                steps.push(Step { program: npm, args: vec!["install".to_string()], cwd: dir.clone() });
+                steps.push(Step { program, args: vec!["zen".to_string(), "generate".to_string()], cwd: dir });
+            }
+            Engine::Projen => {
+                let kind = self.generator.clone().unwrap_or_else(|| "typescript".to_string());
+                let args = ["--yes", PROJEN_PACKAGE, "new", &kind, "--no-git", "--no-post", "--name", &self.name];
+                steps.push(Step { program, args: args.iter().map(|a| a.to_string()).collect(), cwd: self.project_dir() });
+            }
             Engine::OpenApi => {
                 let mut args = vec!["generate".to_string(), "-i".to_string()];
                 args.extend(self.blueprint_arg());
@@ -513,6 +589,8 @@ impl EngineKickoff {
         match self.engine {
             Engine::Ferrum => Some(format!("gen/{file}")),
             Engine::OpenApi => Some(format!("spec/{file}")),
+            Engine::TypeSpec => Some("main.tsp".to_string()),
+            Engine::ZenStack => Some("zenstack/schema.zmodel".to_string()),
             _ => None,
         }
     }
@@ -642,6 +720,8 @@ pub fn is_marked_generated(content: &str) -> bool {
     content.contains(vord_agent_policy::generated::HOLE_OPEN)
         || (head.contains("Code generated") && head.contains("DO NOT EDIT"))
         || head.contains("@generated")
+        || head.contains("Generated by projen")
+        || head.contains("DO NOT MODIFY THIS FILE")
 }
 
 /// What `run` did, for the caller to report.
@@ -732,6 +812,21 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         }
     }
 
+    // Node-based engines run inside the project, so it must exist with its
+    // package.json and blueprint before the first step.
+    if let Some(manifest) = node_manifest(kickoff.engine, &kickoff.name) {
+        std::fs::create_dir_all(&project_dir)?;
+        std::fs::write(project_dir.join("package.json"), manifest)?;
+        if let (Some(staged), Some(blueprint)) = (kickoff.staged_blueprint(), kickoff.blueprint.as_ref()) {
+            let target = project_dir.join(&staged);
+            if let Some(dir) = target.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::copy(blueprint, &target)?;
+        }
+    } else if kickoff.engine == Engine::Projen {
+        std::fs::create_dir_all(&project_dir)?;
+    }
     for step in kickoff.steps() {
         if kickoff.engine == Engine::Ferrum
             && step.args.first().map(String::as_str) == Some("compile")
@@ -796,7 +891,8 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         // OpenAPI Generator output is wholly the spec's; its ignore file lists
         // what the project owns instead.
         let wholly_generated = kickoff.engine.spec().all_output_generated && relative != ".openapi-generator-ignore";
-        if wholly_generated || is_marked_generated(&content) {
+        let engine_output = kickoff.engine == Engine::TypeSpec && relative.starts_with("tsp-output/");
+        if wholly_generated || engine_output || is_marked_generated(&content) {
             // templ output is regenerated by templ, not by the scaffolder.
             let regenerate = if content.lines().take(3).any(|l| l.contains("Code generated by templ")) {
                 "templ generate".to_string()
@@ -835,6 +931,9 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         }
     }
 
+    if node_manifest(kickoff.engine, &kickoff.name).is_some() {
+        ensure_gitignored(&project_dir, "node_modules/")?;
+    }
     crate::hook_install::install(&project_dir, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
     if kickoff.engine == Engine::Wasp {
         protect_wasp_output(&project_dir, "")?;
@@ -854,17 +953,20 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
 /// The blueprint an engine gets for `app`: only ferrum has a graph vord can
 /// derive (kthulu's `--from-plan` format is not verified against its CLI).
 pub fn app_blueprint(app: &crate::app_spec::AppSpec, engine: Engine) -> anyhow::Result<PathBuf> {
-    if engine != Engine::Ferrum {
-        anyhow::bail!(
-            "an app description (--app/--entity) derives ferrum's graph; {} has no derivable blueprint yet, pass --blueprint instead",
+    let (file, content) = match engine {
+        Engine::Ferrum => (format!("{}.yaml", app.name), app.ferrum_graph()),
+        Engine::TypeSpec => ("main.tsp".to_string(), app.typespec()),
+        Engine::ZenStack => ("schema.zmodel".to_string(), app.zmodel()),
+        _ => anyhow::bail!(
+            "an app description (--app/--entity) derives blueprints for ferrum, typespec and zenstack; {} has none yet, pass --blueprint instead",
             engine.name()
-        );
-    }
-    let dir = std::env::temp_dir().join(format!("vord-app-{}-{}", std::process::id(), app.name));
+        ),
+    };
+    let dir = std::env::temp_dir().join(format!("vord-app-{}-{}-{}", std::process::id(), app.name, engine.name()));
     std::fs::create_dir_all(&dir)?;
-    let file = dir.join(format!("{}.yaml", app.name));
-    std::fs::write(&file, app.ferrum_graph())?;
-    Ok(file)
+    let path = dir.join(file);
+    std::fs::write(&path, content)?;
+    Ok(path)
 }
 
 /// Keeps the description in the project (`app.json`) as the source the graph
@@ -931,6 +1033,18 @@ fn run_build_check(project_dir: &Path, engine: &str, argv: &[&str], cwd: &Path, 
         )),
         Err(e) => notes.push(format!("generated code does not build and the defect could not be recorded: {e}")),
     }
+}
+
+const PROJEN_PACKAGE: &str = "projen@0.103.27";
+
+/// What npm needs to run the node-based engines inside the project.
+fn node_manifest(engine: Engine, name: &str) -> Option<String> {
+    let deps = match engine {
+        Engine::TypeSpec => r#""@typespec/compiler": "1.16.0", "@typespec/http": "1.16.0", "@typespec/openapi": "1.16.0", "@typespec/openapi3": "1.16.0""#,
+        Engine::ZenStack => r#""@zenstackhq/cli": "3.9.7", "@zenstackhq/orm": "3.9.7", "kysely": "^0.28.0", "typescript": "^5""#,
+        _ => return None,
+    };
+    Some(format!("{{\n  \"name\": \"{name}\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"dependencies\": {{ {deps} }}\n}}\n"))
 }
 
 /// The command that rewrites a contract from `app.json`.
@@ -1178,6 +1292,9 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
             },
         );
     }
+    if !root.join("redocly.yaml").exists() {
+        std::fs::write(root.join("redocly.yaml"), crate::verify::REDOCLY_CONFIG)?;
+    }
     manifest.save(root)?;
     crate::hook_install::install(root, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
     protect_wasp_output(root, "frontend/")?;
@@ -1234,15 +1351,22 @@ fn manifest_ignored_note(project_dir: &Path) -> Option<String> {
 
 /// Per-session analyzer baselines (dsh-vord) are local state, not source.
 fn ignore_session_state(project_dir: &Path) -> anyhow::Result<()> {
+    ensure_gitignored(project_dir, ".vord/sessions/")
+}
+
+/// Adds `line` to `.gitignore` unless it is there or the file is projen's
+/// (projen rewrites it from `.projenrc.ts`, dropping anything added by hand).
+fn ensure_gitignored(project_dir: &Path, line: &str) -> anyhow::Result<()> {
     let gitignore = project_dir.join(".gitignore");
     let mut content = std::fs::read_to_string(&gitignore).unwrap_or_default();
-    if content.lines().any(|line| line.trim() == ".vord/sessions/") {
+    if content.lines().any(|l| l.trim() == line) || content.contains("Generated by projen") {
         return Ok(());
     }
     if !content.is_empty() && !content.ends_with('\n') {
         content.push('\n');
     }
-    content.push_str(".vord/sessions/\n");
+    content.push_str(line);
+    content.push('\n');
     std::fs::write(&gitignore, content)?;
     Ok(())
 }
@@ -1452,12 +1576,30 @@ mod tests {
     }
 
     #[test]
+    fn node_engines_install_then_run_their_tool() {
+        let ts = kickoff(Engine::TypeSpec, Some("main.tsp")).steps();
+        assert_eq!(ts.len(), 2);
+        assert!(ts[1].args.iter().any(|a| a == "tsp"));
+        let zs = kickoff(Engine::ZenStack, Some("schema.zmodel")).steps();
+        assert!(zs[1].args.iter().any(|a| a == "generate"));
+        let pj = kickoff(Engine::Projen, None).steps();
+        assert!(pj.iter().any(|s| s.args.iter().any(|a| a.starts_with("projen@"))));
+        assert!(kickoff(Engine::TypeSpec, None).validate().is_err());
+    }
+
+    #[test]
+    fn node_generated_headers_are_recognised() {
+        assert!(is_marked_generated("# ~~ Generated by projen. To modify, edit .projenrc"));
+        assert!(is_marked_generated("// DO NOT MODIFY THIS FILE\nexport {}"));
+    }
+
+    #[test]
     fn registry_is_consistent_with_the_engine_enum() {
-        for engine in [Engine::Kthulu, Engine::Ferrum, Engine::Wasp, Engine::Copier, Engine::OpenApi] {
+        for engine in [Engine::Kthulu, Engine::Ferrum, Engine::Wasp, Engine::Copier, Engine::OpenApi, Engine::TypeSpec, Engine::Projen, Engine::ZenStack] {
             assert_eq!(Engine::parse(engine.spec().name).unwrap(), engine);
         }
-        assert_eq!(engine_names(), ["kthulu", "ferrum", "wasp", "copier", "openapi"]);
-        assert_eq!(engine_languages_text(), "kthulu = Go, ferrum = Rust + React, wasp = TypeScript full-stack, copier = any Jinja template, openapi = code from an OpenAPI spec");
+        assert_eq!(engine_names(), ["kthulu", "ferrum", "wasp", "copier", "openapi", "typespec", "projen", "zenstack"]);
+        assert!(engine_languages_text().starts_with("kthulu = Go, ferrum = Rust + React, wasp = TypeScript full-stack, copier = any Jinja template, openapi = code from an OpenAPI spec, typespec = "));
         assert_eq!(engine_for_language("Golang").unwrap().name, "kthulu");
         assert_eq!(engine_for_language("rs").unwrap().name, "ferrum");
         assert_eq!(engine_for_language("node").unwrap().name, "wasp");

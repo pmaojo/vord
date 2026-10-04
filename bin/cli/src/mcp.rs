@@ -89,6 +89,18 @@ fn tool_list() -> Value {
             }
         },
         {
+            "name": "vord_verify_contract",
+            "description": "Verify the API contract (contract/openapi.yaml): lint it with Redocly and, with `url`, test the running server against it with Schemathesis. Failures are recorded as defects, so vord_done waits. Use it after changing routes or the contract.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "spec": { "type": "string", "description": "OpenAPI document (default: contract/openapi.yaml)" },
+                    "url": { "type": "string", "description": "Base URL of the running server to test" },
+                    "path": { "type": "string", "description": "Project root (default: .)" }
+                }
+            }
+        },
+        {
             "name": "vord_prune",
             "description": "Remove generated files that are not needed (a duplicate frontend, an engine's bundled templates) instead of `rm`, which is refused on generated code. Drops them from the generated-code manifest. Refuses files holding filled holes.",
             "inputSchema": {
@@ -161,6 +173,16 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
             }
             if let Some(rule) = string_arg(args, "rule") {
                 argv.extend(owned(&["--rule", rule]));
+            }
+            Ok(vec![argv])
+        }
+        "vord_verify_contract" => {
+            let mut argv = owned(&["verify-contract", "--path", string_arg(args, "path").unwrap_or(".")]);
+            if let Some(spec) = string_arg(args, "spec") {
+                argv.extend(owned(&["--spec", spec]));
+            }
+            if let Some(url) = string_arg(args, "url") {
+                argv.extend(owned(&["--url", url]));
             }
             Ok(vec![argv])
         }
