@@ -95,6 +95,20 @@ enum Command {
         #[command(subcommand)]
         action: FlowAction,
     },
+    /// List the holes the blueprints leave open: `vord:hole` regions still
+    /// empty or holding a placeholder, and Wasp operations `main.wasp`
+    /// imports but nobody implemented. Deterministic; no model involved.
+    Holes {
+        /// Directory to look in.
+        #[arg(default_value = ".")]
+        path: String,
+        /// Print the holes as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Exit 3 when any hole is pending (for CI).
+        #[arg(long)]
+        check: bool,
+    },
     /// Kickoff a new project template for AI-driven development.
     Kickoff {
         /// Template name (react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal).
@@ -240,6 +254,27 @@ enum AgentAction {
         model: Option<String>,
         #[arg(long)]
         refactor: bool,
+    },
+    /// Fill pending holes, one agent run per hole (see `vord holes`). Each
+    /// run is told exactly which hole to fill, the write gate keeps it inside
+    /// the hole, and whether the hole got filled is re-checked from disk.
+    /// Exits 0 (all filled), 3 (some still pending) or 1 (a run failed).
+    Fill {
+        /// Directory to look for holes in.
+        #[arg(long, default_value = ".")]
+        scope: String,
+        /// Only the hole with this name (or Wasp declaration name).
+        #[arg(long)]
+        hole: Option<String>,
+        /// Holes to attempt in this invocation.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+        /// Model name, overriding the provider's configured default.
+        #[arg(long)]
+        model: Option<String>,
+        /// Model turns each hole's run may take.
+        #[arg(long)]
+        max_turns: Option<u32>,
     },
     /// Record what the analyzer sees over `--scope` now, as the baseline
     /// `vord agent done` later compares against. Run it before another
@@ -674,6 +709,16 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Swarm { action }) => run_swarm(action).await,
         Some(Command::Triage { action }) => run_triage(action).await,
         Some(Command::Refactor { action }) => run_refactor(action).await,
+        Some(Command::Holes { path, json, check }) => {
+            let root = std::env::current_dir()?;
+            let holes = vord_cli::holes::scan(&root, &path);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&holes)?);
+            } else {
+                print!("{}", vord_cli::holes::render_text(&holes));
+            }
+            Ok(ExitCode::from(if check && !holes.is_empty() { 3 } else { 0 }))
+        }
         Some(Command::Kickoff {
             template,
             path,
@@ -863,6 +908,28 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             let outcome = tui::run(&root, args).await?;
             vord_cli::agent::report(&outcome);
             Ok(ExitCode::from(outcome.exit_code()))
+        }
+        AgentAction::Fill {
+            scope,
+            hole,
+            limit,
+            model,
+            max_turns,
+        } => {
+            let args = vord_cli::holes::FillArgs {
+                scope,
+                only: hole,
+                limit,
+                model,
+                max_turns,
+            };
+            let attempts = vord_cli::holes::fill(&root, &args).await?;
+            if attempts.is_empty() {
+                println!("vord agent fill: no pending holes to fill");
+                return Ok(ExitCode::SUCCESS);
+            }
+            print!("{}", vord_cli::holes::render_attempts(&attempts));
+            Ok(ExitCode::from(vord_cli::holes::exit_code(&attempts)))
         }
         AgentAction::Baseline { scope, out } => {
             let count = vord_cli::agent::write_baseline(&root, &scope, &out).await?;

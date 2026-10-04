@@ -13,7 +13,8 @@ rather than a fork of dsh.
 | `tools/post-execute` | What landed is re-judged from disk. A violation blocks the result with corrective feedback, and an advisory is attached as context for the next request. A `bash` result feeds vord's `[[test_required]]` evidence ledger. |
 | `agent/created` | Records the analyzer's baseline for the session (`vord agent baseline`), once, under `.vord/sessions/`. A resumed session keeps the baseline it started with. |
 | `agent/turn-stopping` | The analyzer is the definition of done. A turn cannot close while `vord agent done` sees findings the baseline lacked (or `doneRule` still fires), nor while `[[test_required]]` evidence is pending. The objection steers the agent into another step, so a sink smuggled in through `bash` is still caught. After `maxStopContinuations` forced continuations in a row it yields, and the findings still fail CI's gate. No model's opinion of its own work is consulted. |
-| `mcp-vord` row | `vord mcp` is mounted through `dsh-mcp-client`, so the model calls scan, done, kickoff (templates or a scaffolding engine) and the swarm handoff as `mcp__vord__*` tools. Each one runs the real `vord` command and reports a failure as an error. |
+| `agent/turn-stopping` (holes) | A turn cannot close while a `vord:hole` in a file the session wrote is still empty or a placeholder, as `vord holes` sees it. With `holesAsDone: all`, any pending hole in `doneScope` holds it open: a profile whose job is filling holes. |
+| `mcp-vord` row | `vord mcp` is mounted through `dsh-mcp-client`, so the model calls scan, holes, done, kickoff (templates or a scaffolding engine) and the swarm handoff as `mcp__vord__*` tools. Each one runs the real `vord` command and reports a failure as an error. |
 
 Every judgement runs through the same `vord hook claude-code` a Claude Code
 session uses, so `vord-policy.toml`, protected paths, Gherkin and test evidence,
@@ -50,6 +51,7 @@ Override any row from your profile's `cordis.patch.yml` by id (`vord`,
 | `analyzerAsDone` | `true` | hold the turn open on findings the session introduced |
 | `doneScope` | `.` | path the baseline is taken over and re-scanned |
 | `doneRule` | — | a rule every task in this profile must eliminate from the scope |
+| `holesAsDone` | `touched` | hold the turn open on pending holes in files the session wrote (`touched`), anywhere in scope (`all`), or never (`false`) |
 
 Add `.vord/sessions/` to the workspace's `.gitignore`: it holds one baseline
 file per session.

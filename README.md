@@ -902,6 +902,41 @@ else in a generated file is denied under `generated:edit-outside-hole`. The
 denial names the blueprint and the regenerate command, so the agent changes
 the blueprint instead of making an edit the next regeneration would throw
 away. The markers work under any comment syntax.
+A file that declares holes is held to them even when no kickoff recorded
+it, so output from a generator vord did not run is protected too.
+
+### Hole-driven development: `vord holes` and `vord agent fill`
+
+The generator writes what the blueprint determines, the model writes only
+what is left, and the analyzer decides when it is done. Finding what is
+left is deterministic, so no model does it:
+
+```sh
+vord holes            # pending holes, one per line
+vord holes --json     # the same, for tools (also the `vord_holes` MCP tool)
+vord holes --check    # exit 3 while any hole is pending, for CI
+```
+
+A hole is pending while its body is empty or still holds a placeholder
+(`TODO`-style stubs, `not implemented`, `todo!()`, `AI_FILL`…). An empty
+`*-imports` hole is support space for its siblings, never work by itself.
+For Wasp no markers are needed: every query, action, page or job that
+`main.wasp` imports from `src/` but that does not exist yet is a hole.
+
+`vord agent fill` runs one `vord agent` session per pending hole, with a task
+naming the file, the hole and its lines. The write gate keeps the model
+inside the hole, and whether the hole got filled is checked again on disk
+afterwards, never taken from the model. It exits 0 when every attempted hole
+is filled, 3 when some remain, 1 when a run failed.
+
+```sh
+vord agent fill --limit 5                      # the first five pending holes
+vord agent fill --hole order-service-create    # just one
+```
+
+Inside DeepSeek Harness the model is the harness's own: [dsh-vord](integrations/deepseek-harness/dsh-vord)
+does not let a turn close while a hole in a file the session wrote is still
+pending, and `mcp__vord__vord_holes` gives the model its list of tasks.
 
 ## `vord fix` — automated AI remediation
 
