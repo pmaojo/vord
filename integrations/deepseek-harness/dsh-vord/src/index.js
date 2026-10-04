@@ -64,6 +64,7 @@ export const DEFAULT_GUIDANCE = [
   '- Never delete or hand-rewrite generated output (no `rm -rf` on the generated project). To change it, edit the blueprint and regenerate; fill the marked holes through `vord_holes`.',
   '- Describe the app with the `entities` argument of `vord_kickoff` (e.g. {"todo": {"title": "string", "done": "bool"}}) instead of writing a blueprint, and pass `check_build` so the result is built before you start.',
   '- If generated code is wrong (imports types that do not exist, a handler is missing, a model lacks a column), do NOT work around it and do not edit the file: call `vord_report_generator_defect`, then fix the blueprint or the engine template and regenerate. `vord_done` stays not-done while a defect is open.',
+  '- Generated files you do not need (a duplicate frontend, bundled templates) are removed with `vord_prune`, not `rm`: it records the removal and the write gate stops guarding them.',
   '- Open the generated project directory as the workspace for all further work.',
 ].join('\n')
 
@@ -140,7 +141,7 @@ export function deletesGeneratedProject(commandLine, cwd) {
       const rel = relative(manifest.root, path).split('\\').join('/')
       const hit = rel === '' || manifest.files.some((f) => f === rel || f.startsWith(`${rel}/`))
       if (hit) {
-        return `vord: ${target} holds generated code recorded in .vord/generated.json. Do not delete or hand-rewrite scaffolded output: change the blueprint and run the engine's regenerate command (or vord kickoff with the right engine: ferrum = Rust, kthulu = Go, wasp = TypeScript).`
+        return `vord: ${target} holds generated code recorded in .vord/generated.json. Do not rm or hand-rewrite scaffolded output. To drop files that are not needed (a duplicate frontend, bundled templates) call vord_prune; to change what is generated, change the blueprint and run the engine's regenerate command (or vord kickoff with the right engine: ferrum = Rust, kthulu = Go, wasp = TypeScript).`
       }
     }
   }

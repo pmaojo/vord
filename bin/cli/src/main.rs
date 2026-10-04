@@ -21,6 +21,7 @@ mod kickoff;
 mod kickoff_engine;
 mod mcp;
 mod monorepo_scan;
+mod prune;
 mod tui;
 mod wizard;
 
@@ -197,6 +198,21 @@ enum Command {
         /// Project root (defaults to the current directory).
         #[arg(long, global = true, default_value = ".")]
         path: PathBuf,
+    },
+    /// Remove generated files nobody needs (a duplicate frontend, an engine's
+    /// bundled templates) and drop them from `.vord/generated.json`. The
+    /// agent uses this instead of `rm`, which the write gate refuses on
+    /// generated code. Refuses to delete filled holes unless `--force`.
+    Prune {
+        /// Files or directories, relative to the project root.
+        #[arg(required = true)]
+        paths: Vec<String>,
+        /// Project root (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Delete even files that contain hand-written hole bodies.
+        #[arg(long)]
+        force: bool,
     },
     /// Visualize the component architecture of a directory: import graph
     /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
@@ -938,6 +954,11 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             for note in &report.notes {
                 println!("vord kickoff: {note}");
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Prune { paths, path, force }) => {
+            let removed = prune::prune(&path, &paths, force)?;
+            println!("vord prune: removed {} and dropped it from .vord/generated.json", removed.join(", "));
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Defects { action, path }) => {

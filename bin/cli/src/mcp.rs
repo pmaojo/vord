@@ -89,6 +89,18 @@ fn tool_list() -> Value {
             }
         },
         {
+            "name": "vord_prune",
+            "description": "Remove generated files that are not needed (a duplicate frontend, an engine's bundled templates) instead of `rm`, which is refused on generated code. Drops them from the generated-code manifest. Refuses files holding filled holes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Files or directories relative to the project root" },
+                    "path": { "type": "string", "description": "Project root (default: .)" }
+                },
+                "required": ["paths"]
+            }
+        },
+        {
             "name": "vord_kickoff",
             "description": format!("Scaffold a project deterministically instead of writing boilerplate: either a built-in vord template, or a scaffolding engine ({}) from its blueprint. The result is policy-gated, with generated files recorded so later edits go through the blueprint.", engine_names().join(", ")),
             "inputSchema": {
@@ -149,6 +161,14 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
             }
             if let Some(rule) = string_arg(args, "rule") {
                 argv.extend(owned(&["--rule", rule]));
+            }
+            Ok(vec![argv])
+        }
+        "vord_prune" => {
+            let paths = args.get("paths").and_then(Value::as_array).filter(|p| !p.is_empty()).ok_or("vord_prune needs `paths`")?;
+            let mut argv = owned(&["prune", "--path", string_arg(args, "path").unwrap_or(".")]);
+            for p in paths {
+                argv.push(p.as_str().ok_or("vord_prune `paths` must be strings")?.to_string());
             }
             Ok(vec![argv])
         }
@@ -381,7 +401,7 @@ mod tests {
 
     #[test]
     fn every_listed_tool_maps_to_a_real_vord_command() {
-        let args = json!({ "engine": "kthulu", "name": "shop", "from": "a", "to": "b", "summary": "s", "file": "f", "reason": "r" });
+        let args = json!({ "engine": "kthulu", "name": "shop", "from": "a", "to": "b", "summary": "s", "file": "f", "reason": "r", "paths": ["x"] });
         for tool in tool_list().as_array().unwrap() {
             let name = tool["name"].as_str().unwrap();
             assert!(tool_commands(name, &args).is_ok(), "{name} has no command");

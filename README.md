@@ -921,6 +921,14 @@ found a real defect (`ethercat_rs` does not exist on crates.io, so ferrum's
 `ferrum init` (pmaojo/ferrum#324), so `FERRUM_TEMPLATES` is only needed with
 older builds.
 
+**Cleaning up what you do not need.** `vord prune <paths>` (MCP `vord_prune`)
+removes generated files or directories (ferrum's leftover `backend/frontend/`,
+bundled `templates/`) and drops them from `.vord/generated.json`, recording
+them in `.vord/pruned.json`; it refuses files holding filled holes unless
+`--force`. `rm` stays refused on generated code (dsh-vord says so and points
+here), because a silent deletion hides that the next regeneration brings the
+files back.
+
 Every kickoff also writes `.vord/agent-baseline.json` (what `vord_done`
 compares against), an `.mcp.json` offering `vord mcp` to Claude Code, and
 warns when `vord` is not on `PATH` (without it the write gate does nothing).

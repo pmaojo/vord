@@ -1445,7 +1445,7 @@ mod tests {
     #[test]
     fn plan_lists_the_install_only_when_asked() {
         let mut k = kickoff(Engine::Copier, Some("gh:org/tpl"));
-        assert_eq!(k.plan().len(), 1);
+        assert_eq!(k.plan().iter().filter(|l| !l.starts_with("preflight:")).count(), 1);
         k.install = true;
         assert!(k.plan()[0].contains("uv tool install copier==9.17.0"));
         assert!(Engine::Wasp.install_argv().is_none(), "no piped shell installers");
