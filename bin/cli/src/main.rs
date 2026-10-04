@@ -136,7 +136,7 @@ enum Command {
         /// YAML (ferrum).
         #[arg(long)]
         blueprint: Option<PathBuf>,
-        /// With `--engine <ferrum|kthulu>` as the backend, also generate a Wasp
+        /// With `--engine <ferrum|kthulu|openapi>` as the backend, also generate a Wasp
         /// frontend (`wasp`) joined by a shared OpenAPI contract in `contract/`.
         #[arg(long, requires = "engine", value_parser = ["wasp"])]
         frontend: Option<String>,
@@ -785,6 +785,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     backend: kickoff_engine::Engine::parse(&engine)?,
                     name: name.expect("clap requires --name with --engine"),
                     blueprint,
+                    generator,
                     parent: path,
                     install,
                     programs: Default::default(),
