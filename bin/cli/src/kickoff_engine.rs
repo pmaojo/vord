@@ -474,6 +474,8 @@ pub struct KickoffReport {
     pub project_dir: PathBuf,
     pub created: usize,
     pub generated: usize,
+    /// Things the caller should tell the person: skipped steps, fallbacks.
+    pub notes: Vec<String>,
 }
 
 /// Runs the engine, then layers vord's governance on top of its output. A
@@ -602,6 +604,7 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         project_dir,
         created: created.len(),
         generated: manifest.files.len(),
+        notes: Vec::new(),
     })
 }
 
@@ -638,12 +641,48 @@ impl FullstackKickoff {
         let root = self.parent.join(&self.name);
         let mut lines = self.part(self.backend, "backend", self.blueprint.clone(), &root).plan();
         lines.extend(self.part(Engine::Wasp, "frontend", None, &root).plan());
+        lines.push("(if the backend produced an OpenAPI document) copy it to contract/openapi.yaml".to_string());
+        lines.push(format!("{}/frontend: npx -y {CLIENT_PACKAGE} ../contract/openapi.yaml -o src/api/schema.ts", root.display()));
         lines
     }
 }
 
 /// The command that regenerates the frontend's typed API client.
-pub const CLIENT_REGENERATE: &str = "npx openapi-typescript ../contract/openapi.yaml -o src/api/schema.ts";
+pub const CLIENT_REGENERATE: &str =
+    "npx -y openapi-typescript@7.13.0 ../contract/openapi.yaml -o src/api/schema.ts";
+
+/// The pinned generator, so the client is the same on every machine.
+const CLIENT_PACKAGE: &str = "openapi-typescript@7.13.0";
+
+/// File names a backend engine may serve its OpenAPI document under.
+const SPEC_NAMES: &[&str] = &[
+    "openapi.yaml", "openapi.yml", "openapi.json", "swagger.yaml", "swagger.yml", "swagger.json",
+];
+
+/// The OpenAPI document the backend produced: the shallowest file with a
+/// well-known name that actually declares itself as OpenAPI/Swagger.
+fn find_backend_spec(backend: &Path) -> Option<PathBuf> {
+    let mut found: Vec<String> = list_files(backend)
+        .into_iter()
+        .filter(|f| SPEC_NAMES.contains(&f.rsplit('/').next().unwrap_or(f)))
+        .filter(|f| {
+            std::fs::read_to_string(backend.join(f))
+                .map(|c| c.contains("openapi") || c.contains("swagger"))
+                .unwrap_or(false)
+        })
+        .collect();
+    found.sort_by_key(|f| (f.matches('/').count(), f.clone()));
+    found.into_iter().next().map(|f| backend.join(f))
+}
+
+/// Is `program` runnable: a path that is a file, or a name on PATH?
+fn available(program: &str) -> bool {
+    if program.contains('/') || program.contains(std::path::MAIN_SEPARATOR) {
+        Path::new(program).is_file()
+    } else {
+        on_path(program)
+    }
+}
 
 /// Backend into `<name>/backend`, Wasp into `<name>/frontend`, one governed
 /// workspace at `<name>`. Only the backend languages a Wasp frontend can sit
@@ -712,15 +751,59 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
     crate::kickoff::write_gherkin_scaffold(root, "app", &format!("{} application", kickoff.name))?;
     std::fs::create_dir_all(root.join("contract"))?;
     let contract = root.join("contract/openapi.yaml");
+    let mut notes = Vec::new();
     if !contract.exists() {
-        std::fs::write(
-            &contract,
-            format!(
-                "openapi: 3.0.3\ninfo:\n  title: {}\n  version: 0.1.0\npaths: {{}}\n",
-                kickoff.name
-            ),
-        )?;
+        if let Some(spec) = find_backend_spec(&root.join("backend")) {
+            std::fs::copy(&spec, &contract)?; // JSON is valid YAML
+            notes.push(format!(
+                "contract/openapi.yaml copied from the backend's {}",
+                spec.strip_prefix(root.join("backend")).unwrap_or(&spec).display()
+            ));
+        } else {
+            std::fs::write(
+                &contract,
+                format!("openapi: 3.0.3\ninfo:\n  title: {}\n  version: 0.1.0\npaths: {{}}\n", kickoff.name),
+            )?;
+            notes.push(
+                "the backend produced no OpenAPI document; contract/openapi.yaml is an empty stub to fill in".to_string(),
+            );
+        }
         created += 1;
+    }
+
+    // The frontend's typed client, generated from the contract.
+    let npx = kickoff.programs.get("client").cloned().unwrap_or_else(|| "npx".to_string());
+    if available(&npx) {
+        let frontend = root.join("frontend");
+        let schema = frontend.join("src/api/schema.ts");
+        std::fs::create_dir_all(frontend.join("src/api"))?;
+        let status = Command::new(&npx)
+            .args(["-y", CLIENT_PACKAGE, "../contract/openapi.yaml", "-o", "src/api/schema.ts"])
+            .current_dir(&frontend)
+            .status()
+            .map_err(|e| anyhow::anyhow!("could not run {npx}: {e}"))?;
+        if !status.success() {
+            anyhow::bail!("`{npx} -y {CLIENT_PACKAGE}` failed ({status}) while generating frontend/src/api/schema.ts");
+        }
+        let body = std::fs::read_to_string(&schema)
+            .map_err(|e| anyhow::anyhow!("{CLIENT_PACKAGE} wrote no frontend/src/api/schema.ts: {e}"))?;
+        std::fs::write(
+            &schema,
+            format!("// Code generated by {CLIENT_PACKAGE} from contract/openapi.yaml. DO NOT EDIT.\n{body}"),
+        )?;
+        manifest.files.insert(
+            "frontend/src/api/schema.ts".to_string(),
+            GeneratedFile {
+                engine: "openapi-typescript".to_string(),
+                source: Some("contract/openapi.yaml".to_string()),
+                regenerate: Some(format!("cd frontend && {CLIENT_REGENERATE}")),
+            },
+        );
+        created += 1;
+    } else {
+        notes.push(format!(
+            "{npx} is not available, so frontend/src/api/schema.ts was not generated; install Node.js, then run: cd frontend && {CLIENT_REGENERATE}"
+        ));
     }
     manifest.save(root)?;
     crate::hook_install::install(root, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
@@ -729,10 +812,10 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
     std::fs::write(
         root.join("contract/README.md"),
         format!(
-            "The API contract shared by `backend/` and `frontend/`.\n\nChange `openapi.yaml`, then regenerate the frontend client with:\n\n    cd frontend && {CLIENT_REGENERATE}\n"
+            "The API contract shared by `backend/` and `frontend/`.\n\n`openapi.yaml` is the backend's own OpenAPI document when the backend engine produced one, otherwise an empty stub to fill in. `frontend/src/api/schema.ts` is generated from it (recorded in `.vord/generated.json`, so edits are blocked): change `openapi.yaml`, then regenerate the typed client with:\n\n    cd frontend && {CLIENT_REGENERATE}\n\nRegenerating drops the `Code generated ... DO NOT EDIT` header line; the manifest keeps the file protected regardless.\n"
         ),
     )?;
-    Ok(KickoffReport { project_dir: root.to_path_buf(), created, generated: manifest.files.len() })
+    Ok(KickoffReport { project_dir: root.to_path_buf(), created, generated: manifest.files.len(), notes })
 }
 
 /// Wasp regenerates its whole full-stack output into `.wasp/` on every
@@ -1056,6 +1139,7 @@ mod tests {
         let mut programs = std::collections::BTreeMap::new();
         programs.insert("backend".to_string(), backend);
         programs.insert("frontend".to_string(), frontend);
+        programs.insert("client".to_string(), script(&parent, "npx", "echo 'export type paths = Record<string, never>;' > \"$5\""));
         let report = run_fullstack(&FullstackKickoff {
             backend: Engine::Ferrum,
             name: "app".into(),
@@ -1067,6 +1151,12 @@ mod tests {
         .unwrap();
         let root = parent.join("app");
         assert_eq!(report.project_dir, root);
+        assert!(report.notes.iter().any(|n| n.contains("empty stub")), "{:?}", report.notes);
+        let schema = std::fs::read_to_string(root.join("frontend/src/api/schema.ts")).unwrap();
+        assert!(is_marked_generated(&schema), "{schema}");
+        let entry = &Manifest::load(&root).files["frontend/src/api/schema.ts"];
+        assert_eq!(entry.source.as_deref(), Some("contract/openapi.yaml"));
+        assert_eq!(entry.regenerate.as_deref(), Some(format!("cd frontend && {CLIENT_REGENERATE}").as_str()));
         assert!(root.join("features/app.feature").exists());
         assert!(!root.join("backend/features").exists() && !root.join("frontend/features").exists());
         let manifest = Manifest::load(&root);
@@ -1125,6 +1215,54 @@ mod tests {
         let manifest = Manifest::load(&parent.join("shop"));
         assert_eq!(manifest.files["v/a_templ.go"].regenerate.as_deref(), Some("templ generate"));
         assert_eq!(manifest.files["v/b.go"].regenerate.as_deref(), Some("kthulu generate"));
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    fn fullstack_with(tag: &str, backend_body: &str, client: &str) -> (PathBuf, KickoffReport) {
+        let parent = scratch(tag);
+        let mut programs = std::collections::BTreeMap::new();
+        programs.insert("backend".to_string(), script(&parent, "back", backend_body));
+        programs.insert("frontend".to_string(), script(&parent, "front", "mkdir -p \"$2/src\""));
+        let client = if client.starts_with('/') { client.to_string() } else { script(&parent, "npx", client) };
+        programs.insert("client".to_string(), client);
+        let report = run_fullstack(&FullstackKickoff {
+            backend: Engine::Kthulu,
+            name: "app".into(),
+            blueprint: None,
+            parent: parent.clone(),
+            install: false,
+            programs,
+        })
+        .unwrap();
+        (parent, report)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_backends_openapi_document_becomes_the_contract_and_feeds_the_client() {
+        let (parent, report) = fullstack_with(
+            "contract-copy",
+            "mkdir -p \"$2/api/docs\"; echo 'openapi: 3.0.3' > \"$2/api/docs/openapi.yaml\"; echo 'openapi: x' > \"$2/openapi.yaml\"",
+            "cp ../contract/openapi.yaml \"$5\"",
+        );
+        let root = parent.join("app");
+        // the shallowest document wins
+        assert_eq!(std::fs::read_to_string(root.join("contract/openapi.yaml")).unwrap(), "openapi: x\n");
+        assert!(report.notes.iter().any(|n| n.contains("copied from the backend's openapi.yaml")), "{:?}", report.notes);
+        let schema = std::fs::read_to_string(root.join("frontend/src/api/schema.ts")).unwrap();
+        assert!(schema.starts_with("// Code generated by openapi-typescript@") && schema.contains("openapi: x"));
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_npx_skips_the_client_with_a_message_instead_of_failing() {
+        let (parent, report) = fullstack_with("no-npx", "mkdir -p \"$2\"", "/nonexistent/npx");
+        let root = parent.join("app");
+        assert!(!root.join("frontend/src/api/schema.ts").exists());
+        assert!(!Manifest::load(&root).files.contains_key("frontend/src/api/schema.ts"));
+        assert!(report.notes.iter().any(|n| n.contains("was not generated") && n.contains("openapi-typescript@")), "{:?}", report.notes);
         std::fs::remove_dir_all(&parent).ok();
     }
 }

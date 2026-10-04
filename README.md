@@ -878,6 +878,15 @@ vord kickoff --engine openapi --name client --blueprint api.yaml --generator typ
 vord kickoff --engine ferrum --frontend wasp --name shop                # backend + Wasp frontend, shared OpenAPI contract
 ```
 
+With `--frontend`, `contract/openapi.yaml` is the OpenAPI document the backend
+engine produced (found as `openapi`/`swagger` `.yaml`/`.yml`/`.json` in
+`backend/`); if it produced none, an empty stub is written and kickoff says so.
+The frontend's typed client is then generated from it with a pinned
+`npx -y openapi-typescript@7.13.0` into `frontend/src/api/schema.ts`, headed
+`Code generated ... DO NOT EDIT` and recorded in the manifest (regenerate:
+`cd frontend && npx -y openapi-typescript@7.13.0 ../contract/openapi.yaml -o src/api/schema.ts`).
+Without `npx` that step is skipped with a message, not a failure.
+
 `--plan` prints every command (the install included) and stops; `--install`
 installs a missing engine with a pinned, non-interactive command (Wasp's
 piped-shell installer is never run for you). Otherwise the engine's CLI must

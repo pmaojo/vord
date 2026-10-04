@@ -791,6 +791,9 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     report.project_dir.display(),
                     report.generated
                 );
+                for note in &report.notes {
+                    println!("vord kickoff: {note}");
+                }
                 return Ok(ExitCode::SUCCESS);
             }
             let request = kickoff_engine::EngineKickoff {
