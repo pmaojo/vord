@@ -52,3 +52,22 @@ test('vord judges a str_replace_editor edit on the finished file', { skip }, asy
   }, agent), allow)
   assert.equal(decision.kind, 'deny', JSON.stringify(decision))
 })
+
+test('the real analyzer holds the turn open for a finding the session introduced', { skip }, async () => {
+  const { ctx, agent } = repo()
+  const cwd = agent.session.header.cwd
+  // Pre-existing finding: part of the baseline, never counted against the task.
+  writeFileSync(join(cwd, 'legacy.py'), SHELL_SINK)
+  await ctx.fire('agent/created', { agent, source: 'new', signal: new AbortController().signal })
+
+  const stopping = { agent, turn: 1, signal: new AbortController().signal }
+  await ctx.fire('agent/turn-stopping', stopping)
+  assert.equal(agent.steered.length, 0, 'nothing new: the turn may close')
+
+  // The agent lands a new sink by a route the write gate never saw (e.g. a
+  // shell command); the analyzer still catches it at the stop boundary.
+  writeFileSync(join(cwd, 'deploy.py'), SHELL_SINK.replace('target', 'host'))
+  await ctx.fire('agent/turn-stopping', stopping)
+  assert.equal(agent.steered.length, 1)
+  assert.match(agent.steered[0].content[0].text, /deploy\.py/)
+})

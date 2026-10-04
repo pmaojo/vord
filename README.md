@@ -74,7 +74,9 @@ configuration, where turning it off leaves no trace in a diff.
 [`integrations/deepseek-harness/dsh-vord/`](integrations/deepseek-harness/dsh-vord/)
 is a native dsh plugin and profile bundle: vord judges `write`/`edit`/
 `str_replace_editor` on dsh's own `tools/pre-execute` and `tools/post-execute`,
-holds the turn open on `agent/turn-stopping` while test evidence is pending,
+holds the turn open on `agent/turn-stopping` while the analyzer sees findings
+the session introduced (`vord agent baseline` / `vord agent done`) or test
+evidence is pending,
 and mounts `vord mcp` as tools (`dsh plugin --profile <name> add <path>`).
 
 Alternatively, DeepSeek Harness's official `dsh-hooks-claude-code` bridge runs the exact
@@ -582,6 +584,13 @@ vord agent run --task "remove the shell injection in scripts/deploy.py"
 vord agent run --task "fix it" --rule python:subprocess-shell-true --scope scripts
 vord agent watch-pr --pr 42             # wait out the late review/CI window on a PR
 ```
+
+The completion check is also available to agent loops vord does not drive
+(DeepSeek Harness via `dsh-vord`, a CI step): `vord agent baseline` records
+what the analyzer sees before the agent starts, and `vord agent done`
+re-scans and exits `0` when nothing new appeared, `3` with the objection when
+something did (`--json` for `{"done", "reason"}`, `--rule` to require a rule
+be gone).
 
 Runs locally against Qwen, Llama, DeepSeek or anything else an
 OpenAI-compatible `/v1/chat/completions` endpoint fronts — Ollama, vLLM,

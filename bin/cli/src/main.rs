@@ -167,6 +167,31 @@ enum AgentAction {
         #[arg(long)]
         model: Option<String>,
     },
+    /// Record what the analyzer sees over `--scope` now, as the baseline
+    /// `vord agent done` later compares against. Run it before another
+    /// host's agent starts (DeepSeek Harness's dsh-vord plugin does).
+    Baseline {
+        #[arg(long, default_value = ".")]
+        scope: String,
+        /// Where to write the baseline.
+        #[arg(long, default_value = vord_cli::agent::DONE_BASELINE_FILE)]
+        out: PathBuf,
+    },
+    /// The analyzer's verdict on whether a task is finished: re-scan
+    /// `--scope` and compare against the baseline. Exits 0 (done), 3 (not
+    /// done; the reason is on stdout) or 1 (could not judge). With `--json`,
+    /// prints `{"done": bool, "reason": string}` instead.
+    Done {
+        #[arg(long, default_value = ".")]
+        scope: String,
+        #[arg(long, default_value = vord_cli::agent::DONE_BASELINE_FILE)]
+        baseline: PathBuf,
+        /// A rule the task must eliminate everywhere in scope.
+        #[arg(long)]
+        rule: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Wait out the late-feedback window on a pull request: poll with
     /// backoff, collect one review batch as one batch, and report quiet, new
     /// feedback, a bot all-clear, or inconclusive. Exits 0 (quiet or
@@ -662,6 +687,32 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             let outcome = tui::run(&root, args).await?;
             vord_cli::agent::report(&outcome);
             Ok(ExitCode::from(outcome.exit_code()))
+        }
+        AgentAction::Baseline { scope, out } => {
+            let count = vord_cli::agent::write_baseline(&root, &scope, &out).await?;
+            println!(
+                "vord agent: baseline of {count} finding(s) written to {}",
+                out.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        AgentAction::Done {
+            scope,
+            baseline,
+            rule,
+            json,
+        } => {
+            let verdict =
+                vord_cli::agent::check_done(&root, &scope, &baseline, rule.as_deref()).await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "done": verdict.is_done(), "reason": verdict.describe() })
+                );
+            } else {
+                println!("vord agent: {}", verdict.describe());
+            }
+            Ok(ExitCode::from(if verdict.is_done() { 0 } else { 3 }))
         }
         AgentAction::WatchPr {
             pr,

@@ -16,16 +16,24 @@ function mount(output, extra = {}) {
   process.env.FAKE_VORD_LOG = log
   process.env.FAKE_VORD_OUTPUT = output === undefined ? '' : JSON.stringify(output)
   delete process.env.FAKE_VORD_EXIT
+  delete process.env.FAKE_VORD_DONE
   const ctx = fakeContext()
   apply(ctx, { command: FAKE_VORD, ...extra })
   const payloads = () => {
     try {
-      return readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+      return readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(entry => !entry.argv)
     } catch {
       return []
     }
   }
-  return { ctx, dir, payloads, agent: fakeAgent(dir) }
+  const calls = () => {
+    try {
+      return readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(entry => entry.argv).map(entry => entry.argv)
+    } catch {
+      return []
+    }
+  }
+  return { ctx, dir, payloads, calls, agent: fakeAgent(dir) }
 }
 
 test('a denied write never reaches the tool', async () => {
@@ -98,4 +106,41 @@ test('pending test evidence steers the agent, then yields after the cap', async 
   assert.equal(agent.steered.length, 2, 'third stop yields instead of looping')
   assert.equal(agent.steered[0].content[0].text, 'run the tests')
   assert.equal(payloads()[0].hook_event_name, 'Stop')
+})
+
+test('the analyzer is the definition of done: new findings hold the turn open', async () => {
+  const { ctx, agent, calls, dir } = mount(undefined)
+  await ctx.fire('agent/created', { agent, source: 'new', signal: new AbortController().signal })
+  const [baseline] = calls()
+  assert.deepEqual(baseline.slice(0, 4), ['agent', 'baseline', '--scope', '.'])
+  assert.ok(baseline.at(-1).startsWith(join(dir, '.vord', 'sessions')), 'baseline is per session, in the workspace')
+
+  const stopping = { agent, turn: 1, signal: new AbortController().signal }
+  await ctx.fire('agent/turn-stopping', stopping)
+  assert.equal(agent.steered.length, 0, 'the analyzer agrees, so the turn closes')
+
+  process.env.FAKE_VORD_DONE = JSON.stringify({ done: false, reason: 'your changes introduced 1 finding(s)' })
+  await ctx.fire('agent/turn-stopping', stopping)
+  assert.equal(agent.steered.length, 1)
+  assert.match(agent.steered[0].content[0].text, /introduced 1 finding/)
+  const done = calls().at(-1)
+  assert.deepEqual(done.slice(0, 3), ['agent', 'done', '--json'])
+  assert.equal(done[done.indexOf('--baseline') + 1], baseline.at(-1), 'judged against the recorded baseline')
+})
+
+test('a resumed session keeps the baseline it started with', async () => {
+  const { ctx, agent, calls } = mount(undefined)
+  const created = { agent, source: 'new', signal: new AbortController().signal }
+  await ctx.fire('agent/created', created)
+  await ctx.fire('agent/created', { ...created, source: 'resume' })
+  assert.equal(calls().filter(argv => argv[1] === 'baseline').length, 1)
+})
+
+test('test evidence and analyzer objections are combined into one steer', async () => {
+  const { ctx, agent } = mount({ decision: 'block', reason: 'run the tests' })
+  await ctx.fire('agent/created', { agent, source: 'new', signal: new AbortController().signal })
+  process.env.FAKE_VORD_DONE = JSON.stringify({ done: false, reason: 'target remains' })
+  await ctx.fire('agent/turn-stopping', { agent, turn: 1, signal: new AbortController().signal })
+  assert.equal(agent.steered.length, 1)
+  assert.match(agent.steered[0].content[0].text, /run the tests[\s\S]*target remains/)
 })
