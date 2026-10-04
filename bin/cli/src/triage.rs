@@ -366,7 +366,8 @@ async fn run_role_task(
         rule: None,
         max_turns: None,
         max_tokens: None,
-        model: None,
+        model: role.model.clone(),
+        refactor: false,
     };
     let outcome = agent::run_with_policy(&plan.path, args, policy).await?;
     Ok((outcome, plan))

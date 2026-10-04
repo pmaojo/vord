@@ -74,6 +74,13 @@ enum Command {
         #[command(subcommand)]
         action: SwarmAction,
     },
+    /// Continuous refactoring: rank what to refactor from complexity,
+    /// coverage, the import graph and git history, then refactor the top
+    /// candidates under the refactor guard.
+    Refactor {
+        #[command(subcommand)]
+        action: RefactorAction,
+    },
     /// Issue Triage Factory: drive a GitHub issue through reproduce →
     /// diagnose → fix, one step at a time (roadmap C).
     Triage {
@@ -123,6 +130,51 @@ enum ArchFormat {
 }
 
 #[derive(Subcommand)]
+enum RefactorAction {
+    /// Rank refactor candidates (hotspot score = risk × commits) and assign
+    /// each an autonomy tier: auto, review or escalate.
+    Plan {
+        #[command(flatten)]
+        plan: RefactorPlanArgs,
+        /// Output format: text or json.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+    /// Refactor the top candidates, one `vord agent run --refactor` each.
+    /// Escalated candidates are never attempted. Exits 0 when every attempt
+    /// completed, otherwise with the first unsuccessful run's exit code.
+    Run {
+        #[command(flatten)]
+        plan: RefactorPlanArgs,
+        /// Highest tier to attempt: auto or review.
+        #[arg(long, default_value = "review")]
+        max_autonomy: String,
+        /// Model name, overriding the provider's configured default.
+        #[arg(long)]
+        model: Option<String>,
+        /// Write a Markdown pull-request body explaining every attempt.
+        #[arg(long)]
+        report: Option<PathBuf>,
+    },
+}
+
+#[derive(clap::Args)]
+struct RefactorPlanArgs {
+    /// Only candidates under this repository-relative path.
+    #[arg(long, default_value = ".")]
+    scope: String,
+    /// Days of git history to mine for churn and co-change.
+    #[arg(long, default_value_t = 180)]
+    since_days: u32,
+    /// LCOV coverage report, to rank by CRAP and tier by coverage.
+    #[arg(long)]
+    lcov: Option<PathBuf>,
+    /// How many candidates to show (plan) or attempt (run).
+    #[arg(long, default_value_t = 10)]
+    limit: usize,
+}
+
+#[derive(Subcommand)]
 enum AgentAction {
     /// Run one headless session against a task. Exits 0 (the analyzer agrees),
     /// 3 (incomplete), 4 (budget exhausted), 5 (circuit breaker tripped),
@@ -148,6 +200,11 @@ enum AgentAction {
         /// Model name, overriding the provider's configured default.
         #[arg(long)]
         model: Option<String>,
+        /// Refactor task: done also requires behaviour preserved (no new
+        /// constants, operators or branches) and no quality dimension
+        /// degraded past `[agent.refactor]`'s tolerances.
+        #[arg(long)]
+        refactor: bool,
     },
     /// Same as `run`, with a live terminal view of the session attached
     /// (roadmap A6). A spectator, not a second control path: quitting the
@@ -166,6 +223,8 @@ enum AgentAction {
         max_tokens: Option<u64>,
         #[arg(long)]
         model: Option<String>,
+        #[arg(long)]
+        refactor: bool,
     },
     /// Wait out the late-feedback window on a pull request: poll with
     /// backoff, collect one review batch as one batch, and report quiet, new
@@ -574,6 +633,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Agent { action }) => run_agent(action).await,
         Some(Command::Swarm { action }) => run_swarm(action).await,
         Some(Command::Triage { action }) => run_triage(action).await,
+        Some(Command::Refactor { action }) => run_refactor(action).await,
         Some(Command::Kickoff { template, path }) => {
             kickoff::run_kickoff(&template, &path)?;
             Ok(ExitCode::SUCCESS)
@@ -582,6 +642,79 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Mcp) => {
             mcp::run_mcp_server()?;
             Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+/// `vord refactor`: plan, or plan and run, from the repository's git top
+/// level — history paths and scan paths must share one root to join.
+async fn run_refactor(action: RefactorAction) -> anyhow::Result<ExitCode> {
+    use vord_agent::plan::Autonomy;
+    use vord_cli::refactor;
+
+    let cwd = std::env::current_dir()?;
+    let root = vord_cli::find_git_root(&cwd)
+        .ok_or_else(|| anyhow::anyhow!("vord refactor needs a git repository (for history)"))?;
+    let (plan_args, limit) = match &action {
+        RefactorAction::Plan { plan, .. } | RefactorAction::Run { plan, .. } => (
+            refactor::PlanArgs {
+                scope: plan.scope.clone(),
+                since_days: plan.since_days,
+                lcov: plan.lcov.clone(),
+            },
+            plan.limit,
+        ),
+    };
+    let plan = refactor::build_plan(&root, &plan_args).await?;
+    match action {
+        RefactorAction::Plan { format, .. } => {
+            match format.as_str() {
+                "json" => {
+                    let shown = serde_json::json!({
+                        "candidates": &plan.candidates[..limit.min(plan.candidates.len())],
+                        "temporal_couplings": &plan.temporal_couplings
+                            [..limit.min(plan.temporal_couplings.len())],
+                    });
+                    println!("{}", serde_json::to_string_pretty(&shown)?);
+                }
+                "text" => print!("{}", refactor::render_text(&plan, limit)),
+                other => anyhow::bail!("unknown format {other:?}: use text or json"),
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        RefactorAction::Run {
+            max_autonomy,
+            model,
+            report,
+            ..
+        } => {
+            let ceiling = match max_autonomy.as_str() {
+                "auto" => Autonomy::Auto,
+                "review" => Autonomy::Review,
+                other => anyhow::bail!("unknown --max-autonomy {other:?}: use auto or review"),
+            };
+            let attempts = refactor::run(&root, &plan, limit, ceiling, model).await?;
+            if attempts.is_empty() {
+                println!("vord refactor: no candidate within --max-autonomy {max_autonomy}");
+            }
+            let mut exit = 0;
+            for attempt in &attempts {
+                println!(
+                    "[{}] {}:{} — {}",
+                    attempt.candidate.autonomy.as_str(),
+                    attempt.candidate.path,
+                    attempt.candidate.line,
+                    attempt.outcome.describe()
+                );
+                if exit == 0 {
+                    exit = attempt.outcome.exit_code();
+                }
+            }
+            if let Some(path) = report {
+                std::fs::write(&path, refactor::render_report(&attempts))
+                    .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", path.display()))?;
+            }
+            Ok(ExitCode::from(exit))
         }
     }
 }
@@ -630,6 +763,7 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             max_turns,
             max_tokens,
             model,
+            refactor,
         } => {
             let args = vord_cli::agent::AgentArgs {
                 task,
@@ -638,6 +772,7 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
                 max_turns,
                 max_tokens,
                 model,
+                refactor,
             };
             let outcome = vord_cli::agent::run(&root, args).await?;
             vord_cli::agent::report(&outcome);
@@ -650,6 +785,7 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             max_turns,
             max_tokens,
             model,
+            refactor,
         } => {
             let args = vord_cli::agent::AgentArgs {
                 task,
@@ -658,6 +794,7 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
                 max_turns,
                 max_tokens,
                 model,
+                refactor,
             };
             let outcome = tui::run(&root, args).await?;
             vord_cli::agent::report(&outcome);

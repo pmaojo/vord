@@ -911,3 +911,87 @@ fn a_command_killed_by_a_signal_is_not_reported_as_a_clean_exit() {
     };
     assert!(output.render().contains("terminated by signal"));
 }
+
+/// The marker analyzer, plus a quality vector: one import edge per `use `
+/// line in the tree, so a test can make a write raise coupling.
+struct MeasuringAnalyzer(MarkerAnalyzer);
+
+impl Analyzer for MeasuringAnalyzer {
+    async fn scan(&self, path: &str) -> Result<Vec<LocatedFinding>, AnalysisError> {
+        self.0.scan(path).await
+    }
+
+    async fn snapshot(&self, path: &str) -> Result<crate::Snapshot, AnalysisError> {
+        let edges = self
+            .0
+            .tree
+            .snapshot()
+            .iter()
+            .map(|(_, content)| content.matches("use ").count() as i64)
+            .sum();
+        Ok(crate::Snapshot {
+            findings: self.scan(path).await?,
+            quality: Some(
+                crate::QualityVector::default().with(crate::Dimension::ImportEdges, edges),
+            ),
+            semantics: None,
+        })
+    }
+}
+
+fn refactor_config() -> RunConfig {
+    RunConfig {
+        max_rejections: 0,
+        refactor: Some(crate::RefactorGuard::default()),
+        ..config()
+    }
+}
+
+async fn run_refactor_writing(content: &str) -> RunOutcome {
+    let tree = Tree::with(&[("src/a.rs", "use b;\nfn a() {}")]);
+    let model = ScriptedModel::new(vec![Ok(write_turn("src/a.rs", content))]);
+    AgentRuntime::new(
+        model,
+        FakeWorkspace::new(tree.clone()),
+        MarkerJudge::new(),
+        MeasuringAnalyzer(MarkerAnalyzer::new(tree)),
+        refactor_config(),
+    )
+    .run()
+    .await
+}
+
+#[tokio::test]
+async fn a_refactor_that_holds_every_dimension_completes() {
+    let outcome = run_refactor_writing("use b;\nfn renamed() {}").await;
+    assert!(
+        matches!(outcome, RunOutcome::Completed { .. }),
+        "got {outcome:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_refactor_that_raises_coupling_is_a_trade_off_not_done() {
+    let outcome = run_refactor_writing("use b;\nuse c;\nuse d;\nfn a() {}").await;
+    let RunOutcome::Incomplete { completion, .. } = &outcome else {
+        panic!("a degraded dimension must block a refactor, got {outcome:?}")
+    };
+    let Completion::TradeOff { degraded, .. } = completion else {
+        panic!("expected a trade-off, got {completion:?}")
+    };
+    assert_eq!(degraded[0].dimension, crate::Dimension::ImportEdges);
+    assert_eq!((degraded[0].before, degraded[0].after), (1, 3));
+}
+
+#[tokio::test]
+async fn a_refactor_guard_over_an_analyzer_that_cannot_measure_fails_loudly() {
+    let tree = Tree::with(&[("src/a.rs", "fn a() {}")]);
+    let model = ScriptedModel::new(vec![]);
+    let outcome = runtime(model, tree, MarkerJudge::new(), refactor_config())
+        .run()
+        .await;
+    let RunOutcome::Failed { error, .. } = &outcome else {
+        panic!("\"could not measure\" must never read as done, got {outcome:?}")
+    };
+    assert!(error.contains("quality vector"), "{error}");
+}

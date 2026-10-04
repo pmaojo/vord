@@ -126,6 +126,27 @@ changes, write good tests directly instead of invoking the loop.
 
 ---
 
+## ♻️ Refactoring Tasks: Use the Refactor Guard
+
+When the task is to *improve* existing code rather than change what it
+does — "clean up", "simplify", "reduce complexity", "pay down debt" — use
+the `continuous-refactor` skill (`skills/continuous-refactor/SKILL.md`):
+
+1. `vord refactor plan` to pick the target: hotspots ranked by complexity
+   (or CRAP with `--lcov`) × git churn, each tiered `auto`/`review`/
+   `escalate`. Never attempt an `escalate` candidate without the human's
+   go-ahead.
+2. `vord agent run --refactor --task "..."` (or `vord refactor run`) so the
+   work is done only when there is no new finding, no semantic drift (no
+   new or vanished constant/operator, no added branch) and no quality
+   dimension worse than `[agent.refactor]`'s tolerance.
+3. Put `vord refactor run --report`'s Markdown in the PR so the reviewer
+   judges intent, not what the analyzer already checked.
+
+Keep behaviour changes out of refactor tasks; they belong in their own task.
+
+---
+
 ## ✅ Finishing a Task: Version Bump Convention
 
 Once a change is actually done — implemented, tested, and you have
@@ -198,7 +219,13 @@ vord swarm handoff-inbox --role coder    # Read role inbox
 vord swarm handoff-ack --role coder --id <id> # Acknowledge handoff
 vord swarm run --task "Ship feature"     # Drive full pipeline (with Assistant prompt fallbacks)
 
-# 🩺 4. Issue Triage Factory (roadmap C) — reproduce -> diagnose -> fix a
+# ♻️ 4. Continuous refactoring — hotspots x churn, autonomy tiers, refactor guard
+vord refactor plan --limit 10                  # ranked candidates + hidden temporal coupling
+vord refactor plan --lcov lcov.info --format json
+vord agent run --refactor --task "Simplify src/a.rs:40 without changing behaviour"
+vord refactor run --limit 3 --max-autonomy review --report vord-refactor.md
+
+# 🩺 5. Issue Triage Factory (roadmap C) — reproduce -> diagnose -> fix a
 # GitHub issue, one step at a time, gated by exit codes and re-scans
 # instead of a model's self-assessment. Reads/writes the issue's
 # `triage:*` label; needs GITHUB_TOKEN + GITHUB_REPOSITORY set (same as

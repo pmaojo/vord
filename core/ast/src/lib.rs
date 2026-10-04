@@ -8,6 +8,7 @@ mod interner;
 mod language;
 mod node;
 mod pattern;
+mod semantic;
 mod source;
 
 pub use edit_distance::TreeEditDistance;
@@ -16,4 +17,5 @@ pub use interner::intern;
 pub use language::{LanguageIdentifier, UnsupportedLanguageError};
 pub use node::{AstNode, Descendants, NodeKind, Span, lookup_kind};
 pub use pattern::{MatchResult, Pattern, PatternNode, PatternParseError, Predicate};
+pub use semantic::{SemanticDrift, SemanticFingerprint};
 pub use source::{SourceFile, SourceFileError};

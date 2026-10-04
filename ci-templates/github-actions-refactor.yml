@@ -1,0 +1,68 @@
+# vord continuous refactoring — GitHub Actions
+#
+# Copy this file to `.github/workflows/vord-refactor.yml`. Once a night it
+# ranks refactor candidates (`vord refactor plan`: complexity or CRAP ×
+# commits, with an autonomy tier per candidate), refactors the top few under
+# the refactor guard (`vord agent run --refactor`: no new finding, no
+# behaviour-bearing syntax changed, no quality dimension degraded), and opens
+# one pull request whose body explains every attempt.
+#
+# Nothing is merged automatically: the pull request is the hand-off to a
+# human. Candidates tiered `escalate` (wide blast radius, or code tests
+# barely exercise) are never attempted at all.
+#
+# Needs an LLM: set ANTHROPIC_API_KEY, or VORD_LLM_BASE_URL/VORD_LLM_MODEL
+# for any OpenAI-compatible endpoint. Tune tolerances in `vord.toml`'s
+# `[agent.refactor]`.
+
+name: vord refactor
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Churn and co-change are mined from history: a shallow clone has none.
+          fetch-depth: 0
+
+      - name: Install vord
+        run: |
+          curl -fsSL \
+            "https://github.com/pmaojo/vord/releases/latest/download/vord-x86_64-unknown-linux-musl" \
+            -o /usr/local/bin/vord
+          chmod +x /usr/local/bin/vord
+
+      # Optional but recommended: produce an LCOV report here (e.g.
+      # `cargo llvm-cov --lcov --output-path lcov.info`) and pass
+      # `--lcov lcov.info` below. With coverage, candidates rank by CRAP and
+      # well-tested, narrow code can be tiered `auto`; without it every
+      # candidate is at most `review`.
+
+      - name: Plan
+        run: vord refactor plan --limit 10
+
+      - name: Refactor the top candidates
+        id: run
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: vord refactor run --limit 3 --max-autonomy review --report vord-refactor.md
+
+      - name: Open a pull request with what landed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: vord/continuous-refactor
+          title: "Continuous refactoring"
+          body-path: vord-refactor.md
+          commit-message: "Refactor hotspots under the vord refactor guard"
+          delete-branch: true

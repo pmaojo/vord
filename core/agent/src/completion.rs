@@ -22,7 +22,10 @@
 
 use std::collections::HashMap;
 
+use vord_ast::{SemanticDrift, SemanticFingerprint};
 use vord_profiles::{RuleId, Severity};
+
+use crate::quality::{self, DimensionChange, QualityVector, Tolerances};
 
 /// A finding with the file it was found in. `vord_agent_policy::Finding`
 /// deliberately has no path (a policy judges one file at a time and already
@@ -67,6 +70,15 @@ pub enum Completion {
     },
     /// Findings that were not in the baseline are present now.
     Regressed { introduced: Vec<LocatedFinding> },
+    /// A refactor task changed behaviour-bearing syntax — a constant, an
+    /// operator, a new branch — that a pure refactor preserves.
+    SemanticDrift { drift: SemanticDrift },
+    /// A refactor task made some quality dimension worse than its tolerance
+    /// allows, whatever it improved elsewhere.
+    TradeOff {
+        improved: Vec<DimensionChange>,
+        degraded: Vec<DimensionChange>,
+    },
 }
 
 impl Completion {
@@ -98,7 +110,120 @@ impl Completion {
                 }
                 out
             }
+            Completion::SemanticDrift { drift } => describe_drift(drift),
+            Completion::TradeOff { improved, degraded } => describe_trade_off(improved, degraded),
         }
+    }
+}
+
+fn describe_trade_off(improved: &[DimensionChange], degraded: &[DimensionChange]) -> String {
+    let mut out = String::from(
+        "this is a refactor task, and your changes made the codebase measurably worse \
+         on at least one quality dimension:\n",
+    );
+    for change in degraded {
+        out.push_str(&format!("  - {}\n", change.describe()));
+    }
+    if !improved.is_empty() {
+        out.push_str("It did improve:\n");
+        for change in improved {
+            out.push_str(&format!("  - {}\n", change.describe()));
+        }
+    }
+    out.push_str(
+        "A local improvement that degrades the whole is not done. Find a shape \
+         that improves without that cost, or revert the part that caused it.\n",
+    );
+    out
+}
+
+fn describe_drift(drift: &SemanticDrift) -> String {
+    let mut out = String::from(
+        "this is a refactor task, and your changes altered behaviour-bearing code \
+         (a pure refactor moves, renames, extracts and inlines — it does not change \
+         constants, operators or add branches):\n",
+    );
+    for atom in &drift.appeared {
+        out.push_str(&format!("  - new: `{atom}`\n"));
+    }
+    for atom in &drift.vanished {
+        out.push_str(&format!("  - gone: `{atom}`\n"));
+    }
+    for (atom, before, after) in &drift.added_control {
+        out.push_str(&format!("  - more `{atom}`: {before} -> {after}\n"));
+    }
+    out.push_str(
+        "Restore the original behaviour; a behaviour change belongs in a separate task.\n",
+    );
+    out
+}
+
+/// What the analyzer saw at one moment: the findings, plus — when a
+/// [`RefactorGuard`] asked for them — the quality vector and the semantic
+/// fingerprint of the scope. `None` means "not measured", never "zero".
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Snapshot {
+    pub findings: Vec<LocatedFinding>,
+    pub quality: Option<QualityVector>,
+    pub semantics: Option<SemanticFingerprint>,
+}
+
+impl Snapshot {
+    pub fn findings_only(findings: Vec<LocatedFinding>) -> Self {
+        Self {
+            findings,
+            ..Self::default()
+        }
+    }
+}
+
+/// The extra bar a refactor task must clear on top of [`judge`]: behaviour
+/// preserved and no quality dimension degraded past its tolerance.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RefactorGuard {
+    pub tolerances: Tolerances,
+    /// Reject semantic drift (see `vord_ast::SemanticFingerprint`).
+    pub preserve_behaviour: bool,
+}
+
+/// The refactor guard needed a measurement the analyzer did not supply.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the refactor guard needs {0}, which the analyzer did not produce")]
+pub struct MissingMeasurement(&'static str);
+
+/// [`judge`] plus the refactor guard. `Err` when the guard needed a
+/// measurement the analyzer did not supply — "we could not check" must not
+/// read as done.
+pub fn judge_refactor(
+    baseline: &Snapshot,
+    current: &Snapshot,
+    target: Option<&RuleId>,
+    guard: &RefactorGuard,
+) -> Result<Completion, MissingMeasurement> {
+    let verdict = judge(&baseline.findings, &current.findings, target);
+    if !verdict.is_done() {
+        return Ok(verdict);
+    }
+    if guard.preserve_behaviour {
+        let (Some(before), Some(after)) = (&baseline.semantics, &current.semantics) else {
+            return Err(MissingMeasurement("a semantic fingerprint"));
+        };
+        let drift = before.drift(after);
+        if !drift.is_empty() {
+            return Ok(Completion::SemanticDrift { drift });
+        }
+    }
+    let (Some(before), Some(after)) = (&baseline.quality, &current.quality) else {
+        return Err(MissingMeasurement("a quality vector"));
+    };
+    let delta = quality::compare(before, after, &guard.tolerances);
+    if delta.is_pareto_safe() {
+        Ok(Completion::Done)
+    } else {
+        Ok(Completion::TradeOff {
+            improved: delta.improved,
+            degraded: delta.degraded,
+        })
     }
 }
 
@@ -276,5 +401,83 @@ mod tests {
     fn a_done_verdict_says_so_in_words() {
         assert!(Completion::Done.describe().contains("agrees"));
         assert!(Completion::Done.is_done());
+    }
+
+    fn literal_tree(literal: &str) -> vord_ast::SemanticFingerprint {
+        let span = vord_ast::Span::new(1, 1, 1, 1);
+        let leaf = vord_ast::AstNode::new(vord_ast::NodeKind::StringLiteral, span, literal, vec![]);
+        vord_ast::SemanticFingerprint::of(&leaf)
+    }
+
+    fn measured(literal: &str, health: i64) -> Snapshot {
+        Snapshot {
+            findings: Vec::new(),
+            quality: Some(
+                QualityVector::default().with(crate::quality::Dimension::HealthScore, health),
+            ),
+            semantics: Some(literal_tree(literal)),
+        }
+    }
+
+    fn strict() -> RefactorGuard {
+        RefactorGuard {
+            preserve_behaviour: true,
+            ..RefactorGuard::default()
+        }
+    }
+
+    #[test]
+    fn a_behaviour_preserving_refactor_that_holds_quality_is_done() {
+        let verdict = judge_refactor(
+            &measured("\"a\"", 90),
+            &measured("\"a\"", 91),
+            None,
+            &strict(),
+        );
+        assert_eq!(verdict, Ok(Completion::Done));
+    }
+
+    #[test]
+    fn semantic_drift_is_reported_before_any_trade_off() {
+        let verdict = judge_refactor(
+            &measured("\"a\"", 90),
+            &measured("\"b\"", 80),
+            None,
+            &strict(),
+        )
+        .expect("measured on both sides");
+        let Completion::SemanticDrift { drift } = &verdict else {
+            panic!("expected drift, got {verdict:?}");
+        };
+        assert_eq!(drift.appeared, vec!["lit:\"b\"".to_string()]);
+        assert!(verdict.describe().contains("behaviour"));
+    }
+
+    #[test]
+    fn a_degraded_dimension_is_a_trade_off() {
+        let verdict = judge_refactor(&measured("x", 90), &measured("x", 85), None, &strict())
+            .expect("measured on both sides");
+        assert!(
+            matches!(verdict, Completion::TradeOff { .. }),
+            "{verdict:?}"
+        );
+        assert!(verdict.describe().contains("health_score: 90 -> 85"));
+    }
+
+    #[test]
+    fn a_finding_regression_is_still_reported_first() {
+        let mut current = measured("x", 90);
+        current
+            .findings
+            .push(finding("a.rs", "owasp:xss", "unescaped", 1));
+        let verdict = judge_refactor(&measured("x", 90), &current, None, &strict());
+        assert!(matches!(verdict, Ok(Completion::Regressed { .. })));
+    }
+
+    #[test]
+    fn a_missing_fingerprint_is_an_error_not_a_pass() {
+        let mut current = measured("x", 90);
+        current.semantics = None;
+        assert!(judge_refactor(&measured("x", 90), &current, None, &strict()).is_err());
     }
 }
