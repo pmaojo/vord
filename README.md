@@ -719,6 +719,7 @@ worktree_root = ".vord/worktrees"   # default
 
 [[swarm.role]]
 name = "cleaner"
+model = "qwen2.5-coder:7b"   # optional: this role's model, overriding VORD_LLM_MODEL
 
 [[swarm.role.protected_paths]]
 pattern = ".github/workflows/**"

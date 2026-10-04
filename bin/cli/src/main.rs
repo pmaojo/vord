@@ -882,10 +882,11 @@ fn print_roles(roles: &[vord_cli::swarm::RoleReport]) {
     }
     for role in roles {
         println!(
-            "{} — worktree {} (branch {}), +{} protected path(s), +{} blocking rule(s), +{} escalate rule(s)",
+            "{} — worktree {} (branch {}), model {}, +{} protected path(s), +{} blocking rule(s), +{} escalate rule(s)",
             role.name,
             role.plan.path.display(),
             role.plan.branch,
+            role.model.as_deref().unwrap_or("default"),
             role.extra_protected_paths,
             role.extra_blocking_rules,
             role.extra_escalate_rules,

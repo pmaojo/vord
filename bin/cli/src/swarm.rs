@@ -99,6 +99,8 @@ pub struct RoleReport {
     pub extra_protected_paths: usize,
     pub extra_blocking_rules: usize,
     pub extra_escalate_rules: usize,
+    /// The role's own model, when it overrides the provider default.
+    pub model: Option<String>,
 }
 
 pub fn list_roles(root: &Path) -> anyhow::Result<Vec<RoleReport>> {
@@ -120,6 +122,7 @@ pub fn list_roles(root: &Path) -> anyhow::Result<Vec<RoleReport>> {
                 extra_protected_paths: role.protected_paths.len(),
                 extra_blocking_rules: role.blocking_rules.len(),
                 extra_escalate_rules: role.escalate_rules.len(),
+                model: role.model.clone(),
             })
         })
         .collect()
@@ -185,7 +188,7 @@ pub async fn topology_run(root: &Path, task: &str) -> anyhow::Result<Vec<RoleRun
             rule: None,
             max_turns: None,
             max_tokens: None,
-            model: None,
+            model: role.model.clone(),
         };
         let task_desc = args.task.clone();
         let outcome = match agent::run_with_policy(&plan.path, args, policy).await {
