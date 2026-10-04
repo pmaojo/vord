@@ -1751,6 +1751,18 @@ pub async fn judge(
             old_content.as_deref(),
             content,
         ));
+        // Pre-write only: the skeleton is compared against what is on disk
+        // now. Post-write, disk already holds the proposed content and the
+        // baseline is git HEAD, which a freshly generated, uncommitted file
+        // does not have — that would read every generated file as hand-made.
+        if baseline == DiffBaseline::PreWriteDisk {
+            findings.extend(crate::generated::findings(
+                &crate::generated::Manifest::load(root),
+                &relative,
+                old_content.as_deref(),
+                content,
+            ));
+        }
     }
     let provenance = provenance_for(&load_provenance(root), &relative);
     let has_scenario = has_covering_gherkin_scenario(policy, root, &relative);
@@ -3330,6 +3342,53 @@ Feature: Orders
         );
         claude_code_verdict(&post_payload).await.expect("judged");
         assert_eq!(pending_execution_evidence(&dir, &policy).len(), 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_hand_edit_to_generated_structure_is_denied_but_filling_a_hole_is_not() {
+        let dir = std::env::temp_dir().join(format!("vord-hook-generated-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).expect("temp dir");
+        let file = dir.join("src/order.py");
+        let generated = "def place(order):\n    # vord:hole place-rules\n    # vord:end-hole\n    return save(order)\n";
+        std::fs::write(&file, generated).expect("write");
+        let mut manifest = crate::generated::Manifest::default();
+        manifest.files.insert(
+            "src/order.py".to_string(),
+            crate::generated::GeneratedFile {
+                engine: "ferrum".into(),
+                source: Some("gen/orders.yaml".into()),
+                regenerate: Some("ferrum compile gen/orders.yaml".into()),
+            },
+        );
+        manifest.save(&dir).expect("manifest");
+        let policy = AgentPolicy::default();
+
+        let filled = generated.replace(
+            "    # vord:hole place-rules\n",
+            "    # vord:hole place-rules\n    if not order.items:\n        raise ValueError('empty')\n",
+        );
+        let verdict = judge(&policy, &dir, &file, Some(&filled), DiffBaseline::PreWriteDisk)
+            .await
+            .expect("judged");
+        assert!(
+            !matches!(verdict, Verdict::Deny { .. }),
+            "filling a hole is the edit a generated file permits, got {verdict:?}"
+        );
+
+        let edited = generated.replace("return save(order)", "return save_all(order)");
+        let verdict = judge(&policy, &dir, &file, Some(&edited), DiffBaseline::PreWriteDisk)
+            .await
+            .expect("judged");
+        let Verdict::Deny { evaluation, .. } = &verdict else {
+            panic!("a hand edit to generated structure must be denied, got {verdict:?}");
+        };
+        assert!(
+            format!("{evaluation:?}").contains("ferrum compile gen/orders.yaml"),
+            "the denial says how to regenerate: {evaluation:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

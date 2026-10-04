@@ -557,6 +557,7 @@ worktree_root = ".vord/worktrees"
 
 [[swarm.role]]
 name = "coder"
+model = "qwen2.5-coder:32b"
 
 [[swarm.role]]
 name = "qa"
@@ -576,7 +577,12 @@ reason = "QA is read-only"
         assert_eq!(config.swarm.roles.len(), 2);
         assert_eq!(config.swarm.roles[0].name, "coder");
         assert!(config.swarm.roles[0].protected_paths.is_empty());
+        assert_eq!(
+            config.swarm.roles[0].model.as_deref(),
+            Some("qwen2.5-coder:32b")
+        );
         let qa = &config.swarm.roles[1];
+        assert_eq!(qa.model, None, "a role without `model` keeps the default");
         assert_eq!(qa.name, "qa");
         assert_eq!(qa.branch.as_deref(), Some("vord/swarm/qa-custom"));
         assert_eq!(qa.blocking_rules, vec!["owasp:eval-usage".to_string()]);

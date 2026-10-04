@@ -16,6 +16,7 @@ mod crap;
 mod flow;
 mod hook_install;
 mod kickoff;
+mod kickoff_engine;
 mod mcp;
 mod monorepo_scan;
 mod tui;
@@ -97,11 +98,25 @@ enum Command {
     /// Kickoff a new project template for AI-driven development.
     Kickoff {
         /// Template name (react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal).
+        /// Ignored with `--engine`.
         #[arg(default_value = "react-bulletproof")]
         template: String,
-        /// Target directory.
+        /// Target directory (with `--engine`, the parent the project is created in).
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        /// Generate with a scaffolding engine instead of a built-in template:
+        /// kthulu (Go), ferrum (Rust + React) or wasp (React + Node + Prisma).
+        /// Its CLI must be on PATH. vord then adds its policy, the hook, a
+        /// generated-code manifest and a Gherkin scaffold.
+        #[arg(long, requires = "name")]
+        engine: Option<String>,
+        /// Project name passed to the engine.
+        #[arg(long)]
+        name: Option<String>,
+        /// The engine's blueprint: kthulu-plan.yaml (kthulu) or a graph
+        /// YAML (ferrum).
+        #[arg(long)]
+        blueprint: Option<PathBuf>,
     },
     /// Visualize the component architecture of a directory: import graph
     /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
@@ -225,6 +240,31 @@ enum AgentAction {
         model: Option<String>,
         #[arg(long)]
         refactor: bool,
+    },
+    /// Record what the analyzer sees over `--scope` now, as the baseline
+    /// `vord agent done` later compares against. Run it before another
+    /// host's agent starts (DeepSeek Harness's dsh-vord plugin does).
+    Baseline {
+        #[arg(long, default_value = ".")]
+        scope: String,
+        /// Where to write the baseline.
+        #[arg(long, default_value = vord_cli::agent::DONE_BASELINE_FILE)]
+        out: PathBuf,
+    },
+    /// The analyzer's verdict on whether a task is finished: re-scan
+    /// `--scope` and compare against the baseline. Exits 0 (done), 3 (not
+    /// done; the reason is on stdout) or 1 (could not judge). With `--json`,
+    /// prints `{"done": bool, "reason": string}` instead.
+    Done {
+        #[arg(long, default_value = ".")]
+        scope: String,
+        #[arg(long, default_value = vord_cli::agent::DONE_BASELINE_FILE)]
+        baseline: PathBuf,
+        /// A rule the task must eliminate everywhere in scope.
+        #[arg(long)]
+        rule: Option<String>,
+        #[arg(long)]
+        json: bool,
     },
     /// Wait out the late-feedback window on a pull request: poll with
     /// backoff, collect one review batch as one batch, and report quiet, new
@@ -634,8 +674,32 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Swarm { action }) => run_swarm(action).await,
         Some(Command::Triage { action }) => run_triage(action).await,
         Some(Command::Refactor { action }) => run_refactor(action).await,
-        Some(Command::Kickoff { template, path }) => {
-            kickoff::run_kickoff(&template, &path)?;
+        Some(Command::Kickoff {
+            template,
+            path,
+            engine,
+            name,
+            blueprint,
+        }) => {
+            let Some(engine) = engine else {
+                kickoff::run_kickoff(&template, &path)?;
+                return Ok(ExitCode::SUCCESS);
+            };
+            let request = kickoff_engine::EngineKickoff {
+                engine: kickoff_engine::Engine::parse(&engine)?,
+                name: name.expect("clap requires --name with --engine"),
+                blueprint,
+                parent: path,
+                program: None,
+            };
+            let report = kickoff_engine::run(&request)?;
+            println!(
+                "vord kickoff: {} created {} file(s) in {}; {} marked generated (edit their blueprint, not the files)",
+                engine,
+                report.created,
+                report.project_dir.display(),
+                report.generated
+            );
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Arch { path, format, html }) => run_arch(&path, format, html),
@@ -799,6 +863,32 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             let outcome = tui::run(&root, args).await?;
             vord_cli::agent::report(&outcome);
             Ok(ExitCode::from(outcome.exit_code()))
+        }
+        AgentAction::Baseline { scope, out } => {
+            let count = vord_cli::agent::write_baseline(&root, &scope, &out).await?;
+            println!(
+                "vord agent: baseline of {count} finding(s) written to {}",
+                out.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        AgentAction::Done {
+            scope,
+            baseline,
+            rule,
+            json,
+        } => {
+            let verdict =
+                vord_cli::agent::check_done(&root, &scope, &baseline, rule.as_deref()).await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "done": verdict.is_done(), "reason": verdict.describe() })
+                );
+            } else {
+                println!("vord agent: {}", verdict.describe());
+            }
+            Ok(ExitCode::from(if verdict.is_done() { 0 } else { 3 }))
         }
         AgentAction::WatchPr {
             pr,
@@ -968,10 +1058,11 @@ fn print_roles(roles: &[vord_cli::swarm::RoleReport]) {
     }
     for role in roles {
         println!(
-            "{} — worktree {} (branch {}), +{} protected path(s), +{} blocking rule(s), +{} escalate rule(s)",
+            "{} — worktree {} (branch {}), model {}, +{} protected path(s), +{} blocking rule(s), +{} escalate rule(s)",
             role.name,
             role.plan.path.display(),
             role.plan.branch,
+            role.model.as_deref().unwrap_or("default"),
             role.extra_protected_paths,
             role.extra_blocking_rules,
             role.extra_escalate_rules,

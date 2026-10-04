@@ -7,6 +7,11 @@ job is to run an existing Claude Code `hooks.json` — the same
 writes — on the harness's own interception points. No new vord code is
 needed: this directory just wires the two together.
 
+> **Prefer the native plugin.** [`dsh-vord/`](dsh-vord/) mounts the same
+> guardrail directly on dsh's `tools/*` and `agent/turn-stopping` extension
+> points, adds `vord mcp` as tools, and has no tool-name casing gotcha. The
+> bridge setup below remains for profiles that already run Claude Code hooks.
+
 ## What was verified, and how
 
 This wasn't taken on the bridge's README alone. The published packages were

@@ -1,0 +1,30 @@
+# The dsh-vord bundle patch. Stack it after dsh-base in a profile:
+#
+#   dsh plugin --profile vord install dsh-vord
+#
+# Two rows:
+#
+# - `vord`: the native write guardrail (tools/pre-execute, tools/post-execute,
+#   agent/turn-stopping). Needs `vord` on PATH and a `vord-policy.toml` in the
+#   session workspace; `vord hook install` writes a starter one.
+# - `mcp-vord`: vord's own MCP server, so the model can call scan, graph and
+#   kickoff as tools (`mcp__vord__*`) instead of re-deriving their answers.
+#
+# Override either row by id from your profile's cordis.patch.yml.
+
+- insert:
+    - id: vord
+      name: dsh-vord
+      config:
+        command: vord
+        timeoutMs: 60000
+        failClosed: false
+        maxStopContinuations: 3
+
+    - id: mcp-vord
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: vord
+        transport: stdio
+        command: vord
+        args: ['mcp']

@@ -384,6 +384,105 @@ pub async fn run_with_policy_and_observer(
 }
 
 // ---------------------------------------------------------------------------
+// The analyzer as the definition of done, for a host vord does not drive
+// ---------------------------------------------------------------------------
+
+/// Where `vord agent baseline` writes by default and `vord agent done` reads.
+pub const DONE_BASELINE_FILE: &str = ".vord/agent-baseline.json";
+
+/// The on-disk form of a [`LocatedFinding`]. `core/agent` stays free of
+/// serde, so the CLI owns this mirror.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredFinding {
+    file: String,
+    rule: String,
+    severity: String,
+    message: String,
+    line: u32,
+}
+
+impl From<&LocatedFinding> for StoredFinding {
+    fn from(finding: &LocatedFinding) -> Self {
+        Self {
+            file: finding.file.clone(),
+            rule: finding.rule.to_string(),
+            severity: finding.severity.as_str().to_string(),
+            message: finding.message.clone(),
+            line: finding.line,
+        }
+    }
+}
+
+impl StoredFinding {
+    fn into_finding(self) -> anyhow::Result<LocatedFinding> {
+        Ok(LocatedFinding {
+            rule: RuleId::new(&self.rule)
+                .map_err(|_| anyhow::anyhow!("invalid rule id {:?} in baseline", self.rule))?,
+            severity: vord_rules_engine::Severity::parse(&self.severity).ok_or_else(|| {
+                anyhow::anyhow!("invalid severity {:?} in baseline", self.severity)
+            })?,
+            file: self.file,
+            message: self.message,
+            line: self.line,
+        })
+    }
+}
+
+/// `vord agent baseline`: records what the analyzer sees over `scope` now,
+/// before a host's agent starts, so [`check_done`] can later tell findings
+/// the agent introduced from ones the repository already had. Returns how
+/// many findings were recorded.
+pub async fn write_baseline(root: &Path, scope: &str, out: &Path) -> anyhow::Result<usize> {
+    let config = VordConfig::load_from_dir(root);
+    let findings = RepoAnalyzer::new(root, config.as_ref())
+        .scan(scope)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e.0))?;
+    let stored: Vec<StoredFinding> = findings.iter().map(StoredFinding::from).collect();
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(out, serde_json::to_string(&stored)?)?;
+    Ok(stored.len())
+}
+
+/// `vord agent done`: the same verdict `vord agent run` reaches before it
+/// lets a session finish — re-scan `scope` and compare against the recorded
+/// baseline — offered to any host's agent loop (DeepSeek Harness's
+/// `agent/turn-stopping`, a CI step). No model is consulted.
+pub async fn check_done(
+    root: &Path,
+    scope: &str,
+    baseline: &Path,
+    rule: Option<&str>,
+) -> anyhow::Result<vord_agent::completion::Completion> {
+    let raw = std::fs::read_to_string(baseline).map_err(|e| {
+        anyhow::anyhow!(
+            "no baseline at {} ({e}); run `vord agent baseline` first",
+            baseline.display()
+        )
+    })?;
+    let stored: Vec<StoredFinding> = serde_json::from_str(&raw)?;
+    let before = stored
+        .into_iter()
+        .map(StoredFinding::into_finding)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let target = rule
+        .map(|raw| RuleId::new(raw).map_err(|_| anyhow::anyhow!("invalid rule id {raw:?}")))
+        .transpose()?;
+    let config = VordConfig::load_from_dir(root);
+    let after = RepoAnalyzer::new(root, config.as_ref())
+        .scan(scope)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e.0))?;
+    Ok(vord_agent::completion::judge(
+        &before,
+        &after,
+        target.as_ref(),
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // A5 — late feedback
 // ---------------------------------------------------------------------------
 
@@ -726,6 +825,62 @@ mod tests {
         let audit = std::fs::read_to_string(root.join(hook::AUDIT_LOG_FILE)).unwrap();
         assert!(audit.contains("\"event\":\"AgentWrite\""), "{audit}");
         assert!(audit.contains("\"outcome\":\"deny\""), "{audit}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn done_disagrees_only_with_findings_introduced_after_the_baseline() {
+        let root = std::env::temp_dir().join(format!("vord-agent-done-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        // A finding the repository already had must not count against the task.
+        std::fs::write(
+            root.join("src/old.py"),
+            "import subprocess\nsubprocess.run(cmd, shell=True)\n",
+        )
+        .unwrap();
+        let baseline = root.join(DONE_BASELINE_FILE);
+        assert!(write_baseline(&root, ".", &baseline).await.unwrap() > 0);
+
+        let verdict = check_done(&root, ".", &baseline, None).await.unwrap();
+        assert!(verdict.is_done(), "{}", verdict.describe());
+
+        std::fs::write(
+            root.join("src/new.py"),
+            "import subprocess\nsubprocess.run(other, shell=True)\n",
+        )
+        .unwrap();
+        let verdict = check_done(&root, ".", &baseline, None).await.unwrap();
+        assert!(!verdict.is_done());
+        assert!(
+            verdict.describe().contains("new.py"),
+            "{}",
+            verdict.describe()
+        );
+
+        let verdict = check_done(&root, ".", &baseline, Some("python:subprocess-shell-true"))
+            .await
+            .unwrap();
+        assert!(
+            matches!(
+                verdict,
+                vord_agent::completion::Completion::TargetRemains { .. }
+            ),
+            "a named target rule still firing anywhere keeps the task open"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn done_without_a_baseline_is_an_error_not_a_verdict() {
+        let root =
+            std::env::temp_dir().join(format!("vord-agent-done-none-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(
+            check_done(&root, ".", &root.join("missing.json"), None)
+                .await
+                .is_err()
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

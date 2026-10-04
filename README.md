@@ -71,7 +71,15 @@ configuration, where turning it off leaves no trace in a diff.
 
 ### As a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin
 
-DeepSeek Harness's official `dsh-hooks-claude-code` bridge runs the exact
+[`integrations/deepseek-harness/dsh-vord/`](integrations/deepseek-harness/dsh-vord/)
+is a native dsh plugin and profile bundle: vord judges `write`/`edit`/
+`str_replace_editor` on dsh's own `tools/pre-execute` and `tools/post-execute`,
+holds the turn open on `agent/turn-stopping` while the analyzer sees findings
+the session introduced (`vord agent baseline` / `vord agent done`) or test
+evidence is pending,
+and mounts `vord mcp` as tools (`dsh plugin --profile <name> add <path>`).
+
+Alternatively, DeepSeek Harness's official `dsh-hooks-claude-code` bridge runs the exact
 `PreToolUse`/`PostToolUse` payload shape `vord hook claude-code` already
 speaks — no new vord code needed, just wiring. See
 [`integrations/deepseek-harness/`](integrations/deepseek-harness/) for the
@@ -583,6 +591,13 @@ vord agent run --refactor --task "simplify parse_config without changing behavio
 vord agent watch-pr --pr 42             # wait out the late review/CI window on a PR
 ```
 
+The completion check is also available to agent loops vord does not drive
+(DeepSeek Harness via `dsh-vord`, a CI step): `vord agent baseline` records
+what the analyzer sees before the agent starts, and `vord agent done`
+re-scans and exits `0` when nothing new appeared, `3` with the objection when
+something did (`--json` for `{"done", "reason"}`, `--rule` to require a rule
+be gone).
+
 Runs locally against Qwen, Llama, DeepSeek or anything else an
 OpenAI-compatible `/v1/chat/completions` endpoint fronts — Ollama, vLLM,
 LM Studio, LocalAI — with no cloud API key at all:
@@ -847,6 +862,46 @@ Supported templates:
 - `python-clean` (or `python`): Enforces modern type hints and strict resource management.
 - `typescript-clean` (or `ts`): Restricts wildcard re-exports and enforces naming conventions.
 - `fullstack-hexagonal` (or `hexagonal`): A complete backend/frontend setup with `architecture.yaml` and blocking rules for hexagonal layer violations and circular dependencies.
+
+### Scaffolding engines
+
+Deterministic work belongs to a generator, not to an agent. `--engine` runs
+a real scaffolding engine and then makes its output governed from the first
+commit:
+
+```sh
+vord kickoff --engine kthulu --name shop --blueprint kthulu-plan.yaml   # Go modular monolith (pmaojo/kthulu-go)
+vord kickoff --engine ferrum --name shop --blueprint gen/users.yaml     # Rust + React hexagonal (pmaojo/ferrum)
+vord kickoff --engine wasp   --name shop                                # React + Node + Prisma (wasp-lang/wasp)
+```
+
+The engine's CLI must be on `PATH`. After it runs, vord installs its policy
+and the Claude Code hook (as `vord hook install` does), adds a Gherkin
+scaffold, and records every file the engine **marked as generated** in
+`.vord/generated.json`, along with the blueprint and the command that
+regenerates it. For Wasp, `.wasp/**` (regenerated from `main.wasp` on every
+compile) becomes a protected path.
+
+A file counts as generated when the engine marks it: a standard
+`Code generated … DO NOT EDIT` or `@generated` header, or a hole. Unmarked
+files are starter code the project owns and stay freely editable.
+
+**Holes.** A generator marks where hand-written code goes:
+
+```go
+func Place(o Order) error {
+	// vord:hole place-rules
+	// vord:end-hole
+	return repo.Save(o)
+}
+```
+
+The write gate (hook, `vord agent`, dsh-vord) lets an agent change what
+sits between `vord:hole` and `vord:end-hole`. A write that changes anything
+else in a generated file is denied under `generated:edit-outside-hole`. The
+denial names the blueprint and the regenerate command, so the agent changes
+the blueprint instead of making an edit the next regeneration would throw
+away. The markers work under any comment syntax.
 
 ## `vord fix` — automated AI remediation
 

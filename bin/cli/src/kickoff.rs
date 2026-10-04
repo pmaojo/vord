@@ -35,7 +35,7 @@ impl std::error::Error for KickoffError {}
 /// writing implementation code. Never overwrites an existing feature file,
 /// so re-running `kickoff` on a project the agent already fleshed out is
 /// a no-op here.
-fn write_gherkin_scaffold(
+pub(crate) fn write_gherkin_scaffold(
     base: &Path,
     slug: &str,
     feature_name: &str,

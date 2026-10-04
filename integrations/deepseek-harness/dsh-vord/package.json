@@ -1,0 +1,33 @@
+{
+  "name": "dsh-vord",
+  "description": "vord's write guardrail as a native DeepSeek Harness plugin and profile bundle: policy-gated write/edit, re-judged results, test-evidence Stop gate, and vord's MCP tools",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pmaojo/vord.git",
+    "directory": "integrations/deepseek-harness/dsh-vord"
+  },
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
