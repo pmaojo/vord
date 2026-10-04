@@ -81,6 +81,7 @@ fn tool_list() -> Value {
                 "properties": {
                     "template": { "type": "string", "description": "Built-in template (single-language skeleton, NOT an engine): react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal. Cannot be combined with `engine`." },
                     "engine": { "type": "string", "enum": ["kthulu", "ferrum", "wasp"], "description": "Scaffolding engine, chosen by the language of the backend: ferrum = Rust backend + React; kthulu = Go backend; wasp = TypeScript full-stack (React + Node + Prisma). Requires name. Do not delete or hand-rewrite generated output: change the blueprint and regenerate." },
+                    "frontend": { "type": "string", "enum": ["wasp"], "description": "With a ferrum or kthulu `engine` as the backend, also generate a Wasp frontend joined by a shared OpenAPI contract (contract/openapi.yaml)" },
                     "language": { "type": "string", "description": "Backend language the user asked for (rust, go, typescript); checked against `engine` so a mismatch is rejected" },
                     "name": { "type": "string", "description": "Project name passed to the engine" },
                     "blueprint": { "type": "string", "description": "Engine blueprint: kthulu-plan.yaml or a ferrum graph YAML" },
@@ -164,6 +165,9 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
                     let name = string_arg(args, "name")
                         .ok_or("vord_kickoff with an engine needs `name`")?;
                     argv.extend(owned(&["--engine", engine, "--name", name]));
+                    if let Some(frontend) = string_arg(args, "frontend") {
+                        argv.extend(owned(&["--frontend", frontend]));
+                    }
                     if let Some(blueprint) = string_arg(args, "blueprint") {
                         argv.extend(owned(&["--blueprint", blueprint]));
                     }
