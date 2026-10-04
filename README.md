@@ -905,6 +905,20 @@ blueprint (kthulu needs `--blueprint`). Note: ferrum currently wires one
 handler per module into its routes, so the derived contract is the API to
 implement, not what ferrum already serves.
 
+**Generated code that does not build.** `--check-build` (MCP: `check_build`)
+runs `cargo check` (ferrum, in `backend/`) or `go build ./...` (kthulu) after
+generating. A failure is recorded in `.vord/generator-defects.json` and
+reported; so is anything an agent reports with the `vord_report_generator_defect`
+tool (`vord defects report --engine E --file F --reason R`). The point: when
+the template or blueprint is wrong, the agent must not patch around a
+`DO NOT EDIT` file. `vord agent done` / `vord_done` answers not-done while a
+defect is open, until it is fixed upstream and `vord defects resolve <id>`, or
+the user runs `vord defects accept <id>`. Verified with a real ferrum: it
+found a real defect (`ethercat_rs` does not exist on crates.io, so ferrum's
+`backend/Cargo.toml` never resolves). ferrum's own `templates/` now come with
+`ferrum init` (pmaojo/ferrum#324), so `FERRUM_TEMPLATES` is only needed with
+older builds.
+
 Every kickoff also writes `.vord/agent-baseline.json` (what `vord_done`
 compares against), an `.mcp.json` offering `vord mcp` to Claude Code, and
 warns when `vord` is not on `PATH` (without it the write gate does nothing).

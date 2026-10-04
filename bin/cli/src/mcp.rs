@@ -76,6 +76,19 @@ fn tool_list() -> Value {
             }
         },
         {
+            "name": "vord_report_generator_defect",
+            "description": "Generated code is wrong because the engine's template or the blueprint is (it imports types that do not exist, a handler is missing, a model lacks a column). Do NOT patch around it or edit the generated file: report it here, then fix the blueprint or the engine's template and regenerate. `vord_done` stays not-done while a defect is open.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "engine": { "type": "string", "description": "Engine that generated the file (ferrum, kthulu, wasp, ...)" },
+                    "file": { "type": "string", "description": "The generated file that is wrong" },
+                    "reason": { "type": "string", "description": "What is wrong, concretely" }
+                },
+                "required": ["engine", "file", "reason"]
+            }
+        },
+        {
             "name": "vord_kickoff",
             "description": format!("Scaffold a project deterministically instead of writing boilerplate: either a built-in vord template, or a scaffolding engine ({}) from its blueprint. The result is policy-gated, with generated files recorded so later edits go through the blueprint.", engine_names().join(", ")),
             "inputSchema": {
@@ -90,6 +103,7 @@ fn tool_list() -> Value {
                     "entities": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "type": "string", "enum": ["string", "int", "float", "bool", "uuid", "datetime"] } }, "description": "The app to create, as entities with typed fields, e.g. {\"todo\": {\"title\": \"string\", \"done\": \"bool\"}}. With engine ferrum, vord derives the graph (CRUD use cases) and, with `frontend`, the OpenAPI contract: do not write either by hand. Cannot be combined with `blueprint`." },
                     "vcs_ref": { "type": "string", "description": "With engine copier: template tag, branch or commit (`--vcs-ref`); copier defaults to the latest tag" },
                     "install": { "type": "boolean", "description": "Install the engine if it is not on PATH. Only engines with a pinned installer (see --list-engines); Wasp must be installed by the user and this flag does nothing for it" },
+                    "check_build": { "type": "boolean", "description": "After generating, build the result (ferrum: cargo check; kthulu: go build). A failure is recorded as a generator defect: report it, never patch generated files." },
                     "plan": { "type": "boolean", "description": "Only print the commands that would run" },
                     "name": { "type": "string", "description": "Project name passed to the engine" },
                     "blueprint": { "type": "string", "description": "Engine blueprint: kthulu-plan.yaml or a ferrum graph YAML" },
@@ -138,6 +152,10 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
             }
             Ok(vec![argv])
         }
+        "vord_report_generator_defect" => {
+            let field = |key: &str| string_arg(args, key).ok_or(format!("vord_report_generator_defect needs `{key}`"));
+            Ok(vec![owned(&["defects", "report", "--engine", field("engine")?, "--file", field("file")?, "--reason", field("reason")?])])
+        }
         "vord_kickoff" => {
             let mut argv = owned(&["kickoff"]);
             match (string_arg(args, "engine"), string_arg(args, "template")) {
@@ -174,9 +192,9 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
                     if let Some(generator) = string_arg(args, "generator") {
                         argv.extend(owned(&["--generator", generator]));
                     }
-                    for flag in ["install", "plan"] {
+                    for flag in ["install", "plan", "check_build"] {
                         if args.get(flag).and_then(Value::as_bool) == Some(true) {
-                            argv.push(format!("--{flag}"));
+                            argv.push(format!("--{}", flag.replace('_', "-")));
                         }
                     }
                     if let Some(data) = args.get("data") {
@@ -363,7 +381,7 @@ mod tests {
 
     #[test]
     fn every_listed_tool_maps_to_a_real_vord_command() {
-        let args = json!({ "engine": "kthulu", "name": "shop", "from": "a", "to": "b", "summary": "s" });
+        let args = json!({ "engine": "kthulu", "name": "shop", "from": "a", "to": "b", "summary": "s", "file": "f", "reason": "r" });
         for tool in tool_list().as_array().unwrap() {
             let name = tool["name"].as_str().unwrap();
             assert!(tool_commands(name, &args).is_ok(), "{name} has no command");

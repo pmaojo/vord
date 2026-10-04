@@ -358,15 +358,10 @@ impl EngineKickoff {
         }
         self.copier.validate()?;
         if self.engine == Engine::Ferrum && self.blueprint.is_some() {
-            match &self.templates {
-                None => anyhow::bail!(
-                    "ferrum compile needs its template directory: set FERRUM_TEMPLATES=<ferrum checkout>/templates (`ferrum init` leaves the project's own templates/ empty)"
-                ),
-                Some(dir) if !dir.is_dir() => anyhow::bail!(
-                    "FERRUM_TEMPLATES points at {}, which is not a directory",
-                    dir.display()
-                ),
-                Some(_) => {}
+            // Without it, the project's own templates/ is used; a ferrum that
+            // leaves it empty is caught right before `compile` runs.
+            if let Some(dir) = self.templates.as_ref().filter(|dir| !dir.is_dir()) {
+                anyhow::bail!("FERRUM_TEMPLATES points at {}, which is not a directory", dir.display());
             }
         }
         match self.engine {
@@ -729,6 +724,15 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
     }
 
     for step in kickoff.steps() {
+        if kickoff.engine == Engine::Ferrum
+            && step.args.first().map(String::as_str) == Some("compile")
+            && !step.args.iter().any(|a| a == "--templates")
+            && std::fs::read_dir(step.cwd.join("templates")).map_or(true, |mut d| d.next().is_none())
+        {
+            anyhow::bail!(
+                "this ferrum leaves the project's templates/ empty, so `ferrum compile` has nothing to render with: use a ferrum that copies them on init (pmaojo/ferrum#324) or set FERRUM_TEMPLATES=<ferrum checkout>/templates"
+            );
+        }
         let status = status_retrying(Command::new(&step.program).args(&step.args).current_dir(&step.cwd))
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -862,6 +866,60 @@ pub fn record_app(app: &crate::app_spec::AppSpec, project_dir: &Path) -> anyhow:
         serde_json::to_string_pretty(app)? + "\n",
     )?;
     Ok(())
+}
+
+/// Builds what the engine generated and, when it does not build, records a
+/// generator defect and says so: an agent that meets broken generated code
+/// must report it, not patch around it. `dir` is where the generated crate
+/// or module lives (`backend` in a full-stack project). Engines without a
+/// cheap build check (Wasp, copier, openapi) are skipped.
+pub fn check_build(project_dir: &Path, engine: Engine, dir: Option<&str>, notes: &mut Vec<String>) {
+    let argv: &[&str] = match engine {
+        Engine::Ferrum => &["cargo", "check", "--quiet"],
+        Engine::Kthulu => &["go", "build", "./..."],
+        _ => {
+            notes.push(format!("no build check for {}; nothing was verified", engine.name()));
+            return;
+        }
+    };
+    let cwd = match (engine, dir) {
+        (Engine::Ferrum, None) => project_dir.join("backend"),
+        (_, Some(dir)) => project_dir.join(dir),
+        _ => project_dir.to_path_buf(),
+    };
+    run_build_check(project_dir, engine.name(), argv, &cwd, notes);
+}
+
+fn run_build_check(project_dir: &Path, engine: &str, argv: &[&str], cwd: &Path, notes: &mut Vec<String>) {
+    if !available(argv[0]) {
+        notes.push(format!("build check skipped: {} is not on PATH", argv[0]));
+        return;
+    }
+    let output = match Command::new(argv[0]).args(&argv[1..]).current_dir(cwd).output() {
+        Ok(output) => output,
+        Err(e) => {
+            notes.push(format!("build check could not run `{}`: {e}", argv.join(" ")));
+            return;
+        }
+    };
+    if output.status.success() {
+        notes.push(format!("build check passed (`{}` in {})", argv.join(" "), cwd.display()));
+        return;
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let tail: Vec<&str> = stderr.lines().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect();
+    let reason = format!("`{}` fails on the generated code: {}", argv.join(" "), tail.join(" | "));
+    match crate::generator_defects::report(project_dir, engine, &cwd.strip_prefix(project_dir).unwrap_or(cwd).display().to_string(), &reason) {
+        Ok(defect) => notes.push(format!(
+            "GENERATED CODE DOES NOT BUILD (defect #{} in {}): fix the blueprint or {}'s template and regenerate; do not edit the generated files. `vord agent done` stays not-done until `vord defects resolve {}`. Output tail: {}",
+            defect.id,
+            crate::generator_defects::DEFECTS_FILE,
+            engine,
+            defect.id,
+            tail.join(" | ")
+        )),
+        Err(e) => notes.push(format!("generated code does not build and the defect could not be recorded: {e}")),
+    }
 }
 
 /// The command that rewrites a contract from `app.json`.
@@ -1552,6 +1610,21 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn a_failing_build_check_records_a_defect_that_blocks_done() {
+        let root = scratch("build-check");
+        let mut notes = Vec::new();
+        run_build_check(&root, "ferrum", &["sh", "-c", "echo 'cannot find type Usuario' >&2; exit 1"], &root, &mut notes);
+        assert!(notes[0].contains("DOES NOT BUILD") && notes[0].contains("Usuario"), "{notes:?}");
+        let reason = crate::generator_defects::blocking_reason(&root).expect("an open defect blocks done");
+        assert!(reason.contains("ferrum") && reason.contains("Usuario"), "{reason}");
+        let mut notes = Vec::new();
+        run_build_check(&root, "ferrum", &["true"], &root, &mut notes);
+        assert!(notes[0].contains("passed"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("vord-kickoff-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1900,11 +1973,10 @@ mod tests {
     }
 
     #[test]
-    fn ferrum_with_a_blueprint_names_the_missing_templates_variable() {
+    fn a_bad_ferrum_templates_directory_is_named() {
         let mut k = kickoff(Engine::Ferrum, Some("/plans/users.yaml"));
         k.templates = None;
-        let err = k.validate().unwrap_err().to_string();
-        assert!(err.contains("FERRUM_TEMPLATES"), "{err}");
+        assert!(k.validate().is_ok(), "the project's own templates/ may be enough");
         k.templates = Some(PathBuf::from("/nonexistent/templates"));
         assert!(k.validate().unwrap_err().to_string().contains("not a directory"));
         assert!(kickoff(Engine::Ferrum, None).validate().is_ok(), "no blueprint, no compile, no templates needed");

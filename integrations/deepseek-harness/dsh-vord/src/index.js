@@ -62,6 +62,8 @@ export const DEFAULT_GUIDANCE = [
   '- Scaffold with the `vord_kickoff` MCP tool instead of hand-writing boilerplate. Call it with `plan` first to preview, then generate.',
   '- Pick the engine by the backend language the user asked for: `ferrum` = Rust, `kthulu` = Go, `wasp` = TypeScript full-stack, `copier` = any template (e.g. Python/FastAPI), `openapi` = generate from an OpenAPI spec. Never pick an engine for a different language.',
   '- Never delete or hand-rewrite generated output (no `rm -rf` on the generated project). To change it, edit the blueprint and regenerate; fill the marked holes through `vord_holes`.',
+  '- Describe the app with the `entities` argument of `vord_kickoff` (e.g. {"todo": {"title": "string", "done": "bool"}}) instead of writing a blueprint, and pass `check_build` so the result is built before you start.',
+  '- If generated code is wrong (imports types that do not exist, a handler is missing, a model lacks a column), do NOT work around it and do not edit the file: call `vord_report_generator_defect`, then fix the blueprint or the engine template and regenerate. `vord_done` stays not-done while a defect is open.',
   '- Open the generated project directory as the workspace for all further work.',
 ].join('\n')
 
