@@ -17,6 +17,7 @@ function mount(output, extra = {}) {
   process.env.FAKE_VORD_OUTPUT = output === undefined ? '' : JSON.stringify(output)
   delete process.env.FAKE_VORD_EXIT
   delete process.env.FAKE_VORD_DONE
+  delete process.env.FAKE_VORD_HOLES
   const ctx = fakeContext()
   apply(ctx, { command: FAKE_VORD, ...extra })
   const payloads = () => {
@@ -143,4 +144,39 @@ test('test evidence and analyzer objections are combined into one steer', async 
   await ctx.fire('agent/turn-stopping', { agent, turn: 1, signal: new AbortController().signal })
   assert.equal(agent.steered.length, 1)
   assert.match(agent.steered[0].content[0].text, /run the tests[\s\S]*target remains/)
+})
+
+const HOLES = JSON.stringify([
+  { kind: 'marker', file: 'internal/order/service.go', name: 'order-create', line: 5, end_line: 7, reason: 'empty or placeholder' },
+  { kind: 'marker', file: 'internal/user/service.go', name: 'user-create', line: 5, end_line: 7, reason: 'empty or placeholder' },
+])
+
+test('a hole the session wrote to but left pending holds the turn open', async () => {
+  const { ctx, agent, dir, calls } = mount(undefined)
+  process.env.FAKE_VORD_HOLES = HOLES
+  const stopping = { agent, turn: 1, signal: new AbortController().signal }
+  await ctx.fire('agent/turn-stopping', stopping)
+  assert.equal(agent.steered.length, 0, 'holes the session never touched are not its task')
+  assert.ok(!calls().some(argv => argv[0] === 'holes'), 'nothing written, nothing to ask vord')
+
+  await ctx.fire('tools/post-execute', execution('write', { file_path: join(dir, 'internal/order/service.go'), content: 'x' }, agent), { isError: false, value: {}, content: [] }, accept)
+  await ctx.fire('agent/turn-stopping', stopping)
+  assert.equal(agent.steered.length, 1)
+  const text = agent.steered[0].content[0].text
+  assert.match(text, /1 hole\(s\) still pending/)
+  assert.match(text, /internal\/order\/service\.go:5 `order-create`/)
+  assert.doesNotMatch(text, /user-create/)
+})
+
+test('holesAsDone all holds the turn while any hole in scope is pending, false never does', async () => {
+  const all = mount(undefined, { holesAsDone: 'all' })
+  process.env.FAKE_VORD_HOLES = HOLES
+  await all.ctx.fire('agent/turn-stopping', { agent: all.agent, turn: 1, signal: new AbortController().signal })
+  assert.match(all.agent.steered[0].content[0].text, /2 hole\(s\) still pending/)
+
+  const off = mount(undefined, { holesAsDone: false })
+  process.env.FAKE_VORD_HOLES = HOLES
+  await off.ctx.fire('tools/post-execute', execution('write', { file_path: join(off.dir, 'internal/order/service.go'), content: 'x' }, off.agent), { isError: false, value: {}, content: [] }, accept)
+  await off.ctx.fire('agent/turn-stopping', { agent: off.agent, turn: 1, signal: new AbortController().signal })
+  assert.equal(off.agent.steered.length, 0)
 })

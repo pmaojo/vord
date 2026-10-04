@@ -93,3 +93,17 @@ export async function analyzerVerdict({ scope, baseline, rule }, options) {
   if (typeof verdict?.done !== 'boolean') throw new Error(`vord agent done printed no verdict: ${stdout.trim()}`)
   return { done: verdict.done, reason: String(verdict.reason ?? '') }
 }
+
+/**
+ * `vord holes --json`: the holes still waiting for hand-written code.
+ * @param {{ scope: string }} target
+ * @param {Omit<VordRunOptions, 'input'>} options
+ * @returns {Promise<Array<{ kind: string, file: string, name: string, line: number, end_line: number, reason: string, export?: string }>>}
+ */
+export async function pendingHoles({ scope }, options) {
+  const { code, stdout, stderr } = await runVord(['holes', scope, '--json'], options)
+  if (code !== 0) throw new Error(`vord holes exited ${code}: ${stderr.trim()}`)
+  const holes = JSON.parse(stdout.trim())
+  if (!Array.isArray(holes)) throw new Error(`vord holes printed no list: ${stdout.trim()}`)
+  return holes
+}

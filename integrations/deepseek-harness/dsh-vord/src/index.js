@@ -18,6 +18,10 @@
  *   close while the analyzer sees findings the baseline lacked (or a named
  *   target rule still fires), nor while `[[test_required]]` evidence is
  *   pending. The objection steers the agent into another step.
+ * - Holes: a turn cannot close while a `vord:hole` in a file the session
+ *   wrote (or, with `holesAsDone: 'all'`, anywhere in scope) is still empty
+ *   or a placeholder — "filled" is checked by `vord holes`, not taken from
+ *   the model.
  *
  * Tool names are matched natively, so the bridge's case-sensitive
  * `Edit|Write` vs `edit|write` matcher pitfall does not exist here.
@@ -27,8 +31,8 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { hookPayload, sessionCwd, shellResponse, SHELL_TOOL, writeCall } from './payload.js'
-import { join } from 'node:path'
-import { analyzerVerdict, recordBaseline, runVordHook } from './vord.js'
+import { join, relative } from 'node:path'
+import { analyzerVerdict, pendingHoles, recordBaseline, runVordHook } from './vord.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'vord'
@@ -45,6 +49,7 @@ const SOURCE = Object.freeze({ kind: 'vord' })
  * @property {boolean} [analyzerAsDone] - hold a turn open while the analyzer sees findings the session's baseline lacked; default true.
  * @property {string} [doneScope] - path the baseline is taken over and re-scanned; default `.`.
  * @property {string} [doneRule] - a rule every task in this profile must eliminate from the scope.
+ * @property {'touched' | 'all' | false} [holesAsDone] - hold a turn open while holes stay pending: in files the session wrote (`touched`, default), anywhere in `doneScope` (`all`), or never (`false`).
  */
 
 /**
@@ -82,6 +87,9 @@ export function apply(ctx, config = {}) {
   const analyzerAsDone = config.analyzerAsDone ?? true
   const doneScope = config.doneScope ?? '.'
   const doneRule = config.doneRule
+  const holesAsDone = config.holesAsDone ?? 'touched'
+  /** @type {WeakMap<object, Set<string>>} workspace-relative files each agent wrote */
+  const touched = new WeakMap()
   /** @type {WeakMap<object, string>} the baseline each live agent is judged against */
   const baselines = new WeakMap()
   /** @type {WeakMap<object, number>} */
@@ -130,6 +138,11 @@ export function apply(ctx, config = {}) {
       if (result.isError) return next()
       const call = writeCall(exec.name, exec.arguments, cwd)
       if (!call) return next()
+      if (exec.agent) {
+        const files = touched.get(exec.agent) ?? new Set()
+        files.add(relative(cwd, call.tool_input.file_path).split('\\').join('/'))
+        touched.set(exec.agent, files)
+      }
       payload = hookPayload('PostToolUse', cwd, call.tool_name, call.tool_input)
     }
     const outcome = await judge(payload, cwd, exec.signal)
@@ -189,7 +202,31 @@ export function apply(ctx, config = {}) {
         ctx.logger.warn(`vord: analyzer verdict failed: ${String(error)}`)
       }
     }
+    const holes = await holeObjection(agent, options)
+    if (holes) objections.push(holes)
     return objections.length === 0 ? undefined : objections.join('\n\n')
+  }
+
+  /**
+   * The holes this turn leaves pending, as an objection, or `undefined`.
+   * @param {any} agent
+   * @param {Omit<import('./vord.js').VordRunOptions, 'input'>} options
+   */
+  async function holeObjection(agent, options) {
+    if (!holesAsDone) return undefined
+    const files = touched.get(agent)
+    if (holesAsDone === 'touched' && !files?.size) return undefined
+    let holes
+    try {
+      holes = await pendingHoles({ scope: doneScope }, options)
+    } catch (error) {
+      ctx.logger.warn(`vord: could not list holes: ${String(error)}`)
+      return undefined
+    }
+    const open = holesAsDone === 'all' ? holes : holes.filter((hole) => files.has(hole.file))
+    if (open.length === 0) return undefined
+    const lines = open.map((hole) => `- ${hole.file}:${hole.line} \`${hole.name || '(unnamed)'}\` (${hole.reason})`)
+    return `vord: ${open.length} hole(s) still pending — write the hand-written code inside each one, replacing the placeholder:\n${lines.join('\n')}`
   }
 
   ctx.on('agent/turn-stopping', async ({ agent, signal }) => {

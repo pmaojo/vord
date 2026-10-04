@@ -5,6 +5,7 @@
 // - `agent baseline --out F`: writes an empty baseline to F, logs the call.
 // - `agent done --json`: prints $FAKE_VORD_DONE (default: done) and exits 3
 //   when it says not done, as vord does.
+// - `holes <scope> --json`: prints $FAKE_VORD_HOLES (default: none), logs the call.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -24,6 +25,9 @@ if (args[0] === 'agent' && args[1] === 'baseline') {
   const verdict = process.env.FAKE_VORD_DONE ?? JSON.stringify({ done: true, reason: 'the analyzer agrees the task is complete' })
   process.stdout.write(verdict)
   process.exit(JSON.parse(verdict).done ? 0 : 3)
+} else if (args[0] === 'holes') {
+  log({ argv: args })
+  process.stdout.write(process.env.FAKE_VORD_HOLES ?? '[]')
 } else {
   const payload = readFileSync(0, 'utf8')
   log(JSON.parse(payload))

@@ -52,6 +52,16 @@ fn tool_list() -> Value {
             }
         },
         {
+            "name": "vord_holes",
+            "description": "List the holes the blueprints leave open, as JSON: `vord:hole` regions still empty or holding a placeholder, and Wasp operations main.wasp imports but nobody implemented. Each hole is one task: fill it, writing only inside it; the rest of the file is generated and vord denies changes to it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Directory to look in (default: the workspace root)" }
+                }
+            }
+        },
+        {
             "name": "vord_done",
             "description": "Ask the analyzer whether the task is finished: re-scan and compare against the baseline recorded with `vord agent baseline`. Returns {done, reason}.",
             "inputSchema": {
@@ -107,6 +117,7 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
     let owned = |parts: &[&str]| parts.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     match name {
         "vord_scan" => Ok(vec![owned(&["scan", string_arg(args, "path").unwrap_or(".")])]),
+        "vord_holes" => Ok(vec![owned(&["holes", string_arg(args, "path").unwrap_or("."), "--json"])]),
         "vord_done" => {
             let mut argv = owned(&["agent", "done", "--json", "--scope", string_arg(args, "scope").unwrap_or(".")]);
             if let Some(baseline) = string_arg(args, "baseline") {
@@ -265,6 +276,7 @@ mod tests {
         assert!(tools.iter().any(|t| t["name"] == "vord_scan"));
         assert!(tools.iter().any(|t| t["name"] == "vord_kickoff"));
         assert!(tools.iter().any(|t| t["name"] == "vord_done"));
+        assert!(tools.iter().any(|t| t["name"] == "vord_holes"));
     }
 
     #[test]
