@@ -545,6 +545,23 @@ fn openapi_user_owned(project_dir: &Path, generator: &str) -> anyhow::Result<ign
     Ok(builder.build()?)
 }
 
+/// `Command::status`, retried while the kernel answers ETXTBSY ("text file
+/// busy"). A program that was written an instant ago (an installer, a
+/// freshly built engine) can still be held open for writing by a process
+/// forked in between; the condition clears within milliseconds.
+fn status_retrying(command: &mut Command) -> std::io::Result<std::process::ExitStatus> {
+    let mut attempt = 0;
+    loop {
+        match command.status() {
+            Err(e) if e.raw_os_error() == Some(26) && attempt < 8 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(25 * attempt));
+            }
+            other => return other,
+        }
+    }
+}
+
 /// Is `program` an executable file in one of the PATH directories?
 fn on_path(program: &str) -> bool {
     std::env::var_os("PATH")
@@ -631,10 +648,7 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
     }
 
     for step in kickoff.steps() {
-        let status = Command::new(&step.program)
-            .args(&step.args)
-            .current_dir(&step.cwd)
-            .status()
+        let status = status_retrying(Command::new(&step.program).args(&step.args).current_dir(&step.cwd))
             .map_err(|e| {
                 anyhow::anyhow!(
                     "could not run {} ({e}). Install it with: {}",
@@ -917,11 +931,12 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
         let frontend = root.join("frontend");
         let schema = frontend.join("src/api/schema.ts");
         std::fs::create_dir_all(frontend.join("src/api"))?;
-        let status = Command::new(&npx)
-            .args(["-y", CLIENT_PACKAGE, "../contract/openapi.yaml", "-o", "src/api/schema.ts"])
-            .current_dir(&frontend)
-            .status()
-            .map_err(|e| anyhow::anyhow!("could not run {npx}: {e}"))?;
+        let status = status_retrying(
+            Command::new(&npx)
+                .args(["-y", CLIENT_PACKAGE, "../contract/openapi.yaml", "-o", "src/api/schema.ts"])
+                .current_dir(&frontend),
+        )
+        .map_err(|e| anyhow::anyhow!("could not run {npx}: {e}"))?;
         if !status.success() {
             anyhow::bail!("`{npx} -y {CLIENT_PACKAGE}` failed ({status}) while generating frontend/src/api/schema.ts");
         }
