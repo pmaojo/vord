@@ -391,7 +391,33 @@ impl EngineKickoff {
         for step in self.steps() {
             lines.push(format!("{}: {} {}", step.cwd.display(), step.program, step.args.join(" ")));
         }
+        lines.extend(self.preflight());
         lines
+    }
+
+    /// What would stop a real run: the engine is not on PATH. `--install`
+    /// only helps for engines with a pinned installer; Wasp's is a piped
+    /// shell script that vord never runs.
+    pub fn preflight(&self) -> Vec<String> {
+        let program = self.program();
+        if self.program.is_some() || on_path(&program) {
+            return Vec::new();
+        }
+        let hint = self.engine.install_hint();
+        let line = match (self.install, self.engine.install_argv().is_some()) {
+            (true, true) => format!(
+                "preflight: {program} is not on PATH; --install will run `{}`",
+                self.engine.install_argv().unwrap_or_default().join(" ")
+            ),
+            (true, false) => format!(
+                "preflight: {program} is not on PATH and vord cannot install it (--install has no effect for {}); install it yourself: {hint}",
+                self.engine.name()
+            ),
+            (false, _) => format!(
+                "preflight: {program} is not on PATH; a real run would fail. Install it ({hint}) or pass --install where supported"
+            ),
+        };
+        vec![line]
     }
 
     fn blueprint_arg(&self) -> Option<String> {
@@ -628,6 +654,49 @@ pub struct KickoffReport {
 /// project directory this run created is removed again if the run fails, and
 /// the error says so; a directory that already existed is never touched.
 pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
+    let mut report = run_engine(kickoff)?;
+    finish_project(&report.project_dir, &mut report.notes)?;
+    Ok(report)
+}
+
+/// What a freshly generated project needs so the agent can start at once:
+/// the analyzer baseline `vord_done` compares against, an `.mcp.json` that
+/// offers vord's tools to Claude Code, and a warning when the hook command
+/// is not on PATH (without it the write gate silently does nothing).
+fn finish_project(root: &Path, notes: &mut Vec<String>) -> anyhow::Result<()> {
+    let baseline = root.join(vord_cli::agent::DONE_BASELINE_FILE);
+    let findings = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?
+                    .block_on(vord_cli::agent::write_baseline(root, ".", &baseline))
+            })
+            .join()
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("the baseline scan panicked")))
+    })?;
+    notes.push(format!(
+        "{} written ({findings} existing finding(s)): vord_done reports only what the agent adds after this point",
+        vord_cli::agent::DONE_BASELINE_FILE
+    ));
+    let mcp = root.join(".mcp.json");
+    if !mcp.exists() {
+        std::fs::write(
+            &mcp,
+            "{\n  \"mcpServers\": {\n    \"vord\": { \"command\": \"vord\", \"args\": [\"mcp\"] }\n  }\n}\n",
+        )?;
+        notes.push(".mcp.json written: Claude Code offers vord's tools (vord_scan, vord_holes, vord_done) in this project".to_string());
+    }
+    if !on_path("vord") {
+        notes.push(
+            "`vord` is not on PATH: the write gate (`vord hook claude-code`) and `vord mcp` cannot start until it is, so nothing is protected yet".to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn run_engine(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
     kickoff.validate()?;
     let project_dir = kickoff.project_dir();
     let existed = project_dir.exists();
@@ -671,6 +740,11 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         if !status.success() {
             anyhow::bail!("`{} {}` failed ({status})", step.program, step.args.join(" "));
         }
+    }
+    // `ferrum init` seeds its `users` example graph; once the project has its
+    // own, leaving it behind makes the scaffold look like a users app.
+    if kickoff.engine == Engine::Ferrum && kickoff.staged_blueprint().is_some_and(|staged| staged != "gen/example.yaml") {
+        let _ = std::fs::remove_file(project_dir.join("gen/example.yaml"));
     }
     if !project_dir.is_dir() {
         anyhow::bail!(
@@ -764,6 +838,36 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
     })
 }
 
+/// The blueprint an engine gets for `app`: only ferrum has a graph vord can
+/// derive (kthulu's `--from-plan` format is not verified against its CLI).
+pub fn app_blueprint(app: &crate::app_spec::AppSpec, engine: Engine) -> anyhow::Result<PathBuf> {
+    if engine != Engine::Ferrum {
+        anyhow::bail!(
+            "an app description (--app/--entity) derives ferrum's graph; {} has no derivable blueprint yet, pass --blueprint instead",
+            engine.name()
+        );
+    }
+    let dir = std::env::temp_dir().join(format!("vord-app-{}-{}", std::process::id(), app.name));
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join(format!("{}.yaml", app.name));
+    std::fs::write(&file, app.ferrum_graph())?;
+    Ok(file)
+}
+
+/// Keeps the description in the project (`app.json`) as the source the graph
+/// and the contract are derived from.
+pub fn record_app(app: &crate::app_spec::AppSpec, project_dir: &Path) -> anyhow::Result<()> {
+    std::fs::write(
+        project_dir.join("app.json"),
+        serde_json::to_string_pretty(app)? + "\n",
+    )?;
+    Ok(())
+}
+
+/// The command that rewrites a contract from `app.json`.
+pub const CONTRACT_REGENERATE: &str =
+    "vord kickoff --app app.json --emit-contract contract/openapi.yaml";
+
 /// A backend engine and a Wasp frontend generated side by side, joined by one
 /// OpenAPI contract: the backend serves it, the frontend's typed client is
 /// generated from it, and neither side hand-writes the API layer.
@@ -778,6 +882,9 @@ pub struct FullstackKickoff {
     pub install: bool,
     /// Executable overrides by part (`backend`, `frontend`), for tests.
     pub programs: std::collections::BTreeMap<String, String>,
+    /// The app to create, described as entities; ferrum's graph and the
+    /// contract are derived from it.
+    pub app: Option<crate::app_spec::AppSpec>,
 }
 
 impl FullstackKickoff {
@@ -790,7 +897,11 @@ impl FullstackKickoff {
             program: self.programs.get(dir).cloned(),
             generator: if engine == Engine::OpenApi { self.generator.clone() } else { None },
             install: self.install,
-            templates: ferrum_templates_from_env(),
+            templates: self
+                .programs
+                .get("templates")
+                .map(PathBuf::from)
+                .or_else(ferrum_templates_from_env),
             copier: Default::default(),
         }
     }
@@ -806,6 +917,9 @@ impl FullstackKickoff {
             lines.push("(if the backend produced an OpenAPI document) copy it to contract/openapi.yaml".to_string());
         }
         lines.push(format!("{}/frontend: npx -y {CLIENT_PACKAGE} ../contract/openapi.yaml -o src/api/schema.ts", root.display()));
+        if !available("npx") {
+            lines.push("preflight: npx is not on PATH; the typed client frontend/src/api/schema.ts would be skipped".to_string());
+        }
         lines
     }
 }
@@ -886,12 +1000,16 @@ pub fn run_fullstack(kickoff: &FullstackKickoff) -> anyhow::Result<KickoffReport
 
 fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Result<KickoffReport> {
     let mut created = 0;
+    let blueprint = match (&kickoff.blueprint, &kickoff.app) {
+        (None, Some(app)) => Some(app_blueprint(app, kickoff.backend)?),
+        (blueprint, _) => blueprint.clone(),
+    };
     for (engine, dir, blueprint) in [
-        (kickoff.backend, "backend", kickoff.blueprint.clone()),
+        (kickoff.backend, "backend", blueprint),
         (Engine::Wasp, "frontend", None),
     ] {
         let part = kickoff.part(engine, dir, blueprint, root);
-        created += run(&part)?.created;
+        created += run_engine(&part)?.created;
     }
 
     // One manifest and one hook at the workspace root, where the agent works.
@@ -926,6 +1044,12 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
                 "contract/openapi.yaml copied from the backend's {}",
                 spec.strip_prefix(root.join("backend")).unwrap_or(&spec).display()
             ));
+        } else if let Some(app) = &kickoff.app {
+            std::fs::write(&contract, app.openapi())?;
+            notes.push(
+                "contract/openapi.yaml is derived from app.json: it is the API the app should expose. ferrum's generated routes are not verified to implement it, so check them against the contract"
+                    .to_string(),
+            );
         } else {
             std::fs::write(
                 &contract,
@@ -973,6 +1097,17 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
             "{npx} is not available, so frontend/src/api/schema.ts was not generated; install Node.js, then run: cd frontend && {CLIENT_REGENERATE}"
         ));
     }
+    if let Some(app) = &kickoff.app {
+        record_app(app, root)?;
+        manifest.files.insert(
+            "contract/openapi.yaml".to_string(),
+            GeneratedFile {
+                engine: "vord".to_string(),
+                source: Some("app.json".to_string()),
+                regenerate: Some(CONTRACT_REGENERATE.to_string()),
+            },
+        );
+    }
     manifest.save(root)?;
     crate::hook_install::install(root, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
     protect_wasp_output(root, "frontend/")?;
@@ -984,6 +1119,7 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
         ),
     )?;
     notes.extend(manifest_ignored_note(root));
+    finish_project(root, &mut notes)?;
     Ok(KickoffReport { project_dir: root.to_path_buf(), created, generated: manifest.files.len(), notes })
 }
 
@@ -1168,7 +1304,29 @@ mod tests {
         assert!(dir.join(".claude/settings.json").exists());
         assert!(dir.join("features/app.feature").exists());
         assert!(std::fs::read_to_string(dir.join(".gitignore")).unwrap().contains(".vord/sessions/"));
+        // The agent can finish at once: baseline for vord_done and the MCP entry.
+        assert!(dir.join(vord_cli::agent::DONE_BASELINE_FILE).is_file());
+        let mcp = std::fs::read_to_string(dir.join(".mcp.json")).unwrap();
+        assert!(mcp.contains("\"command\": \"vord\"") && mcp.contains("\"mcp\""));
+        assert!(report.notes.iter().any(|n| n.contains("agent-baseline.json")));
         std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn plan_flags_a_missing_engine_and_says_install_cannot_help_for_wasp() {
+        let mut k = kickoff(Engine::Wasp, None);
+        k.program = None;
+        k.name = "x".into();
+        // Force a name that cannot be on PATH.
+        let missing = Engine::Wasp.executable() == "wasp" && !on_path("wasp");
+        if missing {
+            let plain = k.plan().join("\n");
+            assert!(plain.contains("preflight: wasp is not on PATH"), "{plain}");
+            k.install = true;
+            assert!(k.plan().join("\n").contains("vord cannot install it"));
+        }
+        k.program = Some("/bin/sh".into());
+        assert!(k.preflight().is_empty(), "an explicit program is trusted");
     }
 
     #[test]
@@ -1259,6 +1417,7 @@ mod tests {
             parent: PathBuf::from("/nonexistent"),
             install: false,
             programs: Default::default(),
+            app: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("ferrum"), "{err}");
@@ -1271,6 +1430,125 @@ mod tests {
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path.display().to_string()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_ferrum_app_replaces_the_seeded_users_example_and_keeps_its_description() {
+        let parent = scratch("ferrum-app");
+        let ferrum = script(
+            &parent,
+            "ferrum",
+            "case \"$1\" in init) mkdir -p \"$2/gen\"; echo users > \"$2/gen/example.yaml\";; compile) mkdir -p backend; printf '// Code generated by ferrum. DO NOT EDIT.\\n' > backend/a.rs;; esac",
+        );
+        let app =
+            crate::app_spec::AppSpec::from_entity_flags("todo", &["todo:title=string".to_string()])
+                .unwrap();
+        let blueprint = app_blueprint(&app, Engine::Ferrum).unwrap();
+        let k = EngineKickoff {
+            engine: Engine::Ferrum,
+            name: "shop".into(),
+            blueprint: Some(blueprint),
+            parent: parent.clone(),
+            program: Some(ferrum),
+            generator: None,
+            install: false,
+            templates: Some(parent.clone()),
+            copier: Default::default(),
+        };
+        let report = run(&k).unwrap();
+        record_app(&app, &report.project_dir).unwrap();
+        let dir = parent.join("shop");
+        assert!(
+            !dir.join("gen/example.yaml").exists(),
+            "the users example is gone"
+        );
+        assert!(
+            std::fs::read_to_string(dir.join("gen/todo.yaml"))
+                .unwrap()
+                .contains("listTodos")
+        );
+        assert!(
+            std::fs::read_to_string(dir.join("app.json"))
+                .unwrap()
+                .contains("\"todo\"")
+        );
+        assert!(
+            app_blueprint(&app, Engine::Kthulu)
+                .unwrap_err()
+                .to_string()
+                .contains("--blueprint")
+        );
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fullstack_with_an_app_derives_the_contract_and_registers_it() {
+        let (root, report) = fullstack_app("derived");
+        let contract = std::fs::read_to_string(root.join("contract/openapi.yaml")).unwrap();
+        assert!(
+            contract.contains("/todos/{id}:") && contract.contains("operationId: createTodo"),
+            "{contract}"
+        );
+        assert!(
+            report
+                .notes
+                .iter()
+                .any(|n| n.contains("derived from app.json"))
+        );
+        let manifest = Manifest::load(&root);
+        let entry = &manifest.files["contract/openapi.yaml"];
+        assert_eq!(entry.source.as_deref(), Some("app.json"));
+        assert_eq!(entry.regenerate.as_deref(), Some(CONTRACT_REGENERATE));
+        assert!(root.join("app.json").is_file());
+        std::fs::remove_dir_all(root.parent().unwrap()).ok();
+    }
+
+    #[cfg(unix)]
+    fn fullstack_app(tag: &str) -> (PathBuf, KickoffReport) {
+        let parent = scratch(tag);
+        let mut programs = std::collections::BTreeMap::new();
+        programs.insert(
+            "backend".to_string(),
+            script(
+                &parent,
+                "back",
+                "mkdir -p \"$2\" 2>/dev/null; mkdir -p backend; mkdir -p gen",
+            ),
+        );
+        programs.insert(
+            "frontend".to_string(),
+            script(&parent, "front", "mkdir -p \"$2/src\""),
+        );
+        programs.insert(
+            "client".to_string(),
+            script(
+                &parent,
+                "npx",
+                "echo 'export type paths = Record<string, never>;' > \"$5\"",
+            ),
+        );
+        programs.insert("templates".to_string(), parent.display().to_string());
+        let app = crate::app_spec::AppSpec::from_entity_flags(
+            "todo",
+            &["todo:title=string,done=bool".to_string()],
+        )
+        .unwrap();
+        let report = run_fullstack(&FullstackKickoff {
+            backend: Engine::Ferrum,
+            name: "shop".into(),
+            blueprint: None,
+            generator: None,
+            parent: parent.clone(),
+            install: false,
+            programs,
+            app: Some(app),
+        });
+        match report {
+            Ok(report) => (parent.join("shop"), report),
+            Err(e) => panic!("{e:#}"),
+        }
     }
 
     #[cfg(unix)]
@@ -1341,6 +1619,7 @@ mod tests {
             parent: parent.clone(),
             install: false,
             programs,
+            app: None,
         })
         .unwrap_err();
         assert!(format!("{err:#}").contains("removed the partial"), "{err:#}");
@@ -1366,6 +1645,7 @@ mod tests {
             parent: parent.clone(),
             install: false,
             programs,
+            app: None,
         })
         .unwrap();
         let root = parent.join("app");
@@ -1506,6 +1786,7 @@ mod tests {
             parent: parent.clone(),
             install: false,
             programs,
+            app: None,
         })
         .unwrap();
         let root = parent.join("app");
@@ -1536,6 +1817,7 @@ mod tests {
             parent: "/tmp".into(),
             install: false,
             programs: Default::default(),
+            app: None,
         }
         .plan();
         assert!(plan.iter().any(|l| l.contains("-g python-fastapi")) && plan.iter().any(|l| l.contains("your spec verbatim")), "{plan:?}");
@@ -1583,6 +1865,7 @@ mod tests {
             parent: parent.clone(),
             install: false,
             programs,
+            app: None,
         })
         .unwrap();
         (parent, report)

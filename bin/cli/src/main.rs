@@ -9,6 +9,7 @@ use vord_cli::output;
 use vord_infra_fs::{BaselineStore, FileAnalysisCache};
 use vord_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 
+mod app_spec;
 mod arch;
 mod blame;
 mod ci_detect;
@@ -151,6 +152,21 @@ enum Command {
         /// (`--vcs-ref`). Copier otherwise uses the template's latest tag.
         #[arg(long = "vcs-ref", requires = "engine", conflicts_with = "frontend")]
         vcs_ref: Option<String>,
+        /// The app to create, as JSON: {"name": "todo", "entities": {"todo":
+        /// {"title": "string", "done": "bool"}}}. With `--engine ferrum`,
+        /// vord derives the engine's graph (CRUD use cases) from it, and with
+        /// `--frontend` the OpenAPI contract too; it is kept as app.json.
+        #[arg(long, conflicts_with = "blueprint")]
+        app: Option<PathBuf>,
+        /// An entity of the app: name:field=type,field=type (repeatable;
+        /// types: string, int, float, bool, uuid, datetime). The inline form
+        /// of `--app`.
+        #[arg(long = "entity", conflicts_with_all = ["blueprint", "app"], value_name = "NAME:FIELD=TYPE,...")]
+        entities: Vec<String>,
+        /// Write the OpenAPI contract derived from `--app`/`--entity` to this
+        /// file and exit (how contract/openapi.yaml is regenerated).
+        #[arg(long, value_name = "FILE")]
+        emit_contract: Option<PathBuf>,
         /// Install the engine if it is not on PATH (pinned, non-interactive)
         /// instead of only saying how.
         #[arg(long, requires = "engine")]
@@ -763,11 +779,35 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             generator,
             data,
             vcs_ref,
+            app,
+            entities,
+            emit_contract,
             install,
             plan,
             list_engines,
             json,
         }) => {
+            let app_name = name.clone().unwrap_or_else(|| "app".to_string());
+            let app = match (&app, entities.is_empty()) {
+                (Some(file), _) => {
+                    let mut value: serde_json::Value =
+                        serde_json::from_str(&std::fs::read_to_string(file)?)
+                            .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+                    if value.get("name").is_none() {
+                        value["name"] = app_name.clone().into();
+                    }
+                    Some(app_spec::AppSpec::from_json(&value.to_string())?)
+                }
+                (None, false) => Some(app_spec::AppSpec::from_entity_flags(&app_name, &entities)?),
+                (None, true) => None,
+            };
+            if let Some(out) = emit_contract {
+                let app =
+                    app.ok_or_else(|| anyhow::anyhow!("--emit-contract needs --app or --entity"))?;
+                std::fs::write(&out, app.openapi())?;
+                println!("vord kickoff: contract written to {}", out.display());
+                return Ok(ExitCode::SUCCESS);
+            }
             if list_engines {
                 if json {
                     println!("{}", serde_json::to_string_pretty(kickoff_engine::ENGINES)?);
@@ -789,6 +829,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     parent: path,
                     install,
                     programs: Default::default(),
+                    app: app.clone(),
                 };
                 if plan {
                     for line in fullstack.plan() {
@@ -807,6 +848,13 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 }
                 return Ok(ExitCode::SUCCESS);
             }
+            let blueprint = match (&blueprint, &app) {
+                (None, Some(app)) => Some(kickoff_engine::app_blueprint(
+                    app,
+                    kickoff_engine::Engine::parse(&engine)?,
+                )?),
+                _ => blueprint,
+            };
             let request = kickoff_engine::EngineKickoff {
                 engine: kickoff_engine::Engine::parse(&engine)?,
                 name: name.expect("clap requires --name with --engine"),
@@ -826,6 +874,9 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 return Ok(ExitCode::SUCCESS);
             }
             let report = kickoff_engine::run(&request)?;
+            if let Some(app) = &app {
+                kickoff_engine::record_app(app, &report.project_dir)?;
+            }
             println!(
                 "vord kickoff: {} created {} file(s) in {}; {} marked generated (edit their blueprint, not the files)",
                 engine,

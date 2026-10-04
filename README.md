@@ -891,9 +891,31 @@ Without `npx` that step is skipped with a message, not a failure.
 
 Ferrum's `compile` needs its template directory: set `FERRUM_TEMPLATES=<ferrum checkout>/templates`; without it `--blueprint` stops with a message naming the variable. If git ignores `.vord/generated.json` (a broad `.vord/` line), kickoff warns: commit the manifest, ignore only `.vord/sessions/`.
 
-`--plan` prints every command (the install included) and stops; `--install`
+**Describe the app, don't hand-write the blueprint.** `--entity
+todo:title=string,done=bool` (repeatable; or `--app app.json`, or the MCP
+`entities` argument) derives, deterministically, ferrum's graph (one module
+per entity with list/get/create/update/delete use cases) and, with
+`--frontend wasp`, the REST contract `contract/openapi.yaml`. The description
+is kept as `app.json`; the contract is recorded in the manifest with
+`vord kickoff --app app.json --emit-contract contract/openapi.yaml` as its
+regeneration command. ferrum's seeded `users` example is removed once the
+project has its own graph. Verified with a real ferrum build and
+`openapi-typescript`; not verified with Wasp, and only ferrum derives a
+blueprint (kthulu needs `--blueprint`). Note: ferrum currently wires one
+handler per module into its routes, so the derived contract is the API to
+implement, not what ferrum already serves.
+
+Every kickoff also writes `.vord/agent-baseline.json` (what `vord_done`
+compares against), an `.mcp.json` offering `vord mcp` to Claude Code, and
+warns when `vord` is not on `PATH` (without it the write gate does nothing).
+`vord holes` lists the `vord:hole` markers an engine left; engines that
+generate complete code leave none.
+
+`--plan` prints every command (the install included) plus a preflight line
+when the engine is missing, and stops; `--install`
 installs a missing engine with a pinned, non-interactive command (Wasp's
-piped-shell installer is never run for you). Otherwise the engine's CLI must
+piped-shell installer is never run for you; for Wasp `--install` does
+nothing and says so). Otherwise the engine's CLI must
 be on `PATH`. After it runs, vord installs its policy
 and the Claude Code hook (as `vord hook install` does), adds a Gherkin
 scaffold, and records every file the engine **marked as generated** in
