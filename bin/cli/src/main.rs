@@ -135,6 +135,16 @@ enum Command {
         /// frontend (`wasp`) joined by a shared OpenAPI contract in `contract/`.
         #[arg(long, requires = "engine", value_parser = ["wasp"])]
         frontend: Option<String>,
+        /// OpenAPI Generator's generator name (with `--engine openapi`), e.g. typescript-fetch.
+        #[arg(long, requires = "engine")]
+        generator: Option<String>,
+        /// Install the engine if it is not on PATH (pinned, non-interactive)
+        /// instead of only saying how.
+        #[arg(long, requires = "engine")]
+        install: bool,
+        /// Print every command that would run, install included, and stop.
+        #[arg(long, requires = "engine")]
+        plan: bool,
     },
     /// Visualize the component architecture of a directory: import graph
     /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
@@ -730,6 +740,9 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             name,
             blueprint,
             frontend,
+            generator,
+            install,
+            plan,
         }) => {
             let Some(engine) = engine else {
                 kickoff::run_kickoff(&template, &path)?;
@@ -741,6 +754,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     name: name.expect("clap requires --name with --engine"),
                     blueprint,
                     parent: path,
+                    install,
                 })?;
                 println!(
                     "vord kickoff: {engine} backend + wasp frontend created in {}; {} marked generated; API contract in contract/openapi.yaml",
@@ -755,7 +769,16 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 blueprint,
                 parent: path,
                 program: None,
+                generator,
+                install,
             };
+            if plan {
+                request.validate()?;
+                for line in request.plan() {
+                    println!("{line}");
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
             let report = kickoff_engine::run(&request)?;
             println!(
                 "vord kickoff: {} created {} file(s) in {}; {} marked generated (edit their blueprint, not the files)",

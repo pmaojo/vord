@@ -33,6 +33,12 @@ pub enum Engine {
     Ferrum,
     /// wasp-lang/wasp: React + Node + Prisma app from `main.wasp`.
     Wasp,
+    /// copier-org/copier: any Jinja project template; `copier update` is the
+    /// regeneration. The blueprint is the template path or git URL.
+    Copier,
+    /// OpenAPI Generator: client/server code from an OpenAPI spec (the
+    /// blueprint), for the generator named by `--generator`.
+    OpenApi,
 }
 
 impl Engine {
@@ -41,7 +47,9 @@ impl Engine {
             "kthulu" => Ok(Self::Kthulu),
             "ferrum" => Ok(Self::Ferrum),
             "wasp" => Ok(Self::Wasp),
-            other => anyhow::bail!("unknown engine {other:?}. Supported engines: kthulu, ferrum, wasp"),
+            "copier" => Ok(Self::Copier),
+            "openapi" => Ok(Self::OpenApi),
+            other => anyhow::bail!("unknown engine {other:?}. Supported engines: kthulu, ferrum, wasp, copier, openapi"),
         }
     }
 
@@ -50,6 +58,28 @@ impl Engine {
             Self::Kthulu => "kthulu",
             Self::Ferrum => "ferrum",
             Self::Wasp => "wasp",
+            Self::Copier => "copier",
+            Self::OpenApi => "openapi",
+        }
+    }
+
+    /// The executable the engine is run through.
+    fn executable(self) -> &'static str {
+        match self {
+            Self::OpenApi => "openapi-generator-cli",
+            other => other.name(),
+        }
+    }
+
+    /// A pinned, non-interactive install, when one exists. Wasp's installer
+    /// is a piped shell script, which vord does not run on its own.
+    pub fn install_argv(self) -> Option<Vec<&'static str>> {
+        match self {
+            Self::Kthulu => Some(vec!["go", "install", "github.com/pmaojo/kthulu-go/cmd/kthulu@latest"]),
+            Self::Ferrum => Some(vec!["cargo", "install", "--git", "https://github.com/pmaojo/ferrum", "ferrum"]),
+            Self::Wasp => None,
+            Self::Copier => Some(vec!["uv", "tool", "install", "copier==9.17.0"]),
+            Self::OpenApi => Some(vec!["npm", "install", "-g", "@openapitools/openapi-generator-cli"]),
         }
     }
 
@@ -58,6 +88,8 @@ impl Engine {
             Self::Kthulu => "go install github.com/pmaojo/kthulu-go/cmd/kthulu@latest",
             Self::Ferrum => "cargo install --git https://github.com/pmaojo/ferrum ferrum",
             Self::Wasp => "curl -sSL https://get.wasp.sh/installer.sh | sh",
+            Self::Copier => "uv tool install copier==9.17.0",
+            Self::OpenApi => "npm install -g @openapitools/openapi-generator-cli (needs a JDK)",
         }
     }
 }
@@ -73,6 +105,10 @@ pub struct EngineKickoff {
     pub parent: PathBuf,
     /// The engine executable; defaults to the engine's own name on PATH.
     pub program: Option<String>,
+    /// OpenAPI Generator's generator name (`typescript-fetch`, `rust-axum`, ...).
+    pub generator: Option<String>,
+    /// Install the engine when it is not on PATH, instead of only saying how.
+    pub install: bool,
 }
 
 /// One engine invocation: program, arguments, working directory.
@@ -91,7 +127,34 @@ impl EngineKickoff {
     fn program(&self) -> String {
         self.program
             .clone()
-            .unwrap_or_else(|| self.engine.name().to_string())
+            .unwrap_or_else(|| self.engine.executable().to_string())
+    }
+
+    /// Why this request cannot run, before anything is executed.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        match self.engine {
+            Engine::Copier if self.blueprint.is_none() => {
+                anyhow::bail!("engine copier needs --blueprint <template path or git URL>")
+            }
+            Engine::OpenApi if self.blueprint.is_none() || self.generator.is_none() => {
+                anyhow::bail!("engine openapi needs --blueprint <openapi spec> and --generator <name>, e.g. typescript-fetch")
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Every command that would run, install included, as text: `--plan`.
+    pub fn plan(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if let Some(argv) = self.engine.install_argv() {
+            if self.install {
+                lines.push(format!("(if {} is missing) {}", self.program(), argv.join(" ")));
+            }
+        }
+        for step in self.steps() {
+            lines.push(format!("{}: {} {}", step.cwd.display(), step.program, step.args.join(" ")));
+        }
+        lines
     }
 
     fn blueprint_arg(&self) -> Option<String> {
@@ -146,6 +209,19 @@ impl EngineKickoff {
                     cwd: self.parent.clone(),
                 });
             }
+            Engine::Copier => {
+                let mut args = vec!["copy".to_string(), "--defaults".to_string(), "--trust".to_string()];
+                args.extend(self.blueprint_arg());
+                args.push(self.project_dir().display().to_string());
+                steps.push(Step { program, args, cwd: self.parent.clone() });
+            }
+            Engine::OpenApi => {
+                let mut args = vec!["generate".to_string(), "-i".to_string()];
+                args.extend(self.blueprint_arg());
+                args.extend(["-g".to_string(), self.generator.clone().unwrap_or_default()]);
+                args.extend(["-o".to_string(), self.project_dir().display().to_string()]);
+                steps.push(Step { program, args, cwd: self.parent.clone() });
+            }
         }
         steps
     }
@@ -163,8 +239,21 @@ impl EngineKickoff {
             (Engine::Ferrum, Some(graph)) => format!("ferrum compile {graph} --output ."),
             (Engine::Ferrum, None) => "ferrum compile <grafo.yaml> --output .".to_string(),
             (Engine::Wasp, _) => "wasp compile".to_string(),
+            (Engine::Copier, _) => "copier update --defaults --trust".to_string(),
+            (Engine::OpenApi, spec) => format!(
+                "openapi-generator-cli generate -i {} -g {} -o .",
+                spec.unwrap_or_else(|| "<spec>".into()),
+                self.generator.as_deref().unwrap_or("<generator>")
+            ),
         }
     }
+}
+
+/// Is `program` an executable file in one of the PATH directories?
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file()))
+        .unwrap_or(false)
 }
 
 /// Directories never walked when listing what an engine produced.
@@ -210,8 +299,20 @@ pub struct KickoffReport {
 
 /// Runs the engine, then layers vord's governance on top of its output.
 pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
+    kickoff.validate()?;
     let project_dir = kickoff.project_dir();
     let before = list_files(&project_dir);
+    if kickoff.install && kickoff.program.is_none() && !on_path(&kickoff.program()) {
+        let Some(argv) = kickoff.engine.install_argv() else {
+            anyhow::bail!("install {} yourself: {}", kickoff.program(), kickoff.engine.install_hint());
+        };
+        let status = Command::new(argv[0]).args(&argv[1..]).status().map_err(|e| {
+            anyhow::anyhow!("could not run `{}` ({e}). Install the engine manually: {}", argv.join(" "), kickoff.engine.install_hint())
+        })?;
+        if !status.success() {
+            anyhow::bail!("`{}` failed ({status})", argv.join(" "));
+        }
+    }
 
     for step in kickoff.steps() {
         let status = Command::new(&step.program)
@@ -249,7 +350,10 @@ pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         let Ok(content) = std::fs::read_to_string(project_dir.join(relative)) else {
             continue; // binary output is never hand-edited through a text tool
         };
-        if is_marked_generated(&content) {
+        // OpenAPI Generator output is wholly the spec's; its ignore file lists
+        // what the project owns instead.
+        let wholly_generated = kickoff.engine == Engine::OpenApi && relative != ".openapi-generator-ignore";
+        if wholly_generated || is_marked_generated(&content) {
             manifest.files.insert(
                 relative.clone(),
                 GeneratedFile {
@@ -285,6 +389,7 @@ pub struct FullstackKickoff {
     /// The backend engine's blueprint.
     pub blueprint: Option<PathBuf>,
     pub parent: PathBuf,
+    pub install: bool,
 }
 
 /// The command that regenerates the frontend's typed API client.
@@ -310,6 +415,8 @@ pub fn run_fullstack(kickoff: &FullstackKickoff) -> anyhow::Result<KickoffReport
             blueprint,
             parent: root.clone(),
             program: None,
+            generator: None,
+            install: kickoff.install,
         };
         created += run(&part)?.created;
     }
@@ -399,6 +506,8 @@ mod tests {
             blueprint: blueprint.map(PathBuf::from),
             parent: PathBuf::from("/work"),
             program: None,
+            generator: None,
+            install: false,
         }
     }
 
@@ -468,6 +577,8 @@ mod tests {
             blueprint: None,
             parent: parent.clone(),
             program: Some(fake.display().to_string()),
+            generator: None,
+            install: false,
         };
 
         let report = run(&run_kickoff).unwrap();
@@ -489,12 +600,39 @@ mod tests {
     }
 
     #[test]
+    fn copier_and_openapi_steps_and_validation() {
+        let mut k = kickoff(Engine::Copier, Some("gh:org/tpl"));
+        let steps = k.steps();
+        assert_eq!(steps[0].program, "copier");
+        assert_eq!(&steps[0].args[..3], ["copy", "--defaults", "--trust"]);
+        assert_eq!(k.regenerate_command(), "copier update --defaults --trust");
+        assert!(kickoff(Engine::Copier, None).validate().is_err());
+
+        assert!(kickoff(Engine::OpenApi, Some("api.yaml")).validate().is_err(), "needs a generator");
+        k = kickoff(Engine::OpenApi, Some("api.yaml"));
+        k.generator = Some("typescript-fetch".into());
+        k.validate().unwrap();
+        assert_eq!(k.steps()[0].program, "openapi-generator-cli");
+        assert!(k.regenerate_command().contains("-g typescript-fetch"));
+    }
+
+    #[test]
+    fn plan_lists_the_install_only_when_asked() {
+        let mut k = kickoff(Engine::Copier, Some("gh:org/tpl"));
+        assert_eq!(k.plan().len(), 1);
+        k.install = true;
+        assert!(k.plan()[0].contains("uv tool install copier==9.17.0"));
+        assert!(Engine::Wasp.install_argv().is_none(), "no piped shell installers");
+    }
+
+    #[test]
     fn fullstack_refuses_wasp_as_backend() {
         let err = run_fullstack(&FullstackKickoff {
             backend: Engine::Wasp,
             name: "shop".into(),
             blueprint: None,
             parent: PathBuf::from("/nonexistent"),
+            install: false,
         })
         .unwrap_err();
         assert!(err.to_string().contains("ferrum"), "{err}");

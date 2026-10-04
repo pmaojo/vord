@@ -80,9 +80,12 @@ fn tool_list() -> Value {
                 "type": "object",
                 "properties": {
                     "template": { "type": "string", "description": "Built-in template (single-language skeleton, NOT an engine): react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal. Cannot be combined with `engine`." },
-                    "engine": { "type": "string", "enum": ["kthulu", "ferrum", "wasp"], "description": "Scaffolding engine, chosen by the language of the backend: ferrum = Rust backend + React; kthulu = Go backend; wasp = TypeScript full-stack (React + Node + Prisma). Requires name. Do not delete or hand-rewrite generated output: change the blueprint and regenerate." },
+                    "engine": { "type": "string", "enum": ["kthulu", "ferrum", "wasp", "copier", "openapi"], "description": "Scaffolding engine, chosen by the language of the backend: ferrum = Rust backend + React; kthulu = Go backend; wasp = TypeScript full-stack (React + Node + Prisma); copier = any Jinja template (blueprint = template path or git URL, e.g. a Python/FastAPI template); openapi = code from an OpenAPI spec (blueprint = spec, needs `generator`). Requires name. Do not delete or hand-rewrite generated output: change the blueprint and regenerate." },
                     "frontend": { "type": "string", "enum": ["wasp"], "description": "With a ferrum or kthulu `engine` as the backend, also generate a Wasp frontend joined by a shared OpenAPI contract (contract/openapi.yaml)" },
                     "language": { "type": "string", "description": "Backend language the user asked for (rust, go, typescript); checked against `engine` so a mismatch is rejected" },
+                    "generator": { "type": "string", "description": "With engine openapi: the OpenAPI Generator name, e.g. typescript-fetch" },
+                    "install": { "type": "boolean", "description": "Install the engine if it is not on PATH" },
+                    "plan": { "type": "boolean", "description": "Only print the commands that would run" },
                     "name": { "type": "string", "description": "Project name passed to the engine" },
                     "blueprint": { "type": "string", "description": "Engine blueprint: kthulu-plan.yaml or a ferrum graph YAML" },
                     "path": { "type": "string", "description": "Destination (with an engine: the parent directory)" }
@@ -110,7 +113,7 @@ fn tool_list() -> Value {
     ])
 }
 
-const ENGINE_LANGUAGES: &str = "kthulu = Go, ferrum = Rust + React, wasp = TypeScript full-stack";
+const ENGINE_LANGUAGES: &str = "kthulu = Go, ferrum = Rust + React, wasp = TypeScript full-stack, copier = any template, openapi = from a spec";
 
 /// The engine that generates a backend in `language`.
 fn engine_for_language(language: &str) -> Option<&'static str> {
@@ -152,7 +155,7 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
                             ENGINE_LANGUAGES
                         ));
                     }
-                    if let Some(language) = string_arg(args, "language") {
+                    if let (Some(language), true) = (string_arg(args, "language"), matches!(engine, "kthulu" | "ferrum" | "wasp")) {
                         let expected = engine_for_language(language).ok_or_else(|| {
                             format!("vord_kickoff: no engine for language {language:?} ({ENGINE_LANGUAGES})")
                         })?;
@@ -165,6 +168,14 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
                     let name = string_arg(args, "name")
                         .ok_or("vord_kickoff with an engine needs `name`")?;
                     argv.extend(owned(&["--engine", engine, "--name", name]));
+                    if let Some(generator) = string_arg(args, "generator") {
+                        argv.extend(owned(&["--generator", generator]));
+                    }
+                    for flag in ["install", "plan"] {
+                        if args.get(flag).and_then(Value::as_bool) == Some(true) {
+                            argv.push(format!("--{flag}"));
+                        }
+                    }
                     if let Some(frontend) = string_arg(args, "frontend") {
                         argv.extend(owned(&["--frontend", frontend]));
                     }

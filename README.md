@@ -873,9 +873,15 @@ commit:
 vord kickoff --engine kthulu --name shop --blueprint kthulu-plan.yaml   # Go modular monolith (pmaojo/kthulu-go)
 vord kickoff --engine ferrum --name shop --blueprint gen/users.yaml     # Rust + React hexagonal (pmaojo/ferrum)
 vord kickoff --engine wasp   --name shop                                # React + Node + Prisma (wasp-lang/wasp)
+vord kickoff --engine copier --name api --blueprint gh:fastapi/full-stack-fastapi-template   # any Copier template; `copier update` regenerates
+vord kickoff --engine openapi --name client --blueprint api.yaml --generator typescript-fetch  # code from an OpenAPI spec
+vord kickoff --engine ferrum --frontend wasp --name shop                # backend + Wasp frontend, shared OpenAPI contract
 ```
 
-The engine's CLI must be on `PATH`. After it runs, vord installs its policy
+`--plan` prints every command (the install included) and stops; `--install`
+installs a missing engine with a pinned, non-interactive command (Wasp's
+piped-shell installer is never run for you). Otherwise the engine's CLI must
+be on `PATH`. After it runs, vord installs its policy
 and the Claude Code hook (as `vord hook install` does), adds a Gherkin
 scaffold, and records every file the engine **marked as generated** in
 `.vord/generated.json`, along with the blueprint and the command that
