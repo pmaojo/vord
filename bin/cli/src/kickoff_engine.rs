@@ -357,6 +357,18 @@ impl EngineKickoff {
             anyhow::bail!("--data and --vcs-ref only apply to --engine copier");
         }
         self.copier.validate()?;
+        if self.engine == Engine::Ferrum && self.blueprint.is_some() {
+            match &self.templates {
+                None => anyhow::bail!(
+                    "ferrum compile needs its template directory: set FERRUM_TEMPLATES=<ferrum checkout>/templates (`ferrum init` leaves the project's own templates/ empty)"
+                ),
+                Some(dir) if !dir.is_dir() => anyhow::bail!(
+                    "FERRUM_TEMPLATES points at {}, which is not a directory",
+                    dir.display()
+                ),
+                Some(_) => {}
+            }
+        }
         match self.engine {
             Engine::Copier if self.blueprint.is_none() => {
                 anyhow::bail!("engine copier needs --blueprint <template path or git URL>")
@@ -743,11 +755,12 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
     crate::kickoff::write_gherkin_scaffold(&project_dir, "app", &format!("{} application", kickoff.name))?;
     ignore_session_state(&project_dir)?;
 
+    let notes = manifest_ignored_note(&project_dir).into_iter().collect();
     Ok(KickoffReport {
         project_dir,
         created: created.len(),
         generated: manifest.files.len(),
-        notes: Vec::new(),
+        notes,
     })
 }
 
@@ -970,6 +983,7 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
             "The API contract shared by `backend/` and `frontend/`.\n\n`openapi.yaml` is your own spec when the backend is `--engine openapi` (spec-first), else the backend's own OpenAPI document when the backend engine produced one, otherwise an empty stub to fill in. `frontend/src/api/schema.ts` is generated from it (recorded in `.vord/generated.json`, so edits are blocked): change `openapi.yaml`, then regenerate the typed client with:\n\n    cd frontend && {CLIENT_REGENERATE}\n\nRegenerating drops the `Code generated ... DO NOT EDIT` header line; the manifest keeps the file protected regardless.\n"
         ),
     )?;
+    notes.extend(manifest_ignored_note(root));
     Ok(KickoffReport { project_dir: root.to_path_buf(), created, generated: manifest.files.len(), notes })
 }
 
@@ -991,6 +1005,25 @@ fn protect_wasp_output(project_dir: &Path, prefix: &str) -> anyhow::Result<()> {
     ));
     std::fs::write(&policy, content)?;
     Ok(())
+}
+
+/// A warning when git ignores `.vord/generated.json` (usually a broad
+/// `.vord/` line in the workspace's own `.gitignore`): the manifest is what
+/// makes the write gate work, so it has to be committed. vord itself only
+/// ever ignores `.vord/sessions/`.
+fn manifest_ignored_note(project_dir: &Path) -> Option<String> {
+    let ignored = Command::new("git")
+        .args(["check-ignore", "-q", vord_cli::generated::MANIFEST_FILE])
+        .current_dir(project_dir)
+        .status()
+        .ok()?
+        .success();
+    ignored.then(|| {
+        format!(
+            "git ignores {}: without it a fresh clone has no write gate on generated code. Replace a broad `.vord/` ignore with `.vord/sessions/`.",
+            vord_cli::generated::MANIFEST_FILE
+        )
+    })
 }
 
 /// Per-session analyzer baselines (dsh-vord) are local state, not source.
@@ -1581,5 +1614,34 @@ mod tests {
         assert!(!Manifest::load(&root).files.contains_key("frontend/src/api/schema.ts"));
         assert!(report.notes.iter().any(|n| n.contains("was not generated") && n.contains("openapi-typescript@")), "{:?}", report.notes);
         std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn ferrum_with_a_blueprint_names_the_missing_templates_variable() {
+        let mut k = kickoff(Engine::Ferrum, Some("/plans/users.yaml"));
+        k.templates = None;
+        let err = k.validate().unwrap_err().to_string();
+        assert!(err.contains("FERRUM_TEMPLATES"), "{err}");
+        k.templates = Some(PathBuf::from("/nonexistent/templates"));
+        assert!(k.validate().unwrap_err().to_string().contains("not a directory"));
+        assert!(kickoff(Engine::Ferrum, None).validate().is_ok(), "no blueprint, no compile, no templates needed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_gitignored_manifest_is_reported() {
+        let dir = scratch("ignored-manifest");
+        let git = |args: &[&str]| {
+            Command::new("git").args(args).current_dir(&dir).output().unwrap();
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join(".gitignore"), ".vord/\n").unwrap();
+        std::fs::create_dir_all(dir.join(".vord")).unwrap();
+        std::fs::write(dir.join(".vord/generated.json"), "{}").unwrap();
+        let note = manifest_ignored_note(&dir).expect("ignored manifest is reported");
+        assert!(note.contains(".vord/sessions/"), "{note}");
+        std::fs::write(dir.join(".gitignore"), ".vord/sessions/\n").unwrap();
+        assert!(manifest_ignored_note(&dir).is_none());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

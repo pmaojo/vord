@@ -889,6 +889,8 @@ The frontend's typed client is then generated from it with a pinned
 `cd frontend && npx -y openapi-typescript@7.13.0 ../contract/openapi.yaml -o src/api/schema.ts`).
 Without `npx` that step is skipped with a message, not a failure.
 
+Ferrum's `compile` needs its template directory: set `FERRUM_TEMPLATES=<ferrum checkout>/templates`; without it `--blueprint` stops with a message naming the variable. If git ignores `.vord/generated.json` (a broad `.vord/` line), kickoff warns: commit the manifest, ignore only `.vord/sessions/`.
+
 `--plan` prints every command (the install included) and stops; `--install`
 installs a missing engine with a pinned, non-interactive command (Wasp's
 piped-shell installer is never run for you). Otherwise the engine's CLI must

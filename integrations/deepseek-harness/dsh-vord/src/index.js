@@ -29,9 +29,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { hookPayload, sessionCwd, shellResponse, SHELL_TOOL, writeCall } from './payload.js'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { analyzerVerdict, pendingHoles, recordBaseline, runVordHook } from './vord.js'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -89,10 +89,34 @@ export function contextMessage(text) {
 }
 
 /**
- * A recursive `rm` aimed at a directory that holds (or sits under) a vord
- * generated-code manifest. Deleting scaffolded output to hand-write it again
- * defeats the generator; the way out is to change the blueprint and
- * regenerate. Returns the denial reason, or `undefined`.
+ * The generated-code manifest that governs `path`: the nearest
+ * `.vord/generated.json` in `path` or one of its ancestors.
+ * @param {string} path
+ * @returns {{ root: string, files: string[] } | undefined}
+ */
+function governingManifest(path) {
+  for (let dir = path; ; dir = dirname(dir)) {
+    const file = join(dir, '.vord', 'generated.json')
+    if (existsSync(file)) {
+      try {
+        const parsed = JSON.parse(readFileSync(file, 'utf8'))
+        return { root: dir, files: Object.keys(parsed?.files ?? {}) }
+      } catch {
+        return { root: dir, files: [] }
+      }
+    }
+    if (dirname(dir) === dir) return undefined
+  }
+}
+
+/**
+ * A recursive `rm` that would remove generated code recorded in a vord
+ * manifest: a project that holds the manifest, a directory under it that
+ * holds generated files, or one generated file. Other deletions inside a
+ * generated project (`node_modules`, build output) pass. Deleting scaffolded
+ * output to hand-write it again defeats the generator; the way out is to
+ * change the blueprint and regenerate. Returns the denial reason, or
+ * `undefined`.
  * @param {unknown} commandLine
  * @param {string} cwd
  * @returns {string | undefined}
@@ -106,8 +130,14 @@ export function deletesGeneratedProject(commandLine, cwd) {
     const recursive = flags.some((f) => /[rR]/.test(f)) || words.includes('--recursive')
     if (!recursive) continue
     for (const target of words.slice(1).filter((w) => !w.startsWith('-'))) {
-      const dir = resolve(cwd, target.replace(/^["']|["']$/g, ''))
-      if (existsSync(join(dir, '.vord', 'generated.json'))) {
+      // `dir/*` removes what is inside `dir`: judge the directory itself.
+      const literal = target.replace(/^["']|["']$/g, '').replace(/\/?[^/]*[*?[].*$/, '') || '.'
+      const path = resolve(cwd, literal)
+      const manifest = governingManifest(path)
+      if (!manifest) continue
+      const rel = relative(manifest.root, path).split('\\').join('/')
+      const hit = rel === '' || manifest.files.some((f) => f === rel || f.startsWith(`${rel}/`))
+      if (hit) {
         return `vord: ${target} holds generated code recorded in .vord/generated.json. Do not delete or hand-rewrite scaffolded output: change the blueprint and run the engine's regenerate command (or vord kickoff with the right engine: ferrum = Rust, kthulu = Go, wasp = TypeScript).`
       }
     }

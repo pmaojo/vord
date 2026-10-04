@@ -833,6 +833,9 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 report.project_dir.display(),
                 report.generated
             );
+            for note in &report.notes {
+                println!("vord kickoff: {note}");
+            }
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Arch { path, format, html }) => run_arch(&path, format, html),
