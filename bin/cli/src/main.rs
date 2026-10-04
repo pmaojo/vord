@@ -912,6 +912,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 install,
                 templates: kickoff_engine::ferrum_templates_from_env(),
                 copier: kickoff_engine::CopierOptions { data, vcs_ref },
+                api_only: false,
             };
             if plan {
                 request.validate()?;

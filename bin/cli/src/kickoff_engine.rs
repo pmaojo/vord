@@ -290,6 +290,9 @@ pub struct EngineKickoff {
     pub templates: Option<PathBuf>,
     /// Copier-only answers and template version.
     pub copier: CopierOptions,
+    /// ferrum: backend only (`ferrum init --api-only`), because a Wasp
+    /// frontend replaces its React one.
+    pub api_only: bool,
 }
 
 /// Options only the copier engine takes.
@@ -447,7 +450,13 @@ impl EngineKickoff {
             Engine::Ferrum => {
                 steps.push(Step {
                     program: program.clone(),
-                    args: vec!["init".to_string(), self.name.clone()],
+                    args: {
+                        let mut args = vec!["init".to_string(), self.name.clone()];
+                        if self.api_only {
+                            args.push("--api-only".to_string());
+                        }
+                        args
+                    },
                     cwd: self.parent.clone(),
                 });
                 if let Some(graph) = self.blueprint_arg() {
@@ -459,7 +468,7 @@ impl EngineKickoff {
             Engine::Wasp => {
                 steps.push(Step {
                     program,
-                    args: vec!["new".to_string(), self.name.clone()],
+                    args: vec!["new".to_string(), self.name.clone(), "-t".to_string(), "minimal".to_string()],
                     cwd: self.parent.clone(),
                 });
             }
@@ -883,7 +892,9 @@ pub fn check_build(project_dir: &Path, engine: Engine, dir: Option<&str>, notes:
         }
     };
     let cwd = match (engine, dir) {
+        // ferrum's crate is `backend/` inside its project directory.
         (Engine::Ferrum, None) => project_dir.join("backend"),
+        (Engine::Ferrum, Some(dir)) => project_dir.join(dir).join("backend"),
         (_, Some(dir)) => project_dir.join(dir),
         _ => project_dir.to_path_buf(),
     };
@@ -961,6 +972,7 @@ impl FullstackKickoff {
                 .map(PathBuf::from)
                 .or_else(ferrum_templates_from_env),
             copier: Default::default(),
+            api_only: engine == Engine::Ferrum,
         }
     }
 
@@ -1105,7 +1117,7 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
         } else if let Some(app) = &kickoff.app {
             std::fs::write(&contract, app.openapi())?;
             notes.push(
-                "contract/openapi.yaml is derived from app.json: it is the API the app should expose. ferrum's generated routes are not verified to implement it, so check them against the contract"
+                "contract/openapi.yaml is derived from app.json: it is the API the app should expose. ferrum's generated routes follow the same CRUD shape, but nothing checks the two against each other yet"
                     .to_string(),
             );
         } else {
@@ -1250,6 +1262,7 @@ mod tests {
             install: false,
             templates: None,
             copier: Default::default(),
+            api_only: false,
         }
     }
 
@@ -1299,7 +1312,7 @@ mod tests {
     #[test]
     fn wasp_runs_wasp_new() {
         let steps = kickoff(Engine::Wasp, None).steps();
-        assert_eq!(steps[0].args, ["new", "shop"]);
+        assert_eq!(steps[0].args, ["new", "shop", "-t", "minimal"]);
         assert_eq!(kickoff(Engine::Wasp, None).regenerate_command(), "wasp compile");
     }
 
@@ -1345,6 +1358,7 @@ mod tests {
             install: false,
             templates: None,
             copier: Default::default(),
+            api_only: false,
         };
 
         let report = run(&run_kickoff).unwrap();
@@ -1513,6 +1527,7 @@ mod tests {
             install: false,
             templates: Some(parent.clone()),
             copier: Default::default(),
+            api_only: false,
         };
         let report = run(&k).unwrap();
         record_app(&app, &report.project_dir).unwrap();
@@ -1646,6 +1661,7 @@ mod tests {
             install: false,
             templates: None,
             copier: Default::default(),
+            api_only: false,
         };
         let err = run(&k).unwrap_err();
         assert!(format!("{err:#}").contains("removed the partial"), "{err:#}");
@@ -1669,6 +1685,7 @@ mod tests {
             install: false,
             templates: None,
             copier: Default::default(),
+            api_only: false,
         };
         assert!(run(&k).is_err());
         assert!(parent.join("shop/mine.txt").exists());
@@ -1752,6 +1769,7 @@ mod tests {
             install: false,
             templates: None,
             copier: Default::default(),
+            api_only: false,
         };
         run(&k).unwrap();
         let dir = parent.join("client");
@@ -1798,6 +1816,7 @@ mod tests {
             install: false,
             templates: None,
             copier: Default::default(),
+            api_only: false,
         };
         run(&k).unwrap();
         let dir = parent.join("api");
@@ -1834,6 +1853,7 @@ mod tests {
             install: false,
             templates: None,
             copier: Default::default(),
+            api_only: false,
         };
         run(&k).unwrap();
         // rust-axum has no built-in user-owned paths: both files are locked.
@@ -1914,6 +1934,7 @@ mod tests {
             install: false,
             templates: None,
             copier: Default::default(),
+            api_only: false,
         };
         run(&k).unwrap();
         let manifest = Manifest::load(&parent.join("shop"));

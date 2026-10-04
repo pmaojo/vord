@@ -899,11 +899,13 @@ per entity with list/get/create/update/delete use cases) and, with
 is kept as `app.json`; the contract is recorded in the manifest with
 `vord kickoff --app app.json --emit-contract contract/openapi.yaml` as its
 regeneration command. ferrum's seeded `users` example is removed once the
-project has its own graph. Verified with a real ferrum build and
-`openapi-typescript`; not verified with Wasp, and only ferrum derives a
-blueprint (kthulu needs `--blueprint`). Note: ferrum currently wires one
-handler per module into its routes, so the derived contract is the API to
-implement, not what ferrum already serves.
+project has its own graph. Verified end to end with a real ferrum (pmaojo/ferrum#324), a real Wasp
+0.25 (`wasp new -t minimal`; needs Node 24.14+ and npm 11.11+) and
+`openapi-typescript`: the full-stack todo builds (`--check-build` passes).
+Only ferrum derives a blueprint (kthulu needs `--blueprint`). In a full-stack
+project ferrum runs `--api-only` and Wasp uses its `minimal` template; ferrum
+still emits some React files under `backend/frontend/`, and its crate lives
+in `backend/backend/` (its own layout).
 
 **Generated code that does not build.** `--check-build` (MCP: `check_build`)
 runs `cargo check` (ferrum, in `backend/`) or `go build ./...` (kthulu) after
