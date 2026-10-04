@@ -76,6 +76,31 @@ fn tool_list() -> Value {
             }
         },
         {
+            "name": "vord_report_generator_defect",
+            "description": "Generated code is wrong because the engine's template or the blueprint is (it imports types that do not exist, a handler is missing, a model lacks a column). Do NOT patch around it or edit the generated file: report it here, then fix the blueprint or the engine's template and regenerate. `vord_done` stays not-done while a defect is open.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "engine": { "type": "string", "description": "Engine that generated the file (ferrum, kthulu, wasp, ...)" },
+                    "file": { "type": "string", "description": "The generated file that is wrong" },
+                    "reason": { "type": "string", "description": "What is wrong, concretely" }
+                },
+                "required": ["engine", "file", "reason"]
+            }
+        },
+        {
+            "name": "vord_prune",
+            "description": "Remove generated files that are not needed (a duplicate frontend, an engine's bundled templates) instead of `rm`, which is refused on generated code. Drops them from the generated-code manifest. Refuses files holding filled holes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Files or directories relative to the project root" },
+                    "path": { "type": "string", "description": "Project root (default: .)" }
+                },
+                "required": ["paths"]
+            }
+        },
+        {
             "name": "vord_kickoff",
             "description": format!("Scaffold a project deterministically instead of writing boilerplate: either a built-in vord template, or a scaffolding engine ({}) from its blueprint. The result is policy-gated, with generated files recorded so later edits go through the blueprint.", engine_names().join(", ")),
             "inputSchema": {
@@ -87,12 +112,14 @@ fn tool_list() -> Value {
                     "language": { "type": "string", "description": "Backend language the user asked for (rust, go, typescript); checked against `engine` so a mismatch is rejected" },
                     "generator": { "type": "string", "description": "With engine openapi: the OpenAPI Generator name, e.g. typescript-fetch" },
                     "data": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] }, "description": "With engine copier: template answers as {question: value}, passed as `copier copy --data question=value`" },
+                    "entities": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "type": "string", "enum": ["string", "int", "float", "bool", "uuid", "datetime"] } }, "description": "The app to create, as entities with typed fields, e.g. {\"todo\": {\"title\": \"string\", \"done\": \"bool\"}}. With engine ferrum, vord derives the graph (CRUD use cases) and, with `frontend`, the OpenAPI contract: do not write either by hand. Cannot be combined with `blueprint`." },
                     "vcs_ref": { "type": "string", "description": "With engine copier: template tag, branch or commit (`--vcs-ref`); copier defaults to the latest tag" },
-                    "install": { "type": "boolean", "description": "Install the engine if it is not on PATH" },
+                    "install": { "type": "boolean", "description": "Install the engine if it is not on PATH. Only engines with a pinned installer (see --list-engines); Wasp must be installed by the user and this flag does nothing for it" },
+                    "check_build": { "type": "boolean", "description": "After generating, build the result (ferrum: cargo check; kthulu: go build). A failure is recorded as a generator defect: report it, never patch generated files." },
                     "plan": { "type": "boolean", "description": "Only print the commands that would run" },
                     "name": { "type": "string", "description": "Project name passed to the engine" },
                     "blueprint": { "type": "string", "description": "Engine blueprint: kthulu-plan.yaml or a ferrum graph YAML" },
-                    "path": { "type": "string", "description": "Destination (with an engine: the parent directory)" }
+                    "path": { "type": "string", "description": "Destination (with an engine: the PARENT directory; the project is created in <path>/<name>, so do not repeat the name in path)" }
                 }
             }
         },
@@ -137,6 +164,18 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
             }
             Ok(vec![argv])
         }
+        "vord_prune" => {
+            let paths = args.get("paths").and_then(Value::as_array).filter(|p| !p.is_empty()).ok_or("vord_prune needs `paths`")?;
+            let mut argv = owned(&["prune", "--path", string_arg(args, "path").unwrap_or(".")]);
+            for p in paths {
+                argv.push(p.as_str().ok_or("vord_prune `paths` must be strings")?.to_string());
+            }
+            Ok(vec![argv])
+        }
+        "vord_report_generator_defect" => {
+            let field = |key: &str| string_arg(args, key).ok_or(format!("vord_report_generator_defect needs `{key}`"));
+            Ok(vec![owned(&["defects", "report", "--engine", field("engine")?, "--file", field("file")?, "--reason", field("reason")?])])
+        }
         "vord_kickoff" => {
             let mut argv = owned(&["kickoff"]);
             match (string_arg(args, "engine"), string_arg(args, "template")) {
@@ -173,9 +212,9 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
                     if let Some(generator) = string_arg(args, "generator") {
                         argv.extend(owned(&["--generator", generator]));
                     }
-                    for flag in ["install", "plan"] {
+                    for flag in ["install", "plan", "check_build"] {
                         if args.get(flag).and_then(Value::as_bool) == Some(true) {
-                            argv.push(format!("--{flag}"));
+                            argv.push(format!("--{}", flag.replace('_', "-")));
                         }
                     }
                     if let Some(data) = args.get("data") {
@@ -188,6 +227,23 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
                                 _ => return Err(format!("vord_kickoff `data.{key}` must be a string, number or boolean")),
                             };
                             argv.extend(["--data".to_string(), format!("{key}={text}")]);
+                        }
+                    }
+                    if let Some(entities) = args.get("entities") {
+                        let map = entities.as_object().ok_or(
+                            "vord_kickoff `entities` must be an object of {entity: {field: type}}",
+                        )?;
+                        for (entity, fields) in map {
+                            let fields = fields.as_object().ok_or_else(|| format!("vord_kickoff `entities.{entity}` must be an object of {{field: type}}"))?;
+                            let mut pairs = Vec::new();
+                            for (field, ty) in fields {
+                                let ty = ty.as_str().ok_or_else(|| format!("vord_kickoff `entities.{entity}.{field}` must be a type name"))?;
+                                pairs.push(format!("{field}={ty}"));
+                            }
+                            argv.extend([
+                                "--entity".to_string(),
+                                format!("{entity}:{}", pairs.join(",")),
+                            ]);
                         }
                     }
                     if let Some(vcs_ref) = string_arg(args, "vcs_ref") {
@@ -345,7 +401,7 @@ mod tests {
 
     #[test]
     fn every_listed_tool_maps_to_a_real_vord_command() {
-        let args = json!({ "engine": "kthulu", "name": "shop", "from": "a", "to": "b", "summary": "s" });
+        let args = json!({ "engine": "kthulu", "name": "shop", "from": "a", "to": "b", "summary": "s", "file": "f", "reason": "r", "paths": ["x"] });
         for tool in tool_list().as_array().unwrap() {
             let name = tool["name"].as_str().unwrap();
             assert!(tool_commands(name, &args).is_ok(), "{name} has no command");
@@ -383,6 +439,24 @@ mod tests {
         assert!(tool_commands("vord_kickoff", &bad).is_err());
     }
 
+
+    #[test]
+    fn kickoff_turns_entities_into_entity_flags() {
+        let argv = tool_commands(
+            "vord_kickoff",
+            &json!({ "engine": "ferrum", "name": "todo", "entities": { "todo": { "title": "string", "done": "bool" } } }),
+        )
+        .unwrap();
+        assert!(
+            argv[0]
+                .windows(2)
+                .any(|w| w == ["--entity", "todo:done=bool,title=string"]),
+            "{:?}",
+            argv[0]
+        );
+        let bad = json!({ "engine": "ferrum", "name": "todo", "entities": { "todo": ["title"] } });
+        assert!(tool_commands("vord_kickoff", &bad).is_err());
+    }
 
     #[test]
     fn kickoff_rejects_incoherent_engine_choices() {

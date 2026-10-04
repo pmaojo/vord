@@ -9,16 +9,19 @@ use vord_cli::output;
 use vord_infra_fs::{BaselineStore, FileAnalysisCache};
 use vord_rules_engine::{Baseline, NewCodeAnalysis, Severity};
 
+mod app_spec;
 mod arch;
 mod blame;
 mod ci_detect;
 mod crap;
 mod flow;
+mod generator_defects;
 mod hook_install;
 mod kickoff;
 mod kickoff_engine;
 mod mcp;
 mod monorepo_scan;
+mod prune;
 mod tui;
 mod wizard;
 
@@ -151,10 +154,30 @@ enum Command {
         /// (`--vcs-ref`). Copier otherwise uses the template's latest tag.
         #[arg(long = "vcs-ref", requires = "engine", conflicts_with = "frontend")]
         vcs_ref: Option<String>,
+        /// The app to create, as JSON: {"name": "todo", "entities": {"todo":
+        /// {"title": "string", "done": "bool"}}}. With `--engine ferrum`,
+        /// vord derives the engine's graph (CRUD use cases) from it, and with
+        /// `--frontend` the OpenAPI contract too; it is kept as app.json.
+        #[arg(long, conflicts_with = "blueprint")]
+        app: Option<PathBuf>,
+        /// An entity of the app: name:field=type,field=type (repeatable;
+        /// types: string, int, float, bool, uuid, datetime). The inline form
+        /// of `--app`.
+        #[arg(long = "entity", conflicts_with_all = ["blueprint", "app"], value_name = "NAME:FIELD=TYPE,...")]
+        entities: Vec<String>,
+        /// Write the OpenAPI contract derived from `--app`/`--entity` to this
+        /// file and exit (how contract/openapi.yaml is regenerated).
+        #[arg(long, value_name = "FILE")]
+        emit_contract: Option<PathBuf>,
         /// Install the engine if it is not on PATH (pinned, non-interactive)
         /// instead of only saying how.
         #[arg(long, requires = "engine")]
         install: bool,
+        /// After generating, build the result (`cargo check` for ferrum,
+        /// `go build ./...` for kthulu). A failure is recorded as a
+        /// generator defect and reported, so nobody patches around it.
+        #[arg(long, requires = "engine")]
+        check_build: bool,
         /// Print every command that would run, install included, and stop.
         #[arg(long, requires = "engine")]
         plan: bool,
@@ -165,6 +188,31 @@ enum Command {
         /// With `--list-engines`, print JSON.
         #[arg(long, requires = "list_engines")]
         json: bool,
+    },
+    /// Generated code that is wrong because the engine's template or the
+    /// blueprint is: report it here instead of patching generated files.
+    /// While one is open, `vord agent done` says the task is not done.
+    Defects {
+        #[command(subcommand)]
+        action: DefectsAction,
+        /// Project root (defaults to the current directory).
+        #[arg(long, global = true, default_value = ".")]
+        path: PathBuf,
+    },
+    /// Remove generated files nobody needs (a duplicate frontend, an engine's
+    /// bundled templates) and drop them from `.vord/generated.json`. The
+    /// agent uses this instead of `rm`, which the write gate refuses on
+    /// generated code. Refuses to delete filled holes unless `--force`.
+    Prune {
+        /// Files or directories, relative to the project root.
+        #[arg(required = true)]
+        paths: Vec<String>,
+        /// Project root (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Delete even files that contain hand-written hole bodies.
+        #[arg(long)]
+        force: bool,
     },
     /// Visualize the component architecture of a directory: import graph
     /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
@@ -235,6 +283,28 @@ struct RefactorPlanArgs {
     /// How many candidates to show (plan) or attempt (run).
     #[arg(long, default_value_t = 10)]
     limit: usize,
+}
+
+#[derive(Subcommand)]
+enum DefectsAction {
+    /// List recorded defects.
+    List,
+    /// Record a defect in generated code.
+    Report {
+        /// The engine that generated it (ferrum, kthulu, ...).
+        #[arg(long)]
+        engine: String,
+        /// The generated file that is wrong.
+        #[arg(long)]
+        file: String,
+        /// What is wrong, e.g. "imports Usuario, which does not exist".
+        #[arg(long)]
+        reason: String,
+    },
+    /// The engine or blueprint was fixed and the project regenerated.
+    Resolve { id: u32 },
+    /// The user decided to live with it.
+    Accept { id: u32 },
 }
 
 #[derive(Subcommand)]
@@ -763,11 +833,36 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             generator,
             data,
             vcs_ref,
+            app,
+            entities,
+            emit_contract,
             install,
+            check_build,
             plan,
             list_engines,
             json,
         }) => {
+            let app_name = name.clone().unwrap_or_else(|| "app".to_string());
+            let app = match (&app, entities.is_empty()) {
+                (Some(file), _) => {
+                    let mut value: serde_json::Value =
+                        serde_json::from_str(&std::fs::read_to_string(file)?)
+                            .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+                    if value.get("name").is_none() {
+                        value["name"] = app_name.clone().into();
+                    }
+                    Some(app_spec::AppSpec::from_json(&value.to_string())?)
+                }
+                (None, false) => Some(app_spec::AppSpec::from_entity_flags(&app_name, &entities)?),
+                (None, true) => None,
+            };
+            if let Some(out) = emit_contract {
+                let app =
+                    app.ok_or_else(|| anyhow::anyhow!("--emit-contract needs --app or --entity"))?;
+                std::fs::write(&out, app.openapi())?;
+                println!("vord kickoff: contract written to {}", out.display());
+                return Ok(ExitCode::SUCCESS);
+            }
             if list_engines {
                 if json {
                     println!("{}", serde_json::to_string_pretty(kickoff_engine::ENGINES)?);
@@ -789,6 +884,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     parent: path,
                     install,
                     programs: Default::default(),
+                    app: app.clone(),
                 };
                 if plan {
                     for line in fullstack.plan() {
@@ -796,7 +892,15 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     }
                     return Ok(ExitCode::SUCCESS);
                 }
-                let report = kickoff_engine::run_fullstack(&fullstack)?;
+                let mut report = kickoff_engine::run_fullstack(&fullstack)?;
+                if check_build {
+                    kickoff_engine::check_build(
+                        &report.project_dir,
+                        fullstack.backend,
+                        Some("backend"),
+                        &mut report.notes,
+                    );
+                }
                 println!(
                     "vord kickoff: {engine} backend + wasp frontend created in {}; {} marked generated; API contract in contract/openapi.yaml",
                     report.project_dir.display(),
@@ -807,6 +911,13 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 }
                 return Ok(ExitCode::SUCCESS);
             }
+            let blueprint = match (&blueprint, &app) {
+                (None, Some(app)) => Some(kickoff_engine::app_blueprint(
+                    app,
+                    kickoff_engine::Engine::parse(&engine)?,
+                )?),
+                _ => blueprint,
+            };
             let request = kickoff_engine::EngineKickoff {
                 engine: kickoff_engine::Engine::parse(&engine)?,
                 name: name.expect("clap requires --name with --engine"),
@@ -817,6 +928,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 install,
                 templates: kickoff_engine::ferrum_templates_from_env(),
                 copier: kickoff_engine::CopierOptions { data, vcs_ref },
+                api_only: false,
             };
             if plan {
                 request.validate()?;
@@ -825,7 +937,13 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 }
                 return Ok(ExitCode::SUCCESS);
             }
-            let report = kickoff_engine::run(&request)?;
+            let mut report = kickoff_engine::run(&request)?;
+            if check_build {
+                kickoff_engine::check_build(&report.project_dir, request.engine, None, &mut report.notes);
+            }
+            if let Some(app) = &app {
+                kickoff_engine::record_app(app, &report.project_dir)?;
+            }
             println!(
                 "vord kickoff: {} created {} file(s) in {}; {} marked generated (edit their blueprint, not the files)",
                 engine,
@@ -833,6 +951,43 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 report.project_dir.display(),
                 report.generated
             );
+            for note in &report.notes {
+                println!("vord kickoff: {note}");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Prune { paths, path, force }) => {
+            let removed = prune::prune(&path, &paths, force)?;
+            println!("vord prune: removed {} and dropped it from .vord/generated.json", removed.join(", "));
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Defects { action, path }) => {
+            match action {
+                DefectsAction::List => {
+                    let all = generator_defects::list(&path);
+                    if all.is_empty() {
+                        println!("vord defects: none recorded");
+                    }
+                    for d in all {
+                        println!("#{} [{}] {} ({}): {}", d.id, d.status, d.file, d.engine, d.reason);
+                    }
+                }
+                DefectsAction::Report { engine, file, reason } => {
+                    let d = generator_defects::report(&path, &engine, &file, &reason)?;
+                    println!(
+                        "vord defects: #{} recorded for {} ({}). Do not patch the generated file: fix the blueprint or {}'s template, regenerate, then `vord defects resolve {}`.",
+                        d.id, d.file, d.engine, d.engine, d.id
+                    );
+                }
+                DefectsAction::Resolve { id } => {
+                    generator_defects::close(&path, id, "resolved")?;
+                    println!("vord defects: #{id} resolved");
+                }
+                DefectsAction::Accept { id } => {
+                    generator_defects::close(&path, id, "accepted")?;
+                    println!("vord defects: #{id} accepted");
+                }
+            }
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Arch { path, format, html }) => run_arch(&path, format, html),
@@ -1033,6 +1188,14 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             rule,
             json,
         } => {
+            if let Some(reason) = generator_defects::blocking_reason(&root) {
+                if json {
+                    println!("{}", serde_json::json!({ "done": false, "reason": reason }));
+                } else {
+                    println!("vord agent: {reason}");
+                }
+                return Ok(ExitCode::from(3));
+            }
             let verdict =
                 vord_cli::agent::check_done(&root, &scope, &baseline, rule.as_deref()).await?;
             if json {

@@ -192,6 +192,25 @@ test('rm -rf of a generated project is denied, other deletions pass', () => {
   assert.equal(deletesGeneratedProject('rm app/file.txt', root), undefined)
 })
 
+test('rm -rf below a generated project is denied only where it hits generated code', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-vord-rm2-'))
+  mkdirSync(join(root, 'proj', '.vord'), { recursive: true })
+  mkdirSync(join(root, 'proj', 'api'), { recursive: true })
+  mkdirSync(join(root, 'proj', 'node_modules'), { recursive: true })
+  writeFileSync(
+    join(root, 'proj', '.vord', 'generated.json'),
+    JSON.stringify({ files: { 'api/index.go': { engine: 'kthulu' }, 'main.go': { engine: 'kthulu' } } }),
+  )
+  assert.match(deletesGeneratedProject('rm -rf proj/api', root), /generated\.json/)
+  assert.match(deletesGeneratedProject('cd x && rm -rf proj/api/', root), /generated\.json/)
+  assert.match(deletesGeneratedProject('rm -rf proj/api/*', root), /generated\.json/)
+  assert.match(deletesGeneratedProject('rm -rf proj/main.go', root), /generated\.json/)
+  assert.match(deletesGeneratedProject('rm -rf proj/api/index.go', root), /generated\.json/)
+  assert.equal(deletesGeneratedProject('rm -rf proj/node_modules', root), undefined)
+  assert.equal(deletesGeneratedProject('rm -rf proj/other', root), undefined)
+  assert.equal(deletesGeneratedProject('rm -rf elsewhere', root), undefined)
+})
+
 const created = (agent, source = 'new') => ({ agent, source, signal: new AbortController().signal })
 
 test('a new session gets the standing guidance by default', async () => {

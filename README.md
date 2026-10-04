@@ -889,9 +889,57 @@ The frontend's typed client is then generated from it with a pinned
 `cd frontend && npx -y openapi-typescript@7.13.0 ../contract/openapi.yaml -o src/api/schema.ts`).
 Without `npx` that step is skipped with a message, not a failure.
 
-`--plan` prints every command (the install included) and stops; `--install`
+Ferrum's `compile` needs its template directory: set `FERRUM_TEMPLATES=<ferrum checkout>/templates`; without it `--blueprint` stops with a message naming the variable. If git ignores `.vord/generated.json` (a broad `.vord/` line), kickoff warns: commit the manifest, ignore only `.vord/sessions/`.
+
+**Describe the app, don't hand-write the blueprint.** `--entity
+todo:title=string,done=bool` (repeatable; or `--app app.json`, or the MCP
+`entities` argument) derives, deterministically, ferrum's graph (one module
+per entity with list/get/create/update/delete use cases) and, with
+`--frontend wasp`, the REST contract `contract/openapi.yaml`. The description
+is kept as `app.json`; the contract is recorded in the manifest with
+`vord kickoff --app app.json --emit-contract contract/openapi.yaml` as its
+regeneration command. ferrum's seeded `users` example is removed once the
+project has its own graph. Verified end to end with a real ferrum (pmaojo/ferrum#324), a real Wasp
+0.25 (`wasp new -t minimal`; needs Node 24.14+ and npm 11.11+) and
+`openapi-typescript`: the full-stack todo builds (`--check-build` passes).
+Only ferrum derives a blueprint (kthulu needs `--blueprint`). In a full-stack
+project ferrum runs `--api-only` and Wasp uses its `minimal` template; ferrum
+still emits some React files under `backend/frontend/`, and its crate lives
+in `backend/backend/` (its own layout).
+
+**Generated code that does not build.** `--check-build` (MCP: `check_build`)
+runs `cargo check` (ferrum, in `backend/`) or `go build ./...` (kthulu) after
+generating. A failure is recorded in `.vord/generator-defects.json` and
+reported; so is anything an agent reports with the `vord_report_generator_defect`
+tool (`vord defects report --engine E --file F --reason R`). The point: when
+the template or blueprint is wrong, the agent must not patch around a
+`DO NOT EDIT` file. `vord agent done` / `vord_done` answers not-done while a
+defect is open, until it is fixed upstream and `vord defects resolve <id>`, or
+the user runs `vord defects accept <id>`. Verified with a real ferrum: it
+found a real defect (`ethercat_rs` does not exist on crates.io, so ferrum's
+`backend/Cargo.toml` never resolves). ferrum's own `templates/` now come with
+`ferrum init` (pmaojo/ferrum#324), so `FERRUM_TEMPLATES` is only needed with
+older builds.
+
+**Cleaning up what you do not need.** `vord prune <paths>` (MCP `vord_prune`)
+removes generated files or directories (ferrum's leftover `backend/frontend/`,
+bundled `templates/`) and drops them from `.vord/generated.json`, recording
+them in `.vord/pruned.json`; it refuses files holding filled holes unless
+`--force`. `rm` stays refused on generated code (dsh-vord says so and points
+here), because a silent deletion hides that the next regeneration brings the
+files back.
+
+Every kickoff also writes `.vord/agent-baseline.json` (what `vord_done`
+compares against), an `.mcp.json` offering `vord mcp` to Claude Code, and
+warns when `vord` is not on `PATH` (without it the write gate does nothing).
+`vord holes` lists the `vord:hole` markers an engine left; engines that
+generate complete code leave none.
+
+`--plan` prints every command (the install included) plus a preflight line
+when the engine is missing, and stops; `--install`
 installs a missing engine with a pinned, non-interactive command (Wasp's
-piped-shell installer is never run for you). Otherwise the engine's CLI must
+piped-shell installer is never run for you; for Wasp `--install` does
+nothing and says so). Otherwise the engine's CLI must
 be on `PATH`. After it runs, vord installs its policy
 and the Claude Code hook (as `vord hook install` does), adds a Gherkin
 scaffold, and records every file the engine **marked as generated** in
