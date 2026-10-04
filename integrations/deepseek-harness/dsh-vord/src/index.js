@@ -31,7 +31,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { hookPayload, sessionCwd, shellResponse, SHELL_TOOL, writeCall } from './payload.js'
-import { join, relative } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { analyzerVerdict, pendingHoles, recordBaseline, runVordHook } from './vord.js'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -76,6 +76,33 @@ export function contextMessage(text) {
 }
 
 /**
+ * A recursive `rm` aimed at a directory that holds (or sits under) a vord
+ * generated-code manifest. Deleting scaffolded output to hand-write it again
+ * defeats the generator; the way out is to change the blueprint and
+ * regenerate. Returns the denial reason, or `undefined`.
+ * @param {unknown} commandLine
+ * @param {string} cwd
+ * @returns {string | undefined}
+ */
+export function deletesGeneratedProject(commandLine, cwd) {
+  if (typeof commandLine !== 'string') return undefined
+  for (const segment of commandLine.split(/&&|\|\||;|\|/)) {
+    const words = segment.trim().split(/\s+/)
+    if (words[0] !== 'rm') continue
+    const flags = words.filter((w) => w.startsWith('-') && !w.startsWith('--'))
+    const recursive = flags.some((f) => /[rR]/.test(f)) || words.includes('--recursive')
+    if (!recursive) continue
+    for (const target of words.slice(1).filter((w) => !w.startsWith('-'))) {
+      const dir = resolve(cwd, target.replace(/^["']|["']$/g, ''))
+      if (existsSync(join(dir, '.vord', 'generated.json'))) {
+        return `vord: ${target} holds generated code recorded in .vord/generated.json. Do not delete or hand-rewrite scaffolded output: change the blueprint and run the engine's regenerate command (or vord kickoff with the right engine: ferrum = Rust, kthulu = Go, wasp = TypeScript).`
+      }
+    }
+  }
+  return undefined
+}
+
+/**
  * @param {import('@deepseek-ai/cordis').Context} ctx
  * @param {Config} [config]
  */
@@ -112,6 +139,11 @@ export function apply(ctx, config = {}) {
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     const cwd = sessionCwd(exec)
+    if (exec.name === SHELL_TOOL) {
+      const reason = deletesGeneratedProject(exec.arguments?.command, cwd)
+      if (reason) return { kind: 'deny', reason }
+      return next()
+    }
     const call = writeCall(exec.name, exec.arguments, cwd)
     if (!call) return next()
     const outcome = await judge(hookPayload('PreToolUse', cwd, call.tool_name, call.tool_input), cwd, exec.signal)
