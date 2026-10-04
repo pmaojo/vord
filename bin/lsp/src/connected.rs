@@ -112,6 +112,9 @@ pub struct ConnectedBackend {
 }
 
 /// Transport port so tests can fake the server.
+// async_trait adds a bare `#[must_use]` to the boxed futures it returns;
+// clippy 1.99's double_must_use flags the macro output, not our code.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait DiagnosticTransport: Send + Sync + std::fmt::Debug {
     async fn push(
