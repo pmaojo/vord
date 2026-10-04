@@ -122,6 +122,11 @@ enum Command {
         /// kthulu (Go), ferrum (Rust + React) or wasp (React + Node + Prisma).
         /// Its CLI must be on PATH. vord then adds its policy, the hook, a
         /// generated-code manifest and a Gherkin scaffold.
+        ///
+        /// Environment: FERRUM_TEMPLATES=<dir> points `ferrum compile` at
+        /// ferrum's template directory (its `templates/` in the ferrum
+        /// repository); `ferrum init` leaves the project's own empty, so a
+        /// ferrum blueprint fails without it.
         #[arg(long, requires = "name")]
         engine: Option<String>,
         /// Project name passed to the engine.
@@ -135,6 +140,31 @@ enum Command {
         /// frontend (`wasp`) joined by a shared OpenAPI contract in `contract/`.
         #[arg(long, requires = "engine", value_parser = ["wasp"])]
         frontend: Option<String>,
+        /// OpenAPI Generator's generator name (with `--engine openapi`), e.g. typescript-fetch.
+        #[arg(long, requires = "engine")]
+        generator: Option<String>,
+        /// With `--engine copier`: a template answer, `key=value`
+        /// (repeatable), passed as `copier copy --data key=value`.
+        #[arg(long = "data", requires = "engine", conflicts_with = "frontend", value_name = "KEY=VALUE")]
+        data: Vec<String>,
+        /// With `--engine copier`: template tag, branch or commit
+        /// (`--vcs-ref`). Copier otherwise uses the template's latest tag.
+        #[arg(long = "vcs-ref", requires = "engine", conflicts_with = "frontend")]
+        vcs_ref: Option<String>,
+        /// Install the engine if it is not on PATH (pinned, non-interactive)
+        /// instead of only saying how.
+        #[arg(long, requires = "engine")]
+        install: bool,
+        /// Print every command that would run, install included, and stop.
+        #[arg(long, requires = "engine")]
+        plan: bool,
+        /// Print the scaffolding engine registry (names, languages,
+        /// capabilities, install and regenerate commands) and exit.
+        #[arg(long)]
+        list_engines: bool,
+        /// With `--list-engines`, print JSON.
+        #[arg(long, requires = "list_engines")]
+        json: bool,
     },
     /// Visualize the component architecture of a directory: import graph
     /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
@@ -730,23 +760,50 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             name,
             blueprint,
             frontend,
+            generator,
+            data,
+            vcs_ref,
+            install,
+            plan,
+            list_engines,
+            json,
         }) => {
+            if list_engines {
+                if json {
+                    println!("{}", serde_json::to_string_pretty(kickoff_engine::ENGINES)?);
+                } else {
+                    print!("{}", kickoff_engine::render_engines_text());
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
             let Some(engine) = engine else {
                 kickoff::run_kickoff(&template, &path)?;
                 return Ok(ExitCode::SUCCESS);
             };
             if frontend.is_some() {
-                let report = kickoff_engine::run_fullstack(&kickoff_engine::FullstackKickoff {
+                let fullstack = kickoff_engine::FullstackKickoff {
                     backend: kickoff_engine::Engine::parse(&engine)?,
                     name: name.expect("clap requires --name with --engine"),
                     blueprint,
                     parent: path,
-                })?;
+                    install,
+                    programs: Default::default(),
+                };
+                if plan {
+                    for line in fullstack.plan() {
+                        println!("{line}");
+                    }
+                    return Ok(ExitCode::SUCCESS);
+                }
+                let report = kickoff_engine::run_fullstack(&fullstack)?;
                 println!(
                     "vord kickoff: {engine} backend + wasp frontend created in {}; {} marked generated; API contract in contract/openapi.yaml",
                     report.project_dir.display(),
                     report.generated
                 );
+                for note in &report.notes {
+                    println!("vord kickoff: {note}");
+                }
                 return Ok(ExitCode::SUCCESS);
             }
             let request = kickoff_engine::EngineKickoff {
@@ -755,7 +812,18 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 blueprint,
                 parent: path,
                 program: None,
+                generator,
+                install,
+                templates: kickoff_engine::ferrum_templates_from_env(),
+                copier: kickoff_engine::CopierOptions { data, vcs_ref },
             };
+            if plan {
+                request.validate()?;
+                for line in request.plan() {
+                    println!("{line}");
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
             let report = kickoff_engine::run(&request)?;
             println!(
                 "vord kickoff: {} created {} file(s) in {}; {} marked generated (edit their blueprint, not the files)",

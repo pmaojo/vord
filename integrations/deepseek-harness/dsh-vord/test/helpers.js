@@ -17,7 +17,8 @@ export function fakeContext() {
 /** A fake agent rooted at `cwd` that records steering. */
 export function fakeAgent(cwd) {
   const steered = []
-  return { steered, session: { header: { cwd, id: `session-${Math.random().toString(36).slice(2)}` } }, steer: (message) => steered.push(message) }
+  const injected = []
+  return { steered, injected, session: { header: { cwd, id: `session-${Math.random().toString(36).slice(2)}` } }, steer: (message) => steered.push(message), inject: (message) => injected.push(message) }
 }
 
 /** A pending tool execution as dsh hands it to `tools/*` listeners. */

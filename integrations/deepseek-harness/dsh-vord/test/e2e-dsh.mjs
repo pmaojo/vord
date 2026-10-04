@@ -3,7 +3,8 @@
 // headless app with the dsh-vord bundle, a scripted model, and the real
 // `vord`. Checks the write gate (a shell-injection sink is denied and never
 // reaches disk) and the analyzer as the definition of done (the same sink
-// written through `bash` keeps the turn open).
+// written through `bash` keeps the turn open), and that the standing guidance
+// (vord_kickoff, engine per language) is in the request the model receives.
 //
 // Not part of `npm test` (it installs dsh and boots a profile). Run it with:
 //
@@ -84,6 +85,15 @@ function check(name, ok, detail) {
   check('the analyzer held the turn open after a bash-written sink',
     requests.some(r => r.includes('introduced') && r.includes('deploy.py')),
     `${requests.length} requests; last: ${requests.at(-1)?.slice(-800)}`)
+}
+
+// 3. The standing guidance reaches the model: the first request the mock
+//    server sees carries the scaffold-with-vord_kickoff instructions.
+{
+  const { requests } = await scenario('bash', { command: 'true', description: 'noop' })
+  check('the standing guidance reached the model',
+    requests.some(r => r.includes('Scaffold with the')),
+    `${requests.length} requests; first: ${requests[0]?.slice(0, 800)}`)
 }
 
 process.exitCode = failed ? 1 : 0
