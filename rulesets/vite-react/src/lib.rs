@@ -22,6 +22,7 @@ mod data_hook_outside_api_dir;
 mod hardcoded_base_url;
 mod no_data_layer_import_in_view;
 mod no_transport_call_in_view;
+mod tailwind_redundant_size;
 mod tailwind_space_between;
 mod transport_client_outside_infra;
 
@@ -29,6 +30,7 @@ pub use data_hook_outside_api_dir::DataHookOutsideApiDirRule;
 pub use hardcoded_base_url::HardcodedBaseUrlRule;
 pub use no_data_layer_import_in_view::NoDataLayerImportInViewRule;
 pub use no_transport_call_in_view::NoTransportCallInViewRule;
+pub use tailwind_redundant_size::TailwindRedundantSizeRule;
 pub use tailwind_space_between::TailwindSpaceBetweenRule;
 pub use transport_client_outside_infra::TransportClientOutsideInfraRule;
 
@@ -47,5 +49,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(TransportClientOutsideInfraRule::new()),
         Box::new(HardcodedBaseUrlRule::new()),
         Box::new(TailwindSpaceBetweenRule::new()),
+        Box::new(TailwindRedundantSizeRule::new()),
     ]
 }

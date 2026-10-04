@@ -62,6 +62,7 @@ fn the_dirty_fixture_trips_one_violation_per_rule() {
         "vite-react:transport-client-outside-infra",
         "vite-react:hardcoded-base-url",
         "vite-react:tailwind-space-between",
+        "vite-react:tailwind-redundant-size",
     ] {
         assert!(
             fired.contains(expected),
@@ -96,6 +97,7 @@ fn the_clean_fixture_trips_none_of_this_starters_own_rules() {
         "vite-react:transport-client-outside-infra",
         "vite-react:hardcoded-base-url",
         "vite-react:tailwind-space-between",
+        "vite-react:tailwind-redundant-size",
     ] {
         assert!(
             !fired.contains(rule),
