@@ -71,7 +71,13 @@ configuration, where turning it off leaves no trace in a diff.
 
 ### As a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin
 
-DeepSeek Harness's official `dsh-hooks-claude-code` bridge runs the exact
+[`integrations/deepseek-harness/dsh-vord/`](integrations/deepseek-harness/dsh-vord/)
+is a native dsh plugin and profile bundle: vord judges `write`/`edit`/
+`str_replace_editor` on dsh's own `tools/pre-execute` and `tools/post-execute`,
+holds the turn open on `agent/turn-stopping` while test evidence is pending,
+and mounts `vord mcp` as tools (`dsh plugin --profile <name> add <path>`).
+
+Alternatively, DeepSeek Harness's official `dsh-hooks-claude-code` bridge runs the exact
 `PreToolUse`/`PostToolUse` payload shape `vord hook claude-code` already
 speaks — no new vord code needed, just wiring. See
 [`integrations/deepseek-harness/`](integrations/deepseek-harness/) for the

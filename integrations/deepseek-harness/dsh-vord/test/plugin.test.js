@@ -1,0 +1,101 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { apply } from '../src/index.js'
+import { accept, allow, execution, fakeAgent, fakeContext } from './helpers.js'
+
+const FAKE_VORD = fileURLToPath(new URL('./fixtures/fake-vord.mjs', import.meta.url))
+
+/** Mount the plugin against the fake vord, which prints `output`. */
+function mount(output, extra = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-vord-plugin-'))
+  const log = join(dir, 'payloads.jsonl')
+  process.env.FAKE_VORD_LOG = log
+  process.env.FAKE_VORD_OUTPUT = output === undefined ? '' : JSON.stringify(output)
+  delete process.env.FAKE_VORD_EXIT
+  const ctx = fakeContext()
+  apply(ctx, { command: FAKE_VORD, ...extra })
+  const payloads = () => {
+    try {
+      return readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+    } catch {
+      return []
+    }
+  }
+  return { ctx, dir, payloads, agent: fakeAgent(dir) }
+}
+
+test('a denied write never reaches the tool', async () => {
+  const { ctx, agent, payloads } = mount({
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'python:subprocess-shell-true at line 3' },
+  })
+  const decision = await ctx.fire('tools/pre-execute', execution('write', { file_path: 'a.py', content: 'x' }, agent), allow)
+  assert.deepEqual(decision, { kind: 'deny', reason: 'python:subprocess-shell-true at line 3' })
+  const [payload] = payloads()
+  assert.equal(payload.hook_event_name, 'PreToolUse')
+  assert.equal(payload.tool_name, 'Write')
+  assert.equal(payload.cwd, agent.session.header.cwd)
+})
+
+test('a silent verdict delegates to the next listener', async () => {
+  const { ctx, agent } = mount(undefined)
+  const decision = await ctx.fire('tools/pre-execute', execution('edit', { file_path: 'a.py', old_string: 'a', new_string: 'b' }, agent), allow)
+  assert.deepEqual(decision, { kind: 'allow' })
+})
+
+test('non-write tools are never sent to vord', async () => {
+  const { ctx, agent, payloads } = mount(undefined)
+  await ctx.fire('tools/pre-execute', execution('read', { file_path: 'a.py' }, agent), allow)
+  assert.equal(payloads().length, 0)
+})
+
+test('vord failing fails open by default and closed when asked', async () => {
+  const open = mount(undefined)
+  process.env.FAKE_VORD_EXIT = '1'
+  assert.deepEqual(await open.ctx.fire('tools/pre-execute', execution('write', { file_path: 'a', content: 'x' }, open.agent), allow), { kind: 'allow' })
+  assert.equal(open.ctx.warnings.length, 1)
+
+  const closed = mount(undefined, { failClosed: true })
+  process.env.FAKE_VORD_EXIT = '1'
+  const decision = await closed.ctx.fire('tools/pre-execute', execution('write', { file_path: 'a', content: 'x' }, closed.agent), allow)
+  assert.equal(decision.kind, 'deny')
+  delete process.env.FAKE_VORD_EXIT
+})
+
+test('a post-write violation blocks the result with feedback', async () => {
+  const { ctx, agent } = mount({ decision: 'block', reason: 'already written: fix it' })
+  const decision = await ctx.fire('tools/post-execute', execution('write', { file_path: 'a', content: 'x' }, agent), { isError: false, value: {}, content: [] }, accept)
+  assert.deepEqual(decision, { kind: 'block', feedback: [{ type: 'text', text: 'already written: fix it' }] })
+})
+
+test('a post-write advisory rides along as context', async () => {
+  const { ctx, agent } = mount({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: 'consider extracting' } })
+  const decision = await ctx.fire('tools/post-execute', execution('write', { file_path: 'a', content: 'x' }, agent), { isError: false, value: {}, content: [] }, accept)
+  assert.equal(decision.kind, 'accept')
+  assert.equal(decision.additionalContexts.length, 1)
+  assert.equal(decision.additionalContexts[0].content[0].text, 'consider extracting')
+  assert.deepEqual(decision.additionalContexts[0].source, { kind: 'vord' })
+})
+
+test('a bash run is reported as Bash with its exit code', async () => {
+  const { ctx, agent, payloads } = mount(undefined)
+  await ctx.fire('tools/post-execute', execution('bash', { command: 'cargo test' }, agent), { isError: false, value: { exitCode: 0 }, content: [] }, accept)
+  const [payload] = payloads()
+  assert.equal(payload.tool_name, 'Bash')
+  assert.deepEqual(payload.tool_input, { command: 'cargo test' })
+  assert.deepEqual(payload.tool_response, { exit_code: 0 })
+})
+
+test('pending test evidence steers the agent, then yields after the cap', async () => {
+  const { ctx, agent, payloads } = mount({ decision: 'block', reason: 'run the tests' }, { maxStopContinuations: 2 })
+  const stopping = { agent, turn: 1, signal: new AbortController().signal }
+  await ctx.fire('agent/turn-stopping', stopping)
+  await ctx.fire('agent/turn-stopping', stopping)
+  await ctx.fire('agent/turn-stopping', stopping)
+  assert.equal(agent.steered.length, 2, 'third stop yields instead of looping')
+  assert.equal(agent.steered[0].content[0].text, 'run the tests')
+  assert.equal(payloads()[0].hook_event_name, 'Stop')
+})
