@@ -122,6 +122,11 @@ enum Command {
         /// kthulu (Go), ferrum (Rust + React) or wasp (React + Node + Prisma).
         /// Its CLI must be on PATH. vord then adds its policy, the hook, a
         /// generated-code manifest and a Gherkin scaffold.
+        ///
+        /// Environment: FERRUM_TEMPLATES=<dir> points `ferrum compile` at
+        /// ferrum's template directory (its `templates/` in the ferrum
+        /// repository); `ferrum init` leaves the project's own empty, so a
+        /// ferrum blueprint fails without it.
         #[arg(long, requires = "name")]
         engine: Option<String>,
         /// Project name passed to the engine.
@@ -766,13 +771,21 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 return Ok(ExitCode::SUCCESS);
             };
             if frontend.is_some() {
-                let report = kickoff_engine::run_fullstack(&kickoff_engine::FullstackKickoff {
+                let fullstack = kickoff_engine::FullstackKickoff {
                     backend: kickoff_engine::Engine::parse(&engine)?,
                     name: name.expect("clap requires --name with --engine"),
                     blueprint,
                     parent: path,
                     install,
-                })?;
+                    programs: Default::default(),
+                };
+                if plan {
+                    for line in fullstack.plan() {
+                        println!("{line}");
+                    }
+                    return Ok(ExitCode::SUCCESS);
+                }
+                let report = kickoff_engine::run_fullstack(&fullstack)?;
                 println!(
                     "vord kickoff: {engine} backend + wasp frontend created in {}; {} marked generated; API contract in contract/openapi.yaml",
                     report.project_dir.display(),
@@ -788,6 +801,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 program: None,
                 generator,
                 install,
+                templates: kickoff_engine::ferrum_templates_from_env(),
             };
             if plan {
                 request.validate()?;

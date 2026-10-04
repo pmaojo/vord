@@ -102,9 +102,9 @@ pub const ENGINES: &[EngineSpec] = &[
         generates: "Rust + React",
         languages: &["rust", "rs"],
         capabilities: &[Capability::Backend, Capability::Frontend, Capability::SpecDriven],
-        install_argv: Some(&["cargo", "install", "--git", "https://github.com/pmaojo/ferrum", "ferrum"]),
-        install_hint: "cargo install --git https://github.com/pmaojo/ferrum ferrum",
-        regenerate_with_blueprint: "ferrum compile {blueprint} --output .",
+        install_argv: Some(&["cargo", "install", "--git", "https://github.com/pmaojo/ferrum", "ferrum-cli"]),
+        install_hint: "cargo install --git https://github.com/pmaojo/ferrum ferrum-cli",
+        regenerate_with_blueprint: "ferrum compile gen/{blueprint} --output .",
         regenerate_default: "ferrum compile <grafo.yaml> --output .",
         all_output_generated: false,
         required_args: &["name"],
@@ -143,7 +143,7 @@ pub const ENGINES: &[EngineSpec] = &[
         capabilities: &[Capability::SpecDriven],
         install_argv: Some(&["npm", "install", "-g", "@openapitools/openapi-generator-cli"]),
         install_hint: "npm install -g @openapitools/openapi-generator-cli (needs a JDK)",
-        regenerate_with_blueprint: "openapi-generator-cli generate -i {blueprint} -g {generator} -o .",
+        regenerate_with_blueprint: "openapi-generator-cli generate -i spec/{blueprint} -g {generator} -o .",
         regenerate_default: "openapi-generator-cli generate -i <spec> -g {generator} -o .",
         // Everything but the ignore file is the spec's.
         all_output_generated: true,
@@ -266,6 +266,14 @@ pub struct EngineKickoff {
     pub generator: Option<String>,
     /// Install the engine when it is not on PATH, instead of only saying how.
     pub install: bool,
+    /// Ferrum's template directory (`FERRUM_TEMPLATES`): `ferrum init` leaves
+    /// the project's own `templates/` empty, so `compile` needs this.
+    pub templates: Option<PathBuf>,
+}
+
+/// `FERRUM_TEMPLATES`, when set and non-empty.
+pub fn ferrum_templates_from_env() -> Option<PathBuf> {
+    std::env::var_os("FERRUM_TEMPLATES").filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
 /// One engine invocation: program, arguments, working directory.
@@ -330,15 +338,13 @@ impl EngineKickoff {
         let mut steps = Vec::new();
         match self.engine {
             Engine::Kthulu => {
-                // `--skip-postgen`: no `go mod tidy`/`go test` side trip during
-                // scaffolding; the agent's first test run does that under the
-                // gate.
+                // No `--skip-postgen`: released kthulu rejects it as an unknown
+                // flag, so the engine's own post-generation runs.
                 let mut args = vec![
                     "create".to_string(),
                     self.name.clone(),
                     "--output".to_string(),
                     self.project_dir().display().to_string(),
-                    "--skip-postgen".to_string(),
                 ];
                 if let Some(plan) = self.blueprint_arg() {
                     args.extend(["--from-plan".to_string(), plan]);
@@ -352,11 +358,9 @@ impl EngineKickoff {
                     cwd: self.parent.clone(),
                 });
                 if let Some(graph) = self.blueprint_arg() {
-                    steps.push(Step {
-                        program,
-                        args: vec!["compile".to_string(), graph, "--output".to_string(), ".".to_string()],
-                        cwd: self.project_dir(),
-                    });
+                    let mut args = vec!["compile".to_string(), graph, "--output".to_string(), ".".to_string()];
+                    args.extend(self.templates_args());
+                    steps.push(Step { program, args, cwd: self.project_dir() });
                 }
             }
             Engine::Wasp => {
@@ -383,14 +387,44 @@ impl EngineKickoff {
         steps
     }
 
-    /// The command recorded in the manifest as how to regenerate.
+    fn templates_args(&self) -> Vec<String> {
+        match (&self.engine, &self.templates) {
+            (Engine::Ferrum, Some(dir)) => {
+                let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
+                vec!["--templates".to_string(), dir.display().to_string()]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Where the blueprint lives inside the project, when the engine needs it
+    /// there to regenerate from the project root (ferrum: `gen/<file>`,
+    /// openapi: `spec/<file>`).
+    fn staged_blueprint(&self) -> Option<String> {
+        let file = self.blueprint.as_ref()?.file_name()?.to_string_lossy().to_string();
+        match self.engine {
+            Engine::Ferrum => Some(format!("gen/{file}")),
+            Engine::OpenApi => Some(format!("spec/{file}")),
+            _ => None,
+        }
+    }
+
+    /// The command recorded in the manifest as how to regenerate; runnable
+    /// from the project root.
     pub fn regenerate_command(&self) -> String {
         let blueprint = self
             .blueprint
             .as_ref()
             .and_then(|p| p.file_name())
             .map(|f| f.to_string_lossy().to_string());
-        self.engine.spec().regenerate(&self.name, blueprint.as_deref(), self.generator.as_deref())
+        let mut command = self.engine.spec().regenerate(&self.name, blueprint.as_deref(), self.generator.as_deref());
+        if blueprint.is_some() {
+            for arg in self.templates_args() {
+                command.push(' ');
+                command.push_str(&arg);
+            }
+        }
+        command
     }
 }
 
@@ -442,11 +476,29 @@ pub struct KickoffReport {
     pub generated: usize,
 }
 
-/// Runs the engine, then layers vord's governance on top of its output.
+/// Runs the engine, then layers vord's governance on top of its output. A
+/// project directory this run created is removed again if the run fails, and
+/// the error says so; a directory that already existed is never touched.
 pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
     kickoff.validate()?;
     let project_dir = kickoff.project_dir();
+    let existed = project_dir.exists();
+    run_inner(kickoff).map_err(|err| {
+        if !existed && project_dir.exists() {
+            match std::fs::remove_dir_all(&project_dir) {
+                Ok(()) => err.context(format!("removed the partial {}", project_dir.display())),
+                Err(e) => err.context(format!("{} was left partially generated (could not remove it: {e})", project_dir.display())),
+            }
+        } else {
+            err
+        }
+    })
+}
+
+fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
+    let project_dir = kickoff.project_dir();
     let before = list_files(&project_dir);
+    let pin_existed = kickoff.parent.join("openapitools.json").exists();
     if kickoff.install && kickoff.program.is_none() && !on_path(&kickoff.program()) {
         let Some(argv) = kickoff.engine.install_argv() else {
             anyhow::bail!("install {} yourself: {}", kickoff.program(), kickoff.engine.install_hint());
@@ -483,13 +535,15 @@ pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         );
     }
 
-    let created: Vec<String> = list_files(&project_dir).difference(&before).cloned().collect();
+    let mut created: Vec<String> = list_files(&project_dir).difference(&before).cloned().collect();
     let mut manifest = Manifest::load(&project_dir);
-    let source = kickoff
-        .blueprint
-        .as_ref()
-        .and_then(|p| p.file_name())
-        .map(|f| f.to_string_lossy().to_string());
+    let source = kickoff.staged_blueprint().or_else(|| {
+        kickoff
+            .blueprint
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|f| f.to_string_lossy().to_string())
+    });
     let regenerate = kickoff.regenerate_command();
     for relative in &created {
         let Ok(content) = std::fs::read_to_string(project_dir.join(relative)) else {
@@ -499,17 +553,43 @@ pub fn run(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         // what the project owns instead.
         let wholly_generated = kickoff.engine.spec().all_output_generated && relative != ".openapi-generator-ignore";
         if wholly_generated || is_marked_generated(&content) {
+            // templ output is regenerated by templ, not by the scaffolder.
+            let regenerate = if content.lines().take(3).any(|l| l.contains("Code generated by templ")) {
+                "templ generate".to_string()
+            } else {
+                regenerate.clone()
+            };
             manifest.files.insert(
                 relative.clone(),
                 GeneratedFile {
                     engine: kickoff.engine.name().to_string(),
                     source: source.clone(),
-                    regenerate: Some(regenerate.clone()),
+                    regenerate: Some(regenerate),
                 },
             );
         }
     }
     manifest.save(&project_dir)?;
+
+    // Regeneration runs from the project root, so the blueprint and the
+    // engine wrapper's version pin live there too.
+    if let (Some(staged), Some(blueprint)) = (kickoff.staged_blueprint(), kickoff.blueprint.as_ref()) {
+        let target = project_dir.join(&staged);
+        let same = std::fs::canonicalize(blueprint).ok() == std::fs::canonicalize(&target).ok();
+        if !same {
+            if let Some(dir) = target.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::copy(blueprint, &target)?;
+            created.push(staged);
+        }
+    }
+    if kickoff.engine == Engine::OpenApi && !pin_existed {
+        let pin = kickoff.parent.join("openapitools.json");
+        if pin.is_file() {
+            std::fs::rename(&pin, project_dir.join("openapitools.json")).ok();
+        }
+    }
 
     crate::hook_install::install(&project_dir, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
     if kickoff.engine == Engine::Wasp {
@@ -535,6 +615,31 @@ pub struct FullstackKickoff {
     pub blueprint: Option<PathBuf>,
     pub parent: PathBuf,
     pub install: bool,
+    /// Executable overrides by part (`backend`, `frontend`), for tests.
+    pub programs: std::collections::BTreeMap<String, String>,
+}
+
+impl FullstackKickoff {
+    fn part(&self, engine: Engine, dir: &str, blueprint: Option<PathBuf>, root: &Path) -> EngineKickoff {
+        EngineKickoff {
+            engine,
+            name: dir.to_string(),
+            blueprint,
+            parent: root.to_path_buf(),
+            program: self.programs.get(dir).cloned(),
+            generator: None,
+            install: self.install,
+            templates: ferrum_templates_from_env(),
+        }
+    }
+
+    /// Every command that would run, for `--plan`.
+    pub fn plan(&self) -> Vec<String> {
+        let root = self.parent.join(&self.name);
+        let mut lines = self.part(self.backend, "backend", self.blueprint.clone(), &root).plan();
+        lines.extend(self.part(Engine::Wasp, "frontend", None, &root).plan());
+        lines
+    }
 }
 
 /// The command that regenerates the frontend's typed API client.
@@ -548,26 +653,47 @@ pub fn run_fullstack(kickoff: &FullstackKickoff) -> anyhow::Result<KickoffReport
         anyhow::bail!("--frontend wasp already is a full-stack engine; pick a backend engine: ferrum (Rust) or kthulu (Go)");
     }
     let root = kickoff.parent.join(&kickoff.name);
+    // Check both engines before generating anything: a missing frontend
+    // engine must not strand a finished backend.
+    for (engine, dir) in [(kickoff.backend, "backend"), (Engine::Wasp, "frontend")] {
+        let program = kickoff.programs.get(dir).cloned().unwrap_or_else(|| engine.executable().to_string());
+        if on_path(&program) || kickoff.programs.contains_key(dir) {
+            continue;
+        }
+        if !kickoff.install || engine.install_argv().is_none() {
+            anyhow::bail!(
+                "{program} is not on PATH; nothing was generated. Install it{}: {}",
+                if kickoff.install { " yourself (vord does not run its installer)" } else { "" },
+                engine.install_hint()
+            );
+        }
+    }
+    let existed = root.exists();
     std::fs::create_dir_all(&root)?;
+    run_fullstack_inner(kickoff, &root).map_err(|err| {
+        if existed {
+            err.context(format!("{} may be partially generated", root.display()))
+        } else {
+            match std::fs::remove_dir_all(&root) {
+                Ok(()) => err.context(format!("removed the partial {}", root.display())),
+                Err(e) => err.context(format!("{} was left partially generated (could not remove it: {e})", root.display())),
+            }
+        }
+    })
+}
+
+fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Result<KickoffReport> {
     let mut created = 0;
     for (engine, dir, blueprint) in [
         (kickoff.backend, "backend", kickoff.blueprint.clone()),
         (Engine::Wasp, "frontend", None),
     ] {
-        let part = EngineKickoff {
-            engine,
-            name: dir.to_string(),
-            blueprint,
-            parent: root.clone(),
-            program: None,
-            generator: None,
-            install: kickoff.install,
-        };
+        let part = kickoff.part(engine, dir, blueprint, root);
         created += run(&part)?.created;
     }
 
     // One manifest and one hook at the workspace root, where the agent works.
-    let mut manifest = Manifest::load(&root);
+    let mut manifest = Manifest::load(root);
     for dir in ["backend", "frontend"] {
         let part = root.join(dir);
         for (file, mut entry) in Manifest::load(&part).files {
@@ -579,7 +705,11 @@ pub fn run_fullstack(kickoff: &FullstackKickoff) -> anyhow::Result<KickoffReport
         std::fs::remove_dir_all(part.join(".claude")).ok();
         std::fs::remove_file(part.join(vord_cli::hook::POLICY_FILE)).ok();
         std::fs::remove_file(part.join(".gitignore")).ok();
+        // The Gherkin scaffold lives once, at the workspace root.
+        std::fs::remove_file(part.join("features/app.feature")).ok();
+        std::fs::remove_dir(part.join("features")).ok(); // only if now empty
     }
+    crate::kickoff::write_gherkin_scaffold(root, "app", &format!("{} application", kickoff.name))?;
     std::fs::create_dir_all(root.join("contract"))?;
     let contract = root.join("contract/openapi.yaml");
     if !contract.exists() {
@@ -592,17 +722,17 @@ pub fn run_fullstack(kickoff: &FullstackKickoff) -> anyhow::Result<KickoffReport
         )?;
         created += 1;
     }
-    manifest.save(&root)?;
-    crate::hook_install::install(&root, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
-    protect_wasp_output(&root, "frontend/")?;
-    ignore_session_state(&root)?;
+    manifest.save(root)?;
+    crate::hook_install::install(root, crate::hook_install::DEFAULT_HOOK_COMMAND)?;
+    protect_wasp_output(root, "frontend/")?;
+    ignore_session_state(root)?;
     std::fs::write(
         root.join("contract/README.md"),
         format!(
             "The API contract shared by `backend/` and `frontend/`.\n\nChange `openapi.yaml`, then regenerate the frontend client with:\n\n    cd frontend && {CLIENT_REGENERATE}\n"
         ),
     )?;
-    Ok(KickoffReport { project_dir: root, created, generated: manifest.files.len() })
+    Ok(KickoffReport { project_dir: root.to_path_buf(), created, generated: manifest.files.len() })
 }
 
 /// Wasp regenerates its whole full-stack output into `.wasp/` on every
@@ -653,17 +783,18 @@ mod tests {
             program: None,
             generator: None,
             install: false,
+            templates: None,
         }
     }
 
     #[test]
-    fn kthulu_creates_from_the_plan_without_post_generation_side_trips() {
+    fn kthulu_creates_from_the_plan_with_only_flags_the_released_cli_has() {
         let steps = kickoff(Engine::Kthulu, Some("/plans/kthulu-plan.yaml")).steps();
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].program, "kthulu");
         assert_eq!(
             steps[0].args,
-            ["create", "shop", "--output", "/work/shop", "--skip-postgen", "--from-plan", "/plans/kthulu-plan.yaml"]
+            ["create", "shop", "--output", "/work/shop", "--from-plan", "/plans/kthulu-plan.yaml"]
         );
     }
 
@@ -675,6 +806,28 @@ mod tests {
         assert_eq!(steps[1].args, ["compile", "/plans/users.yaml", "--output", "."]);
         assert_eq!(steps[1].cwd, PathBuf::from("/work/shop"));
         assert_eq!(kickoff(Engine::Ferrum, None).steps().len(), 1, "no graph, no compile");
+    }
+
+    #[test]
+    fn ferrum_templates_reach_compile_and_the_regenerate_command() {
+        let mut k = kickoff(Engine::Ferrum, Some("/plans/users.yaml"));
+        k.templates = Some(PathBuf::from("/nonexistent/ferrum/templates"));
+        assert_eq!(
+            k.steps()[1].args,
+            ["compile", "/plans/users.yaml", "--output", ".", "--templates", "/nonexistent/ferrum/templates"]
+        );
+        // Runnable from the project root: the graph is staged under gen/.
+        assert_eq!(
+            k.regenerate_command(),
+            "ferrum compile gen/users.yaml --output . --templates /nonexistent/ferrum/templates"
+        );
+        assert_eq!(k.staged_blueprint().as_deref(), Some("gen/users.yaml"));
+    }
+
+    #[test]
+    fn install_commands_name_the_ferrum_cli_package() {
+        assert_eq!(Engine::Ferrum.install_argv().unwrap().last(), Some(&"ferrum-cli"));
+        assert!(Engine::Ferrum.spec().install_hint.ends_with("ferrum-cli"));
     }
 
     #[test]
@@ -724,6 +877,7 @@ mod tests {
             program: Some(fake.display().to_string()),
             generator: None,
             install: false,
+            templates: None,
         };
 
         let report = run(&run_kickoff).unwrap();
@@ -794,7 +948,7 @@ mod tests {
         assert_eq!(kickoff(Engine::Kthulu, None).regenerate_command(), "kthulu generate");
         assert_eq!(
             kickoff(Engine::Ferrum, Some("/p/g.yaml")).regenerate_command(),
-            "ferrum compile g.yaml --output ."
+            "ferrum compile gen/g.yaml --output ."
         );
     }
 
@@ -806,8 +960,171 @@ mod tests {
             blueprint: None,
             parent: PathBuf::from("/nonexistent"),
             install: false,
+            programs: Default::default(),
         })
         .unwrap_err();
         assert!(err.to_string().contains("ferrum"), "{err}");
+    }
+
+    #[cfg(unix)]
+    fn script(dir: &Path, name: &str, body: &str) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.display().to_string()
+    }
+
+    #[cfg(unix)]
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vord-kickoff-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_single_engine_run_removes_what_it_created_and_says_so() {
+        let parent = scratch("fail-single");
+        let k = EngineKickoff {
+            engine: Engine::Wasp,
+            name: "shop".into(),
+            blueprint: None,
+            parent: parent.clone(),
+            program: Some(script(&parent, "boom", "mkdir -p \"$2\"; echo x > \"$2/half\"; exit 3")),
+            generator: None,
+            install: false,
+            templates: None,
+        };
+        let err = run(&k).unwrap_err();
+        assert!(format!("{err:#}").contains("removed the partial"), "{err:#}");
+        assert!(!parent.join("shop").exists());
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preexisting_project_dir_is_never_removed_on_failure() {
+        let parent = scratch("fail-existing");
+        std::fs::create_dir_all(parent.join("shop")).unwrap();
+        std::fs::write(parent.join("shop/mine.txt"), "keep").unwrap();
+        let k = EngineKickoff {
+            engine: Engine::Wasp,
+            name: "shop".into(),
+            blueprint: None,
+            parent: parent.clone(),
+            program: Some(script(&parent, "boom", "exit 3")),
+            generator: None,
+            install: false,
+            templates: None,
+        };
+        assert!(run(&k).is_err());
+        assert!(parent.join("shop/mine.txt").exists());
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fullstack_cleans_up_when_the_second_engine_fails() {
+        let parent = scratch("fail-fullstack");
+        let backend = script(&parent, "back", "mkdir -p \"$2/src\"; echo '// @generated' > \"$2/src/a.rs\"");
+        let frontend = script(&parent, "front", "exit 7");
+        let mut programs = std::collections::BTreeMap::new();
+        programs.insert("backend".to_string(), backend);
+        programs.insert("frontend".to_string(), frontend);
+        let err = run_fullstack(&FullstackKickoff {
+            backend: Engine::Ferrum,
+            name: "app".into(),
+            blueprint: None,
+            parent: parent.clone(),
+            install: false,
+            programs,
+        })
+        .unwrap_err();
+        assert!(format!("{err:#}").contains("removed the partial"), "{err:#}");
+        assert!(!parent.join("app").exists(), "no half-built tree is left behind");
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fullstack_success_has_one_manifest_and_one_feature_scaffold() {
+        let parent = scratch("ok-fullstack");
+        let backend = script(&parent, "back", "mkdir -p \"$2/src\"; echo '// @generated' > \"$2/src/a.rs\"");
+        let frontend = script(&parent, "front", "mkdir -p \"$2/src\"; echo '// @generated' > \"$2/src/b.ts\"");
+        let mut programs = std::collections::BTreeMap::new();
+        programs.insert("backend".to_string(), backend);
+        programs.insert("frontend".to_string(), frontend);
+        let report = run_fullstack(&FullstackKickoff {
+            backend: Engine::Ferrum,
+            name: "app".into(),
+            blueprint: None,
+            parent: parent.clone(),
+            install: false,
+            programs,
+        })
+        .unwrap();
+        let root = parent.join("app");
+        assert_eq!(report.project_dir, root);
+        assert!(root.join("features/app.feature").exists());
+        assert!(!root.join("backend/features").exists() && !root.join("frontend/features").exists());
+        let manifest = Manifest::load(&root);
+        assert!(manifest.files.contains_key("backend/src/a.rs") && manifest.files.contains_key("frontend/src/b.ts"));
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn openapi_spec_and_version_pin_move_into_the_project_so_regeneration_runs_from_its_root() {
+        let parent = scratch("openapi-stage");
+        std::fs::write(parent.join("api.yaml"), "openapi: 3.0.3\n").unwrap();
+        let k = EngineKickoff {
+            engine: Engine::OpenApi,
+            name: "client".into(),
+            blueprint: Some(parent.join("api.yaml")),
+            parent: parent.clone(),
+            // generate -i SPEC -g GEN -o OUT, plus the wrapper's pin file in cwd.
+            program: Some(script(&parent, "oag", "mkdir -p \"$7\"; echo 'x' > \"$7/api.ts\"; echo '{}' > openapitools.json")),
+            generator: Some("typescript-fetch".into()),
+            install: false,
+            templates: None,
+        };
+        run(&k).unwrap();
+        let dir = parent.join("client");
+        assert!(dir.join("spec/api.yaml").is_file(), "the spec is kept in the project");
+        assert!(dir.join("openapitools.json").is_file() && !parent.join("openapitools.json").exists());
+        let manifest = Manifest::load(&dir);
+        assert_eq!(
+            manifest.files["api.ts"].regenerate.as_deref(),
+            Some("openapi-generator-cli generate -i spec/api.yaml -g typescript-fetch -o .")
+        );
+        assert!(!manifest.files.contains_key("spec/api.yaml"), "the spec is the blueprint, not generated output");
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn templ_output_is_regenerated_by_templ() {
+        let parent = scratch("templ");
+        let k = EngineKickoff {
+            engine: Engine::Kthulu,
+            name: "shop".into(),
+            blueprint: None,
+            parent: parent.clone(),
+            program: Some(script(
+                &parent,
+                "k",
+                "mkdir -p \"$4/v\"; printf '// Code generated by templ - DO NOT EDIT.\\npackage v\\n' > \"$4/v/a_templ.go\"; printf '// Code generated by kthulu. DO NOT EDIT.\\npackage v\\n' > \"$4/v/b.go\"",
+            )),
+            generator: None,
+            install: false,
+            templates: None,
+        };
+        run(&k).unwrap();
+        let manifest = Manifest::load(&parent.join("shop"));
+        assert_eq!(manifest.files["v/a_templ.go"].regenerate.as_deref(), Some("templ generate"));
+        assert_eq!(manifest.files["v/b.go"].regenerate.as_deref(), Some("kthulu generate"));
+        std::fs::remove_dir_all(&parent).ok();
     }
 }
