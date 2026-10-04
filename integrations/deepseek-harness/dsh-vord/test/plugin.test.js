@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { apply, deletesGeneratedProject } from '../src/index.js'
+import { apply, DEFAULT_GUIDANCE, deletesGeneratedProject } from '../src/index.js'
 import { accept, allow, execution, fakeAgent, fakeContext } from './helpers.js'
 
 const FAKE_VORD = fileURLToPath(new URL('./fixtures/fake-vord.mjs', import.meta.url))
@@ -19,7 +19,7 @@ function mount(output, extra = {}) {
   delete process.env.FAKE_VORD_DONE
   delete process.env.FAKE_VORD_HOLES
   const ctx = fakeContext()
-  apply(ctx, { command: FAKE_VORD, ...extra })
+  apply(ctx, { command: FAKE_VORD, guidance: false, ...extra })
   const payloads = () => {
     try {
       return readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(entry => !entry.argv)
@@ -190,4 +190,39 @@ test('rm -rf of a generated project is denied, other deletions pass', () => {
   assert.match(deletesGeneratedProject('cd x && rm -fr ./app/', root), /generated\.json/)
   assert.equal(deletesGeneratedProject('rm -rf scratch', root), undefined)
   assert.equal(deletesGeneratedProject('rm app/file.txt', root), undefined)
+})
+
+const created = (agent, source = 'new') => ({ agent, source, signal: new AbortController().signal })
+
+test('a new session gets the standing guidance by default', async () => {
+  const { ctx, agent } = mount(undefined, { guidance: undefined })
+  await ctx.fire('agent/created', created(agent))
+  assert.equal(agent.steered.length, 1)
+  const text = agent.steered[0].content[0].text
+  assert.equal(text, DEFAULT_GUIDANCE)
+  for (const needle of ['vord_kickoff', 'plan', 'ferrum', 'Rust', 'kthulu', 'Go', 'wasp', 'copier', 'openapi', 'vord_holes', 'workspace']) {
+    assert.ok(text.includes(needle), `guidance mentions ${needle}`)
+  }
+})
+
+test('guidance can be replaced by a string', async () => {
+  const { ctx, agent } = mount(undefined, { guidance: 'use vord for everything' })
+  await ctx.fire('agent/created', created(agent))
+  assert.equal(agent.steered[0].content[0].text, 'use vord for everything')
+})
+
+test('guidance: false sends nothing, and baseline still works', async () => {
+  const { ctx, agent, calls } = mount(undefined, { guidance: false })
+  await ctx.fire('agent/created', created(agent))
+  assert.equal(agent.steered.length, 0)
+  assert.equal(calls().filter(argv => argv[1] === 'baseline').length, 1)
+})
+
+test('guidance is not repeated when a session resumes, and works without the analyzer', async () => {
+  const { ctx, agent, calls } = mount(undefined, { guidance: undefined, analyzerAsDone: false })
+  await ctx.fire('agent/created', created(agent, 'resume'))
+  assert.equal(agent.steered.length, 0)
+  await ctx.fire('agent/created', created(agent))
+  assert.equal(agent.steered.length, 1)
+  assert.equal(calls().length, 0)
 })

@@ -50,7 +50,20 @@ const SOURCE = Object.freeze({ kind: 'vord' })
  * @property {string} [doneScope] - path the baseline is taken over and re-scanned; default `.`.
  * @property {string} [doneRule] - a rule every task in this profile must eliminate from the scope.
  * @property {'touched' | 'all' | false} [holesAsDone] - hold a turn open while holes stay pending: in files the session wrote (`touched`, default), anywhere in `doneScope` (`all`), or never (`false`).
+ * @property {boolean | string} [guidance] - standing guidance injected when a new session starts: `true` (default) sends the built-in text, a string replaces it, `false` sends nothing.
  */
+
+/**
+ * Standing guidance for the model: scaffold with vord instead of hand-writing
+ * boilerplate. Sent once when a session is created (not on resume).
+ */
+export const DEFAULT_GUIDANCE = [
+  'vord is mounted in this session. Follow these rules for new projects and features:',
+  '- Scaffold with the `vord_kickoff` MCP tool instead of hand-writing boilerplate. Call it with `plan` first to preview, then generate.',
+  '- Pick the engine by the backend language the user asked for: `ferrum` = Rust, `kthulu` = Go, `wasp` = TypeScript full-stack, `copier` = any template (e.g. Python/FastAPI), `openapi` = generate from an OpenAPI spec. Never pick an engine for a different language.',
+  '- Never delete or hand-rewrite generated output (no `rm -rf` on the generated project). To change it, edit the blueprint and regenerate; fill the marked holes through `vord_holes`.',
+  '- Open the generated project directory as the workspace for all further work.',
+].join('\n')
 
 /**
  * Where a session's baseline lives: one file per session, so concurrent or
@@ -115,6 +128,9 @@ export function apply(ctx, config = {}) {
   const doneScope = config.doneScope ?? '.'
   const doneRule = config.doneRule
   const holesAsDone = config.holesAsDone ?? 'touched'
+  const guidance = config.guidance === undefined || config.guidance === true
+    ? DEFAULT_GUIDANCE
+    : typeof config.guidance === 'string' && config.guidance.trim() !== '' ? config.guidance : undefined
   /** @type {WeakMap<object, Set<string>>} workspace-relative files each agent wrote */
   const touched = new WeakMap()
   /** @type {WeakMap<object, string>} the baseline each live agent is judged against */
@@ -191,11 +207,16 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  if (analyzerAsDone) {
-    // Record the baseline before the agent's first step: AgentLoop awaits
-    // `agent/created` initialisation before it starts queued work. A resumed
-    // session keeps the baseline it started with.
-    ctx.on('agent/created', async ({ agent, signal }) => {
+  // One `agent/created` listener: standing guidance first, then (when the
+  // analyzer is the definition of done) the baseline. AgentLoop awaits this
+  // initialisation before it starts queued work. A resumed session keeps the
+  // baseline it started with and is not given the guidance twice.
+  if (guidance !== undefined || analyzerAsDone) {
+    ctx.on('agent/created', async ({ agent, source, signal }) => {
+      if (guidance !== undefined && source !== 'resume' && typeof agent.steer === 'function') {
+        agent.steer(contextMessage(guidance))
+      }
+      if (!analyzerAsDone) return
       const cwd = sessionCwd({ agent })
       const sessionId = agent.session?.header?.id
       if (typeof sessionId !== 'string') return
