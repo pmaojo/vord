@@ -779,6 +779,46 @@ Supported templates:
 - `typescript-clean` (or `ts`): Restricts wildcard re-exports and enforces naming conventions.
 - `fullstack-hexagonal` (or `hexagonal`): A complete backend/frontend setup with `architecture.yaml` and blocking rules for hexagonal layer violations and circular dependencies.
 
+### Scaffolding engines
+
+Deterministic work belongs to a generator, not to an agent. `--engine` runs
+a real scaffolding engine and then makes its output governed from the first
+commit:
+
+```sh
+vord kickoff --engine kthulu --name shop --blueprint kthulu-plan.yaml   # Go modular monolith (pmaojo/kthulu-go)
+vord kickoff --engine ferrum --name shop --blueprint gen/users.yaml     # Rust + React hexagonal (pmaojo/ferrum)
+vord kickoff --engine wasp   --name shop                                # React + Node + Prisma (wasp-lang/wasp)
+```
+
+The engine's CLI must be on `PATH`. After it runs, vord installs its policy
+and the Claude Code hook (as `vord hook install` does), adds a Gherkin
+scaffold, and records every file the engine **marked as generated** in
+`.vord/generated.json`, along with the blueprint and the command that
+regenerates it. For Wasp, `.wasp/**` (regenerated from `main.wasp` on every
+compile) becomes a protected path.
+
+A file counts as generated when the engine marks it: a standard
+`Code generated … DO NOT EDIT` or `@generated` header, or a hole. Unmarked
+files are starter code the project owns and stay freely editable.
+
+**Holes.** A generator marks where hand-written code goes:
+
+```go
+func Place(o Order) error {
+	// vord:hole place-rules
+	// vord:end-hole
+	return repo.Save(o)
+}
+```
+
+The write gate (hook, `vord agent`, dsh-vord) lets an agent change what
+sits between `vord:hole` and `vord:end-hole`. A write that changes anything
+else in a generated file is denied under `generated:edit-outside-hole`. The
+denial names the blueprint and the regenerate command, so the agent changes
+the blueprint instead of making an edit the next regeneration would throw
+away. The markers work under any comment syntax.
+
 ## `vord fix` — automated AI remediation
 
 `vord fix` takes an issue ID and asks an LLM (via an Anthropic or OpenAI-compatible endpoint) to write a patch for it. The engine verifies the fix in a sandbox, rejecting patches that break tests or fail to resolve the issue.

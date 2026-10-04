@@ -16,6 +16,7 @@ mod crap;
 mod flow;
 mod hook_install;
 mod kickoff;
+mod kickoff_engine;
 mod mcp;
 mod monorepo_scan;
 mod tui;
@@ -90,11 +91,25 @@ enum Command {
     /// Kickoff a new project template for AI-driven development.
     Kickoff {
         /// Template name (react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal).
+        /// Ignored with `--engine`.
         #[arg(default_value = "react-bulletproof")]
         template: String,
-        /// Target directory.
+        /// Target directory (with `--engine`, the parent the project is created in).
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        /// Generate with a scaffolding engine instead of a built-in template:
+        /// kthulu (Go), ferrum (Rust + React) or wasp (React + Node + Prisma).
+        /// Its CLI must be on PATH. vord then adds its policy, the hook, a
+        /// generated-code manifest and a Gherkin scaffold.
+        #[arg(long, requires = "name")]
+        engine: Option<String>,
+        /// Project name passed to the engine.
+        #[arg(long)]
+        name: Option<String>,
+        /// The engine's blueprint: kthulu-plan.yaml (kthulu) or a graph
+        /// YAML (ferrum).
+        #[arg(long)]
+        blueprint: Option<PathBuf>,
     },
     /// Visualize the component architecture of a directory: import graph
     /// collapsed to components, Martin's Ca/Ce/I/A/D metrics, dependency
@@ -599,8 +614,32 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Some(Command::Agent { action }) => run_agent(action).await,
         Some(Command::Swarm { action }) => run_swarm(action).await,
         Some(Command::Triage { action }) => run_triage(action).await,
-        Some(Command::Kickoff { template, path }) => {
-            kickoff::run_kickoff(&template, &path)?;
+        Some(Command::Kickoff {
+            template,
+            path,
+            engine,
+            name,
+            blueprint,
+        }) => {
+            let Some(engine) = engine else {
+                kickoff::run_kickoff(&template, &path)?;
+                return Ok(ExitCode::SUCCESS);
+            };
+            let request = kickoff_engine::EngineKickoff {
+                engine: kickoff_engine::Engine::parse(&engine)?,
+                name: name.expect("clap requires --name with --engine"),
+                blueprint,
+                parent: path,
+                program: None,
+            };
+            let report = kickoff_engine::run(&request)?;
+            println!(
+                "vord kickoff: {} created {} file(s) in {}; {} marked generated (edit their blueprint, not the files)",
+                engine,
+                report.created,
+                report.project_dir.display(),
+                report.generated
+            );
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Arch { path, format, html }) => run_arch(&path, format, html),

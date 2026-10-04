@@ -14,6 +14,8 @@
 //! supplies the already-parsed policy text, the target path and the findings;
 //! everything here is a deterministic function of those three.
 
+pub mod generated;
+
 use std::collections::{HashMap, HashSet};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};

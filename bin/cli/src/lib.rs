@@ -40,6 +40,7 @@ use vord_rules_engine::{
 };
 
 pub mod agent;
+pub mod generated;
 pub mod hook;
 pub mod output;
 pub mod swarm;

@@ -13,7 +13,7 @@ rather than a fork of dsh.
 | `tools/post-execute` | What landed is re-judged from disk. A violation blocks the result with corrective feedback, and an advisory is attached as context for the next request. A `bash` result feeds vord's `[[test_required]]` evidence ledger. |
 | `agent/created` | Records the analyzer's baseline for the session (`vord agent baseline`), once, under `.vord/sessions/`. A resumed session keeps the baseline it started with. |
 | `agent/turn-stopping` | The analyzer is the definition of done. A turn cannot close while `vord agent done` sees findings the baseline lacked (or `doneRule` still fires), nor while `[[test_required]]` evidence is pending. The objection steers the agent into another step, so a sink smuggled in through `bash` is still caught. After `maxStopContinuations` forced continuations in a row it yields, and the findings still fail CI's gate. No model's opinion of its own work is consulted. |
-| `mcp-vord` row | `vord mcp` is mounted through `dsh-mcp-client`, so the model calls scan, graph and kickoff as `mcp__vord__*` tools. |
+| `mcp-vord` row | `vord mcp` is mounted through `dsh-mcp-client`, so the model calls scan, done, kickoff (templates or a scaffolding engine) and the swarm handoff as `mcp__vord__*` tools. Each one runs the real `vord` command and reports a failure as an error. |
 
 Every judgement runs through the same `vord hook claude-code` a Claude Code
 session uses, so `vord-policy.toml`, protected paths, Gherkin and test evidence,

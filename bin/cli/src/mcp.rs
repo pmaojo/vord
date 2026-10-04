@@ -1,9 +1,20 @@
+//! `vord mcp`: vord's CLI as Model Context Protocol tools over stdio.
+//!
+//! Every tool runs the real `vord` subcommand (this same executable) in the
+//! server's working directory and returns its output — an agent asking for
+//! a scan gets the scan, not a canned answer. A failed command comes back
+//! with `isError: true`, so "could not check" never reads as a pass.
+
 use serde_json::{Value, json};
 use std::io::{self, BufRead};
+use std::process::Command;
+
+/// Output longer than this is cut, keeping the tail (where vord prints its
+/// summary and gate verdict).
+const MAX_OUTPUT_CHARS: usize = 20_000;
 
 pub fn run_mcp_server() -> io::Result<()> {
     let stdin = io::stdin();
-    let _stdout = io::stdout();
     let mut handle = stdin.lock();
 
     let mut line = String::new();
@@ -28,6 +39,154 @@ pub fn run_mcp_server() -> io::Result<()> {
     Ok(())
 }
 
+fn tool_list() -> Value {
+    json!([
+        {
+            "name": "vord_scan",
+            "description": "Run vord's static analysis over a path and return the findings, health score and quality gate verdict.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Directory or file to scan (default: the workspace root)" }
+                }
+            }
+        },
+        {
+            "name": "vord_done",
+            "description": "Ask the analyzer whether the task is finished: re-scan and compare against the baseline recorded with `vord agent baseline`. Returns {done, reason}.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "scope": { "type": "string", "description": "Path to re-scan (default: .)" },
+                    "baseline": { "type": "string", "description": "Baseline file (default: .vord/agent-baseline.json)" },
+                    "rule": { "type": "string", "description": "A rule the task must eliminate from the scope" }
+                }
+            }
+        },
+        {
+            "name": "vord_kickoff",
+            "description": "Scaffold a project deterministically instead of writing boilerplate: either a built-in vord template, or a scaffolding engine (kthulu, ferrum, wasp) from its blueprint. The result is policy-gated, with generated files recorded so later edits go through the blueprint.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "template": { "type": "string", "description": "Built-in template: react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal" },
+                    "engine": { "type": "string", "enum": ["kthulu", "ferrum", "wasp"], "description": "Scaffolding engine; requires name" },
+                    "name": { "type": "string", "description": "Project name passed to the engine" },
+                    "blueprint": { "type": "string", "description": "Engine blueprint: kthulu-plan.yaml or a ferrum graph YAML" },
+                    "path": { "type": "string", "description": "Destination (with an engine: the parent directory)" }
+                }
+            }
+        },
+        {
+            "name": "vord_swarm_roles",
+            "description": "List the swarm roles declared in vord.toml with their worktree, model and policy scope.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "vord_swarm_handoff",
+            "description": "Send a swarm handoff from one role to another (written to the sender's outbox, then delivered).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from": { "type": "string" },
+                    "to": { "type": "string" },
+                    "summary": { "type": "string" }
+                },
+                "required": ["from", "to", "summary"]
+            }
+        }
+    ])
+}
+
+fn string_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+    args.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+/// The `vord` invocations a tool call maps to, or why it cannot run.
+fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
+    let owned = |parts: &[&str]| parts.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    match name {
+        "vord_scan" => Ok(vec![owned(&["scan", string_arg(args, "path").unwrap_or(".")])]),
+        "vord_done" => {
+            let mut argv = owned(&["agent", "done", "--json", "--scope", string_arg(args, "scope").unwrap_or(".")]);
+            if let Some(baseline) = string_arg(args, "baseline") {
+                argv.extend(owned(&["--baseline", baseline]));
+            }
+            if let Some(rule) = string_arg(args, "rule") {
+                argv.extend(owned(&["--rule", rule]));
+            }
+            Ok(vec![argv])
+        }
+        "vord_kickoff" => {
+            let mut argv = owned(&["kickoff"]);
+            match (string_arg(args, "engine"), string_arg(args, "template")) {
+                (Some(engine), _) => {
+                    let name = string_arg(args, "name")
+                        .ok_or("vord_kickoff with an engine needs `name`")?;
+                    argv.extend(owned(&["--engine", engine, "--name", name]));
+                    if let Some(blueprint) = string_arg(args, "blueprint") {
+                        argv.extend(owned(&["--blueprint", blueprint]));
+                    }
+                }
+                (None, Some(template)) => argv.push(template.to_string()),
+                (None, None) => return Err("vord_kickoff needs `template` or `engine`".into()),
+            }
+            argv.extend(owned(&["--path", string_arg(args, "path").unwrap_or(".")]));
+            Ok(vec![argv])
+        }
+        "vord_swarm_roles" => Ok(vec![owned(&["swarm", "roles"])]),
+        "vord_swarm_handoff" => {
+            let field = |key: &str| string_arg(args, key).ok_or(format!("vord_swarm_handoff needs `{key}`"));
+            Ok(vec![
+                owned(&["swarm", "handoff-send", "--from", field("from")?, "--to", field("to")?, "--summary", field("summary")?]),
+                owned(&["swarm", "handoff-deliver"]),
+            ])
+        }
+        other => Err(format!("unknown tool {other:?}")),
+    }
+}
+
+/// Exit codes that are verdicts, not failures: `vord agent done` exits 3
+/// for "not done yet", and a scan's gate does the same.
+fn is_verdict_exit(code: Option<i32>) -> bool {
+    matches!(code, Some(0) | Some(3))
+}
+
+fn tail(text: &str) -> String {
+    let count = text.chars().count();
+    if count <= MAX_OUTPUT_CHARS {
+        return text.to_string();
+    }
+    let kept: String = text.chars().skip(count - MAX_OUTPUT_CHARS).collect();
+    format!("[… {} characters cut …]\n{kept}", count - MAX_OUTPUT_CHARS)
+}
+
+/// Runs a tool's commands in order and returns `(text, is_error)`.
+fn run_tool(name: &str, args: &Value) -> (String, bool) {
+    let commands = match tool_commands(name, args) {
+        Ok(commands) => commands,
+        Err(message) => return (message, true),
+    };
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => return (format!("cannot locate the vord executable: {e}"), true),
+    };
+    let mut transcript = String::new();
+    for argv in commands {
+        let output = match Command::new(&exe).args(&argv).output() {
+            Ok(output) => output,
+            Err(e) => return (format!("could not run vord {}: {e}", argv.join(" ")), true),
+        };
+        transcript.push_str(&String::from_utf8_lossy(&output.stdout));
+        transcript.push_str(&String::from_utf8_lossy(&output.stderr));
+        if !is_verdict_exit(output.status.code()) {
+            transcript.push_str(&format!("\nvord {} failed ({})", argv.join(" "), output.status));
+            return (tail(&transcript), true);
+        }
+    }
+    (tail(&transcript), false)
+}
+
 fn handle_rpc_request(req: &Value) -> Option<Value> {
     let id = req.get("id")?;
     let method = req.get("method")?.as_str()?;
@@ -50,86 +209,19 @@ fn handle_rpc_request(req: &Value) -> Option<Value> {
         "tools/list" => Some(json!({
             "jsonrpc": "2.0",
             "id": id,
-            "result": {
-                "tools": [
-                    {
-                        "name": "vord_scan",
-                        "description": "Run ultra-fast static analysis scan on workspace (<30ms)",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "path": { "type": "string", "description": "Target directory or file path" }
-                            }
-                        }
-                    },
-                    {
-                        "name": "vord_fix",
-                        "description": "Apply automated rule fixes to workspace",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "path": { "type": "string", "description": "Target directory or file path" }
-                            }
-                        }
-                    },
-                    {
-                        "name": "vord_swarm_roles",
-                        "description": "View swarm role topology and policy scopes",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {}
-                        }
-                    },
-                    {
-                        "name": "vord_swarm_handoff",
-                        "description": "Queue or deliver swarm handoffs between roles",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "action": { "type": "string", "enum": ["send", "deliver", "inbox"] },
-                                "from": { "type": "string" },
-                                "to": { "type": "string" },
-                                "summary": { "type": "string" }
-                            }
-                        }
-                    },
-                    {
-                        "name": "vord_kickoff",
-                        "description": "Scaffold a new project using vord starter templates",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "template": { "type": "string", "description": "Template key: react-bulletproof, rust-clean, python-clean, typescript-clean, fullstack-hexagonal" },
-                                "path": { "type": "string", "description": "Destination directory" }
-                            },
-                            "required": ["template", "path"]
-                        }
-                    }
-                ]
-            }
+            "result": { "tools": tool_list() }
         })),
         "tools/call" => {
             let params = req.get("params")?;
             let name = params.get("name")?.as_str()?;
-            let result_content = match name {
-                "vord_scan" => "vord_scan executed successfully. 0 blocking issues found.",
-                "vord_fix" => "vord_fix executed successfully. All autofixable findings repaired.",
-                "vord_swarm_roles" => "Swarm topology active: architect -> coder -> cleaner -> qa",
-                "vord_swarm_handoff" => "Swarm handoff processed successfully.",
-                "vord_kickoff" => "Project template scaffolded successfully.",
-                _ => "Unknown tool",
-            };
-
+            let args = params.get("arguments").cloned().unwrap_or(json!({}));
+            let (text, is_error) = run_tool(name, &args);
             Some(json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": result_content
-                        }
-                    ]
+                    "content": [{ "type": "text", "text": text }],
+                    "isError": is_error
                 }
             }))
         }
@@ -172,5 +264,44 @@ mod tests {
         let tools = resp["result"]["tools"].as_array().unwrap();
         assert!(tools.iter().any(|t| t["name"] == "vord_scan"));
         assert!(tools.iter().any(|t| t["name"] == "vord_kickoff"));
+        assert!(tools.iter().any(|t| t["name"] == "vord_done"));
+    }
+
+    #[test]
+    fn every_listed_tool_maps_to_a_real_vord_command() {
+        let args = json!({ "engine": "kthulu", "name": "shop", "from": "a", "to": "b", "summary": "s" });
+        for tool in tool_list().as_array().unwrap() {
+            let name = tool["name"].as_str().unwrap();
+            assert!(tool_commands(name, &args).is_ok(), "{name} has no command");
+        }
+    }
+
+    #[test]
+    fn kickoff_maps_engines_and_templates() {
+        assert_eq!(
+            tool_commands("vord_kickoff", &json!({ "engine": "ferrum", "name": "shop", "blueprint": "g.yaml" })).unwrap(),
+            [["kickoff", "--engine", "ferrum", "--name", "shop", "--blueprint", "g.yaml", "--path", "."]]
+        );
+        assert_eq!(
+            tool_commands("vord_kickoff", &json!({ "template": "rust-clean", "path": "svc" })).unwrap(),
+            [["kickoff", "rust-clean", "--path", "svc"]]
+        );
+        assert!(tool_commands("vord_kickoff", &json!({ "engine": "wasp" })).is_err(), "engine needs a name");
+    }
+
+    #[test]
+    fn unknown_tools_and_missing_arguments_are_errors_not_canned_success() {
+        let (text, is_error) = run_tool("vord_nope", &json!({}));
+        assert!(is_error, "{text}");
+        let (_, is_error) = run_tool("vord_swarm_handoff", &json!({ "from": "a" }));
+        assert!(is_error);
+    }
+
+    #[test]
+    fn long_output_keeps_the_tail() {
+        let long = format!("{}SUMMARY", "x".repeat(MAX_OUTPUT_CHARS + 10));
+        let cut = tail(&long);
+        assert!(cut.ends_with("SUMMARY"));
+        assert!(cut.starts_with("[… 10 characters cut …]") || cut.contains("characters cut"));
     }
 }
