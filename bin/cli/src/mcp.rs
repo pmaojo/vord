@@ -86,6 +86,8 @@ fn tool_list() -> Value {
                     "frontend": { "type": "string", "enum": ["wasp"], "description": "With a ferrum or kthulu `engine` as the backend, also generate a Wasp frontend joined by a shared OpenAPI contract (contract/openapi.yaml)" },
                     "language": { "type": "string", "description": "Backend language the user asked for (rust, go, typescript); checked against `engine` so a mismatch is rejected" },
                     "generator": { "type": "string", "description": "With engine openapi: the OpenAPI Generator name, e.g. typescript-fetch" },
+                    "data": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] }, "description": "With engine copier: template answers as {question: value}, passed as `copier copy --data question=value`" },
+                    "vcs_ref": { "type": "string", "description": "With engine copier: template tag, branch or commit (`--vcs-ref`); copier defaults to the latest tag" },
                     "install": { "type": "boolean", "description": "Install the engine if it is not on PATH" },
                     "plan": { "type": "boolean", "description": "Only print the commands that would run" },
                     "name": { "type": "string", "description": "Project name passed to the engine" },
@@ -175,6 +177,21 @@ fn tool_commands(name: &str, args: &Value) -> Result<Vec<Vec<String>>, String> {
                         if args.get(flag).and_then(Value::as_bool) == Some(true) {
                             argv.push(format!("--{flag}"));
                         }
+                    }
+                    if let Some(data) = args.get("data") {
+                        let map = data.as_object().ok_or("vord_kickoff `data` must be an object of answers")?;
+                        for (key, value) in map {
+                            let text = match value {
+                                Value::String(s) => s.clone(),
+                                Value::Number(n) => n.to_string(),
+                                Value::Bool(b) => b.to_string(),
+                                _ => return Err(format!("vord_kickoff `data.{key}` must be a string, number or boolean")),
+                            };
+                            argv.extend(["--data".to_string(), format!("{key}={text}")]);
+                        }
+                    }
+                    if let Some(vcs_ref) = string_arg(args, "vcs_ref") {
+                        argv.extend(owned(&["--vcs-ref", vcs_ref]));
                     }
                     if let Some(frontend) = string_arg(args, "frontend") {
                         argv.extend(owned(&["--frontend", frontend]));
@@ -347,6 +364,25 @@ mod tests {
         );
         assert!(tool_commands("vord_kickoff", &json!({ "engine": "wasp" })).is_err(), "engine needs a name");
     }
+
+    #[test]
+    fn kickoff_passes_copier_answers_as_repeated_data_flags() {
+        let argv = tool_commands(
+            "vord_kickoff",
+            &json!({ "engine": "copier", "name": "api", "blueprint": "gh:o/t", "vcs_ref": "0.9.0", "data": { "project_name": "My API", "n": 3, "on": true } }),
+        )
+        .unwrap();
+        let argv = &argv[0];
+        assert!(argv.windows(2).any(|w| w == ["--data", "project_name=My API"]));
+        assert!(argv.windows(2).any(|w| w == ["--data", "n=3"]));
+        assert!(argv.windows(2).any(|w| w == ["--data", "on=true"]));
+        assert!(argv.windows(2).any(|w| w == ["--vcs-ref", "0.9.0"]));
+        let bad = json!({ "engine": "copier", "name": "api", "blueprint": "x", "data": { "k": ["a"] } });
+        assert!(tool_commands("vord_kickoff", &bad).is_err());
+        let bad = json!({ "engine": "copier", "name": "api", "blueprint": "x", "data": "k=v" });
+        assert!(tool_commands("vord_kickoff", &bad).is_err());
+    }
+
 
     #[test]
     fn kickoff_rejects_incoherent_engine_choices() {

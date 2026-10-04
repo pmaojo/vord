@@ -873,7 +873,7 @@ commit:
 vord kickoff --engine kthulu --name shop --blueprint kthulu-plan.yaml   # Go modular monolith (pmaojo/kthulu-go)
 vord kickoff --engine ferrum --name shop --blueprint gen/users.yaml     # Rust + React hexagonal (pmaojo/ferrum)
 vord kickoff --engine wasp   --name shop                                # React + Node + Prisma (wasp-lang/wasp)
-vord kickoff --engine copier --name api --blueprint gh:fastapi/full-stack-fastapi-template   # any Copier template; `copier update` regenerates
+vord kickoff --engine copier --name api --blueprint gh:fastapi/full-stack-fastapi-template --vcs-ref 0.9.0 --data project_name=Demo   # any Copier template; `copier update` regenerates
 vord kickoff --engine openapi --name client --blueprint api.yaml --generator typescript-fetch  # code from an OpenAPI spec
 vord kickoff --engine ferrum --frontend wasp --name shop                # backend + Wasp frontend, shared OpenAPI contract
 ```
@@ -900,6 +900,35 @@ compile) becomes a protected path.
 A file counts as generated when the engine marks it: a standard
 `Code generated … DO NOT EDIT` or `@generated` header, or a hole. Unmarked
 files are starter code the project owns and stay freely editable.
+
+**Python.** Python backends go through Copier (`--engine copier`).
+`--data key=value` (repeatable; MCP: a `data` object) answers the template's
+questions as `copier copy --data`, and `--vcs-ref <tag|branch|commit>` pins
+the template version (Copier otherwise takes the template's latest tag).
+Copier's output is starter code the project owns: nothing is locked unless
+the template writes a `DO NOT EDIT`/`@generated`/hole marker. The template's
+answers file (`.copier-answers.yml`, or wherever its `_answers_file` points)
+is what lets `copier update --defaults --trust` re-apply the template; that
+needs a repository with a clean tree, so run `git init`, `git add -A` and a
+first commit before regenerating.
+
+- **FastAPI**: `fastapi/full-stack-fastapi-template` is no longer a Copier
+  template after tag 0.9.0 (no `copier.yml`; Copier's default of "latest
+  tag" fails on its dangling `.claude/skills` symlinks), so pin
+  `--vcs-ref 0.9.0`. That version needs no `--data` (every question has a
+  default, including `changethis` secrets; override with e.g.
+  `--data secret_key=...`). It writes its answers to
+  `.copier/.copier-answers.yml` and also copies the template's own `.git`
+  into the project: delete it and `git init` yourself. `copier update` does
+  not work on that result, so treat it as a one-shot seed.
+- **Django**: use a Copier template you trust (same flow, same
+  regeneration), or seed with `django-admin startproject <name>` followed by
+  `vord hook install`. The `startproject` route is a one-shot seed: it
+  cannot be regenerated and vord records no blueprint for it.
+- **Python backend + Wasp frontend** (`--frontend wasp`) is not supported
+  yet: the joint kickoff needs a backend that emits an OpenAPI contract
+  (ferrum or kthulu). Kick off the Python backend and a separate `wasp`
+  project instead.
 
 **Holes.** A generator marks where hand-written code goes:
 

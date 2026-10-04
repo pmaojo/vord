@@ -143,6 +143,14 @@ enum Command {
         /// OpenAPI Generator's generator name (with `--engine openapi`), e.g. typescript-fetch.
         #[arg(long, requires = "engine")]
         generator: Option<String>,
+        /// With `--engine copier`: a template answer, `key=value`
+        /// (repeatable), passed as `copier copy --data key=value`.
+        #[arg(long = "data", requires = "engine", conflicts_with = "frontend", value_name = "KEY=VALUE")]
+        data: Vec<String>,
+        /// With `--engine copier`: template tag, branch or commit
+        /// (`--vcs-ref`). Copier otherwise uses the template's latest tag.
+        #[arg(long = "vcs-ref", requires = "engine", conflicts_with = "frontend")]
+        vcs_ref: Option<String>,
         /// Install the engine if it is not on PATH (pinned, non-interactive)
         /// instead of only saying how.
         #[arg(long, requires = "engine")]
@@ -753,6 +761,8 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             blueprint,
             frontend,
             generator,
+            data,
+            vcs_ref,
             install,
             plan,
             list_engines,
@@ -805,6 +815,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 generator,
                 install,
                 templates: kickoff_engine::ferrum_templates_from_env(),
+                copier: kickoff_engine::CopierOptions { data, vcs_ref },
             };
             if plan {
                 request.validate()?;

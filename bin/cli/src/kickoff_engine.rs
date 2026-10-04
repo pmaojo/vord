@@ -269,6 +269,43 @@ pub struct EngineKickoff {
     /// Ferrum's template directory (`FERRUM_TEMPLATES`): `ferrum init` leaves
     /// the project's own `templates/` empty, so `compile` needs this.
     pub templates: Option<PathBuf>,
+    /// Copier-only answers and template version.
+    pub copier: CopierOptions,
+}
+
+/// Options only the copier engine takes.
+#[derive(Debug, Default, Clone)]
+pub struct CopierOptions {
+    /// `key=value` answers, passed as `copier copy --data key=value`.
+    pub data: Vec<String>,
+    /// Template tag, branch or commit (`--vcs-ref`); copier defaults to the latest tag.
+    pub vcs_ref: Option<String>,
+}
+
+impl CopierOptions {
+    fn is_empty(&self) -> bool {
+        self.data.is_empty() && self.vcs_ref.is_none()
+    }
+
+    /// Every `--data` entry must be `key=value` with an identifier as key.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        for entry in &self.data {
+            let key = entry
+                .split_once('=')
+                .map(|(k, _)| k)
+                .ok_or_else(|| anyhow::anyhow!("--data expects key=value, got {entry:?}"))?;
+            let mut chars = key.chars();
+            let valid = chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if !valid {
+                anyhow::bail!("--data key {key:?} is not a valid copier question name");
+            }
+        }
+        if self.vcs_ref.as_deref().is_some_and(|r| r.trim().is_empty() || r.starts_with('-')) {
+            anyhow::bail!("--vcs-ref needs a tag, branch or commit");
+        }
+        Ok(())
+    }
 }
 
 /// `FERRUM_TEMPLATES`, when set and non-empty.
@@ -297,6 +334,10 @@ impl EngineKickoff {
 
     /// Why this request cannot run, before anything is executed.
     pub fn validate(&self) -> anyhow::Result<()> {
+        if self.engine != Engine::Copier && !self.copier.is_empty() {
+            anyhow::bail!("--data and --vcs-ref only apply to --engine copier");
+        }
+        self.copier.validate()?;
         match self.engine {
             Engine::Copier if self.blueprint.is_none() => {
                 anyhow::bail!("engine copier needs --blueprint <template path or git URL>")
@@ -372,6 +413,12 @@ impl EngineKickoff {
             }
             Engine::Copier => {
                 let mut args = vec!["copy".to_string(), "--defaults".to_string(), "--trust".to_string()];
+                for entry in &self.copier.data {
+                    args.extend(["--data".to_string(), entry.clone()]);
+                }
+                if let Some(vcs_ref) = &self.copier.vcs_ref {
+                    args.extend(["--vcs-ref".to_string(), vcs_ref.clone()]);
+                }
                 args.extend(self.blueprint_arg());
                 args.push(self.project_dir().display().to_string());
                 steps.push(Step { program, args, cwd: self.parent.clone() });
@@ -633,6 +680,7 @@ impl FullstackKickoff {
             generator: None,
             install: self.install,
             templates: ferrum_templates_from_env(),
+            copier: Default::default(),
         }
     }
 
@@ -867,6 +915,7 @@ mod tests {
             generator: None,
             install: false,
             templates: None,
+            copier: Default::default(),
         }
     }
 
@@ -961,6 +1010,7 @@ mod tests {
             generator: None,
             install: false,
             templates: None,
+            copier: Default::default(),
         };
 
         let report = run(&run_kickoff).unwrap();
@@ -980,6 +1030,30 @@ mod tests {
         assert!(std::fs::read_to_string(dir.join(".gitignore")).unwrap().contains(".vord/sessions/"));
         std::fs::remove_dir_all(&parent).ok();
     }
+
+    #[test]
+    fn copier_data_and_vcs_ref_become_copy_flags_and_are_validated() {
+        let mut k = kickoff(Engine::Copier, Some("gh:org/tpl"));
+        k.copier = CopierOptions {
+            data: vec!["project_name=My API".into(), "debug=true".into(), "note=a=b".into()],
+            vcs_ref: Some("0.9.0".into()),
+        };
+        k.validate().unwrap();
+        assert_eq!(
+            k.steps()[0].args[..11],
+            ["copy", "--defaults", "--trust", "--data", "project_name=My API", "--data", "debug=true", "--data", "note=a=b", "--vcs-ref", "0.9.0"]
+        );
+        for bad in ["novalue", "=x", "1a=x", "a-b=x", "a b=x"] {
+            k.copier.data = vec![bad.into()];
+            assert!(k.validate().is_err(), "{bad:?} must be rejected");
+        }
+        k.copier = CopierOptions { data: vec![], vcs_ref: Some("--evil".into()) };
+        assert!(k.validate().is_err());
+        let mut other = kickoff(Engine::Wasp, None);
+        other.copier.data = vec!["a=b".into()];
+        assert!(other.validate().unwrap_err().to_string().contains("only apply to --engine copier"));
+    }
+
 
     #[test]
     fn copier_and_openapi_steps_and_validation() {
@@ -1079,6 +1153,7 @@ mod tests {
             generator: None,
             install: false,
             templates: None,
+            copier: Default::default(),
         };
         let err = run(&k).unwrap_err();
         assert!(format!("{err:#}").contains("removed the partial"), "{err:#}");
@@ -1101,6 +1176,7 @@ mod tests {
             generator: None,
             install: false,
             templates: None,
+            copier: Default::default(),
         };
         assert!(run(&k).is_err());
         assert!(parent.join("shop/mine.txt").exists());
@@ -1179,6 +1255,7 @@ mod tests {
             generator: Some("typescript-fetch".into()),
             install: false,
             templates: None,
+            copier: Default::default(),
         };
         run(&k).unwrap();
         let dir = parent.join("client");
@@ -1210,6 +1287,7 @@ mod tests {
             generator: None,
             install: false,
             templates: None,
+            copier: Default::default(),
         };
         run(&k).unwrap();
         let manifest = Manifest::load(&parent.join("shop"));
