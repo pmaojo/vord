@@ -213,8 +213,8 @@ export function apply(ctx, config = {}) {
   // baseline it started with and is not given the guidance twice.
   if (guidance !== undefined || analyzerAsDone) {
     ctx.on('agent/created', async ({ agent, source, signal }) => {
-      if (guidance !== undefined && source !== 'resume' && typeof agent.steer === 'function') {
-        agent.steer(contextMessage(guidance))
+      if (guidance !== undefined && source !== 'resume' && typeof agent.inject === 'function') {
+        agent.inject(contextMessage(guidance))
       }
       if (!analyzerAsDone) return
       const cwd = sessionCwd({ agent })

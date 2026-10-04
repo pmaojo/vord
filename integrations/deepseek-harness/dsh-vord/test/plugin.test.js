@@ -197,8 +197,8 @@ const created = (agent, source = 'new') => ({ agent, source, signal: new AbortCo
 test('a new session gets the standing guidance by default', async () => {
   const { ctx, agent } = mount(undefined, { guidance: undefined })
   await ctx.fire('agent/created', created(agent))
-  assert.equal(agent.steered.length, 1)
-  const text = agent.steered[0].content[0].text
+  assert.equal(agent.injected.length, 1)
+  const text = agent.injected[0].content[0].text
   assert.equal(text, DEFAULT_GUIDANCE)
   for (const needle of ['vord_kickoff', 'plan', 'ferrum', 'Rust', 'kthulu', 'Go', 'wasp', 'copier', 'openapi', 'vord_holes', 'workspace']) {
     assert.ok(text.includes(needle), `guidance mentions ${needle}`)
@@ -208,21 +208,21 @@ test('a new session gets the standing guidance by default', async () => {
 test('guidance can be replaced by a string', async () => {
   const { ctx, agent } = mount(undefined, { guidance: 'use vord for everything' })
   await ctx.fire('agent/created', created(agent))
-  assert.equal(agent.steered[0].content[0].text, 'use vord for everything')
+  assert.equal(agent.injected[0].content[0].text, 'use vord for everything')
 })
 
 test('guidance: false sends nothing, and baseline still works', async () => {
   const { ctx, agent, calls } = mount(undefined, { guidance: false })
   await ctx.fire('agent/created', created(agent))
-  assert.equal(agent.steered.length, 0)
+  assert.equal(agent.injected.length, 0)
   assert.equal(calls().filter(argv => argv[1] === 'baseline').length, 1)
 })
 
 test('guidance is not repeated when a session resumes, and works without the analyzer', async () => {
   const { ctx, agent, calls } = mount(undefined, { guidance: undefined, analyzerAsDone: false })
   await ctx.fire('agent/created', created(agent, 'resume'))
-  assert.equal(agent.steered.length, 0)
+  assert.equal(agent.injected.length, 0)
   await ctx.fire('agent/created', created(agent))
-  assert.equal(agent.steered.length, 1)
+  assert.equal(agent.injected.length, 1)
   assert.equal(calls().length, 0)
 })
