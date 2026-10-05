@@ -326,6 +326,9 @@ pub struct FillArgs {
     pub limit: usize,
     pub model: Option<String>,
     pub max_turns: Option<u32>,
+    /// The project's test command. When set, each hole goes RED → GREEN
+    /// (see [`TestGate`]); when not, the hole is filled in one run.
+    pub tests: Option<TestGate>,
 }
 
 /// One attempted hole and how it ended.
@@ -334,6 +337,181 @@ pub struct Attempt {
     pub outcome: RunOutcome,
     /// Checked on disk after the run, not taken from the model.
     pub filled: bool,
+    /// Why the RED → GREEN gate refused this hole, when it did. A refused
+    /// hole is not done even if code landed in it.
+    pub refused: Option<String>,
+}
+
+impl Attempt {
+    fn accepted(&self) -> bool {
+        self.filled && self.refused.is_none()
+    }
+}
+
+/// Test-first filling, enforced by running the tests rather than by asking
+/// the model to follow TDD. For each hole:
+///
+/// 1. the suite must pass before anything is written, or a red result later
+///    would prove nothing;
+/// 2. **RED**: one run writes a test for the hole and nothing else. It is
+///    accepted only if the suite now fails, the hole is still pending, and
+///    some file changed;
+/// 3. **GREEN**: one run fills the hole. It is accepted only if the hole is
+///    filled, the suite passes, and every file the RED run wrote is
+///    byte-for-byte unchanged: an assertion changed to pass is a behaviour
+///    change, and belongs in the spec.
+///
+/// Whether a failure is an assertion rather than a compile error is not
+/// checked: that needs per-language knowledge of test output.
+#[derive(Clone, Debug)]
+pub struct TestGate {
+    /// Run with `sh -c` at the repository root; exit 0 means green.
+    pub command: String,
+    pub timeout: std::time::Duration,
+}
+
+/// Default for [`TestGate::timeout`] when `vord.toml` does not set
+/// `command_timeout_secs`.
+pub const TEST_TIMEOUT_SECS: u64 = 300;
+
+/// What one run of the test command said.
+enum TestRun {
+    Green,
+    Red(String),
+}
+
+impl TestGate {
+    fn run(&self, root: &Path) -> anyhow::Result<TestRun> {
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(&self.command)
+            .current_dir(root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("could not run test command `{}`: {e}", self.command))?;
+        let started = std::time::Instant::now();
+        while child.try_wait()?.is_none() {
+            if started.elapsed() > self.timeout {
+                child.kill().ok();
+                child.wait().ok();
+                return Ok(TestRun::Red(format!(
+                    "timed out after {}s",
+                    self.timeout.as_secs()
+                )));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let output = child.wait_with_output()?;
+        if output.status.success() {
+            return Ok(TestRun::Green);
+        }
+        let text = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        Ok(TestRun::Red(
+            lines[lines.len().saturating_sub(8)..].join(" | "),
+        ))
+    }
+}
+
+/// Content fingerprint of every file under `root` the hole scan would look
+/// at, so a phase's writes can be found and later held fixed.
+type Snapshot = std::collections::BTreeMap<String, u64>;
+
+fn snapshot(root: &Path) -> Snapshot {
+    use std::hash::{Hash, Hasher};
+    ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .filter_entry(|entry| {
+            !matches!(
+                entry.file_name().to_str(),
+                Some(".git" | ".wasp" | "node_modules" | "target")
+            ) && !entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with(".vord"))
+        })
+        .build()
+        .flatten()
+        .filter(|entry| entry.file_type().is_some_and(|t| t.is_file()))
+        .filter_map(|entry| {
+            let bytes = std::fs::read(entry.path()).ok()?;
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            bytes.hash(&mut hasher);
+            Some((relative(root, entry.path()), hasher.finish()))
+        })
+        .collect()
+}
+
+/// Paths whose content differs between two snapshots, added ones included.
+fn changed(before: &Snapshot, after: &Snapshot) -> Vec<String> {
+    after
+        .iter()
+        .filter(|(path, hash)| before.get(*path) != Some(hash))
+        .map(|(path, _)| path.clone())
+        .collect()
+}
+
+/// The RED run's task: a failing test for the hole, and nothing in the hole.
+pub fn red_task_for(hole: &PendingHole, command: &str) -> String {
+    format!(
+        "Write a test for the hole `{name}` in `{file}`, and nothing else. Read the hole, the \
+         code around it and the blueprint to work out what it must do, then add a test that \
+         calls that code and asserts the behaviour it must have. The test must fail now, on an \
+         assertion, because the hole is still empty: stub nothing, fill nothing. Do not write \
+         inside the hole and do not change generated code. `{command}` runs the tests; run it \
+         and make sure your new test is the one failing.",
+        name = display_name(&hole.name),
+        file = hole.file,
+    )
+}
+
+/// The GREEN run's task: the fill task, held to the RED run's tests.
+pub fn green_task_for(hole: &PendingHole, command: &str, tests: &[String]) -> String {
+    format!(
+        "{fill} A failing test already says what it must do ({tests}); write the minimum that \
+         makes `{command}` pass. Do not change those test files: changing an assertion is a \
+         behaviour change, and vord refuses the fill if any of them differs.",
+        fill = task_for(hole),
+        tests = tests
+            .iter()
+            .map(|t| format!("`{t}`"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
+/// Runs the model on one task. The seam lets tests drive fill without one.
+#[allow(async_fn_in_trait)]
+pub trait HoleAgent {
+    async fn run(&mut self, root: &Path, args: AgentArgs) -> anyhow::Result<RunOutcome>;
+}
+
+/// The real agent: one `vord agent` run per task.
+pub struct LiveAgent;
+
+impl HoleAgent for LiveAgent {
+    async fn run(&mut self, root: &Path, args: AgentArgs) -> anyhow::Result<RunOutcome> {
+        agent::run(root, args).await
+    }
+}
+
+fn agent_args(root: &Path, hole: &PendingHole, args: &FillArgs, task: String) -> AgentArgs {
+    AgentArgs {
+        task,
+        scope: scope_for(root, hole),
+        rule: None,
+        max_turns: args.max_turns,
+        max_tokens: None,
+        model: args.model.clone(),
+        refactor: false,
+    }
 }
 
 /// The holes `args` selects, in scan order.
@@ -348,64 +526,185 @@ pub fn select(root: &Path, args: &FillArgs) -> Vec<PendingHole> {
         .collect()
 }
 
-/// Runs one agent per selected hole. Stops early when a run fails (vord or
-/// the model broke), since the next would fail the same way.
+/// Runs one agent per selected hole (two with a [`TestGate`]: RED, then
+/// GREEN). Stops early when a run fails (vord or the model broke), or when
+/// the suite is red before a hole is started, since the next hole would
+/// fail the same way.
 pub async fn fill(root: &Path, args: &FillArgs) -> anyhow::Result<Vec<Attempt>> {
+    fill_with(root, args, &mut LiveAgent).await
+}
+
+pub async fn fill_with(
+    root: &Path,
+    args: &FillArgs,
+    model: &mut impl HoleAgent,
+) -> anyhow::Result<Vec<Attempt>> {
     let mut attempts = Vec::new();
     for hole in select(root, args) {
-        let outcome = agent::run(
-            root,
-            AgentArgs {
-                task: task_for(&hole),
-                scope: scope_for(root, &hole),
-                rule: None,
-                max_turns: args.max_turns,
-                max_tokens: None,
-                model: args.model.clone(),
-                refactor: false,
-            },
-        )
-        .await?;
-        let failed = matches!(outcome, RunOutcome::Failed { .. });
-        let filled = !still_pending(root, &hole);
-        attempts.push(Attempt {
-            hole,
-            outcome,
-            filled,
-        });
-        if failed {
+        let attempt = match &args.tests {
+            None => {
+                let task = task_for(&hole);
+                let outcome = model.run(root, agent_args(root, &hole, args, task)).await?;
+                let filled = !still_pending(root, &hole);
+                Attempt {
+                    hole,
+                    outcome,
+                    filled,
+                    refused: None,
+                }
+            }
+            Some(gate) => red_green(root, args, gate, hole, model).await?,
+        };
+        let stop = matches!(attempt.outcome, RunOutcome::Failed { .. })
+            || attempt
+                .refused
+                .as_deref()
+                .is_some_and(|r| r.starts_with(RED_BEFORE));
+        attempts.push(attempt);
+        if stop {
             break;
         }
     }
     Ok(attempts)
 }
 
+const RED_BEFORE: &str = "the tests fail before the hole is started";
+
+async fn red_green(
+    root: &Path,
+    args: &FillArgs,
+    gate: &TestGate,
+    hole: PendingHole,
+    model: &mut impl HoleAgent,
+) -> anyhow::Result<Attempt> {
+    let refuse = |hole, outcome, filled, why: String| Attempt {
+        hole,
+        outcome,
+        filled,
+        refused: Some(why),
+    };
+    if let TestRun::Red(tail) = gate.run(root)? {
+        let outcome = RunOutcome::Completed {
+            turns: 0,
+            summary: None,
+        };
+        return Ok(refuse(
+            hole,
+            outcome,
+            false,
+            format!("{RED_BEFORE}: {tail}"),
+        ));
+    }
+
+    let before_red = snapshot(root);
+    let task = red_task_for(&hole, &gate.command);
+    let outcome = model.run(root, agent_args(root, &hole, args, task)).await?;
+    if matches!(outcome, RunOutcome::Failed { .. }) {
+        return Ok(refuse(hole, outcome, false, "RED: the run failed".into()));
+    }
+    let after_red = snapshot(root);
+    let tests = changed(&before_red, &after_red);
+    if !still_pending(root, &hole) {
+        return Ok(refuse(
+            hole,
+            outcome,
+            true,
+            "RED: the hole was filled before a failing test existed".into(),
+        ));
+    }
+    if tests.is_empty() {
+        return Ok(refuse(
+            hole,
+            outcome,
+            false,
+            "RED: no test was written".into(),
+        ));
+    }
+    if let TestRun::Green = gate.run(root)? {
+        return Ok(refuse(
+            hole,
+            outcome,
+            false,
+            format!(
+                "RED: the tests still pass after writing {}",
+                tests.join(", ")
+            ),
+        ));
+    }
+
+    let task = green_task_for(&hole, &gate.command, &tests);
+    let outcome = model.run(root, agent_args(root, &hole, args, task)).await?;
+    let filled = !still_pending(root, &hole);
+    if matches!(outcome, RunOutcome::Failed { .. }) {
+        return Ok(Attempt {
+            hole,
+            outcome,
+            filled,
+            refused: None,
+        });
+    }
+    let after_green = snapshot(root);
+    let touched: Vec<String> = tests
+        .iter()
+        .filter(|t| after_red.get(*t) != after_green.get(*t))
+        .cloned()
+        .collect();
+    let refused = if !touched.is_empty() {
+        Some(format!(
+            "GREEN: changed the RED test(s) {}",
+            touched.join(", ")
+        ))
+    } else if !filled {
+        None
+    } else if let TestRun::Red(tail) = gate.run(root)? {
+        Some(format!("GREEN: the tests still fail: {tail}"))
+    } else {
+        None
+    };
+    Ok(Attempt {
+        hole,
+        outcome,
+        filled,
+        refused,
+    })
+}
+
 /// One line per attempt, then the tally.
 pub fn render_attempts(attempts: &[Attempt]) -> String {
     let mut out = String::new();
     for attempt in attempts {
+        let label = if attempt.refused.is_some() {
+            "refused"
+        } else if attempt.filled {
+            "filled "
+        } else {
+            "pending"
+        };
+        let detail = match &attempt.refused {
+            Some(why) => why.clone(),
+            None => attempt.outcome.describe().trim().to_string(),
+        };
         out.push_str(&format!(
-            "{} {}  {}: {}\n",
-            if attempt.filled { "filled " } else { "pending" },
+            "{label} {}  {}: {detail}\n",
             attempt.hole.file,
             display_name(&attempt.hole.name),
-            attempt.outcome.describe().trim()
         ));
     }
-    let filled = attempts.iter().filter(|a| a.filled).count();
+    let filled = attempts.iter().filter(|a| a.accepted()).count();
     out.push_str(&format!("{filled} of {} hole(s) filled\n", attempts.len()));
     out
 }
 
-/// `vord agent fill`'s exit code: 0 when every attempted hole is filled, 1
-/// when a run failed, 3 when holes remain.
+/// `vord agent fill`'s exit code: 0 when every attempted hole is filled
+/// (and, under a [`TestGate`], passed RED → GREEN), 1 when a run failed, 3
+/// when holes remain or were refused.
 pub fn exit_code(attempts: &[Attempt]) -> u8 {
     if attempts
         .iter()
         .any(|a| matches!(a.outcome, RunOutcome::Failed { .. }))
     {
         1
-    } else if attempts.iter().all(|a| a.filled) {
+    } else if attempts.iter().all(Attempt::accepted) {
         0
     } else {
         3
@@ -516,13 +815,18 @@ job sendDigest {
     fn fill_selects_by_name_and_limit_and_scopes_to_what_exists() {
         let root = workspace("select");
         write(&root, "a.go", SERVICE);
-        write(&root, "b.go", &SERVICE.replace("order-service-create", "billing-charge"));
+        write(
+            &root,
+            "b.go",
+            &SERVICE.replace("order-service-create", "billing-charge"),
+        );
         let args = |only: Option<&str>, limit| FillArgs {
             scope: ".".into(),
             only: only.map(String::from),
             limit,
             model: None,
             max_turns: None,
+            tests: None,
         };
         assert_eq!(select(&root, &args(None, 10)).len(), 2);
         assert_eq!(select(&root, &args(None, 1)).len(), 1);
@@ -539,12 +843,158 @@ job sendDigest {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// Each run applies the next scripted set of writes, then reports done.
+    struct Scripted {
+        steps: Vec<Vec<(&'static str, String)>>,
+        tasks: Vec<String>,
+    }
+
+    impl HoleAgent for Scripted {
+        async fn run(&mut self, root: &Path, args: AgentArgs) -> anyhow::Result<RunOutcome> {
+            self.tasks.push(args.task);
+            for (path, content) in self.steps.remove(0) {
+                write(root, path, &content);
+            }
+            Ok(RunOutcome::Completed {
+                turns: 1,
+                summary: None,
+            })
+        }
+    }
+
+    const FILLED: &str = "\tif o.Total <= 0 { return ErrEmpty }\n";
+
+    /// The "suite" is a shell check: `spec.txt` names what the hole must
+    /// contain, and the hole must contain it.
+    fn tdd_args() -> FillArgs {
+        FillArgs {
+            scope: ".".into(),
+            only: None,
+            limit: 5,
+            model: None,
+            max_turns: None,
+            tests: Some(TestGate {
+                command: "test ! -f spec.txt || grep -qF \"$(cat spec.txt)\" a.go".into(),
+                timeout: std::time::Duration::from_secs(10),
+            }),
+        }
+    }
+
+    fn filled_service() -> String {
+        SERVICE.replace("\t// Add business logic here\n", FILLED)
+    }
+
+    #[tokio::test]
+    async fn red_then_green_fills_the_hole() {
+        let root = workspace("tdd-ok");
+        write(&root, "a.go", SERVICE);
+        let mut model = Scripted {
+            steps: vec![
+                vec![("spec.txt", "ErrEmpty".into())],
+                vec![("a.go", filled_service())],
+            ],
+            tasks: vec![],
+        };
+        let attempts = fill_with(&root, &tdd_args(), &mut model).await.unwrap();
+        assert_eq!(attempts.len(), 1);
+        assert!(attempts[0].accepted(), "{:?}", attempts[0].refused);
+        assert_eq!(exit_code(&attempts), 0);
+        assert!(model.tasks[0].starts_with("Write a test for the hole `order-service-create`"));
+        assert!(
+            model.tasks[1].contains("(`spec.txt`)"),
+            "{}",
+            model.tasks[1]
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn red_must_fail_and_must_not_fill() {
+        let root = workspace("tdd-red");
+        write(&root, "a.go", SERVICE);
+        // A test that already passes proves nothing.
+        let mut model = Scripted {
+            steps: vec![vec![("spec.txt", "package order".into())]],
+            tasks: vec![],
+        };
+        let attempts = fill_with(&root, &tdd_args(), &mut model).await.unwrap();
+        let why = attempts[0].refused.as_deref().unwrap();
+        assert!(why.starts_with("RED: the tests still pass"), "{why}");
+        assert_eq!(exit_code(&attempts), 3);
+
+        // Code before its test is refused even if it is right.
+        std::fs::remove_file(root.join("spec.txt")).unwrap();
+        let mut model = Scripted {
+            steps: vec![vec![("a.go", filled_service())]],
+            tasks: vec![],
+        };
+        let attempts = fill_with(&root, &tdd_args(), &mut model).await.unwrap();
+        assert_eq!(
+            attempts[0].refused.as_deref(),
+            Some("RED: the hole was filled before a failing test existed")
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn green_may_not_touch_the_red_test() {
+        let root = workspace("tdd-green");
+        write(&root, "a.go", SERVICE);
+        // Fills the hole, then weakens the test to match.
+        let mut model = Scripted {
+            steps: vec![
+                vec![("spec.txt", "ErrNegative".into())],
+                vec![("a.go", filled_service()), ("spec.txt", "ErrEmpty".into())],
+            ],
+            tasks: vec![],
+        };
+        let attempts = fill_with(&root, &tdd_args(), &mut model).await.unwrap();
+        assert!(attempts[0].filled);
+        assert_eq!(
+            attempts[0].refused.as_deref(),
+            Some("GREEN: changed the RED test(s) spec.txt")
+        );
+        assert!(render_attempts(&attempts).contains("refused a.go"));
+        assert!(render_attempts(&attempts).ends_with("0 of 1 hole(s) filled\n"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn a_red_suite_stops_before_any_hole_is_started() {
+        let root = workspace("tdd-before");
+        write(&root, "a.go", SERVICE);
+        write(
+            &root,
+            "b.go",
+            &SERVICE.replace("order-service-create", "billing-charge"),
+        );
+        write(&root, "spec.txt", "not there");
+        let mut model = Scripted {
+            steps: vec![],
+            tasks: vec![],
+        };
+        let attempts = fill_with(&root, &tdd_args(), &mut model).await.unwrap();
+        assert_eq!(attempts.len(), 1, "the second hole would fail the same way");
+        assert!(
+            attempts[0]
+                .refused
+                .as_deref()
+                .unwrap()
+                .starts_with(RED_BEFORE)
+        );
+        assert!(model.tasks.is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn rendering_names_every_hole_and_the_tally() {
         let root = workspace("render");
         write(&root, "a.go", SERVICE);
         let text = render_text(&scan(&root, "."));
-        assert!(text.contains("a.go:5-7  hole order-service-create"), "{text}");
+        assert!(
+            text.contains("a.go:5-7  hole order-service-create"),
+            "{text}"
+        );
         assert!(text.ends_with("1 pending hole(s)\n"));
         assert!(render_text(&[]).starts_with("No pending holes"));
         std::fs::remove_dir_all(&root).ok();

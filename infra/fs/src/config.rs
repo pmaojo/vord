@@ -131,6 +131,10 @@ pub struct AgentSettings {
     /// Wall-clock seconds a `run` command may take before it is killed
     /// (adapter default 300).
     pub command_timeout_secs: Option<u64>,
+    /// Shell command that runs the project's tests. When set, `vord agent
+    /// fill` works each hole RED → GREEN: a failing test first, then the
+    /// code, each phase checked by running this command.
+    pub test_command: Option<String>,
     /// `[agent.refactor]` — what `vord agent run --refactor` holds a task to
     /// beyond "no new findings". Only read when `--refactor` is passed.
     pub refactor: Option<RefactorSettings>,
