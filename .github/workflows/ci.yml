@@ -53,6 +53,31 @@ jobs:
       - name: Plugin tests against the real vord
         run: VORD_BIN="$GITHUB_WORKSPACE/target/debug/vord" npm test
 
+  opencode-vord:
+    name: opencode plugin (opencode-vord)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/opencode/opencode-vord
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build vord
+        working-directory: .
+        run: cargo build -p vord-cli --bin vord
+
+      - name: Plugin tests against the real vord
+        run: VORD_BIN="$GITHUB_WORKSPACE/target/debug/vord" npm test
+
   dogfood-gate:
     name: vord scans itself (blocker/critical/parse-failure gate)
     runs-on: ubuntu-latest

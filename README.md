@@ -592,7 +592,7 @@ vord agent watch-pr --pr 42             # wait out the late review/CI window on 
 ```
 
 The completion check is also available to agent loops vord does not drive
-(DeepSeek Harness via `dsh-vord`, a CI step): `vord agent baseline` records
+(DeepSeek Harness via `dsh-vord`, opencode via `opencode-vord`, a CI step): `vord agent baseline` records
 what the analyzer sees before the agent starts, and `vord agent done`
 re-scans and exits `0` when nothing new appeared, `3` with the objection when
 something did (`--json` for `{"done", "reason"}`, `--rule` to require a rule
@@ -1103,6 +1103,9 @@ assertion rather than a compile error is not checked yet.
 Inside DeepSeek Harness the model is the harness's own: [dsh-vord](integrations/deepseek-harness/dsh-vord)
 does not let a turn close while a hole in a file the session wrote is still
 pending, and `mcp__vord__vord_holes` gives the model its list of tasks.
+In opencode, [opencode-vord](integrations/opencode/opencode-vord) sends the
+same objection back into the session when it goes idle, and the list is
+`vord_vord_holes`.
 
 ## `vord fix` — automated AI remediation
 

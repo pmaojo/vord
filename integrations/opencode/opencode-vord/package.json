@@ -1,0 +1,31 @@
+{
+  "name": "opencode-vord",
+  "description": "vord's write guardrail as an opencode plugin: policy-gated write/edit/apply_patch, re-judged results, analyzer-as-done gate, standing guidance and vord's MCP tools",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pmaojo/vord.git",
+    "directory": "integrations/opencode/opencode-vord"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "vord"
+  ],
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
