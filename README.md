@@ -672,6 +672,7 @@ max_tokens = 500000
 max_rejections = 3
 allowed_commands = ["cargo", "npm", "pytest"]   # replaces the built-in list
 command_timeout_secs = 300
+test_command = "cargo test"   # vord agent fill goes RED → GREEN per hole
 ```
 
 **Refactor tasks: `--refactor`.** "No new finding" is the wrong bar for a
@@ -1079,7 +1080,25 @@ is filled, 3 when some remain, 1 when a run failed.
 ```sh
 vord agent fill --limit 5                      # the first five pending holes
 vord agent fill --hole order-service-create    # just one
+vord agent fill --test "go test ./..."         # each hole RED → GREEN
 ```
+
+**Test-first, enforced by running the tests.** With `--test` (or
+`[agent] test_command` in `vord.toml`) each hole takes two runs, and vord
+checks each one by running the suite itself instead of trusting the model to
+follow TDD:
+
+1. The suite must pass before the hole is started; a red result later would
+   prove nothing. If it is already red, fill stops.
+2. **RED**: the model writes a test for the hole and nothing else. Refused
+   unless the suite now fails, the hole is still pending and a file changed.
+3. **GREEN**: the model fills the hole. Refused unless the hole is filled,
+   the suite passes and every file the RED run wrote is byte-for-byte
+   unchanged: weakening an assertion to pass is a behaviour change, and
+   belongs in the spec.
+
+A refused hole counts as not done (exit 3). Whether a RED failure is an
+assertion rather than a compile error is not checked yet.
 
 Inside DeepSeek Harness the model is the harness's own: [dsh-vord](integrations/deepseek-harness/dsh-vord)
 does not let a turn close while a hole in a file the session wrote is still

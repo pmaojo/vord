@@ -395,6 +395,11 @@ enum AgentAction {
         /// Model turns each hole's run may take.
         #[arg(long)]
         max_turns: Option<u32>,
+        /// Test command (run with `sh -c`). Each hole then goes RED → GREEN:
+        /// a failing test first, then the code, both checked by running it.
+        /// Defaults to `[agent] test_command` in `vord.toml`.
+        #[arg(long)]
+        test: Option<String>,
     },
     /// Record what the analyzer sees over `--scope` now, as the baseline
     /// `vord agent done` later compares against. Run it before another
@@ -1189,13 +1194,28 @@ async fn run_agent(action: AgentAction) -> anyhow::Result<ExitCode> {
             limit,
             model,
             max_turns,
+            test,
         } => {
+            let settings = vord_infra_fs::VordConfig::load_from_dir(&root)
+                .map(|c| c.agent)
+                .unwrap_or_default();
+            let tests = test
+                .or(settings.test_command)
+                .map(|command| vord_cli::holes::TestGate {
+                    command,
+                    timeout: std::time::Duration::from_secs(
+                        settings
+                            .command_timeout_secs
+                            .unwrap_or(vord_cli::holes::TEST_TIMEOUT_SECS),
+                    ),
+                });
             let args = vord_cli::holes::FillArgs {
                 scope,
                 only: hole,
                 limit,
                 model,
                 max_turns,
+                tests,
             };
             let attempts = vord_cli::holes::fill(&root, &args).await?;
             if attempts.is_empty() {
