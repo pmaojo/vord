@@ -147,12 +147,12 @@ impl AppSpec {
         for (entity, fields) in &self.entities {
             let (plural, pascal) = (plural(entity), pascal(entity));
             paths.push_str(&format!(
-                "  /{plural}:\n    get:\n      operationId: list{pl}\n      responses:\n        '200':\n          description: All {plural}\n          content:\n            application/json:\n              schema:\n                type: array\n                items: {{ $ref: '#/components/schemas/{pascal}' }}\n    post:\n      operationId: create{pascal}\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema: {{ $ref: '#/components/schemas/New{pascal}' }}\n      responses:\n        '201':\n          description: Created\n          content:\n            application/json:\n              schema: {{ $ref: '#/components/schemas/{pascal}' }}\n",
+                "  /{plural}:\n    get:\n      operationId: list{pl}\n      summary: List {plural}\n      responses:\n        '200':\n          description: All {plural}\n          content:\n            application/json:\n              schema:\n                type: array\n                items: {{ $ref: '#/components/schemas/{pascal}' }}\n        '400': {{ description: Invalid request }}\n    post:\n      operationId: create{pascal}\n      summary: Create a {entity}\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema: {{ $ref: '#/components/schemas/New{pascal}' }}\n      responses:\n        '201':\n          description: Created\n          content:\n            application/json:\n              schema: {{ $ref: '#/components/schemas/{pascal}' }}\n        '400': {{ description: Invalid request }}\n",
                 pl = pascal_plural(entity)
             ));
             let id_param = "      parameters:\n        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }\n";
             paths.push_str(&format!(
-                "  /{plural}/{{id}}:\n    get:\n      operationId: get{pascal}\n{id_param}      responses:\n        '200':\n          description: The {entity}\n          content:\n            application/json:\n              schema: {{ $ref: '#/components/schemas/{pascal}' }}\n        '404': {{ description: Not found }}\n    put:\n      operationId: update{pascal}\n{id_param}      requestBody:\n        required: true\n        content:\n          application/json:\n            schema: {{ $ref: '#/components/schemas/New{pascal}' }}\n      responses:\n        '200':\n          description: Updated\n          content:\n            application/json:\n              schema: {{ $ref: '#/components/schemas/{pascal}' }}\n        '404': {{ description: Not found }}\n    delete:\n      operationId: delete{pascal}\n{id_param}      responses:\n        '204': {{ description: Deleted }}\n        '404': {{ description: Not found }}\n"
+                "  /{plural}/{{id}}:\n    get:\n      operationId: get{pascal}\n      summary: Get a {entity}\n{id_param}      responses:\n        '200':\n          description: The {entity}\n          content:\n            application/json:\n              schema: {{ $ref: '#/components/schemas/{pascal}' }}\n        '404': {{ description: Not found }}\n    put:\n      operationId: update{pascal}\n      summary: Update a {entity}\n{id_param}      requestBody:\n        required: true\n        content:\n          application/json:\n            schema: {{ $ref: '#/components/schemas/New{pascal}' }}\n      responses:\n        '200':\n          description: Updated\n          content:\n            application/json:\n              schema: {{ $ref: '#/components/schemas/{pascal}' }}\n        '404': {{ description: Not found }}\n    delete:\n      operationId: delete{pascal}\n      summary: Delete a {entity}\n{id_param}      responses:\n        '204': {{ description: Deleted }}\n        '404': {{ description: Not found }}\n"
             ));
             let props: String = fields
                 .iter()
@@ -164,9 +164,61 @@ impl AppSpec {
             ));
         }
         format!(
-            "openapi: 3.0.3\ninfo:\n  title: {}\n  version: 0.1.0\n# Derived by `vord kickoff` from app.json; edit app.json and regenerate.\npaths:\n{paths}components:\n  schemas:\n{schemas}",
+            "openapi: 3.0.3\ninfo:\n  title: {}\n  version: 0.1.0\n  license:\n    name: UNLICENSED\nservers:\n  - url: http://localhost:3000\n# No security scheme yet: the API is public until auth is added.\nsecurity: []\n# Derived by `vord kickoff` from app.json; edit app.json and regenerate.\npaths:\n{paths}components:\n  schemas:\n{schemas}",
             self.name
         )
+    }
+}
+
+impl AppSpec {
+    /// The same API as TypeSpec: `main.tsp` compiles to the OpenAPI contract
+    /// with `@typespec/openapi3`.
+    pub fn typespec(&self) -> String {
+        let namespace = pascal(&self.name.replace('-', "_"));
+        let mut out = format!(
+            "// Derived by `vord kickoff` from app.json; edit app.json, or take over this file.\nimport \"@typespec/http\";\nimport \"@typespec/openapi\";\nimport \"@typespec/openapi3\";\nusing TypeSpec.Http;\nusing TypeSpec.OpenAPI;\n\n@service(#{{ title: \"{}\" }})\nnamespace {namespace};\n",
+            self.name
+        );
+        for (entity, fields) in &self.entities {
+            let (plural, pascal) = (plural(entity), pascal(entity));
+            let props: String = fields.iter().map(|(f, t)| format!("  {f}: {};\n", typespec_type(t))).collect();
+            out.push_str(&format!(
+                "\nmodel New{pascal} {{\n{props}}}\n\nmodel {pascal} {{\n  id: string;\n{props}}}\n\n@route(\"/{plural}\")\ninterface {} {{\n  @get @operationId(\"list{}\") list(): {pascal}[];\n  @post @operationId(\"create{pascal}\") create(@body body: New{pascal}): {pascal};\n  @route(\"{{id}}\") @get @operationId(\"get{pascal}\") get(@path id: string): {pascal};\n  @route(\"{{id}}\") @put @operationId(\"update{pascal}\") update(@path id: string, @body body: New{pascal}): {pascal};\n  @route(\"{{id}}\") @delete @operationId(\"delete{pascal}\") delete(@path id: string): void;\n}}\n",
+                pascal_plural(entity),
+                pascal_plural(entity),
+            ));
+        }
+        out
+    }
+
+    /// The data model as a ZenStack schema (`zenstack/schema.zmodel`).
+    pub fn zmodel(&self) -> String {
+        let mut out = String::from("// Derived by `vord kickoff` from app.json; edit app.json, or take over this file.\ndatasource db {\n  provider = \"sqlite\"\n}\n");
+        for (entity, fields) in &self.entities {
+            out.push_str(&format!("\nmodel {} {{\n  id String @id @default(uuid())\n", pascal(entity)));
+            for (f, t) in fields {
+                let (ty, attr) = match t.as_str() {
+                    "string" | "uuid" => ("String", ""),
+                    "int" => ("Int", ""),
+                    "float" => ("Float", ""),
+                    "bool" => ("Boolean", " @default(false)"),
+                    _ => ("DateTime", " @default(now())"),
+                };
+                out.push_str(&format!("  {f} {ty}{attr}\n"));
+            }
+            out.push_str("}\n");
+        }
+        out
+    }
+}
+
+fn typespec_type(ty: &str) -> &'static str {
+    match ty {
+        "int" => "int32",
+        "float" => "float64",
+        "bool" => "boolean",
+        "datetime" => "utcDateTime",
+        _ => "string",
     }
 }
 
@@ -249,6 +301,16 @@ mod tests {
         ] {
             assert!(spec.contains(expected), "{expected} missing in {spec}");
         }
+    }
+
+    #[test]
+    fn typespec_and_zmodel_carry_the_entities() {
+        let tsp = todo().typespec();
+        for expected in ["namespace Todo;", "model NewTodo", "done: boolean;", "@route(\"/todos\")", "@operationId(\"createTodo\")"] {
+            assert!(tsp.contains(expected), "{expected} missing in {tsp}");
+        }
+        let zmodel = todo().zmodel();
+        assert!(zmodel.contains("model Todo {") && zmodel.contains("done Boolean @default(false)"), "{zmodel}");
     }
 
     #[test]

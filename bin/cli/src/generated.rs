@@ -18,6 +18,25 @@ pub const MANIFEST_FILE: &str = ".vord/generated.json";
 /// The rule a hand edit to generated structure is reported under.
 pub const RULE: &str = "generated:edit-outside-hole";
 
+/// How a recorded file relates to its generator.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// Rebuilt from a blueprint or DSL (Symfony-style): hand edits would be
+    /// discarded on the next regeneration, so the write gate blocks them.
+    #[default]
+    Regenerable,
+    /// A one-pass scaffold (Rails-style): a starting point with no source to
+    /// regenerate it from. Recorded for provenance, fully editable.
+    Seed,
+}
+
+impl Kind {
+    fn is_regenerable(&self) -> bool {
+        *self == Kind::Regenerable
+    }
+}
+
 /// Where one generated file came from.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GeneratedFile {
@@ -29,6 +48,9 @@ pub struct GeneratedFile {
     /// The command that regenerates it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub regenerate: Option<String>,
+    /// `regenerable` (the default, and what older manifests mean) or `seed`.
+    #[serde(default, skip_serializing_if = "Kind::is_regenerable")]
+    pub kind: Kind,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -68,6 +90,9 @@ pub fn findings(
     current: Option<&str>,
     proposed: &str,
 ) -> Vec<Finding> {
+    if manifest.files.get(relative).is_some_and(|e| e.kind == Kind::Seed) {
+        return Vec::new();
+    }
     let current = current.unwrap_or("");
     // A file that declares holes says by itself which parts are hand-written,
     // whether or not a kickoff recorded it: a generator vord did not run
@@ -80,6 +105,7 @@ pub fn findings(
                 engine: "its generator".into(),
                 source: None,
                 regenerate: None,
+                kind: Kind::Regenerable,
             };
             &unrecorded
         }
@@ -125,12 +151,25 @@ mod tests {
                 engine: "kthulu".into(),
                 source: Some("kthulu-plan.yaml".into()),
                 regenerate: Some("kthulu generate".into()),
+                ..Default::default()
             },
         );
         Manifest { files }
     }
 
     const SERVICE: &str = "func Place(o Order) error {\n\t// vord:hole place-rules\n\t// vord:end-hole\n\treturn repo.Save(o)\n}\n";
+
+    #[test]
+    fn a_seed_is_recorded_but_never_blocked() {
+        let mut m = manifest();
+        m.files.get_mut("internal/order/service.go").unwrap().kind = Kind::Seed;
+        assert!(findings(&m, "internal/order/service.go", Some(SERVICE), "package other\n").is_empty());
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"kind\":\"seed\""));
+        // Older manifests have no kind: they stay regenerable.
+        let old: Manifest = serde_json::from_str(r#"{"files":{"a.go":{"engine":"kthulu"}}}"#).unwrap();
+        assert_eq!(old.files["a.go"].kind, Kind::Regenerable);
+    }
 
     #[test]
     fn filling_a_hole_in_a_generated_file_is_allowed() {

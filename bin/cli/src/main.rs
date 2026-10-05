@@ -23,6 +23,7 @@ mod mcp;
 mod monorepo_scan;
 mod prune;
 mod tui;
+mod verify;
 mod wizard;
 
 #[derive(Parser)]
@@ -197,6 +198,21 @@ enum Command {
         action: DefectsAction,
         /// Project root (defaults to the current directory).
         #[arg(long, global = true, default_value = ".")]
+        path: PathBuf,
+    },
+    /// Verify the API contract: lint it with Redocly and, with `--url`,
+    /// test the running server against it with Schemathesis. A failure is
+    /// recorded as a defect (`vord defects`), so the task is not done until
+    /// the contract or the server is fixed.
+    VerifyContract {
+        /// The OpenAPI document (default: contract/openapi.yaml).
+        #[arg(long, default_value = verify::SPEC)]
+        spec: String,
+        /// Base URL of a running server to test against the contract.
+        #[arg(long)]
+        url: Option<String>,
+        /// Project root (defaults to the current directory).
+        #[arg(long, default_value = ".")]
         path: PathBuf,
     },
     /// Remove generated files nobody needs (a duplicate frontend, an engine's
@@ -900,6 +916,9 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                         Some("backend"),
                         &mut report.notes,
                     );
+                    for o in verify::verify(&report.project_dir, verify::SPEC, None) {
+                        report.notes.push(format!("{} {}: {}", o.name, if o.passed { "passed" } else { "FAILED (recorded as a defect)" }, o.detail));
+                    }
                 }
                 println!(
                     "vord kickoff: {engine} backend + wasp frontend created in {}; {} marked generated; API contract in contract/openapi.yaml",
@@ -955,6 +974,18 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 println!("vord kickoff: {note}");
             }
             Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::VerifyContract { spec, url, path }) => {
+            let outcomes = verify::verify(&path, &spec, url.as_deref());
+            let mut failed = false;
+            for o in &outcomes {
+                failed |= !o.passed;
+                println!("vord verify-contract: {} {}: {}", o.name, if o.passed { "passed" } else { "FAILED" }, o.detail);
+            }
+            if failed {
+                println!("vord verify-contract: recorded in {}; fix the contract or the server, then `vord defects resolve <id>`", generator_defects::DEFECTS_FILE);
+            }
+            Ok(ExitCode::from(if failed { 3 } else { 0 }))
         }
         Some(Command::Prune { paths, path, force }) => {
             let removed = prune::prune(&path, &paths, force)?;

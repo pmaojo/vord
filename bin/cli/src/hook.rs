@@ -3361,6 +3361,7 @@ Feature: Orders
                 engine: "ferrum".into(),
                 source: Some("gen/orders.yaml".into()),
                 regenerate: Some("ferrum compile gen/orders.yaml".into()),
+                ..Default::default()
             },
         );
         manifest.save(&dir).expect("manifest");
