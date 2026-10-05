@@ -103,7 +103,9 @@ function governingManifest(path) {
     if (existsSync(file)) {
       try {
         const parsed = JSON.parse(readFileSync(file, 'utf8'))
-        return { root: dir, files: Object.keys(parsed?.files ?? {}) }
+        // Seeds (one-pass scaffolds) are editable and deletable; only regenerable files are guarded.
+        const entries = Object.entries(parsed?.files ?? {})
+        return { root: dir, files: entries.filter(([, v]) => v?.kind !== 'seed').map(([k]) => k) }
       } catch {
         return { root: dir, files: [] }
       }

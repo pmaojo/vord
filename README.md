@@ -964,6 +964,16 @@ scaffold, and records every file the engine **marked as generated** in
 regenerates it. For Wasp, `.wasp/**` (regenerated from `main.wasp` on every
 compile) becomes a protected path.
 
+**Regenerable vs seed.** Not all scaffolding is a build artifact. Output that
+is rebuilt from a source (Symfony-style: kthulu plan, ferrum DSL, OpenAPI,
+TypeSpec, ZenStack, Projen, the derived contract) is `regenerable` in
+`.vord/generated.json`: a hand edit would be lost, so the write gate blocks it.
+Output of a one-pass scaffold (Rails-style: the Wasp template, a Copier
+template) is a `seed`: recorded as a starting point and fully editable and
+deletable, never blocked. Files an engine marks as generated (header or hole)
+stay regenerable even in a seed engine (Wasp's `.wasp/`). Manifests without a
+`kind` mean `regenerable`.
+
 A file counts as generated when the engine marks it: a standard
 `Code generated … DO NOT EDIT` or `@generated` header, or a hole. Unmarked
 files are starter code the project owns and stay freely editable.

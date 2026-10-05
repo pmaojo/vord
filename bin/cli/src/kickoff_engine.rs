@@ -22,7 +22,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use vord_cli::generated::{GeneratedFile, Manifest};
+use vord_cli::generated::{GeneratedFile, Kind, Manifest};
 
 /// What an engine can produce.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -63,6 +63,10 @@ pub struct EngineSpec {
     /// to the blueprint, so vord records all of it as generated. Wasp is
     /// protected through its `.wasp/` tree instead.
     pub all_output_generated: bool,
+    /// True when the engine is a one-pass scaffold (Rails-style): its output
+    /// is a starting point with no spec to regenerate it from, so files with
+    /// no generated-by marker are recorded as editable `seed`s, not locked.
+    pub seed: bool,
     /// Request arguments that must be present to kick off with this engine.
     pub required_args: &'static [&'static str],
     /// Named ready-to-run recipes: `(title, command)`.
@@ -96,6 +100,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_with_blueprint: "kthulu create {name} --from-plan {blueprint}",
         regenerate_default: "kthulu generate",
         all_output_generated: false,
+        seed: false,
         required_args: &["name"],
         recipes: &[],
     },
@@ -110,6 +115,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_with_blueprint: "ferrum compile gen/{blueprint} --output .",
         regenerate_default: "ferrum compile <grafo.yaml> --output .",
         all_output_generated: false,
+        seed: false,
         required_args: &["name"],
         recipes: &[],
     },
@@ -124,6 +130,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_with_blueprint: "wasp compile",
         regenerate_default: "wasp compile",
         all_output_generated: false,
+        seed: true,
         required_args: &["name"],
         recipes: &[],
     },
@@ -138,6 +145,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_with_blueprint: "copier update --defaults --trust",
         regenerate_default: "copier update --defaults --trust",
         all_output_generated: false,
+        seed: true,
         required_args: &["name", "blueprint"],
         recipes: &[],
     },
@@ -153,6 +161,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_default: "openapi-generator-cli generate -i <spec> -g {generator} -o .",
         // Everything but the ignore file is the spec's.
         all_output_generated: true,
+        seed: false,
         required_args: &["name", "blueprint", "generator"],
         recipes: &[
             (
@@ -176,6 +185,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_with_blueprint: "npm install && npx tsp compile main.tsp --emit @typespec/openapi3 --output-dir tsp-output",
         regenerate_default: "npm install && npx tsp compile main.tsp --emit @typespec/openapi3 --output-dir tsp-output",
         all_output_generated: false,
+        seed: false,
         required_args: &["name"],
         recipes: &[(
             "Contract first: TypeSpec -> OpenAPI",
@@ -193,6 +203,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_with_blueprint: "npx projen",
         regenerate_default: "npx projen",
         all_output_generated: false,
+        seed: false,
         required_args: &["name"],
         recipes: &[("Typed TypeScript project with CI", "vord kickoff --engine projen --name lib --generator typescript")],
     },
@@ -207,6 +218,7 @@ pub const ENGINES: &[EngineSpec] = &[
         regenerate_with_blueprint: "npm install && npx zen generate",
         regenerate_default: "npm install && npx zen generate",
         all_output_generated: false,
+        seed: false,
         required_args: &["name"],
         recipes: &[("Data layer from the app description", "vord kickoff --engine zenstack --name data --entity todo:title=string,done=bool")],
     },
@@ -892,7 +904,20 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
         // what the project owns instead.
         let wholly_generated = kickoff.engine.spec().all_output_generated && relative != ".openapi-generator-ignore";
         let engine_output = kickoff.engine == Engine::TypeSpec && relative.starts_with("tsp-output/");
-        if wholly_generated || engine_output || is_marked_generated(&content) {
+        let regenerable = wholly_generated || engine_output || is_marked_generated(&content);
+        if !regenerable && kickoff.engine.spec().seed {
+            // A one-pass scaffold: recorded as a starting point the agent may
+            // edit freely, never blocked.
+            manifest.files.insert(
+                relative.clone(),
+                GeneratedFile {
+                    engine: kickoff.engine.name().to_string(),
+                    source: source.clone(),
+                    regenerate: None,
+                    kind: Kind::Seed,
+                },
+            );
+        } else if regenerable {
             // templ output is regenerated by templ, not by the scaffolder.
             let regenerate = if content.lines().take(3).any(|l| l.contains("Code generated by templ")) {
                 "templ generate".to_string()
@@ -905,6 +930,7 @@ fn run_inner(kickoff: &EngineKickoff) -> anyhow::Result<KickoffReport> {
                     engine: kickoff.engine.name().to_string(),
                     source: source.clone(),
                     regenerate: Some(regenerate),
+                    kind: Kind::Regenerable,
                 },
             );
         }
@@ -1273,6 +1299,7 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
                 engine: "openapi-typescript".to_string(),
                 source: Some("contract/openapi.yaml".to_string()),
                 regenerate: Some(format!("cd frontend && {CLIENT_REGENERATE}")),
+                ..Default::default()
             },
         );
         created += 1;
@@ -1289,6 +1316,7 @@ fn run_fullstack_inner(kickoff: &FullstackKickoff, root: &Path) -> anyhow::Resul
                 engine: "vord".to_string(),
                 source: Some("app.json".to_string()),
                 regenerate: Some(CONTRACT_REGENERATE.to_string()),
+                ..Default::default()
             },
         );
     }
@@ -1490,7 +1518,9 @@ mod tests {
         let dir = parent.join("shop");
         assert_eq!(report.created, 2);
         let manifest = Manifest::load(&dir);
-        assert_eq!(manifest.files.keys().collect::<Vec<_>>(), ["src/gen.ts"]);
+        assert_eq!(manifest.files.keys().collect::<Vec<_>>(), ["src/gen.ts", "src/own.ts"]);
+        assert_eq!(manifest.files["src/gen.ts"].kind, Kind::Regenerable);
+        assert_eq!(manifest.files["src/own.ts"].kind, Kind::Seed, "Wasp's template is a starting point");
         assert_eq!(manifest.files["src/gen.ts"].regenerate.as_deref(), Some("wasp compile"));
         let policy = std::fs::read_to_string(dir.join("vord-policy.toml")).unwrap();
         assert!(policy.contains("pattern = \".wasp/**\""));
